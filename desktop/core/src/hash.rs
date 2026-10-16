@@ -122,7 +122,7 @@ impl Digests {
 }
 
 /// Fill `buf` from `r` (short only at the end of the file).
-fn fill(r: &mut impl Read, buf: &mut [u8]) -> io::Result<usize> {
+fn fill(r: &mut (impl Read + ?Sized), buf: &mut [u8]) -> io::Result<usize> {
     let mut n = 0;
     while n < buf.len() {
         match r.read(&mut buf[n..]) {
@@ -137,7 +137,7 @@ fn fill(r: &mut impl Read, buf: &mut [u8]) -> io::Result<usize> {
 
 /// Hash everything `r` gives (a file of `size` bytes named `name`), stopping with an
 /// error of kind `Interrupted` if `cancel` is set.
-pub fn hash_reader(r: &mut impl Read, size: u64, name: &str, cancel: &AtomicBool) -> io::Result<Hashes> {
+pub fn hash_reader(r: &mut (impl Read + ?Sized), size: u64, name: &str, cancel: &AtomicBool) -> io::Result<Hashes> {
     let ext = crate::platforms::ext_of(name);
     let mut buf = vec![0u8; BLOCK.min(size.max(4096) as usize).next_multiple_of(4)];
     let mut all = Digests::new();

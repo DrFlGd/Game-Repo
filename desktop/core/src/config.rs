@@ -45,15 +45,22 @@ pub struct ScanSettings {
     /// Files read at once: more for SSDs and network drives, 1 for a single slow disk
     #[serde(default = "two")]
     pub readers: usize,
+    /// Watch the folders with games on local drives while the app is open, and scan what changes
+    #[serde(default = "yes")]
+    pub watch: bool,
 }
 
 fn two() -> usize {
     2
 }
 
+fn yes() -> bool {
+    true
+}
+
 impl Default for ScanSettings {
     fn default() -> Self {
-        Self { full: false, readers: 2 }
+        Self { full: false, readers: 2, watch: true }
     }
 }
 

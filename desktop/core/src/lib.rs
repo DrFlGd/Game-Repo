@@ -8,16 +8,21 @@
 //! - [`roots`]: the folders with games, kept in the library
 //! - [`platforms`]: the platforms the app knows, and how DATs and files find theirs
 //! - [`hash`]: hashing a file in one read (and without its header)
+//! - [`archive`]: the archives a scan looks inside (ZIP, 7z, RAR)
 //! - [`scan`]: scanning the folders with games into the index
 //! - [`dat`]: reading and importing DAT files
 //! - [`audit`]: matching files with DATs, and what an audit shows
 //! - [`makedat`]: making a DAT from a scanned set
+//! - [`organise`]: organising a set by its DAT (copy, rename or move), the journal and Undo
 //! - [`starter`]: starter DATs downloaded from libretro's copy of No-Intro's
+//! - [`torrentzip`]: writing ZIPs that are the same bytes every time
+//! - [`watch`]: noticing changes in the folders with games while the app is open
 //! - [`api`]: the commands the page calls
 //!
 //! The layout, the phases and every design decision are in docs/PLAN.md.
 
 pub mod api;
+pub mod archive;
 pub mod audit;
 pub mod config;
 pub mod dat;
@@ -25,10 +30,13 @@ pub mod hash;
 pub mod index;
 pub mod library;
 pub mod makedat;
+pub mod organise;
 pub mod platforms;
 pub mod roots;
 pub mod scan;
 pub mod starter;
+pub mod torrentzip;
+pub mod watch;
 
 pub use library::Library;
 

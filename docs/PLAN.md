@@ -544,7 +544,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 |---|---|---|
 | **0** | Scaffold | Repository seeded from Model Library with the game-library pieces kept and the 3D pieces dropped; `gamerepo-cli --help`; SQLite index with migrations; CI builds the Windows app and runs the (empty) tests; CHANGELOG "For agents" written. |
 | **1** | Scan + DAT + Audit (cartridge systems) | `gamerepo-cli scan <root>` hashes files incl. zip members and headered ROMs; `dat import`; `audit <platform>` prints Have/Missing/Unknown/Misnamed and writes a fixdat. Home and Audit pages in the app. Verified on a No-Intro set. |
-| **2** | Rename/rebuild + disc systems + conversion | Sorted output by DAT name (copy/hardlink/move with dry run and Undo); Redump cue/bin; 7z/rar reading; CHD, RVZ and CSO audited as the games they hold; Convert and Extract with verification and Undo, deterministic zip and 7z writing, preferred format per platform. |
+| **2** | Rename/rebuild + disc systems + conversion (two releases, D19: 2a sort and rebuild, 2b discs and conversion) | Sorted output by DAT name (copy/hardlink/move with dry run and Undo); Redump cue/bin; 7z/rar reading; CHD, RVZ and CSO audited as the games they hold; Convert and Extract with verification and Undo, deterministic zip and 7z writing, preferred format per platform. |
 | **3** | Collections + ES-DE export | Rule-based collections with 1G1R; export to ES-DE (ROMs, gamelist.xml, custom collections) and a plain tree; export verification and re-sync. |
 | **4** | PC game import + Steam | Inbox classification, GOG id detection, common structure + `game.json`, duplicate detection; Steam non-Steam shortcuts with artwork. |
 | **5** | Metadata, media & documents | Provider settings; LaunchBox offline provider, then ScreenScraper (hash lookup, manuals); media storage; the game folder with `docs/`, attach and bulk attach, the side viewer for PDFs/images/text/audio; ES-DE media and manuals folders and Steam grid output; review queue for weak matches. |
@@ -823,6 +823,322 @@ lowercase hex text (the DATs' own form, and easy to read in a database tool); if
   names in `docs/platforms.md` against the current No-Intro release.
 
 
+### Phase 2 design (written 2026-10-16, for review before code)
+
+Phase 1 says what you have; Phase 2 puts it in order. It does that in two releases, so
+the safer half reaches you first:
+
+- **2a, Sort and rebuild (0.2.x)**: rename, rebuild and move cartridge sets by their DAT
+  names in the three modes of D5, each with a preview and Undo; 7z and RAR read like
+  ZIPs; a folder watcher.
+- **2b, Discs and conversion (later 0.2.x)**: disc systems from Redump DATs;
+  cue/bin, gdi and iso sets; CHD, RVZ and CSO audited as the games they hold; Convert and
+  Extract with verification and Undo; deterministic ZIP and 7z writing; a preferred
+  format per platform (D12).
+
+Both are designed here; 2a is built first and released when it passes, then 2b. Each
+half is a PR of its own.
+
+**What the user can do at the end of Phase 2**
+
+1. On the Audit page, **Organise…** a platform: choose a mode, see a preview of every
+   file that would be copied, linked, renamed, moved or zipped (with the space it needs),
+   then run it as a job. The Misnamed tab gets *Rename these* (mode 2, only the misnamed
+   files).
+2. **Undo** the newest change from the status bar's message or *Settings › History*; a
+   change interrupted by a crash or Stop is offered to be finished or put back.
+3. Scan 7z and RAR archives (each member matched like a ZIP member), and folders change
+   without a rescan by hand (the watcher).
+4. Import Redump DATs (or *Get starter DATs*, now with libretro's Redump copies) and audit
+   PlayStation, Saturn, Dreamcast, GameCube and the other disc systems from cue/bin,
+   gdi, iso, CHD, RVZ or CSO files.
+5. **Convert** a game, a selection or a whole platform to its preferred format (CHD for
+   CD/DVD systems, RVZ for GameCube/Wii, CSO for PSP, ZIP for cartridges), or to another
+   format; **Extract** back to raw files. Every result is checked against the DAT before
+   an original is set aside.
+6. The same from the CLI: `organise <platform> --mode copy|link|rename|move [--out
+   <folder>] [--zip] [--dry-run]`, `undo`, `history`, `convert`, `extract`, `tools`.
+
+#### 2a. Sort and rebuild
+
+**The three modes (D5)**, chosen each time in the *Organise* dialog, the first selected:
+
+1. **Copy to a folder** (the default; originals untouched). Builds the sorted set in an
+   output folder chosen per run (remembered per platform). A file whose format doesn't
+   change is **hardlinked** when the output is on the same drive (no extra space) and
+   copied otherwise; *Always copy* is a checkbox. Nothing under the folders with games
+   changes.
+2. **Rename where they are**. Each matched file (or ZIP) is renamed to its DAT name in
+   its own folder. A ZIP's members are renamed by rewriting the ZIP (below).
+3. **Move into the library**. Matched files go to `<Library>/<Platform folder>/` (or the
+   output folder set for the platform in Settings), renamed on the way; a file on another
+   drive is copied, read back and hashed, then its original is set aside (below).
+
+**What is organised**: the games the DAT says you have (and, with *Include partly-there
+games*, those you partly have) for the platform's DAT. Not organised, and reported in
+the preview: unknown files and bad dumps (left where they are), and duplicates beyond
+the one kept (below). Choosing a subset (1G1R, regions) is Phase 3's collections; Phase
+2 organises the whole platform or the Misnamed list.
+
+**Which copy is kept** when several files match the same ROM: one that is already
+correctly named, else one already in the target format (a ZIP when zipping), else one on
+the output drive, else the first by folder and path. The others are listed in the
+preview and in the change's report; in modes 2 and 3 they stay where they are, and
+*Set aside duplicates* (a separate action on the Duplicates tab) moves them out, with
+Undo. (**D20** proposes this.)
+
+**Naming** follows the platform's convention in *Settings › Naming*: DAT names as they
+are (the default), or a template of DAT fields (`{name}`, `{title}`, `{region}`,
+`{languages}`, `{revision}`, `{ext}`), with *A folder per game* on or off. Multi-file
+games always get a folder. Names are made safe for Windows (`<>:"/\|?*` and trailing
+dots and spaces replaced, reserved names like `CON` prefixed) and kept under the path
+length limit by shortening the folder template first; a clash between two games adds
+` (2)`, and the preview shows it.
+
+**Formats on the way out**: *As they are* (the default: loose stays loose, a ZIP stays a
+ZIP, renamed inside), or **one ZIP per game** (TorrentZip-style, below), or loose files
+(unzipped). Reading a 7z or RAR member for output unpacks it once into the cache.
+
+**Preview and running**
+
+- *Plan* reads only the index and builds every operation (`link`, `copy`, `rename`,
+  `move`, `zip`, `rezip`) with its source, target, size and expected SHA1, and checks:
+  free space on each target drive, targets that already exist (identical: skipped;
+  different: listed as a conflict and not overwritten), names too long, read-only
+  folders. The preview is a paged list with the totals; nothing is written.
+- *Run* writes the plan to a journal, then performs it as a job (progress, Stop). Each
+  written file is read back and its hash compared with the expected one **before** its
+  source is renamed or set aside; a mismatch stops that game, keeps its original and is
+  reported. A rename on the same drive is one filesystem rename (no reread).
+- The index is updated as each operation completes (the files keep their hashes: a rename
+  or move is a path change), so no rescan is needed after.
+
+**Journal and Undo** (Model Library's `relayout.rs` pattern)
+
+- Every change in modes 2 and 3, *Set aside duplicates*, and every conversion is written
+  to `_library/journal/<id>.json` before anything moves: the operations, their state
+  (planned, done), what each set aside, and the change's state (running, done, undone).
+- **Undo** reverses the newest change still undoable, newest operation first: renames are
+  renamed back, moved files moved back (read back and hashed again when crossing drives),
+  set-aside originals restored, files the change created removed. Older changes are
+  undone in order. A change whose files have since been changed by hand undoes what it
+  safely can and lists the rest.
+- On start-up a journal left *running* is offered: *Finish it* or *Put it back*.
+- Mode 1 changes are journalled too (so *Undo* removes the output it wrote), but they
+  never touch an original.
+- *Settings › History* lists changes with their reports; the newest twenty finished ones
+  are kept (journals holding set-aside files are kept until those are emptied).
+
+**Setting aside**: an original that a change replaces (a move across drives, a
+conversion in place, a duplicate set aside) is not deleted. It is renamed into
+`.gamerepo-set-aside/<journal id>/` at the top of its folder with games (same drive, so
+instant; hidden, so scans skip it) or `_library/set-aside/` for files in the library.
+*Settings › History* shows the space held and **Empty** per change or for all; emptying
+is the only step that deletes, asks first, and ends that change's Undo. (**D20**.)
+
+**Rebuilding ZIPs**
+
+- A ZIP to be renamed inside, or a game zipped on the way out, is written to a temporary
+  file next to its target, read back (every member's CRC32 and SHA1 checked), then
+  renamed into place.
+- Written **TorrentZip-style** so the same game always gives the same bytes: members
+  sorted by lower-case name, stored with the fixed date TorrentZip uses
+  (1996-12-24 23:32), no extra fields, deflate at level 9, and the
+  `TORRENTZIPPED-<CRC32 of the central directory>` comment. Whether the bytes equal
+  TorrentZip's exactly depends on the deflate implementation matching zlib's; a test
+  compares with a ZIP written by Python's zlib in the fixtures, and the zlib-compatible
+  backend is used if `miniz` differs.
+
+**7z and RAR** (from Model Library's `archive.rs`)
+
+- Scanned like ZIPs: each member is a file with the archive as its parent. 7z records
+  each member's CRC32, so the quick scan trusts it like a ZIP's (D16); RAR records CRC32
+  too. *Full* unpacks into the data folder's `archive-cache` (size-limited, emptied
+  after the scan) and hashes the members.
+- Read with `sevenz-rust2` and `unrar` (as Model Library does). Password-protected
+  archives are listed as *locked* and skipped. RAR is read only.
+
+**Folder watcher** (`watch.rs`, `notify`)
+
+- Watches the folders with games on local drives while the app is open; files that
+  change are rescanned a few seconds after the changes stop (only those paths). Network
+  drives don't report changes reliably, so they rescan on demand as now, which the
+  folder's row says. *Settings › Folders with games › Watch for changes* (on by default).
+
+#### Phase 2a notes (built 2026-10-16)
+
+- **Core**: `archive.rs` (ZIP, 7z, RAR; `files.kind` 'zip', '7z', 'rar' and the new
+  `files.locked`), `torrentzip.rs`, `organise.rs` (plan, preview, run, journal, Undo,
+  finish, set-aside, naming), `watch.rs`; `api.rs` gained `organise_plan`,
+  `organise_duplicates`, `organise_preview`, `organise_run`, `change_history`,
+  `change_undo`, `change_finish`, `change_empty`, `naming`, `naming_example`,
+  `naming_set`, and `watch` in the scan settings. The command line has `organise`,
+  `duplicates`, `history`, `undo`, `finish` and `set-aside empty`.
+- **A plan** is built from the index alone and kept in the data folder
+  (`<data>/plans/<id>.json`, a day) until it's run, so the preview pages through it
+  without planning again. Running writes it to `_library/journal/<id>.json`, and each
+  step done is a line in `<id>.log` (made durable every 64 steps and whenever a step set
+  something aside); a step already done is recognised when a change is finished.
+- **One change at a time**, never during a scan (the API refuses; the page says so).
+  The index is updated step by step (paths, copies, new ZIPs with their members), so no
+  rescan is needed; the watcher's scan after a change finds nothing new.
+- **The folder watcher** watches the folders with games that are found and not on a
+  network drive (`GetDriveTypeW` on Windows, `/proc/mounts` elsewhere), skips hidden
+  folders and `_library/`, and after 3 s of quiet scans only the places that changed
+  (`scan::Options.only`; over 2,000 places, everything). Its scans are jobs marked
+  `auto`, which the page follows by polling `jobs` every 2 s.
+- **Differences from the design**: hardlinks fall back to a copy when the drive refuses
+  them; a 7z or RAR whose members need renaming is rebuilt as a ZIP (the app doesn't
+  write them), which the preview notes; *Rename these* leaves a misnamed copy of a file
+  that's named right elsewhere (it's a duplicate) and the preview says why; set-aside
+  files in the library go to `.gamerepo-set-aside/` at the top of its folder like any
+  other folder with games, not `_library/set-aside/`; the output folder for copies is
+  remembered on this computer for all platforms, not per platform; a `{ext}` field
+  isn't offered (the extension always follows the ROM or the format). An interrupted
+  change is offered at start-up with *Finish it* and *Put it back*, and in History.
+- **Timings** (Linux, release, this session): planning 50,000 matched files 0.5 s;
+  renaming 10,000 files in place with the journal 1.0 s. CI runs both on Windows.
+- **To check on a real set** (Jerred): organise a copy of a real set in mode 1 into
+  ZIPs and compare with a TorrentZip tool's output; mode 2 on a copy, then Undo.
+
+#### 2b. Discs and conversion
+
+**Disc platforms** join the table (`platforms.rs` and `docs/platforms.md`) with their
+Redump DAT names, ES-DE ids and preferred formats: PlayStation, PlayStation 2, PSP,
+Saturn, Sega CD / Mega-CD, Dreamcast, PC Engine CD / TurboGrafx-CD, Neo Geo CD, 3DO,
+PC-FX, Jaguar CD, CD-i, GameCube, Wii, Xbox (audit only). *Get starter DATs* also tries
+libretro's Redump copies (`metadat/redump/`), for disc platforms without a DAT (D17).
+
+**Disc sets and the DAT**
+
+- A Redump game lists its files: a `.cue` and one `.bin` per track, a `.gdi` and its
+  tracks, or one `.iso`. Each file is matched by its hashes as in Phase 1, and a game is
+  *Have* when every track is.
+- The **cue sheet**: Redump hashes its own cue, which a renamed set no longer matches. A
+  cue that doesn't match but whose `FILE` lines name the game's matched tracks counts as
+  *cue differs*, not a bad dump, and the game is still *Have*. Renaming rewrites only the
+  `FILE` lines, which turns Redump's cue (renamed) back into an exact match.
+- A disc game always gets a folder of its own when organised.
+
+**Compressed images, audited as the game they hold**
+
+- **CHD** (CD and DVD): read in the core with the `chd` crate (pure Rust, no tool
+  needed). For a CD, each track's sectors (2,352 bytes, without CHD's subcode and
+  padding) are hashed as the `.bin` Redump lists; for a DVD, the whole image as the
+  `.iso`. The tracks are stored as members of the CHD (`kind = 'track'`), so matching is
+  Phase 1's. A CHD has no cue, so a CHD game is *Have* when every track matches (the cue
+  isn't needed). The CHD's own header SHA1 is kept too, so a rescan of an unchanged CHD
+  is free.
+- **RVZ** (GameCube, Wii): `dolphin-tool verify` reports the CRC32, MD5 and SHA1 of the
+  disc the RVZ holds, which is what Redump lists. It reads the whole file, so it runs in
+  the hash step like any other file, once. Without `dolphin-tool`, RVZ files are listed
+  as *Needs dolphin-tool to check* (not unknown).
+- **CSO / ZSO** (PSP): decompressed in a stream in the core (zlib for CSO, LZ4 for ZSO)
+  and hashed as the `.iso`.
+- **Plain ISO / bin**: hashed as files, as now.
+
+**Tools** (D14): `chdman`, `dolphin-tool`, `maxcso`. Looked for in the app's `tools/`
+folder, then on the PATH, then at a path set in *Settings › Tools*, which shows each
+one's version and what it enables; a missing tool greys out the conversions it does and
+nothing else. (During the build, `libchdman-rs`, MAME's own CHD code as a Rust crate, is
+tried as a built-in CHD writer; if it builds on Windows CI and its output verifies,
+`chdman` becomes optional.)
+
+**Convert**
+
+| From | To | How |
+|---|---|---|
+| cue/bin, gdi, iso (CD systems) | CHD | `chdman createcd` |
+| iso (PS2, other DVD systems) | CHD | `chdman createdvd` |
+| iso, gcm, wbfs | RVZ | `dolphin-tool convert -f rvz -c zstd -l 5 -b 131072` |
+| iso (PSP) | CSO | `maxcso` |
+| loose cartridge ROMs, 7z, RAR | ZIP | built in (TorrentZip-style) |
+| anything (PC games, Phase 4) | 7z | built in (`sevenz-rust2`, deterministic settings) |
+
+- A conversion is a job per game: convert into a temporary file beside the target, then
+  **verify** by reading the result as the audit would (CHD tracks, RVZ through
+  `dolphin-tool verify`, CSO in a stream, ZIP/7z members) and comparing with the DAT
+  match of the source. Only a result whose every track or member matches is placed; the
+  original is then set aside (journalled, Undo). A source with no DAT match is verified
+  by converting the result back and comparing hashes with the original.
+- **Where results go**: in mode 1 (the default) into an output folder; *Convert in place*
+  replaces the originals, set aside as above. Lossless only: anything that would drop
+  data (an ISO from a multi-track CD) is refused.
+- *Compress this platform*: every game not in its preferred format, as one job, Stop and
+  continue later. Space needed is shown first (the set-aside originals still use theirs
+  until emptied).
+
+**Extract**: CHD → cue/bin or gdi (`chdman extractcd`), CHD → iso (`extractdvd`), RVZ →
+iso (`dolphin-tool convert -f iso`), CSO → iso (built in), ZIP/7z/RAR → files. Verified
+the same way, into an output folder.
+
+**Index (Phase 2 migration steps)**
+
+```
+files.kind     gains '7z', 'rar' (archives), 'chd', 'rvz', 'cso' (images) and
+               'track' (a CHD track, member of its CHD, like a ZIP member)
+files.locked   1 for a password-protected archive
+blobs.inner    for an image: the hashes of what it holds when that's a single file
+               (RVZ, CSO, DVD CHD), so a rescan of an unchanged image is free
+dat_roms       unchanged; cue sheets are recognised by extension
+platforms      disc rows in platforms.rs (not the index)
+```
+
+The journal lives in the library, not the index (the library is the source of truth); the
+index is updated as operations complete and can be rebuilt by a scan.
+
+**Performance targets (checked by tests on generated data)**
+
+- Planning the organisation of 50,000 matched files: under 2 s; the preview pages
+  through it.
+- Renaming 10,000 files in place: under 30 s on CI's runner, including the journal.
+- Hashing a CHD runs at disk speed or CPU speed, whichever is slower, one read per image.
+- An unchanged CHD, RVZ or CSO costs nothing on a rescan.
+
+**Pages**
+
+- *Audit*: **Organise…** (the dialog: mode, output folder, format, *Include partly-there
+  games*, *Always copy*; then the preview with totals, conflicts and space; Run).
+  *Rename these* on the Misnamed tab; *Set aside duplicates* on the Duplicates tab;
+  *Convert…* on a game's row and for the platform.
+- *Settings › Naming* (per platform template and folder per game), *Settings › Tools*,
+  *Settings › History* (changes, Undo, set-aside space, Empty), *Preferred formats* per
+  platform (D12), *Watch for changes*.
+- The status bar's message after a change has **Undo**.
+
+**Tests**
+
+- Rust: each mode on the fixture set, with Undo of each returning the folders to the
+  exact files and hashes they had; a change stopped half-way, finished and put back;
+  conflicts, clashes and Windows-unsafe names; duplicates choice; TorrentZip bytes equal
+  to the Python-written reference; 7z quick and full scans (7z written by the test with
+  `sevenz-rust2`) and RAR (the unrar crate's MIT-licensed test files, as Model Library
+  does); CHD track hashing and CSO/ZSO streaming on small synthetic images committed to
+  `tests/fixtures/` (random bytes made into a CHD by `chdman`, generated by the fixture
+  script where `chdman` is present and committed, so tests don't need it); verification
+  refusing a corrupted conversion; the timing checks.
+- CI (Windows): converts the synthetic disc set with `chdman` and `maxcso` taken from
+  their official release downloads in the workflow (CI only; the app never downloads
+  tools, D14), and verifies the results; `dolphin-tool` the same if its download is
+  practical, else RVZ is tested with a recorded `verify` output.
+- `desktop_page.py`: Organise in each mode with the preview, Undo, Rename these, the
+  History page; Convert with a fake tool script standing in for `chdman` (its output
+  checked like the real one).
+- Real-set check (Jerred): organise a copy of a real set in mode 1, then mode 2 on a
+  copy, and Undo; convert a few real discs to CHD and compare with `chdman verify`.
+
+**Not in Phase 2**: 1G1R and region choices (Phase 3 collections), export to ES-DE (3),
+arcade merged/split sets (7), automatic DAT updates (8), lossy conversions, writing RAR.
+
+**Decisions proposed for Phase 2** (defaults the build follows unless changed)
+
+- **D19** Phase 2 ships in two halves: 2a *Sort and rebuild* (cartridges, 7z/RAR,
+  watcher, Undo), then 2b *Discs and conversion*, each its own PR and release.
+- **D20** Originals a change replaces, and duplicates set aside, are moved to a hidden
+  `.gamerepo-set-aside/` folder on the same drive (instant, undoable) and deleted only
+  when you empty it; not sent to the Recycle Bin (which may delete large files at once)
+  and not deleted.
+
 ---
 
 ## 8. Working in a cloud session
@@ -912,7 +1228,10 @@ lowercase hex text (the DATs' own form, and easy to read in a database tool); if
   any of them needs a client app of its own (proposed: no; browser, WebDAV and sync
   cover them). Settled before Phase 9 starts.
 
-New ones get a number here as they come up (next: D19).
+- **D19, D20** (Phase 2 design): Phase 2 in two halves; originals and duplicates set aside
+  on the same drive until emptied. Proposed defaults, followed unless Jerred changes them.
+
+New ones get a number here as they come up (next: D21).
 
 ---
 
@@ -924,3 +1243,5 @@ New ones get a number here as they come up (next: D19).
    Phase 1 design; they grow as platforms are added.
 3. Phase 1: scanner, DAT import and audit, verified end to end on one real No-Intro set.
    Built (Phase 1 notes); the real-set check is Jerred's.
+4. ~~Merge Phase 1 and release v0.1.0.~~ Done 2026-10-16 (PR #4).
+5. Phase 2: design written ("Phase 2 design"); 2a built ("Phase 2a notes"), then 2b.
