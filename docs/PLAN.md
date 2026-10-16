@@ -286,8 +286,9 @@ Rules:
   format the library doesn't store; and *Extract* for anything the user wants raw.
 - **Audit understands all of them** (3.1): a CHD, RVZ or CSO is audited as the Redump game
   it holds, so compressing a verified set does not break its audit.
-- Tools are found on the PATH or in Settings, with install hints; the conversions a
-  missing tool provides are greyed out, nothing else changes.
+- Tools are found in the app's `tools/` folder (drop the binaries in), on the PATH, or at
+  a path set in Settings, with install hints; the conversions a missing tool provides are
+  greyed out, nothing else changes.
 
 ---
 
@@ -319,6 +320,27 @@ Principles (Model Library's, applied here):
   doesn't restart a 2 TB hash run.
 - **Providers and exporters are small traits**, so adding TheGamesDB or a new frontend
   layout is one file.
+
+### Game identity: hashes, not file names
+
+Scraped metadata, media and documents are tied to a **game id**, never to a file name
+(decision of 2026-10-16):
+
+- A **ROM game** is identified by content. A file's hash matches a DAT ROM, the DAT ROM
+  belongs to a DAT game, and the Game is that DAT game (its parent/clone group), given a
+  stable id (ULID) the first time it is seen. `game.json` in the game's folder records
+  the id, the platform, the DAT it was matched against and the hashes of the ROMs that
+  make it up. Rename the file, move it, re-zip it or convert it to CHD and it still
+  resolves to the same Game, because the match is by hash; a DAT update that renames the
+  game only renames its folder (journalled), the id and everything under it stay.
+- A ROM with **no DAT match** is a Game keyed by its own content hash until a DAT claims
+  it, and keeps its id when that happens.
+- A **PC game** has no DAT, so its Game is its id in `game.json`, plus the provider ids
+  the scraper found (GOG product id, Steam app id, IGDB id…) and the hashes of its
+  installer or archive files for duplicate detection. Replacing the installer with a newer
+  version does not change the game.
+- Providers are asked by hash where they support it (ScreenScraper) and by name and
+  platform otherwise; the answer is stored against the game id either way.
 
 ### Index: where this app departs from Model Library
 
@@ -421,11 +443,13 @@ products differ and Model Library has its own release phases.
 
 ## 6. External tools, services and legal notes
 
-- Optional binaries detected at runtime, with install hints in Settings: `chdman` (from
-  MAME, for CHD), `dolphin-tool` (from Dolphin, for RVZ), `maxcso` (CSO/ZSO), `innoextract`
-  (GOG/InnoSetup installers), `7z` (fallback for odd archives). Each is called as a child
-  process with its output streamed into the job's progress; none is bundled, for licence
-  and size reasons, unless Jerred wants them downloaded on first use.
+- Optional binaries, with install hints in Settings: `chdman` (from MAME, for CHD),
+  `dolphin-tool` (from Dolphin, for RVZ), `maxcso` (CSO/ZSO), `innoextract` (GOG/InnoSetup
+  installers), `7z` (fallback for odd archives). The app looks in its own `tools/` folder
+  (`<data dir>/tools/`, opened from Settings so binaries can be dropped in), then on the
+  PATH, then at a path set per tool in Settings (D14). Each is called as a child process
+  with its output streamed into the job's progress; none is bundled, for licence and size
+  reasons.
 - Credentials (ScreenScraper, IGDB, TheGamesDB, MobyGames) are stored on this computer in
   the app's data folder, never in the library and never in the repository.
 - The repository will contain **no ROMs, no installers and no copyrighted media**. Test
@@ -510,6 +534,13 @@ reordered.
 - **Requirements added (Jerred, 2026-10-16):** documents attached to a game (manuals,
   guides, posters…), section 3.8; compression, decompression and conversion (zip, CHD,
   RVZ…), section 3.9.
+- **D12 Preferred storage formats:** cartridges → zip, CD/DVD systems → CHD,
+  GameCube/Wii → RVZ, PSP → CSO, PC → 7z; each changeable per platform in Settings.
+- **D13 Where documents live:** with the scraped media in the library's own folder,
+  `_library/games/<platform>/<Game Name>/docs/`. Scraped content is tied to the ROM's
+  hash, and to the game id for PC games (section 4, "Game identity").
+- **D14 External tools:** dropped into the app's `tools/` folder, or pointed at in
+  Settings; not downloaded by the app.
 
 ## 11. Open decisions
 
@@ -525,14 +556,6 @@ The plan assumes the **bold** default for each until told otherwise.
   "Game Repo". A better product name is welcome before Phase 1 ships an installer.
 - **D11 Index in SQLite** rather than Model Library's JSON cache (section 4). Flagged
   because it's the one place the family's pattern changes.
-- **D12 Preferred storage formats:** **cartridges → zip, CD/DVD systems → CHD,
-  GameCube/Wii → RVZ, PSP → CSO, PC → 7z**, each changeable per platform in Settings.
-- **D13 Where documents live:** **`_library/games/<platform>/<Game Name>/docs/`** (one
-  folder per game beside its scraped media) vs a `docs/` folder next to the ROM inside
-  the platform folder. The first keeps platform folders clean for ES-DE; the second keeps
-  a game and its papers together in a file manager.
-- **D14 External tools:** **found on the PATH or pointed at in Settings** vs downloaded
-  by the app on first use.
 
 ---
 
