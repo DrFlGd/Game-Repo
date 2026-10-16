@@ -12,6 +12,7 @@ import { Dialogs } from "./dialogs.js";
 import { Settings } from "./settings.js";
 import { About } from "./about.js";
 import { Coming, COMING } from "./coming.js";
+import { Audit } from "./audit.js";
 import { loadIndex } from "./library.js";
 import { ContextMenu, onWindowKey } from "./actions.js";
 
@@ -20,6 +21,7 @@ function Main() {
   const blocked = useStore(ui, (s) => s.firstRun && !s.library);
   if (route === "settings" && !blocked) return html`<${Settings} />`;
   if (route === "about") return html`<${About} />`;
+  if (route === "audit" && !blocked) return html`<${Audit} />`;
   if (COMING[route] && !blocked) return html`<${Coming} key=${route} page=${route} />`;
   return html`<${Home} />`;
 }

@@ -6,7 +6,7 @@
 //   info:  app_info (version, os, the open library, recent libraries)
 //   api:   one of the app's commands (desktop/core/src/api.rs), answered as JSON
 //   store: prefs.get(key, fallback) / prefs.set(key, value), small UI preferences, synchronous
-//   library (desktop): pickFolder(title), openPath(path), url(rel) for files in the library
+//   library (desktop): pickFolder(title), pickFile(s), openPath(path), reveal(path), url(rel) for files in the library
 
 export async function createPlatform() {
   if (globalThis.__TAURI_INTERNALS__) {

@@ -4,7 +4,8 @@
 use crate::config::{AppConfig, Prefs};
 use crate::index::{self, Index};
 use crate::library::{self, Library};
-use anyhow::{anyhow, Result};
+use crate::{audit, dat, makedat, platforms, roots, scan, starter};
+use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -160,7 +161,6 @@ impl App {
     }
 
     /// What a running job has got to: `{ item, items, name }` or `{ text }`, as the page shows it.
-    #[allow(dead_code)] // the scans of Phase 1 report through it
     fn job_progress(&self, id: &str, progress: Value) {
         if let Some(j) = self.jobs.lock().unwrap().iter_mut().find(|j| j.id == id) {
             j.progress = progress;
@@ -195,6 +195,21 @@ impl App {
             app.job_done(&id, r);
         });
         json!({ "job": job.id })
+    }
+
+    /// A connection of a job's own to the library's index, so a long scan or import
+    /// doesn't hold up the page's reads (SQLite's WAL lets them run side by side).
+    fn job_index(data_dir: &Path, lib: &Library) -> Result<Index> {
+        let id = lib.id().ok_or_else(|| anyhow!("This library has no id in _library/library.json, so its index can't be found."))?;
+        Index::open(&index::path_for(data_dir, &id), &id)
+    }
+
+    /// Refuse to start a job while one with the same label is running.
+    fn not_running(&self, label: &str) -> Result<(), String> {
+        if self.jobs.lock().unwrap().iter().any(|j| !j.done && j.label == label) {
+            return Err(format!("{label} is already running."));
+        }
+        Ok(())
     }
 
     // ------------------------------------------------------------ commands
@@ -250,6 +265,216 @@ impl App {
                     Ok(json!({ "ok": found.is_empty(), "problems": found }))
                 }))
             }
+            "platforms" => j(platforms::list()),
+
+            // ---------------------------------------------------- folders with games
+            "roots" => {
+                let lib = self.library()?;
+                j(json!(roots::list(&lib).iter().map(roots::Root::to_json).collect::<Vec<_>>()))
+            }
+            "roots_add" => {
+                let lib = self.library()?;
+                let path = PathBuf::from(arg(&args, "path").map_err(e2s)?);
+                j(roots::add(&lib, &path, args["platform"].as_str()).map_err(e2s)?.to_json())
+            }
+            "roots_update" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?;
+                let path = args["path"].as_str().map(PathBuf::from);
+                // "platform": null clears it; leaving it out keeps it
+                let platform = args.get("platform").map(|p| p.as_str());
+                j(roots::update(&lib, id, path.as_deref(), platform).map_err(e2s)?.to_json())
+            }
+            "roots_remove" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                roots::remove(&lib, &id).map_err(e2s)?;
+                // what was scanned there leaves the index (nothing on disk is touched)
+                self.with_index(move |ix| {
+                    ix.conn().execute("DELETE FROM files WHERE root_id = ?1", [&id])?;
+                    ix.conn().execute("DELETE FROM roots WHERE id = ?1", [&id])?;
+                    audit::changed(ix.conn())
+                })
+                .await?;
+                j(Value::Null)
+            }
+
+            // ---------------------------------------------------- scanning
+            "scan_settings" => j(json!(self.config().scan)),
+            "scan_settings_set" => {
+                let mut cfg = self.config();
+                if let Some(full) = args["full"].as_bool() {
+                    cfg.scan.full = full;
+                }
+                if let Some(n) = args["readers"].as_u64() {
+                    cfg.scan.readers = (n as usize).clamp(1, 16);
+                }
+                cfg.save(&self.config_path()).map_err(e2s)?;
+                j(json!(cfg.scan))
+            }
+            "scan" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                self.not_running("Scanning")?;
+                let settings = self.config().scan;
+                let opts = scan::Options { full: args["full"].as_bool().unwrap_or(settings.full), readers: settings.readers };
+                let data_dir = self.paths.data_dir.clone();
+                j(self.spawn_job("Scanning", move |app, id, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    scan::scan(&ix, &lib, &opts, &cancel, &mut |p| app.job_progress(&id, p))
+                }))
+            }
+
+            // ---------------------------------------------------- DATs
+            "dats" => {
+                let lib = self.library()?;
+                j(self.with_index(move |ix| {
+                    dat::sync_library(ix, &lib)?;
+                    dat::list(ix)
+                })
+                .await?)
+            }
+            "dat_import" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let paths: Vec<PathBuf> = match &args["paths"] {
+                    Value::Array(a) => a.iter().filter_map(Value::as_str).map(PathBuf::from).collect(),
+                    _ => vec![PathBuf::from(arg(&args, "path").map_err(e2s)?)],
+                };
+                let answers = args["answers"].as_object().cloned().unwrap_or_default();
+                let data_dir = self.paths.data_dir.clone();
+                j(self.spawn_job("Importing DATs", move |app, id, _| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    let (mut imported, mut ask, mut failed) = (vec![], vec![], vec![]);
+                    for (i, p) in paths.iter().enumerate() {
+                        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        app.job_progress(&id, json!({ "item": i + 1, "items": paths.len(), "name": name }));
+                        match dat::import(&ix, &lib, p, &answers) {
+                            Ok(done) => {
+                                for d in done {
+                                    match d {
+                                        dat::Imported::Loaded(v) => imported.push(v),
+                                        dat::Imported::NeedsPlatform { name, file } => {
+                                            ask.push(json!({ "name": name, "file": file, "path": p.display().to_string() }))
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => failed.push(json!({ "path": p.display().to_string(), "error": format!("{e:#}") })),
+                        }
+                    }
+                    if imported.is_empty() && ask.is_empty() && !failed.is_empty() {
+                        bail!("{}", failed[0]["error"].as_str().unwrap_or(""));
+                    }
+                    Ok(json!({ "imported": imported, "needs_platform": ask, "failed": failed }))
+                }))
+            }
+            "starter_dats" => {
+                // the No-Intro cartridge DATs from libretro's public copy (D17), for platforms without one
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                self.not_running("Getting starter DATs")?;
+                let only: Vec<String> = args["platforms"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(String::from)).collect();
+                let again = args["again"].as_bool().unwrap_or(false);
+                let source = self.config().dat_source.unwrap_or_else(|| starter::SOURCE.to_string());
+                let data_dir = self.paths.data_dir.clone();
+                j(self.spawn_job("Getting starter DATs", move |app, id, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    starter::get(&ix, &lib, &source, &only, again, &cancel, &mut |p| app.job_progress(&id, p))
+                }))
+            }
+            "dat_use" => {
+                let lib = self.library()?;
+                let id = args["id"].as_i64().ok_or("missing id")?;
+                self.with_index(move |ix| dat::use_version(ix, &lib, id)).await?;
+                j(Value::Null)
+            }
+            "dat_remove" => {
+                let lib = self.library()?;
+                let id = args["id"].as_i64().ok_or("missing id")?;
+                self.with_index(move |ix| dat::remove(ix, &lib, id)).await?;
+                j(Value::Null)
+            }
+
+            // ---------------------------------------------------- Home and the audit
+            "home" => {
+                let lib = self.library()?;
+                j(self.with_index(move |ix| {
+                    dat::sync_library(ix, &lib)?;
+                    audit::home(ix, &lib)
+                })
+                .await?)
+            }
+            "audit_summary" => {
+                let lib = self.library()?;
+                let (dat_arg, platform_arg) = (args["dat"].as_i64(), args["platform"].as_str().map(String::from));
+                j(self.with_index(move |ix| {
+                    dat::sync_library(ix, &lib)?;
+                    let conn = ix.conn();
+                    let mut q = conn.prepare("SELECT DISTINCT platform FROM dats WHERE current = 1")?;
+                    let mut with_dats: Vec<String> = q.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+                    with_dats.sort_by_key(|p| platforms::name_of(p));
+                    let dat_id = match (dat_arg, platform_arg.as_deref().or(with_dats.first().map(String::as_str))) {
+                        (Some(d), _) => {
+                            // the DAT picked for a platform stays its DAT
+                            if lib.writable().is_ok() {
+                                audit::choose_dat(conn, &lib, d)?;
+                            }
+                            Some(d)
+                        }
+                        (None, Some(p)) => audit::primary_dat(conn, &lib, p)?,
+                        (None, None) => None,
+                    };
+                    let Some(dat_id) = dat_id else {
+                        return Ok(json!({ "summary": null, "platforms": [], "dats": [] }));
+                    };
+                    let summary = audit::summary(conn, dat_id)?;
+                    let platform = summary["dat"]["platform"].as_str().unwrap_or("").to_string();
+                    let mut q = conn.prepare("SELECT id, name, version FROM dats WHERE platform = ?1 AND current = 1 ORDER BY name")?;
+                    let dats: Vec<Value> = q
+                        .query_map([&platform], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "version": r.get::<_, String>(2)? })))?
+                        .collect::<rusqlite::Result<_>>()?;
+                    let plats: Vec<Value> = with_dats.iter().map(|p| json!({ "id": p, "name": platforms::name_of(p) })).collect();
+                    Ok(json!({ "summary": summary, "platforms": plats, "dats": dats }))
+                })
+                .await?)
+            }
+            "audit_list" => {
+                let lib = self.library()?;
+                let dat_id = args["dat"].as_i64().ok_or("missing dat")?;
+                let tab = arg(&args, "tab").map_err(e2s)?.to_string();
+                let search = args["search"].as_str().unwrap_or("").to_string();
+                let (offset, limit) = (args["offset"].as_i64().unwrap_or(0).max(0), args["limit"].as_i64().unwrap_or(100));
+                j(self.with_index(move |ix| audit::list(ix, &lib, dat_id, &tab, &search, offset, limit)).await?)
+            }
+            "audit_fixdat" => {
+                let lib = self.library()?;
+                let dat_id = args["dat"].as_i64().ok_or("missing dat")?;
+                j(self.with_index(move |ix| audit::fixdat(ix, &lib, dat_id, None)).await?)
+            }
+            "audit_save_report" => {
+                let lib = self.library()?;
+                let dat_id = args["dat"].as_i64().ok_or("missing dat")?;
+                let format = args["format"].as_str().unwrap_or("txt").to_string();
+                j(self.with_index(move |ix| audit::save_report(ix, &lib, dat_id, &format)).await?)
+            }
+            "make_dat" => {
+                let lib = self.library()?;
+                let root = arg(&args, "root").map_err(e2s)?.to_string();
+                let name = arg(&args, "name").map_err(e2s)?.to_string();
+                let folder = args["folder"].as_str().unwrap_or("").to_string();
+                let platform = args["platform"].as_str().map(String::from);
+                let data_dir = self.paths.data_dir.clone();
+                j(self.spawn_job("Making a DAT", move |app, id, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    makedat::make(&ix, &lib, &root, &folder, &name, platform.as_deref(), &cancel, &mut |p| app.job_progress(&id, p))
+                }))
+            }
+            "audit_report" => {
+                let dat_id = args["dat"].as_i64().ok_or("missing dat")?;
+                j(json!({ "text": self.with_index(move |ix| audit::report(ix, dat_id)).await? }))
+            }
+
             "job" => {
                 let id = arg(&args, "id").map_err(e2s)?;
                 let jobs = self.jobs.lock().unwrap();
@@ -488,6 +713,48 @@ mod tests {
         let done = wait(&app, &job).await;
         assert_eq!(done["result"]["ok"], true, "{done}");
         assert_eq!(done["label"], "Checking the index");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[tokio::test]
+    async fn folders_scan_dats_and_the_audit() {
+        use crate::audit::tests::{dat_xml, rom, rom_xml};
+        let (app, home) = app("audit");
+        call(&app, "library_open", json!({ "path": home.join("Lib").display().to_string() })).await;
+        let roms = home.join("Roms/GB");
+        std::fs::create_dir_all(&roms).unwrap();
+        std::fs::write(roms.join("Alpha (USA).gb"), rom(1, 4096)).unwrap();
+        std::fs::write(roms.join("x.gb"), rom(2, 4096)).unwrap();
+        let root = call(&app, "roots_add", json!({ "path": home.join("Roms").display().to_string() })).await;
+        assert_eq!(root["found"], true);
+        assert!(app.call("roots_add", json!({ "path": roms.display().to_string() })).await.is_err());
+        call(&app, "scan_settings_set", json!({ "readers": 3 })).await;
+        assert_eq!(call(&app, "scan_settings", json!({})).await, json!({ "full": false, "readers": 3 }));
+        let done = wait(&app, &call(&app, "scan", json!({})).await).await;
+        assert_eq!(done["result"]["hashed"], 2, "{done}");
+        let dat = dat_xml("Nintendo - Game Boy", "1", &[
+            ("Alpha (USA)", None, rom_xml("Alpha (USA).gb", &rom(1, 4096))),
+            ("Beta (USA)", None, rom_xml("Beta (USA).gb", &rom(2, 4096))),
+            ("Gamma (USA)", None, rom_xml("Gamma (USA).gb", &rom(3, 4096))),
+        ]);
+        std::fs::write(home.join("gb.dat"), dat).unwrap();
+        let done = wait(&app, &call(&app, "dat_import", json!({ "paths": [home.join("gb.dat").display().to_string()] })).await).await;
+        assert_eq!(done["result"]["imported"][0]["platform"], "gb", "{done}");
+        assert_eq!(call(&app, "dats", json!({})).await.as_array().unwrap().len(), 1);
+        let a = call(&app, "audit_summary", json!({})).await;
+        assert_eq!((a["summary"]["have"].as_i64(), a["summary"]["missing"].as_i64(), a["summary"]["misnamed"].as_i64()), (Some(2), Some(1), Some(1)), "{a}");
+        let dat_id = a["summary"]["dat"]["id"].clone();
+        let l = call(&app, "audit_list", json!({ "dat": dat_id, "tab": "misnamed" })).await;
+        assert_eq!(l["items"][0]["expected"], "Beta (USA).gb");
+        let fx = call(&app, "audit_fixdat", json!({ "dat": dat_id })).await;
+        assert_eq!(fx["games"], 1);
+        assert!(call(&app, "audit_report", json!({ "dat": dat_id })).await["text"].as_str().unwrap().contains("Gamma (USA)"));
+        let h = call(&app, "home", json!({})).await;
+        assert_eq!(h["platforms"][0]["have"], 2);
+        let made = wait(&app, &call(&app, "make_dat", json!({ "root": root["id"], "folder": "GB", "name": "Mine" })).await).await;
+        assert_eq!(made["result"]["games"], 2, "{made}");
+        call(&app, "roots_remove", json!({ "id": root["id"] })).await;
+        assert_eq!(call(&app, "home", json!({})).await["files"], 0);
         let _ = std::fs::remove_dir_all(&home);
     }
 

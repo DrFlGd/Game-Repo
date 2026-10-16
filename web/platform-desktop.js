@@ -57,6 +57,8 @@ export async function createPlatform() {
       pickFile: (title, extensions) => invoke("pick_file", { title, extensions }),
       pickFiles: (title) => invoke("pick_files", { title }),
       openPath: (path) => invoke("open_path", { path }),
+      /** Show a file in its folder, selected. */
+      reveal: (path) => invoke("reveal", { path }),
     },
   };
 }

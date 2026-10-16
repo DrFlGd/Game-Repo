@@ -8,6 +8,11 @@
 Checks (Phase 0): the first start asks where the library goes and makes only
 its _library/ folder there; the menu's places, the pages still to come; the
 index is made on this computer (not in the library) and checked as a job;
+(Phase 1) adding a folder with games, scanning it, importing DATs (one zipped,
+one whose platform is asked), Home's platform bars, every Audit list against
+tests/fixtures' expected counts, the fixdat and saved reports, a rescan after a
+rename and a deletion, a DAT made from a set, the scan settings, and starter
+DATs (from a local stand-in for libretro's copy);
 renaming the library, with Undo; opening a folder that already holds games
 leaves them as they were, and switching back from the recent list; the theme
 and skin follow the settings and are kept; a library from a newer app opens
@@ -17,15 +22,21 @@ Writes <out>/library-info.json and <out>/library.zip for the cross-platform chec
 """
 import argparse
 import asyncio
+import functools
+import http.server
 import json
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from pathlib import Path
 
 from playwright.async_api import async_playwright
+
+sys.path.insert(0, str(Path(__file__).with_name("fixtures")))
+import make_fixtures  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--cli", required=True)
@@ -50,7 +61,23 @@ def check(name, ok, detail=""):
     print(f"{'PASS' if ok else 'FAIL'} {name}{' :: ' + str(detail) if detail != '' else ''}", flush=True)
 
 
+def starter_source():
+    """A local stand-in for libretro's copy of the No-Intro DATs: two systems' DATs."""
+    d = home / "starter-source" / "no-intro"
+    d.mkdir(parents=True)
+    for name, ext, seed in (("Sega - Game Gear", "gg", 21), ("GCE - Vectrex", "vec", 22)):
+        (d / f"{name}.dat").write_text(make_fixtures.logiqx(name, "20261001", [
+            (f"Starter {ext} (World)", None, [make_fixtures.rom_xml(f"Starter {ext} (World).{ext}", make_fixtures.rom(seed, 512))])]))
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(d.parent))
+    handler.log_message = lambda *args: None
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    (home / "config").mkdir(parents=True, exist_ok=True)
+    (home / "config/config.json").write_text(json.dumps({"dat_source": f"http://127.0.0.1:{srv.server_port}/no-intro/"}))
+
+
 def start_server():
+    starter_source()
     log = open(out / "serve.log", "w")
     p = subprocess.Popen([a.cli, "serve", "--ui", a.ui, "--home", str(home), "--port", str(a.port)], stdout=log, stderr=log)
     for _ in range(100):
@@ -108,7 +135,7 @@ async def main():
             made = (library / "_library/library.json").is_file() and sorted(x.name for x in library.iterdir()) == ["_library"]
             status = await pg.inner_text(".statusbar")
             check("the first start asks where the library goes and makes only _library/ there",
-                  "Where" in asked and coming_off == 4 and made and str(library) in status, (asked, made, status))
+                  "Where" in asked and coming_off == 3 and made and str(library) in status, (asked, made, status))
 
             # 2. the index: made on this computer, under the data folder, not in the library
             await pg.wait_for_selector("#home-index #index-tables")
@@ -123,13 +150,13 @@ async def main():
             # 3. the menu's places, and the pages still to come
             labels = await pg.eval_on_selector_all(".sidebar .nav-label", "els => els.map(e => e.textContent.trim())")
             await pg.click('.sidebar a[href="#/audit"]')
-            await pg.wait_for_selector("#coming-audit")
+            await pg.wait_for_selector("#audit-empty")
             audit = await pg.inner_text(".cmdbar h1")
             active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
-            lead = await pg.inner_text("#coming-audit")
+            lead = await pg.inner_text("#audit-empty")
             check("the menu's places open, with the pages still to come saying what they'll do",
                   labels == ["Game Repo", "Home", "Audit", "Collections", "PC games", "Metadata", "Settings", "About", "Theme: System"]
-                  and audit == "Audit" and active == "Audit" and "DAT" in lead and "phase 1" in lead.lower(), (labels, audit, active))
+                  and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
             await pg.screenshot(path=str(out / "01-coming.png"))
 
             # 4. checking the index from Home's Library menu runs as a job
@@ -177,6 +204,116 @@ async def main():
             await pg.wait_for_function("(p) => document.querySelector('#index-path')?.textContent === p", arg=index_path)
             check("a library opened before opens from the list, each with its own index", name == "Retro" and other_index != index_path, (name, other_index))
 
+            # Phase 1. folders with games, scanning, DATs and the audit
+            fx = home / "fx"
+            make_fixtures.main(fx)
+            expected = json.loads((fx / "expected.json").read_text())
+            pick(fx / "Roms")
+            await pg.click("#add-root")
+            await pg.wait_for_selector("#roots li")
+            roots_json = json.loads((library / "_library/library.json").read_text()).get("roots", [])
+            check("a folder with games is added and kept in the library", len(roots_json) == 1 and Path(roots_json[0]["path"]) == fx / "Roms", roots_json)
+            await pg.goto(B + "#/")
+            await pg.click("#home-scan-button")
+            said = await toast_text(pg, "Scanned 7 files")
+            check("Scan reads every file once, inside ZIPs too", "7 new" in said and "read 7 files" in said, said)
+            for f in ("gb.dat", "nes.zip", "odd.dat"):
+                pick(fx / "dats" / f)
+            await pg.click("#home-import")
+            await pg.wait_for_selector("#dat-platform-dialog")
+            asked = await pg.inner_text("#dat-platform-dialog")
+            await pg.select_option("#dat-platform-0", "__other")
+            await pg.fill("#dat-platform-0-other", "satellaview")
+            await pg.click("#dat-platform-dialog button[type=submit]")
+            await toast_text(pg, "Imported Nintendo - Satellaview")
+            dat_files = sorted(str(x.relative_to(library / "_library/dats")).replace("\\", "/") for x in (library / "_library/dats").rglob("*.dat"))
+            remembered = json.loads((library / "_library/library.json").read_text()).get("dat_platforms", {})
+            check("DATs are imported (a zipped one too) and copied into the library; an unknown one is asked about and remembered",
+                  "Satellaview" in asked and len(dat_files) == 3 and dat_files[0].startswith("gb/") and remembered.get("Nintendo - Satellaview") == "satellaview",
+                  (dat_files, remembered))
+            await pg.wait_for_selector('#home-platforms [data-platform="gb"]')
+            bar = await pg.inner_text('#home-platforms [data-platform="gb"]')
+            check("Home shows each platform against its DAT, with 1G1R", "3 of 6" in bar and "1G1R 3 of 5" in bar, bar)
+            await pg.screenshot(path=str(out / "10-home-platforms.png"), full_page=True)
+
+            async def tab_names(tab):
+                await pg.click(f'#audit-tabs [data-tab="{tab}"]')
+                await pg.wait_for_function("(t) => { const l = document.querySelector('#audit-list'); return l && l.dataset.tab === t && l.getAttribute('aria-busy') === 'false'; }", arg=tab)
+                return sorted(await pg.eval_on_selector_all("#audit-list .audit-row", "els => els.map(e => e.dataset.name)"))
+
+            await pg.click('.sidebar a[href="#/audit"]')
+            await pg.wait_for_selector("#audit-page")
+            platform_now = await pg.input_value("#audit-platform")
+            totals = await pg.inner_text("#audit-totals")
+            lists = {t: await tab_names(t) for t in ("have", "partial", "missing", "matched", "misnamed", "baddump", "unknown", "duplicates")}
+            want = {"have": expected["have_list"], "partial": ["Epsilon (USA)"], "missing": expected["missing_list"], "matched": expected["matched"],
+                    "misnamed": expected["misnamed"], "baddump": expected["baddump"], "unknown": expected["unknown"], "duplicates": expected["duplicates"]}
+            check("the audit lists what you have, what's missing, misnamed, bad, unknown and duplicated",
+                  platform_now == "gb" and "3 of 6" in totals and lists == want, {k: v for k, v in lists.items() if v != want[k]} or totals)
+            await pg.click('#audit-tabs [data-tab="misnamed"]')
+            await pg.wait_for_selector('#audit-list .audit-row[data-name="beta.gb"]')
+            await pg.fill("#audit-search", "beta")
+            await pg.wait_for_function("() => document.querySelectorAll('#audit-list .audit-row').length === 1")
+            row = await pg.inner_text("#audit-list .audit-row")
+            check("a list is searched, and a misnamed file shows the name the DAT gives it", "Beta (Europe).gb" in row, row)
+            await pg.screenshot(path=str(out / "11-audit.png"), full_page=True)
+            await pg.fill("#audit-search", "")
+            await pg.click("#audit-menu")
+            await pg.click('#context-menu [data-action="export-fixdat"]')
+            said = await toast_text(pg, "fixdat of 3 games")
+            await pg.click("#audit-menu")
+            await pg.click('#context-menu [data-action="save-report-csv"]')
+            await toast_text(pg, "Saved the report")
+            fixdats = list((library / "_library/fixdats").glob("*.dat"))
+            reports = list((library / "_library/reports").glob("*.csv"))
+            csv = reports[0].read_text() if reports else ""
+            check("Export fixdat writes what's missing as a DAT, and the report is saved as CSV",
+                  len(fixdats) == 1 and "Alpha (Europe)" in fixdats[0].read_text() and "unknown,My Hack.gb" in csv, (said, [x.name for x in fixdats], csv[:200]))
+
+            # a rename and a deletion: the next scan reads only what changed
+            gbdir = fx / "Roms/Game Boy"
+            (gbdir / "beta.gb").rename(gbdir / "Beta (Europe).gb")
+            (gbdir / "Copies/Alpha copy.gb").unlink()
+            await pg.click("#audit-scan")
+            said = await toast_text(pg, "Scanned 6 files")
+            misnamed_after = await tab_names("misnamed")
+            dupes_after = await tab_names("duplicates")
+            check("a rescan reads only what changed, and the audit follows", "read 1 file" in said and "2 gone" in said and not misnamed_after and not dupes_after,
+                  (said, misnamed_after, dupes_after))
+
+            # a DAT made from a set
+            await pg.click("#audit-menu")
+            await pg.click('#context-menu [data-action="make-dat"]')
+            await pg.wait_for_selector("#make-dat-dialog")
+            await pg.fill("#make-dat-folder", "Game Boy")
+            await pg.fill("#make-dat-name", "My GB set")
+            await pg.select_option("#make-dat-platform", "gb")
+            await pg.click("#make-dat-dialog button[type=submit]")
+            said = await toast_text(pg, "Wrote My GB set")
+            made = list((library / "_library/made-dats").glob("My GB set*.dat"))
+            check("a DAT is made from a scanned set (ZIPs read for SHA1s) and imported to audit against",
+                  len(made) == 1 and "5 games" in said and "imported for Game Boy" in said and made[0].read_text().count("sha1=") == 5, said)
+            await pg.select_option("#audit-dat", label="My GB set (" + made[0].stem.split("(")[-1].rstrip(")") + ")")
+            await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '5'")
+            chosen = json.loads((library / "_library/library.json").read_text()).get("audit_dats", {})
+            check("the DAT chosen for a platform is kept for it", chosen.get("gb") == "My GB set", chosen)
+
+            # Settings: the DATs, and how scans read ZIPs (kept on this computer)
+            await pg.click('.sidebar a[href="#/settings"]')
+            await pg.wait_for_selector("#settings-dats .dat-group")
+            groups = await pg.eval_on_selector_all("#settings-dats .dat-group h3", "els => els.map(e => e.textContent)")
+            await pg.select_option("#scan-zips", "full")
+            await pg.wait_for_timeout(300)
+            cfg = json.loads((home / "config/config.json").read_text())
+            check("Settings lists the DATs by platform and keeps the scan settings on this computer",
+                  groups == ["Game Boy", "Nintendo Entertainment System", "satellaview"] and cfg.get("scan", {}).get("full") is True, (groups, cfg.get("scan")))
+            await pg.screenshot(path=str(out / "12-settings-games.png"), full_page=True)
+            await pg.click("#starter-dats")
+            await pg.click("#ask-dialog button[type=submit]")
+            said = await toast_text(pg, "starter DATs for")
+            starters = sorted(x.parent.name for x in (library / "_library/dats").rglob("*.dat") if x.parent.name in ("gamegear", "vectrex"))
+            check("Get starter DATs downloads the DATs of the systems that have none", "2 systems" in said and "2 already had one" in said and starters == ["gamegear", "vectrex"], (said, starters))
+
             # 7. the theme
             await pg.select_option("#theme-select", "night")
             theme = await pg.evaluate("() => document.documentElement.dataset.theme")
@@ -209,7 +346,7 @@ async def main():
             await pg.wait_for_selector("#about-versions")
             about = await pg.inner_text("#about-page")
             check("About shows the version, what's coming and how a library is laid out",
-                  "Game Repo" in about and "Phase 1" in about and "_library/" in about and "game.json" in about, about[:200])
+                  "Game Repo" in about and "Phase 2" in about and "_library/" in about and "game.json" in about, about[:200])
             await pg.screenshot(path=str(out / "04-about.png"), full_page=True)
 
             # 10. a library made by a newer app opens read-only

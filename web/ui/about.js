@@ -17,7 +17,9 @@ export const TREE = `_library/                       the app's own files
     game.json                   its id, DAT match, ROM hashes and details
     media/                      scraped covers, screenshots, videos, manuals
     docs/                       your guides, manuals, posters and maps
-  dats/                         the DAT files you imported
+  dats/<platform>/              the DAT files you imported, every version
+  fixdats/  reports/            what's missing as DATs, and saved audit reports
+  made-dats/                    DATs you made from your own sets
   journal/                      moves and renames, for Undo
 Nintendo - SNES/                platform folders, when you move ROMs in
   Chrono Trigger (USA).zip
@@ -30,9 +32,9 @@ PC/
 
 const DONE = [
   ["Phase 0", "The app, its library folder, the index on this computer and settings"],
+  ["Phase 1", "Scanning and hashing your ROMs, importing DAT files, auditing cartridge systems, reports, fixdats and DATs made from your sets"],
 ];
 const NEXT = [
-  ["Phase 1", "Scanning and hashing your ROMs, importing DAT files, and auditing cartridge systems", true],
   ["Phase 2", "Renaming and rebuilding sets, disc systems, and converting to and from ZIP, 7z, CHD, RVZ and CSO"],
   ["Phase 3", "Collections from rules, one game per title, and export to ES-DE"],
   ["Phase 4", "Importing PC games and installers into one layout, and Steam shortcuts"],
@@ -40,6 +42,7 @@ const NEXT = [
   ["Phase 6", "The library page: covers, search and filters"],
   ["Phase 7", "Arcade sets (MAME and FBNeo)"],
   ["Phase 8", "More frontends (RetroArch, Pegasus, Playnite, LaunchBox) and more metadata sources"],
+  ["Phase 9", "Serving games to your other devices: Android, Linux and handhelds on your home network"],
 ];
 
 /** Text with `code`, **bold**, *italic* and [links](https://…), as nodes (never as HTML). */
