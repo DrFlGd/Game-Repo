@@ -74,6 +74,7 @@ Phase 1 is built (`docs/PLAN.md`, "Phase 1 notes"); what's left of it is Jerred'
 - **Get starter DATs**: one click downloads the No-Intro DATs for the cartridge systems from libretro's public copy and imports them for the systems that have none yet. They can be a little behind No-Intro's newest; a newer DAT you import becomes the version in use.
 - **Make a DAT from a set**: write a DAT of a folder you've scanned, and import it to audit against.
 - **Home** shows a bar per platform, the last scan and what needs attention (folders not found here, files without a DAT or platform).
+- **Faster rescans**: scanning folders where nothing changed no longer writes to the index.
 - **Roadmap** (About): serving games from the app to Android, Linux and handheld devices on the home network is planned as Phase 9.
 - **Command line**: `gamerepo-cli roots`, `scan [--full]`, `dat import|list`, `audit <platform> [--list …] [--fixdat …] [--report txt|csv]` and `make-dat` work on the app's library.
 

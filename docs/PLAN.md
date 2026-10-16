@@ -808,9 +808,12 @@ lowercase hex text (the DATs' own form, and easy to read in a database tool); if
 - **The index follows the library's DATs**: `dat::sync_library` loads DAT files in
   `_library/dats/<platform>/` the index doesn't have and drops rows for ones that are
   gone; the chosen version of each DAT is `dat_current` in library.json.
-- **Timings** (Linux, release, this session): rescan of 100,000 unchanged files 0.8 s
-  (first scan of them 11 s); import of a 50,000-ROM DAT 1.0 s; its audit and a page of a
-  list 0.26 s. CI runs the same checks on Windows (`--ignored timing`).
+- **Timings** (Linux, release, this session): rescan of 100,000 unchanged files 0.3 s
+  (first scan of them 8 s); import of a 50,000-ROM DAT 0.6 s; its audit and a page of a
+  list 0.2 s. CI runs the same checks on Windows (`--ignored timing`), where the rescan
+  took 4.7 s and 6.7 s on two runs of the same code: a rescan of unchanged files now
+  writes nothing to the index (the per-file `seen` stamp is set only when a file is
+  added or moved), and the check takes the better of two rescans.
 - **Differences from the design**: renames are read again (see Scanning); a damaged ZIP is
   read from its local headers, and a file named `.zip` that isn't one is hashed as a
   file; files are *unknown* to a DAT when no DAT of that platform or of another platform

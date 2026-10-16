@@ -329,7 +329,7 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
     for (i, r) in roots.iter().enumerate() {
         if r.found() {
             walk(lib, &r.dir, i, cancel, &mut walked, &mut errors);
-            conn.execute("UPDATE files SET missing_since = NULL WHERE root_id = ?1", [&r.id])?;
+            conn.execute("UPDATE files SET missing_since = NULL WHERE root_id = ?1 AND missing_since IS NOT NULL", [&r.id])?;
         } else {
             missing_roots.push(r.id.clone());
             conn.execute("UPDATE files SET missing_since = COALESCE(missing_since, ?2) WHERE root_id = ?1", params![r.id, now()])?;
@@ -439,9 +439,6 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
             tx.execute("DELETE FROM files WHERE id = ?1", [row.id])?;
             removed += 1;
         }
-    }
-    for id in &found_ids {
-        tx.execute("UPDATE files SET seen = ?2 WHERE root_id = ?1", params![id, scan_id])?;
     }
     tx.commit()?;
     let seen: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE parent_id IS NULL", [], |r| r.get(0))?;
