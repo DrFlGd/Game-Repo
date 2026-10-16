@@ -42,6 +42,7 @@ const NEXT = [
   ["Phase 6", "The library page: covers, search and filters"],
   ["Phase 7", "Arcade sets (MAME and FBNeo)"],
   ["Phase 8", "More frontends (RetroArch, Pegasus, Playnite, LaunchBox) and more metadata sources"],
+  ["Phase 9", "Serving games to your other devices: Android, Linux and handhelds on your home network"],
 ];
 
 /** Text with `code`, **bold**, *italic* and [links](https://…), as nodes (never as HTML). */

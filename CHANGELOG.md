@@ -10,7 +10,7 @@ the app. The **For agents** section is the map for whoever works on the code nex
 
 ### What this is
 
-A Windows desktop app (Tauri 2) for organising large video game collections: auditing ROM sets against DAT files, building and exporting collections (ES-DE, Steam), importing PC games into a common layout, and scraping each game's details, media and manuals, with the user's own documents attached. The owner ("DrFlGd", Jerred) steers by phases; the plan, every decision taken (D1–D17) and the phases are in `docs/PLAN.md`.
+A Windows desktop app (Tauri 2) for organising large video game collections: auditing ROM sets against DAT files, building and exporting collections (ES-DE, Steam), importing PC games into a common layout, and scraping each game's details, media and manuals, with the user's own documents attached. The owner ("DrFlGd", Jerred) steers by phases; the plan, every decision taken (D1–D17, D18 open) and the phases are in `docs/PLAN.md`.
 
 The code started as a trimmed copy of [Model Library](https://github.com/DrFlGd/Model-Library) (same owner, same stack): its Tauri shell, its one-command-table backend, its library folder, its jobs and its Preact interface. Much more of it is meant to come across as the phases need it (the browser views, the sorting workspace for the PC inbox, journals and Undo, ZIP/7z reading, the side viewer for documents): look there before writing something from scratch. `docs/PLAN.md` section 5 lists what carries over.
 
@@ -60,7 +60,7 @@ The code started as a trimmed copy of [Model Library](https://github.com/DrFlGd/
 
 ### Next (roadmap)
 
-Phase 1 is built (`docs/PLAN.md`, "Phase 1 notes"); what's left of it is Jerred's check on a real No-Intro set. Starter DATs (D17, taken 2026-10-16) come from libretro's copy; CI's "Starter DATs from libretro" step shows whether its addresses still work. Then Phase 2: renaming and rebuilding sets with a dry run and Undo, disc systems, and conversion (ZIP, 7z, CHD, RVZ, CSO).
+Phase 1 is built (`docs/PLAN.md`, "Phase 1 notes"); what's left of it is Jerred's check on a real No-Intro set. Starter DATs (D17, taken 2026-10-16) come from libretro's copy; CI's "Starter DATs from libretro" step shows whether its addresses still work. Then Phase 2: renaming and rebuilding sets with a dry run and Undo, disc systems, and conversion (ZIP, 7z, CHD, RVZ, CSO). Phase 9 (added 2026-10-16) serves games to Android, Linux and handheld devices on the home network (`docs/PLAN.md` 3.10); D18 asks which devices come first.
 
 ---
 
@@ -74,6 +74,7 @@ Phase 1 is built (`docs/PLAN.md`, "Phase 1 notes"); what's left of it is Jerred'
 - **Get starter DATs**: one click downloads the No-Intro DATs for the cartridge systems from libretro's public copy and imports them for the systems that have none yet. They can be a little behind No-Intro's newest; a newer DAT you import becomes the version in use.
 - **Make a DAT from a set**: write a DAT of a folder you've scanned, and import it to audit against.
 - **Home** shows a bar per platform, the last scan and what needs attention (folders not found here, files without a DAT or platform).
+- **Roadmap** (About): serving games from the app to Android, Linux and handheld devices on the home network is planned as Phase 9.
 - **Command line**: `gamerepo-cli roots`, `scan [--full]`, `dat import|list`, `audit <platform> [--list …] [--fixdat …] [--report txt|csv]` and `make-dat` work on the app's library.
 
 ## 0.0.0 (2026-10-16)

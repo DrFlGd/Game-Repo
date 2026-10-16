@@ -34,7 +34,8 @@ called.*
 
 - Not an emulator or a game launcher. We organise; ES-DE and Steam launch.
 - Never downloads game content. DAT files and metadata only.
-- No multi-user/cloud sync. Single library, single owner.
+- No multi-user/cloud sync. Single library, single owner. (Serving games to the
+  owner's own devices on the home network is in scope: 3.10.)
 - Linux and server builds: keep the code portable, but nothing is built or tested there
   until Windows is done (decision D3).
 
@@ -305,6 +306,36 @@ Rules:
   a path set in Settings, with install hints; the conversions a missing tool provides are
   greyed out, nothing else changes.
 
+### 3.10 Serving games to other devices
+
+(Added by Jerred, 2026-10-16.) The app can run as a server on the home network, so an
+Android phone or handheld, a Linux PC or a dedicated Linux handheld (Anbernic-style
+devices running muOS, Knulli, ROCKNIX, ArkOS or Batocera) can browse the library and
+take games from it, without copying an SD card by hand.
+
+- **One server, built on the core.** `App::call` is already one command table (section
+  4), so the server is a thin HTTP layer over it, started from the desktop app (a
+  *Serve to devices* switch) or headless from `gamerepo-cli serve-devices`. It serves
+  read-only by default; nothing a device does changes the library.
+- **What a device sees**: the games by platform, or a collection (3.4), with names from
+  the DAT, scraped media and manuals (3.6, 3.8). Files go out in the format the device
+  wants, converting on the way where needed (3.9), the same as an export.
+- **How a device gets them**, in the order they'd be built:
+  1. a small web page and JSON API, so any browser on the device can browse and download;
+  2. a read-only WebDAV view of the export layout, which Android file managers, Linux
+     (`davfs2`, `rclone`) and the handheld firmwares that can mount a network share use
+     directly, so the device's own frontend plays from it or copies from it;
+  3. **Sync to a device**: a device profile (its firmware's folder names and formats,
+     the collection it carries, how much space it has) and a sync job that brings the
+     device to match, sending only what changed and verifying what was written. This is
+     the export of 3.4 aimed at a device instead of a folder.
+- **Device profiles** know each firmware's ROM and media folder names (muOS, Knulli,
+  ROCKNIX, ArkOS, Batocera, ES-DE on Android), as the ES-DE export knows ES-DE's.
+- **Safety on the network**: off until switched on, listening on the home network only,
+  paired with a code shown in the app, and never exposed to the internet by the app.
+- A dedicated client app on the device is not planned; existing frontends and file
+  managers are the clients unless a device needs one (decision D18).
+
 ---
 
 ## 4. Architecture
@@ -520,6 +551,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets and providers | RetroArch playlists, Pegasus, Playnite, LaunchBox exports; IGDB, TheGamesDB, MobyGames; automatic DAT updates where allowed; Linux build if wanted. |
+| **9** | Serve to devices | The app as a server on the home network (3.10): browse and download from a browser, a read-only WebDAV view, device profiles for Android, Linux and handheld firmwares, and sync of a collection to a device with verification. Needs Phase 3's collections and export; can move ahead of 4–8. |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
 reordered.
@@ -872,7 +904,12 @@ lowercase hex text (the DATs' own form, and easy to read in a database tool); if
 
 ## 11. Open decisions
 
-None. New ones get a number here as they come up (next: D18).
+- **D18 Serving to devices (3.10, Phase 9):** which devices and firmwares come first
+  (proposed: Android with ES-DE, then the handheld firmware Jerred uses), and whether
+  any of them needs a client app of its own (proposed: no; browser, WebDAV and sync
+  cover them). Settled before Phase 9 starts.
+
+New ones get a number here as they come up (next: D19).
 
 ---
 
