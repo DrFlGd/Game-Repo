@@ -594,14 +594,14 @@ reordered.
   `game.json`; scraped media goes in `_library/games/` with everything else's (3.5).
 - **D9 License:** MIT.
 - **D11 Index:** SQLite (section 4).
+- **D10 Name:** **Game Repo**, as the repository is called (Game Library, Game Shelf and
+  Game Vault were offered). Crates `gamerepo-core` and `gamerepo-cli`, app id
+  `io.github.drflgd.gamerepo`, default library folder `~/Game Repo`.
 
 ## 11. Open decisions
 
-- **D10 Product name.** Jerred is open to suggestions. Proposed: **Game Library**, the
-  name of the project itself and the sibling of Model Library; crates `gamelib-core` and
-  `gamelib-cli` (like `modlib-core`, `modlib-cli`), app id `io.github.drflgd.gamelibrary`.
-  The GitHub repository can stay "Game-Repo" or be renamed; GitHub redirects the old
-  name. Until it's settled the plan keeps `gamerepo-*` where it names the crates.
+None. Every decision in draft 1's list has been taken; new ones get a number here as
+they come up.
 
 ---
 
