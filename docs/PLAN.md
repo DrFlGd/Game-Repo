@@ -106,10 +106,21 @@ called.*
   **Have / Missing / Unknown / Misnamed / Bad dump (wrong hash) / Duplicate**, plus a
   completeness percentage overall and per parent-only ("1G1R complete").
 - **Fixdat export**: a DAT containing only the missing entries, usable with other tools.
-- **Rename / rebuild** to DAT names into a *sorted* output folder. Non-destructive by
-  default (copy or hardlink; originals untouched). A "move" mode exists behind an
-  explicit confirmation and a dry-run preview, journalled so it can be undone (Model
-  Library's journal pattern).
+- **Rename / rebuild** (decision D5). Three modes, chosen explicitly each time, each
+  with a dry-run preview first:
+  1. **Leave the originals** (the default): build the sorted set as copies or hardlinks
+     in an output folder; nothing under the library roots changes.
+  2. **Rename in place**: originals are renamed to the convention where they are.
+  3. **Move into the library**: originals are moved into the common library folder,
+     nested by platform (`<Library>/<Platform>/<Game Name>.<ext>`, or a folder per game
+     for multi-file games), and renamed on the way.
+  Modes 2 and 3 are journalled so every move can be undone (Model Library's journal
+  pattern), and nothing is removed until the moved or renamed file has been read back
+  and hashed.
+- **The naming convention is a Settings option**, per platform: DAT names as they are
+  (the default), or a template built from the DAT fields (`{name}`, `{region}`,
+  `{languages}`, `{revision}`, `{ext}`…) with a choice of flat files or a folder per
+  game, so a user who keeps `SNES/Chrono Trigger (USA)/` layouts can say so once.
 - Optional canonical zipping of sorted output (TorrentZip-style deterministic archives) so
   files hash identically to other collectors' sets.
 - Arcade sets (MAME/FBNeo) need merged/split/non-merged logic, BIOS/device dependencies
@@ -158,7 +169,7 @@ called.*
   2. Steam-style `steam_appid.txt` / depot manifests if present;
   3. filename parsing (`Title (Year) [Source] v1.2.3`) with a user confirmation step;
   4. manual entry.
-- Organised into a common structure (names are a proposal, see D6):
+- Organised into a common structure (decision D6):
 
   ```
   PC/
@@ -166,12 +177,15 @@ called.*
       install/     installer(s) or the game archive, untouched
       extracted/   optional unpacked copy (off by default)
       patches/     updates, DLC, fixes
-      extras/      manuals, soundtracks, wallpapers
-      media/       box art, screenshots (from the scraper)
+      extras/      the user's own documents: manuals, soundtracks, wallpapers
       game.json    manifest: title, year, source (GOG/Steam/retail), version,
                    files with sizes + SHA1, provider ids, installed-at path,
                    import date
   ```
+
+  Scraped media and manuals for a PC game live with every other game's in
+  `_library/games/pc/<Title> (<Year>)/media/`, not in the game's folder (Jerred,
+  2026-10-16), so the game folder holds only what the user put there.
 
 - A game that has been installed (by the user, or later by the app running the installer)
   records its launch executable in `game.json`, which is what the Steam export needs.
@@ -233,12 +247,13 @@ scrape|convert|docs|serve`), which also keeps the core testable without the wind
 A game can carry any number of documents: instruction books, strategy guides, posters,
 maps, box and cartridge scans, soundtracks, patch notes, readmes.
 
-- **Where they live.** Every Game that has anything beyond its ROM gets a folder of its
-  own, `_library/games/<platform>/<Game Name>/`, holding `game.json`, `media/` (scraped)
-  and `docs/` (the user's). For PC games this is the game's own folder (`extras/` is its
-  `docs/`). The folder is plain files that make sense without the app; documents keep
-  their names and are never renamed silently. The index records each document's kind,
-  title, size, hash and source.
+- **Where they live** (D13). Every Game that has anything beyond its ROM gets a folder of
+  its own, `_library/games/<platform>/<Game Name>/`, holding `game.json`, `media/`
+  (scraped) and `docs/` (the user's). A PC game's own documents are its `extras/` folder
+  (3.5); its scraped media and manuals are in `_library/games/pc/…` like everyone else's.
+  The folder is plain files that make sense without the app; documents keep their names
+  and are never renamed silently. The index records each document's kind, title, size,
+  hash and source.
 - **Kinds**: manual, guide, poster, map, box scan, cartridge/disc scan, soundtrack,
   readme, other. The kind is guessed from the name and format and can be changed.
 - **Attaching**: drop files on a game or its page; *Attach documents…* from a game's
@@ -313,13 +328,43 @@ Principles (Model Library's, applied here):
 - **The library folder is the source of truth** and must make sense without the app:
   games sit in ordinary folders, PC games carry `game.json`, and the index can be
   rebuilt from disk at any time. Nothing the user needs lives only in the index.
-- **Non-destructive by default.** The app writes into its own output folders; touching
-  the user's originals requires an explicit mode and a dry run, and every move is
-  journalled for Undo.
+- **Non-destructive by default.** The app writes into its own output folders; renaming
+  originals or moving them into the library is an explicit mode with a dry run (3.3),
+  and every move is journalled for Undo.
 - **Resumable jobs.** Every long operation checkpoints so a crash or a closed laptop lid
   doesn't restart a 2 TB hash run.
 - **Providers and exporters are small traits**, so adding TheGamesDB or a new frontend
   layout is one file.
+
+### On-disk layout
+
+The **library folder** is one folder the app owns, portable like Model Library's
+(`_library/library.json` carries a format number and the library id). ROMs can be
+anywhere (library roots, 2.) or moved into it (3.3, mode 3); PC games imported through
+the inbox land in it.
+
+```text
+<Library>/
+  _library/                          the app's files, kept small and plain
+    library.json                     format, library id, name, platform settings
+    games/<platform>/<Game Name>/    one folder per game that has more than its ROM
+      game.json                      id, platform, DAT match, ROM hashes, metadata
+      media/                         scraped: covers, screenshots, videos, manuals…
+      docs/                          the user's documents (3.8)
+    dats/                            imported DAT files, by platform and version
+    journal/                         moves and renames, newest first, for Undo
+    fixdats/, exports/               reports the app writes
+  Nintendo - SNES/                   platform folders (ES-DE system names), when ROMs
+    Chrono Trigger (USA).zip         are moved in; named by the convention in Settings
+  Sony - PlayStation/
+    Final Fantasy VII (USA)/         a folder per multi-file game
+      Final Fantasy VII (USA) (Disc 1).chd
+  PC/
+    <Title> (<Year>)/                3.5
+```
+
+The index (SQLite, below) lives in the app's data folder on this computer, not here,
+and is rebuilt from these files and DATs when missing.
 
 ### Game identity: hashes, not file names
 
@@ -541,21 +586,22 @@ reordered.
   hash, and to the game id for PC games (section 4, "Game identity").
 - **D14 External tools:** dropped into the app's `tools/` folder, or pointed at in
   Settings; not downloaded by the app.
+- **D4 Arcade scope:** MAME/FBNeo in Phase 7.
+- **D5 Touching originals:** allowed, as an explicit choice: rename in place, or move
+  into the common library folder nested by platform; otherwise originals are not
+  touched. The naming convention is a Settings option (3.3).
+- **D6 PC game folder:** `PC/<Title> (<Year>)/install|extracted|patches|extras` with
+  `game.json`; scraped media goes in `_library/games/` with everything else's (3.5).
+- **D9 License:** MIT.
+- **D11 Index:** SQLite (section 4).
 
 ## 11. Open decisions
 
-The plan assumes the **bold** default for each until told otherwise.
-
-- **D4 Arcade scope:** **MAME/FBNeo in Phase 7** vs earlier.
-- **D5 Touching originals:** **never by default** (sorted copies/hardlinks in an output
-  folder, journalled moves on request) vs in-place renaming as a first-class feature.
-- **D6 PC game folder convention:** `PC/<Title> (<Year>)/install|patches|extras|media`
-  as proposed, or an existing layout to match.
-- **D9 License:** **MIT**.
-- **D10 Names:** repository "Game Repo"; crate `gamerepo-core`, CLI `gamerepo-cli`, app
-  "Game Repo". A better product name is welcome before Phase 1 ships an installer.
-- **D11 Index in SQLite** rather than Model Library's JSON cache (section 4). Flagged
-  because it's the one place the family's pattern changes.
+- **D10 Product name.** Jerred is open to suggestions. Proposed: **Game Library**, the
+  name of the project itself and the sibling of Model Library; crates `gamelib-core` and
+  `gamelib-cli` (like `modlib-core`, `modlib-cli`), app id `io.github.drflgd.gamelibrary`.
+  The GitHub repository can stay "Game-Repo" or be renamed; GitHub redirects the old
+  name. Until it's settled the plan keeps `gamerepo-*` where it names the crates.
 
 ---
 
