@@ -557,6 +557,187 @@ What was built, and where it differs from the table above:
 - **Tests:** 13 Rust tests (library, index, commands) and 15 page checks in
   `tests/desktop_page.py`; `tests/desktop_ui.py` drives the built app in CI.
 
+### Phase 1 design (written 2026-10-16, for review before code)
+
+Phase 1 makes the app useful on cartridge sets: tell it where your ROMs are, give it the
+DATs, and it says what you have, what's missing and what's wrong, without changing a
+file. Renaming, rebuilding, discs, 7z/RAR and conversion are Phase 2.
+
+**What the user can do at the end of Phase 1**
+
+1. Add the folders their ROMs are in (*Settings › Folders with games*), each optionally
+   marked with its platform.
+2. Run **Scan**: every file is read once and hashed; ZIPs are looked inside; headered
+   ROMs get both hashes. A second scan reads only what changed.
+3. **Import DATs** (No-Intro's `.dat`, or the `.zip` it downloads as; any Logiqx XML or
+   ClrMamePro DAT): the app works out the platform from the DAT's name and asks when it
+   can't.
+4. Open **Audit** for a platform: completeness, then lists of *Have*, *Missing*,
+   *Misnamed*, *Unknown*, *Bad dump* and *Duplicates*, searchable, with each file's
+   path, and *Show in folder*. **Export fixdat** writes the missing games as a DAT.
+5. **Home** shows a bar per platform (have / total, and 1G1R complete), the last scan
+   and anything that needs attention (a folder that isn't there on this computer, a DAT
+   whose platform wasn't recognised).
+6. The same from the CLI: `roots add|list|remove`, `scan [--quick]`, `dat import|list`,
+   `audit <platform> [--list missing|…] [--fixdat <file>] [--json]`.
+
+**Folders with games (library roots)**
+
+- Kept in `library.json` (`roots: [{id, path, platform?}]`), because the index is rebuilt
+  from the library and its roots. A root inside the library is stored relative to it; one
+  outside, absolute. On another computer a root that isn't there shows as *Not found on
+  this computer* with *Point it elsewhere…*, which keeps its id (and so everything matched
+  under it). **Default proposed (D15).**
+- A root's platform is a hint for files no DAT recognises; matched files take their
+  platform from their DAT. Otherwise a folder's name is matched against the platform
+  aliases (`SNES`, `Super Nintendo`, `Nintendo - Super Nintendo Entertainment System`…)
+  and, last, the extension when it belongs to one platform only (`.sfc`, `.gba`…).
+- The library's own `_library/` is never scanned; hidden and system files are skipped;
+  symlinks and junctions are not followed (so a loop can't hang a scan).
+
+**Scanning and hashing**
+
+- A scan is a job (progress *n of m files, x GB*, Stop). Stopped or crashed, the next scan
+  continues where it was: hashes are committed in batches of a few hundred files.
+- Step 1, *walk*: list every file with size and modified time (fast: no file is opened).
+  A file whose path, size and modified time are unchanged keeps its hashes. A file that
+  vanished and one that appeared with the same name, size and time in the same scan is a
+  move: its hashes go with it, no reread.
+- Step 2, *hash* what's new or changed, in parallel: a pool of readers (default 2, set in
+  Settings: more for SSDs and NAS, 1 for a single slow disk), each file read once in 1 MB
+  blocks feeding CRC32, MD5 and SHA1 together. SHA256 is not computed in Phase 1 (no DAT
+  needs it to match); it is a later option.
+- **ZIPs**: each member is a file of its own (with the ZIP as its parent). The *full* scan
+  (the default, **D16**) decompresses each member and hashes it; the *quick* scan trusts
+  the CRC32 and size the ZIP already records, and audits those matches as *matched by
+  CRC only* until a full scan confirms them. Cartridge sets are small enough that full is
+  the right default; quick is there for a first look at a huge set.
+- **Headers**: while hashing, the first bytes are checked against built-in rules (iNES and
+  NES 2.0 `NES\x1A` 16 bytes; FDS `FDS\x1A` 16 bytes; Atari 7800 `ATARI7800` at offset 1,
+  128 bytes; Lynx `LYNX` 64 bytes; SNES copier headers when the size is 512 more than a
+  multiple of 1 KB). A headered file gets a second set of hashes of the data after the
+  header, computed in the same read. N64 ROMs in byte-swapped (`.v64`) or little-endian
+  (`.n64`) order are hashed as big-endian too, which is what No-Intro lists. Other
+  header rules are added when a platform needs them; No-Intro's header XMLs are not
+  needed.
+- Hashes live in the index only (`blobs`); nothing is written next to the files.
+
+**DATs**
+
+- Import reads the file (or the one DAT inside a `.zip`), stores a copy in
+  `_library/dats/<platform>/<DAT name> (<version>).dat` (the library is the source of
+  truth: a rebuilt index reads its DATs from here) and loads it into the index.
+- Formats: Logiqx XML (No-Intro, Redump, TOSEC, FBNeo; streamed with `quick-xml`) and
+  ClrMamePro text. MAME `-listxml` comes with arcade in Phase 7. `docs/dat-formats.md`
+  describes what is read from each.
+- The platform comes from the DAT's header name, matched against `docs/platforms.md`'s
+  table after dropping the group's suffixes (`(Headered)`, `(Parent-Clone)`, a date…).
+  Unknown: the import asks which platform it is for and remembers the answer for that
+  DAT name (in `library.json`, so the library keeps it).
+- Versions: importing a newer version of a DAT keeps the older one; each platform has one
+  *current* DAT (the newest by default; *Use this version* picks another). A platform can
+  have DATs from several groups (No-Intro and a TOSEC set); the audit shows one at a
+  time, chosen at the top of the page.
+- DAT entries marked `nodump` aren't counted as missing; `baddump` entries are matched
+  but flagged.
+- Names are parsed into fields at import (title, regions, languages, revision, version,
+  flags such as Beta, Proto, Demo, Unl, BIOS, Pirate), for display now and for
+  collection rules in Phase 3.
+
+**Matching and the audit**
+
+- A file matches a DAT ROM by SHA1, else MD5, else CRC32 and size (the last only for
+  quick-scanned ZIP members, and marked). Headerless hashes are tried for headered files.
+  Matches are worked out after each scan and each DAT import, for what changed only.
+- A **DAT game** is *Have* when every ROM it lists (other than nodumps) is matched,
+  *Partial* when some are, *Missing* when none are.
+- A **file** under a platform is:
+  - *Matched* and correctly named: the file name is the DAT ROM name; for a ZIP, the ZIP
+    is named for the game and each member for its ROM;
+  - *Misnamed*: matched, but named otherwise (the rename that would fix it is shown; doing
+    it is Phase 2);
+  - *Bad dump*: no hash match, but named as one of the DAT's ROMs (a likely corrupt,
+    trimmed or patched copy);
+  - *Unknown*: no match at all (a hack, a translation, a file for another platform);
+  - *Duplicate*: one of several files matching the same ROM (each is listed with its
+    path, to choose which to keep in Phase 2).
+- Completeness: *have / total* games, and **1G1R complete**: parent/clone groups with
+  at least one member present, out of all groups (so owning *Super Mario World (USA)*
+  counts the group whatever the other regions).
+- **Fixdat**: the Missing (and Partial) games as a Logiqx DAT named
+  `<DAT name> (fixdat <date>)`, saved to `_library/fixdats/` and openable from the page.
+
+**Index tables (Phase 1 migration steps)**
+
+```
+roots        id TEXT PK, path TEXT, platform TEXT
+files        id INTEGER PK, root_id, parent_id (the ZIP for a member), rel_path, name,
+             size, mtime, blob_id, platform, seen (scan number), missing_since
+             UNIQUE(root_id, rel_path) · INDEX(blob_id) · INDEX(platform)
+blobs        id INTEGER PK, size, crc32, md5, sha1, header, hl_crc32, hl_md5, hl_sha1,
+             quick (1 when only CRC32+size are known)
+             INDEX(sha1) · INDEX(md5) · INDEX(crc32, size) · INDEX(hl_sha1)
+dats         id INTEGER PK, platform, name, version, source_path, imported, current
+dat_games    id INTEGER PK, dat_id, name, description, parent_id, title, regions,
+             languages, revision, flags
+dat_roms     id INTEGER PK, game_id, name, size, crc32, md5, sha1, status
+             INDEX(sha1) · INDEX(md5) · INDEX(crc32, size)
+matches      file_id, rom_id, method (sha1|md5|crc), PRIMARY KEY(file_id, rom_id)
+scans        id, started, finished, files_seen, files_hashed, bytes_hashed, stopped
+```
+
+Each table is its own `MIGRATIONS` step, appended after Phase 0's. Hashes are stored as
+lowercase hex text (the DATs' own form, and easy to read in a database tool); if the
+100k-file check below shows that costs too much, they become blobs in a later step.
+
+**Performance targets (checked by tests on generated data)**
+
+- Rescanning 100,000 unchanged files: under 5 s on CI's runner.
+- Importing a 50,000-ROM DAT: under 5 s. Auditing it: under 1 s.
+- Hashing runs at disk speed: one read per file, whatever the number of hashes.
+- Audit lists page through SQL (`LIMIT/OFFSET` with the search in the query), so a list
+  of 40,000 missing games scrolls without loading them all.
+
+**Pages**
+
+- *Settings › Folders with games*: add (folder picker), remove (asks; nothing on disk is
+  touched), platform hint, *Not found on this computer › Point it elsewhere…*; *Files
+  read at once*; *Full or quick scan*.
+- *Settings › DAT files*: Import…, the list by platform with version and date, *Use this
+  version*, *Remove*.
+- *Home*: Scan (with its job in the status bar), the platform bars, what needs attention.
+- *Audit*: platform and DAT at the top, the counts as tabs, the list with search, Show in
+  folder, Export fixdat, Copy report.
+- Audit, Home and Settings replace their Phase 0 placeholders; Collections, PC games and
+  Metadata stay as they are.
+
+**Tests**
+
+- Rust: header detection and headerless hashes, N64 byte orders, ZIP members (full and
+  quick), incremental rescans and moved files, both DAT formats, platform detection,
+  every audit category, fixdat round-trip (export it, import it, same games), and the
+  timing checks on generated data.
+- `tests/fixtures/`: a script makes synthetic ROMs (random bytes, some with iNES or
+  copier headers, some zipped, some misnamed, some corrupt) and a hand-written DAT
+  describing them; no real ROMs or DATs are committed.
+- `desktop_page.py`: add a folder, scan, import the DAT, read every Audit tab, export a
+  fixdat, rescan after a file is renamed and one deleted.
+- Real-set check: Jerred runs the Phase 1 release on a No-Intro set he has and compares
+  the counts with the tool he uses now; differences become bugs.
+
+**Not in Phase 1** (later phases): renaming, rebuilding and moving files (2), 7z and RAR
+(2), discs and CHD/RVZ/CSO (2), a folder watcher (2; Phase 1 rescans on demand), arcade
+(7), automatic DAT downloads (8).
+
+**Decisions proposed (defaults taken unless Jerred says otherwise)**
+
+- **D15** Folders with games are kept in the library (`library.json`), re-pointed per
+  computer when their path differs. *Alternative:* keep them per computer, so each
+  computer lists its own folders.
+- **D16** Full scan by default (ZIP members decompressed and hashed); quick scan as an
+  option. *Alternative:* quick by default, full on request.
+
+
 ---
 
 ## 8. Working in a cloud session
@@ -634,8 +815,12 @@ What was built, and where it differs from the table above:
 
 ## 11. Open decisions
 
-None. Every decision in draft 1's list has been taken; new ones get a number here as
-they come up.
+Proposed with the Phase 1 design (7); the default is built unless Jerred says otherwise:
+
+- **D15** Where the folders with games are kept: in the library (default), re-pointed on a
+  computer where the path differs; or per computer.
+- **D16** Scan depth: full by default (ZIP members decompressed and hashed), quick (trust
+  the ZIP's CRC32) as an option; or the other way round.
 
 ---
 
@@ -643,6 +828,6 @@ they come up.
 
 1. ~~Phase 0: seed the repository from Model Library, drop the 3D pieces, rename the crates,
    add the SQLite index and CI, write CHANGELOG's "For agents".~~ Done (Phase 0 notes, 7).
-2. Write `docs/dat-formats.md` and `docs/platforms.md` (ES-DE system names ↔ DAT names ↔
-   provider ids) while building the DAT importer.
+2. ~~Write `docs/dat-formats.md` and `docs/platforms.md`.~~ First versions written with the
+   Phase 1 design; they grow as platforms are added.
 3. Phase 1: scanner, DAT import and audit, verified end to end on one real No-Intro set.

@@ -57,11 +57,13 @@ The code started as a trimmed copy of [Model Library](https://github.com/DrFlGd/
 
 ### Next (roadmap)
 
-Phase 1 (`docs/PLAN.md`, section 7): scanning library roots and hashing files (inside ZIPs too, headered ROMs), DAT import, and the audit of cartridge systems, verified end to end on a No-Intro set; Home and Audit pages. Write "Phase 1 design" into the plan first, with `docs/dat-formats.md` and `docs/platforms.md`.
+Phase 1 (`docs/PLAN.md`, section 7): scanning library roots and hashing files (inside ZIPs too, headered ROMs), DAT import, and the audit of cartridge systems, verified end to end on a No-Intro set; Home and Audit pages. Its design is "Phase 1 design" in the plan (with `docs/dat-formats.md` and `docs/platforms.md`); build it once Jerred has reviewed it, including decisions D15 and D16.
 
 ---
 
 ## Unreleased
+
+## 0.0.0 (2026-10-16)
 
 The first version of Game Repo: the app itself, with its library and settings. The features come in the next phases; the menu shows what each brings.
 
