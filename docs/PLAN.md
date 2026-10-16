@@ -18,6 +18,13 @@ A Windows desktop application for organising a personal video game library:
 4. **Scrape and store metadata and media** (box art, screenshots, descriptions, release
    data…) from configurable online sources such as ScreenScraper (the service behind
    Skraper), LaunchBox GamesDB and IGDB, and write it out where ES-DE and Steam read it.
+5. **Attach documents** to a game: instruction books, game guides, posters, maps, box and
+   cartridge scans, soundtracks, and anything else the user keeps with it; view them in
+   the app and export manuals where ES-DE shows them. (Added by Jerred, 2026-10-16.)
+6. **Compress, decompress and convert** game files between the common formats: zip, 7z
+   and rar archives; CHD for disc images; RVZ for GameCube/Wii; CSO/ZSO for PSP; with
+   every conversion verified against the DAT before an original is touched. (Added by
+   Jerred, 2026-10-16.)
 
 Everything is driven from one local index of the user's files by hash, so each feature
 builds on the same core: *know every file you have, what it is, and what it should be
@@ -43,6 +50,8 @@ called.*
 | **DAT** | A reference list for one platform from one source (e.g. *No-Intro SNES 2026-10-01*). Parsed into **DAT games** and **DAT ROMs** (expected name, size, hashes, parent/clone, region/language flags). |
 | **Match** | A File ↔ DAT ROM link established by hash. The basis of audit, rename and export. |
 | **Game** | The user-facing entity: a title on a platform, possibly with several ROM/disc files, plus metadata and media. A DAT game becomes a Game when matched; PC imports are Games without a DAT. |
+| **Document** | A file the user keeps with a Game that isn't the game itself: a manual, guide, poster, map, scan, soundtrack, readme. Has a kind, a title, and lives in the Game's own folder (3.8). |
+| **Storage format** | How a game's files are stored on disk for a platform: raw (`.bin/.cue`, `.iso`), an archive (`.zip`, `.7z`), or a compressed image (`.chd`, `.rvz`, `.cso`). Each platform has a preferred one, and conversion moves between them (3.9). |
 | **Collection** | A saved rule set (or manual list) that selects Games; can be exported to a target layout. |
 | **Provider** | A metadata/media source with its own matching and rate-limit rules. |
 | **Job** | Any long-running operation (scan, audit, export, scrape). Runs in the background, reports progress, can be stopped and resumed. |
@@ -68,9 +77,12 @@ called.*
   headers (iNES/NES 16 B, FDS 16 B, Atari 7800 A78 128 B, Lynx LNX 64 B, SNES copier
   512 B…) using No-Intro's header definition XMLs and record both headered and headerless
   hashes.
-- **Disc images**: `.cue/.bin`, `.iso`, `.gdi`, `.chd`. Redump DATs hash per track; CHDs
-  are verified through `chdman` (external tool, optional) or by the SHA1 stored in the
-  CHD header.
+- **Disc images**: `.cue/.bin`, `.iso`, `.gdi`, `.chd`, `.rvz`, `.cso`. Redump DATs hash
+  the raw tracks, so a compressed image is matched by the hash of what it *decompresses
+  to*: a CHD by the data SHA1 in its header (confirmed with `chdman verify` on demand),
+  an RVZ by `dolphin-tool verify`, a CSO by decompressing it in a stream. The index
+  records both the container's own hash and the decompressed hash, so audits treat a
+  verified CHD as the Redump game it holds.
 - Store results in the index (section 4). The hash cache is keyed on content, so moving or
   renaming a file does not force a rehash.
 
@@ -119,8 +131,11 @@ called.*
   - **ES-DE**: `ROMs/<system>/<Game Name>.<ext>` with ES-DE's system folder names,
     `ES-DE/gamelists/<system>/gamelist.xml`, and media under
     `ES-DE/downloaded_media/<system>/<type>/` (covers, backcovers, 3dboxes, screenshots,
-    titlescreens, marquees, fanart, videos, manuals, miximages…). Also ES-DE custom
-    collections (`.cfg` lists) so a Game Repo collection shows up as one in ES-DE.
+    titlescreens, marquees, fanart, videos, manuals, miximages…). A game's manual
+    document goes to `manuals/`, a poster or map can be sent as `fanart`. Also ES-DE
+    custom collections (`.cfg` lists) so a Game Repo collection shows up as one in ES-DE.
+    The export can convert on the way out (3.9): a collection exported for an emulator
+    that wants CHD gets CHD, whatever the library stores.
   - **Steam**: PC games (and, optionally, emulated games via a configurable launcher
     command, the way Steam ROM Manager does it) added as non-Steam shortcuts in
     `userdata/<id>/config/shortcuts.vdf`, with grid/hero/logo/icon artwork written to
@@ -187,6 +202,8 @@ called.*
   re-download.
 - Written out through the exporters above (`gamelist.xml` + ES-DE media folders, Steam
   grid artwork).
+- Providers that offer manuals (ScreenScraper does) save them as documents of kind
+  *manual* (3.8), marked as scraped so a user's own copy is never overwritten.
 
 ### 3.7 User interface
 
@@ -202,11 +219,75 @@ Pages (Preact + htm islands, the Model Library shell; see §5):
   installers and archives instead of STLs).
 - **Scraper** — provider setup, queue, review of low-confidence matches.
 - **Jobs** in the status bar — progress, log, Stop; the Model Library job pattern.
-- **Settings** — roots, platforms/aliases, external tools (`7z`, `chdman`, `innoextract`),
-  providers and their credentials, ES-DE and Steam folders.
+- **Game page** — a game's details, media, its documents (viewed in the side viewer) and
+  its files with their storage format and Convert actions.
+- **Settings** — roots, platforms/aliases, preferred storage format per platform,
+  external tools (`chdman`, `dolphin-tool`, `maxcso`, `innoextract`, `7z`), providers and
+  their credentials, ES-DE and Steam folders.
 
 Everything the UI can do, the CLI can do (`gamerepo-cli scan|dat|audit|export|import|
-scrape|serve`), which also keeps the core testable without the window.
+scrape|convert|docs|serve`), which also keeps the core testable without the window.
+
+### 3.8 Documents attached to a game
+
+A game can carry any number of documents: instruction books, strategy guides, posters,
+maps, box and cartridge scans, soundtracks, patch notes, readmes.
+
+- **Where they live.** Every Game that has anything beyond its ROM gets a folder of its
+  own, `_library/games/<platform>/<Game Name>/`, holding `game.json`, `media/` (scraped)
+  and `docs/` (the user's). For PC games this is the game's own folder (`extras/` is its
+  `docs/`). The folder is plain files that make sense without the app; documents keep
+  their names and are never renamed silently. The index records each document's kind,
+  title, size, hash and source.
+- **Kinds**: manual, guide, poster, map, box scan, cartridge/disc scan, soundtrack,
+  readme, other. The kind is guessed from the name and format and can be changed.
+- **Attaching**: drop files on a game or its page; *Attach documents…* from a game's
+  menu; or **bulk attach** a folder of manuals/scans to a platform, matched to games by
+  DAT name the way scrapers match (exact, then fuzzy with review), which is how
+  collectors' manual packs arrive.
+- **Viewing**: PDFs, images, text and markdown in the side viewer (Model Library's
+  `docs.rs` and `document-viewer.js` carry over); audio plays in the page; anything else
+  opens externally. Documents inside archives are listed and viewed in place, as Model
+  Library does for its archives.
+- **Export**: manuals go to ES-DE's `manuals/`; posters and maps can be exported as
+  ES-DE fanart; the rest stays in the library. A collection export can include a game's
+  documents beside its files when the target is a plain folder tree.
+- **Scraped manuals** (3.6) are documents of kind manual with `source: screenscraper`;
+  a user's own file of the same kind is preferred on export.
+
+### 3.9 Compression, decompression and conversion
+
+The library stores each platform in a **preferred storage format**, and the app converts
+to and from it:
+
+| Format | Platforms | Tool | Notes |
+|---|---|---|---|
+| `.zip` (TorrentZip-style, deterministic) | cartridge systems, arcade | built in (`zip` crate) | the format DAT groups and other managers expect |
+| `.7z`, `.rar` | anything, PC game archives | built in (`sevenz-rust2`, `unrar`; 7z is also written) | rar is read only |
+| `.chd` | PS1, PS2, Saturn, Dreamcast, Sega CD, PC Engine CD, Neo Geo CD, arcade disks… | `chdman` (external, from MAME) | `createcd` / `createdvd` / `extractcd` / `verify`; CD and DVD modes chosen per platform |
+| `.rvz` | GameCube, Wii | `dolphin-tool` (external, ships with Dolphin) | `convert -f rvz` with zstd; `verify` gives the decompressed hashes |
+| `.cso` / `.zso` | PSP (and PS2 for some emulators) | `maxcso` (external) | lossless; decompressed by streaming in the core |
+| raw (`.bin/.cue`, `.iso`, `.gdi`) | any disc system | built in | what Redump DATs describe |
+
+Rules:
+
+- **Verified before anything is removed.** A conversion is a job: convert to a temporary
+  file, hash the result's *decompressed* data (or ask the tool to verify), compare with
+  the DAT match of the source, and only then place the result and journal the original
+  for Undo (Model Library's checking and journal pattern). A conversion that can't be
+  verified against a DAT is still checked by round-tripping (convert back and compare
+  hashes) before the original goes.
+- **Lossless only by default.** CHD, RVZ, CSO/ZSO, zip and 7z all round-trip exactly.
+  Lossy conversions (dropping audio tracks, ISO from a multi-track CD) are refused unless
+  explicitly asked for, and are marked in the index.
+- **Where it's used**: a *Convert* action on one game or a selection; a *Compress this
+  platform* job that brings a whole platform to its preferred format; on import (a PC
+  game archive re-packed as 7z if wanted); on export (3.4) when the target wants a
+  format the library doesn't store; and *Extract* for anything the user wants raw.
+- **Audit understands all of them** (3.1): a CHD, RVZ or CSO is audited as the Redump game
+  it holds, so compressing a verified set does not break its audit.
+- Tools are found on the PATH or in Settings, with install hints; the conversions a
+  missing tool provides are greyed out, nothing else changes.
 
 ---
 
@@ -274,7 +355,9 @@ Game-Repo/
 parent_file_id for archive members), `platforms`, `platform_aliases`, `dats`, `dat_games`,
 `dat_roms`, `matches`, `games`, `game_files`, `collections`, `collection_rules`,
 `collection_items`, `exports`, `export_files`, `metadata` (per game per provider),
-`media`, `provider_cache`, `jobs`, `job_log`.
+`media`, `documents` (game, kind, title, path, hash, source), `conversions` (source file,
+result file, format, verified-by, journal entry), `provider_cache`, `jobs`, `job_log`.
+`files` carries, for a compressed image, the decompressed data's hashes beside its own.
 
 ---
 
@@ -302,7 +385,7 @@ Why this and not the TypeScript stack draft 1 proposed:
 |---|---|
 | Core | Rust (stable), `desktop/core` crate `gamerepo-core`; CLI `gamerepo-cli` with `serve` for tests |
 | Hashes | `crc32fast`, `md-5`, `sha1`, `sha2`; one buffered read feeding all of them |
-| Archives | `zip` (entries read in place), `sevenz-rust2`, `unrar` (unpacked once into the data folder's cache, Model Library's `archive.rs`); `chdman` external for CHD |
+| Archives and images | `zip` (entries read in place, deterministic writing), `sevenz-rust2` (read and write), `unrar` (read; unpacked once into the data folder's cache, Model Library's `archive.rs`); external `chdman` (CHD), `dolphin-tool` (RVZ), `maxcso` (CSO/ZSO), driven as jobs with progress |
 | DAT parsing | `quick-xml` streaming (MAME listxml is 300 MB+), a small ClrMamePro parser |
 | Index | `rusqlite` (bundled SQLite, WAL), migrations in the crate |
 | HTTP | `ureq` (as in SCAD Workshop) with per-provider rate limiting |
@@ -323,7 +406,8 @@ Why this and not the TypeScript stack draft 1 proposed:
 | `dupes.rs` (fingerprint then SHA-256, set aside with undo) | Reuse for duplicate ROMs and PC installers; hashes move to the SQLite index. |
 | `watch.rs`, `checking.rs` (read and hash before a change, with progress) | Keep. |
 | `relayout.rs` / journal, `fileops.rs`, `delete.rs` | Reuse for rename/rebuild, export moves, and Undo. |
-| `sort.rs` + `web/ui/sort.js` (the Import workspace) | Becomes the PC game inbox. |
+| `sort.rs` + `web/ui/sort.js` (the Import workspace) | Becomes the PC game inbox and the bulk document attach. |
+| `docs.rs`, `document-viewer.js`, the media views in `parts.js`, `archive_ops.rs` (Compress to ZIP, Extract archive, read back and hashed first) | Keep: a game's documents (3.8) and the archive side of conversion (3.9). |
 | `import.rs` (destinations from a schema, moving/copying with hash checks) | Reuse for the PC folder convention and export writing. |
 | `index.rs` in-memory JSON cache | Replaced by SQLite (above); the search folding and query language stay. |
 | `web/ui/` browser, details, inspector, dialogs, settings, skins, status bar | Keep. |
@@ -337,9 +421,11 @@ products differ and Model Library has its own release phases.
 
 ## 6. External tools, services and legal notes
 
-- Optional binaries detected at runtime, with install hints in Settings: `7z` (fallback
-  for odd archives), `chdman` (from MAME, for CHD), `innoextract` (GOG/InnoSetup
-  installers).
+- Optional binaries detected at runtime, with install hints in Settings: `chdman` (from
+  MAME, for CHD), `dolphin-tool` (from Dolphin, for RVZ), `maxcso` (CSO/ZSO), `innoextract`
+  (GOG/InnoSetup installers), `7z` (fallback for odd archives). Each is called as a child
+  process with its output streamed into the job's progress; none is bundled, for licence
+  and size reasons, unless Jerred wants them downloaded on first use.
 - Credentials (ScreenScraper, IGDB, TheGamesDB, MobyGames) are stored on this computer in
   the app's data folder, never in the library and never in the repository.
 - The repository will contain **no ROMs, no installers and no copyrighted media**. Test
@@ -358,10 +444,10 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 |---|---|---|
 | **0** | Scaffold | Repository seeded from Model Library with the game-library pieces kept and the 3D pieces dropped; `gamerepo-cli --help`; SQLite index with migrations; CI builds the Windows app and runs the (empty) tests; CHANGELOG "For agents" written. |
 | **1** | Scan + DAT + Audit (cartridge systems) | `gamerepo-cli scan <root>` hashes files incl. zip members and headered ROMs; `dat import`; `audit <platform>` prints Have/Missing/Unknown/Misnamed and writes a fixdat. Home and Audit pages in the app. Verified on a No-Intro set. |
-| **2** | Rename/rebuild + disc systems | Sorted output by DAT name (copy/hardlink/move with dry run and Undo); Redump cue/bin and CHD support; 7z/rar reading. |
+| **2** | Rename/rebuild + disc systems + conversion | Sorted output by DAT name (copy/hardlink/move with dry run and Undo); Redump cue/bin; 7z/rar reading; CHD, RVZ and CSO audited as the games they hold; Convert and Extract with verification and Undo, deterministic zip and 7z writing, preferred format per platform. |
 | **3** | Collections + ES-DE export | Rule-based collections with 1G1R; export to ES-DE (ROMs, gamelist.xml, custom collections) and a plain tree; export verification and re-sync. |
 | **4** | PC game import + Steam | Inbox classification, GOG id detection, common structure + `game.json`, duplicate detection; Steam non-Steam shortcuts with artwork. |
-| **5** | Metadata & media | Provider settings; LaunchBox offline provider, then ScreenScraper (hash lookup); media storage; ES-DE media folders and Steam grid output; review queue for weak matches. |
+| **5** | Metadata, media & documents | Provider settings; LaunchBox offline provider, then ScreenScraper (hash lookup, manuals); media storage; the game folder with `docs/`, attach and bulk attach, the side viewer for PDFs/images/text/audio; ES-DE media and manuals folders and Steam grid output; review queue for weak matches. |
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets and providers | RetroArch playlists, Pegasus, Playnite, LaunchBox exports; IGDB, TheGamesDB, MobyGames; automatic DAT updates where allowed; Linux build if wanted. |
@@ -395,6 +481,13 @@ reordered.
   non-destructive default, dry runs, and the journal so every move can be undone.
 - **Steam's files**: `shortcuts.vdf` is binary and Steam rewrites it. Mitigated by writing
   only while Steam is closed, backing up first, and keeping our shortcuts identifiable.
+- **Conversions that lose data**: a CHD made with the wrong mode, an RVZ of a scrubbed
+  ISO, a CD ripped to ISO without its audio tracks. Mitigated by verifying every result
+  against the DAT or by round trip before an original is journalled, and refusing lossy
+  conversions unless asked.
+- **External tools** (`chdman`, `dolphin-tool`, `maxcso`) change their command lines
+  between versions. Mitigated by probing the version at startup and pinning the known
+  syntax per version, with fixtures that exercise each tool in CI.
 - **Format edge cases**: headered dumps, multi-track discs, nested archives, MAME merge
   modes. Mitigated by fixtures per edge case and by leaning on how Igir/RomVault handle
   them.
@@ -414,6 +507,9 @@ reordered.
   Phase 5; others come in Phase 8.
 - **D8 Metadata providers:** no accounts assumed; providers and credentials are
   configurable in Settings.
+- **Requirements added (Jerred, 2026-10-16):** documents attached to a game (manuals,
+  guides, posters…), section 3.8; compression, decompression and conversion (zip, CHD,
+  RVZ…), section 3.9.
 
 ## 11. Open decisions
 
@@ -429,6 +525,14 @@ The plan assumes the **bold** default for each until told otherwise.
   "Game Repo". A better product name is welcome before Phase 1 ships an installer.
 - **D11 Index in SQLite** rather than Model Library's JSON cache (section 4). Flagged
   because it's the one place the family's pattern changes.
+- **D12 Preferred storage formats:** **cartridges → zip, CD/DVD systems → CHD,
+  GameCube/Wii → RVZ, PSP → CSO, PC → 7z**, each changeable per platform in Settings.
+- **D13 Where documents live:** **`_library/games/<platform>/<Game Name>/docs/`** (one
+  folder per game beside its scraped media) vs a `docs/` folder next to the ROM inside
+  the platform folder. The first keeps platform folders clean for ES-DE; the second keeps
+  a game and its papers together in a file manager.
+- **D14 External tools:** **found on the PATH or pointed at in Settings** vs downloaded
+  by the app on first use.
 
 ---
 
