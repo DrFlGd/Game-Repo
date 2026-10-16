@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Game Repo</title>
+  <meta name="description" content="Audit ROM sets against DAT files, build collections, import PC games and keep each game's details in one library.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..800&family=Overpass:wght@400..800&family=Overpass+Mono:wght@400..700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <div id="sidebar-root" class="sidebar-root"></div>
+    <div id="main-root" class="app-main"></div>
+  </div>
+  <footer id="statusbar" class="statusbar"></footer>
+  <div id="dialog-root"></div>
+  <div id="menu-root"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <noscript><p>Game Repo needs JavaScript.</p></noscript>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

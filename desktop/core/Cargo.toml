@@ -1,0 +1,21 @@
+[package]
+name = "gamerepo-core"
+description = "Library folder, index and commands for the Game Repo desktop app"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "gamerepo_core"
+
+[[bin]]
+name = "gamerepo-cli"
+path = "src/bin/gamerepo-cli.rs"
+
+[dependencies]
+anyhow = "1"
+hex = "0.4"
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }

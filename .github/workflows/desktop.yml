@@ -1,0 +1,283 @@
+name: Desktop
+
+# Builds the desktop app (Tauri) for Windows, runs the Rust tests and the acceptance
+# test (the page against the app's real backend), drives the app through WebDriver,
+# and when everything passes on main publishes a numbered release (v0.0.0, v0.0.1,
+# ...; see tools/set_version.py) with notes taken from CHANGELOG.md's Unreleased
+# section. Windows is the only platform for now (decision D3, docs/PLAN.md):
+# the Linux app and the Linux-to-Windows library check run only when asked for, from
+# Run workflow with "Linux too" ticked. Reports and screenshots go to the
+# desktop-ci-<os> branches.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "web/**"
+      - "tools/**"
+      - "tests/**"
+      - ".github/workflows/desktop.yml"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      linux:
+        description: "Linux too (the Linux app and the Linux-to-Windows library check)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  version:
+    name: Release number
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: |
+          v=$(python3 tools/set_version.py --next)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Version::$v"
+
+  linux:
+    name: Linux app
+    needs: version
+    if: github.event_name == 'workflow_dispatch' && inputs.linux
+    runs-on: ubuntu-22.04   # oldest supported: the AppImage then runs on newer systems too
+    timeout-minutes: 60
+    defaults:
+      run: { shell: bash }   # -o pipefail, so "cmd | tee log" fails when cmd fails
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: System packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 xvfb webkit2gtk-driver
+          pip install selenium playwright
+          python -m playwright install --with-deps chromium 2>&1 | tail -2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: desktop }
+      - name: Version ${{ needs.version.outputs.version }}
+        run: python tools/set_version.py "${{ needs.version.outputs.version }}"
+      - name: Check and test the Rust code
+        working-directory: desktop
+        run: |
+          mkdir -p ../ci-out
+          cargo build --release -p gamerepo-core 2>&1 | tee ../ci-out/core-build.log
+          cargo test --release -p gamerepo-core 2>&1 | tee ../ci-out/core-test.log
+          cp Cargo.lock ../ci-out/Cargo.lock
+      - name: Front end
+        run: |
+          python tools/build_desktop.py --out build/desktop --fetch-fonts
+      - name: Acceptance test (the page and the app's backend)
+        if: always()
+        run: |
+          timeout 600 python tests/desktop_page.py --cli desktop/target/release/gamerepo-cli --ui build/desktop/ui \
+            --home "$RUNNER_TEMP/pagehome" --out ci-out/page 2>&1 | tee ci-out/desktop-page.log
+      - name: Build the app (AppImage, deb)
+        working-directory: desktop
+        run: npx --yes @tauri-apps/cli@2 build --bundles appimage,deb 2>&1 | tee ../ci-out/tauri-build.log
+      - name: Collect bundles
+        if: always()
+        run: |
+          mkdir -p dist
+          find desktop/target/release/bundle -maxdepth 2 \( -name '*.AppImage' -o -name '*.deb' \) -exec cp {} dist/ \; || true
+          ls -la dist | tee -a ci-out/bundles.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: bundles-linux, path: dist/, retention-days: 3 }
+      - name: Start the app once (startup log)
+        if: always()
+        run: |
+          export HOME="$RUNNER_TEMP/home" && mkdir -p "$HOME"
+          (timeout 25 xvfb-run -a desktop/target/release/game-repo > ci-out/app-start.log 2>&1; echo "exit $?" >> ci-out/app-start.log) || true
+          ls -la "$HOME/Game Repo" "$HOME/Game Repo/_library" >> ci-out/app-start.log 2>&1 || true
+      - name: Drive the app (WebDriver)
+        run: |
+          cargo install tauri-driver --locked 2>&1 | tail -3
+          export HOME="$RUNNER_TEMP/home2" && mkdir -p "$HOME"
+          # one X server for tauri-driver, WebKitWebDriver and the app it launches
+          Xvfb :99 -screen 0 1600x1000x24 > /dev/null 2>&1 &
+          export DISPLAY=:99
+          sleep 1
+          tauri-driver > ci-out/tauri-driver.log 2>&1 &
+          sleep 2
+          timeout 600 python tests/desktop_ui.py --app desktop/target/release/game-repo --out ci-out/shots 2>&1 | tee ci-out/desktop-ui.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: library-linux
+          path: |
+            ci-out/page/library.zip
+            ci-out/page/library-info.json
+          retention-days: 3
+      - name: Publish reports to desktop-ci-linux
+        if: always()
+        run: |
+          mkdir -p ci-out && cd ci-out
+          echo "${GITHUB_SHA}" > COMMIT
+          git init -q && git checkout -q -b desktop-ci-linux
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Desktop checks (Linux) for ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" desktop-ci-linux
+
+  windows:
+    name: Windows app
+    needs: version
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run: { shell: bash }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: desktop }
+      - name: Version ${{ needs.version.outputs.version }}
+        run: python tools/set_version.py "${{ needs.version.outputs.version }}"
+      - name: Check and test the Rust code
+        working-directory: desktop
+        run: |
+          mkdir -p ../ci-out
+          cargo build --release -p gamerepo-core 2>&1 | tee ../ci-out/core-build.log
+          cargo test --release -p gamerepo-core 2>&1 | tee ../ci-out/core-test.log
+          cp Cargo.lock ../ci-out/Cargo.lock
+      - uses: actions/upload-artifact@v4
+        with: { name: cli-windows, path: desktop/target/release/gamerepo-cli.exe, retention-days: 3 }
+      - name: Front end
+        run: |
+          python tools/build_desktop.py --out build/desktop --fetch-fonts
+      - name: Acceptance test (the page and the app's backend)
+        env:
+          PYTHONUTF8: "1"   # the console and open() default to cp1252 on Windows
+        run: |
+          pip install playwright
+          python -m playwright install chromium 2>&1 | tail -2
+          timeout 900 python tests/desktop_page.py --cli desktop/target/release/gamerepo-cli.exe --ui build/desktop/ui \
+            --home "$RUNNER_TEMP/pagehome" --out ci-out/page 2>&1 | tee ci-out/desktop-page.log
+      - name: Build the app (NSIS installer)
+        working-directory: desktop
+        run: npx --yes @tauri-apps/cli@2 build --bundles nsis 2>&1 | tee ../ci-out/tauri-build.log
+      - name: Collect bundles
+        if: always()
+        run: |
+          mkdir -p dist
+          cp desktop/target/release/bundle/nsis/*.exe dist/ 2>/dev/null || true
+          ls -la dist | tee -a ci-out/bundles.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: bundles-windows, path: dist/, retention-days: 3 }
+      - name: Drive the app (WebDriver)
+        run: |
+          pip install selenium
+          cargo install tauri-driver --locked 2>&1 | tail -3
+          cargo install --git https://github.com/chippers/msedgedriver-tool 2>&1 | tail -3
+          msedgedriver-tool 2>&1 | tail -3
+          ls -la msedgedriver.exe
+          tauri-driver --native-driver "$PWD/msedgedriver.exe" > ci-out/tauri-driver.log 2>&1 &
+          sleep 3
+          timeout 600 python tests/desktop_ui.py --app desktop/target/release/game-repo.exe \
+            --out ci-out/shots 2>&1 | tee ci-out/desktop-ui.log
+      - name: Publish reports to desktop-ci-windows
+        if: always()
+        run: |
+          mkdir -p ci-out && cd ci-out
+          echo "${GITHUB_SHA}" > COMMIT
+          git init -q && git checkout -q -b desktop-ci-windows
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Desktop checks (Windows) for ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" desktop-ci-windows
+
+  portability:
+    name: Library made on Linux, opened on Windows
+    needs: [linux, windows]
+    if: always() && needs.linux.result == 'success'
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run: { shell: bash }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: library-linux, path: lin }
+      - uses: actions/download-artifact@v4
+        with: { name: cli-windows, path: bin }
+      - name: Open the Linux library on Windows and compare
+        run: |
+          mkdir -p "moved/My library" && cd "moved/My library" && unzip -q ../../lin/library.zip && cd ../..
+          bin/gamerepo-cli.exe library-info --library "moved/My library" > win-info.json
+          python - <<'PY'
+          import json, sys
+          lin = json.load(open("lin/library-info.json"))
+          win = json.load(open("win-info.json"))
+          win = {k: win[k] for k in lin}
+          if lin == win:
+              print(f"::notice title=Portable library::Same on Windows: {win['name']} (format {win['format']})")
+              sys.exit(0)
+          print(f"::error title=Portable library::differs: linux {json.dumps(lin)} windows {json.dumps(win)}")
+          sys.exit(1)
+          PY
+
+  release:
+    name: Release
+    needs: [version, linux, windows, portability]
+    # only from main, and only when every check that ran passed (Linux and the
+    # portability check are skipped unless asked for)
+    if: >-
+      always() && github.ref == 'refs/heads/main' && needs.version.result == 'success' &&
+      needs.windows.result == 'success' &&
+      contains(fromJSON('["success","skipped"]'), needs.linux.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.portability.result)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # tags and history, for "what changed"
+      - uses: actions/download-artifact@v4
+        with: { pattern: bundles-*, path: dist, merge-multiple: true }
+      - name: Publish v${{ needs.version.outputs.version }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          ls -la dist
+          prev=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -1)
+          {
+            echo "**Windows:** the \`-setup.exe\` (unsigned, so SmartScreen asks once: More info → Run anyway)."
+            if ls dist/*.deb dist/*.AppImage > /dev/null 2>&1; then
+              echo "**Linux:** the \`.deb\` or the \`.AppImage\`."
+            fi
+            echo
+            # what changed for the user: CHANGELOG.md's Unreleased section; the
+            # commit subjects only when that section is empty
+            awk '/^## Unreleased/{on=1; next} on && /^## /{exit} on' CHANGELOG.md | sed '/./,$!d' > unreleased.md
+            if [ -s unreleased.md ]; then
+              echo "### What's new"
+              echo
+              cat unreleased.md
+            elif [ -n "$prev" ]; then
+              echo "### Changes since $prev"
+              git log --no-merges --format='- %s' "$prev..$GITHUB_SHA"
+            else
+              echo "First release."
+            fi
+          } > notes.md
+          gh release create "v$V" dist/* --title "Game Repo $V" --notes-file notes.md --target "$GITHUB_SHA" --latest
+          echo "::notice title=Released::Game Repo $V"

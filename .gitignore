@@ -1,0 +1,10 @@
+__pycache__/
+.venv/
+node_modules/
+*.log
+# build output and test reports
+build/
+shots/
+desktop/target/
+desktop/src-tauri/gen/
+desktop/node_modules/
