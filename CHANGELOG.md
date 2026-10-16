@@ -60,7 +60,7 @@ The code started as a trimmed copy of [Model Library](https://github.com/DrFlGd/
 
 ### Next (roadmap)
 
-Phase 1 is built (`docs/PLAN.md`, "Phase 1 notes"); what's left of it is Jerred's check on a real No-Intro set. Starter DATs (D17, taken 2026-10-16) come from libretro's copy; CI's "Starter DATs from libretro" step shows whether its addresses still work. Then Phase 2: renaming and rebuilding sets with a dry run and Undo, disc systems, and conversion (ZIP, 7z, CHD, RVZ, CSO). Phase 9 (added 2026-10-16) serves games to Android, Linux and handheld devices on the home network (`docs/PLAN.md` 3.10); D18 asks which devices come first.
+Phase 1 is released (v0.1.0); what's left of it is Jerred's check on a real No-Intro set. Phase 2 is designed in `docs/PLAN.md` ("Phase 2 design") and built in two halves (D19): 2a, organising sets by DAT name in the three modes of D5 with a preview, a journal and Undo, plus 7z/RAR reading and a folder watcher; then 2b, disc systems (Redump; CHD, RVZ and CSO audited as the games they hold) and conversion with verification. Phase 9 (added 2026-10-16) serves games to Android, Linux and handheld devices on the home network (`docs/PLAN.md` 3.10); D18 asks which devices come first.
 
 ---
 
