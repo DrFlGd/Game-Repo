@@ -5,11 +5,13 @@
 //!   gamerepo-cli library-info --library <dir>
 //!   gamerepo-cli index-info --library <dir> --data <dir>
 //!   gamerepo-cli serve --ui <dir> --home <dir> [--library <dir>] [--port 8790]
+//!   gamerepo-cli roots add|list|remove …, scan, dat import|list, audit, make-dat
 //!
 //! `serve` runs the app's commands behind a local web server, so the page can be
 //! tested in an ordinary browser (with tests/tauri_shim.js standing in for Tauri's
-//! `invoke`). The commands for scanning, auditing and exporting join this list in
-//! the phases that build them (docs/PLAN.md, section 7).
+//! `invoke`). The library commands (roots, scan, dat, audit, make-dat) work on the
+//! app's own library and index unless --library and --home say otherwise; they go
+//! through the same commands as the window (gamerepo_core::api).
 
 use anyhow::{bail, Context, Result};
 use gamerepo_core::api::{App, AppPaths, Reply};
@@ -31,6 +33,28 @@ usage: gamerepo-cli <command> [options]
   serve --ui <dir> --home <dir> [--library <dir>] [--port 8790]
                              the app's commands and the page over HTTP on 127.0.0.1,
                              with settings kept under --home (used by the tests)
+
+The library commands use the app's open library and its index on this computer;
+--library <dir> picks another library, --home <dir> keeps settings and the index
+under <dir>/config and <dir>/data instead of the app's own folders.
+
+  roots list                 the folders with games
+  roots add <dir> [--platform <id>]
+                             add a folder with games (optionally marked with a platform)
+  roots remove <id>          stop scanning a folder (nothing on disk is touched)
+  scan [--full]              scan the folders with games; --full unpacks and hashes
+                             every file in ZIPs instead of trusting their CRC32s
+  dat import <file>... [--platform <id>]
+                             import DATs (.dat, .xml or a .zip of them); --platform
+                             answers for a DAT whose platform isn't recognised
+  dat list                   the imported DATs
+  audit <platform> [--dat <id>] [--list <list>] [--search <text>] [--fixdat <file>]
+        [--report txt|csv] [--json]
+                             the audit of a platform; lists: have, partial, missing,
+                             matched, misnamed, baddump, unknown, duplicates
+  make-dat <root id> --name <name> [--folder <path in it>] [--platform <id>]
+                             write a DAT of a scanned set (and import it with --platform)
+  platforms                  the platforms this version knows
 ";
 
 struct Args {
@@ -91,7 +115,253 @@ async fn run() -> Result<()> {
             Ok(())
         }
         "serve" => serve(a).await,
+        "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" => library_command(&cmd, a).await,
         other => bail!("unknown command {other} (gamerepo-cli --help lists them)"),
+    }
+}
+
+/// The app's own folders on this computer (as Tauri names them for the window).
+fn app_dirs() -> (PathBuf, PathBuf) {
+    const ID: &str = "io.github.drflgd.gamerepo";
+    let home = gamerepo_core::config::home_dir();
+    let env = |k: &str| std::env::var_os(k).map(PathBuf::from);
+    if cfg!(windows) {
+        let roaming = env("APPDATA").unwrap_or_else(|| home.join("AppData/Roaming"));
+        let local = env("LOCALAPPDATA").unwrap_or_else(|| home.join("AppData/Local"));
+        (roaming.join(ID), local.join(ID))
+    } else if cfg!(target_os = "macos") {
+        let d = home.join("Library/Application Support").join(ID);
+        (d.clone(), d)
+    } else {
+        let config = env("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config"));
+        let data = env("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share"));
+        (config.join(ID), data.join(ID))
+    }
+}
+
+async fn invoke(app: &Arc<App>, cmd: &str, args: Value) -> Result<Value> {
+    match app.call(cmd, args).await.map_err(|e| anyhow::anyhow!(e))? {
+        Reply::Json(v) => Ok(v),
+        Reply::Bytes(_) => bail!("{cmd} answered with bytes"),
+    }
+}
+
+/// Follow a job to its end, showing its progress on stderr.
+async fn follow(app: &Arc<App>, job: Value) -> Result<Value> {
+    let id = job["job"].clone();
+    let mut last = String::new();
+    loop {
+        let j = invoke(app, "job", json!({ "id": id })).await?;
+        let p = &j["progress"];
+        let line = match (p["item"].as_u64(), p["items"].as_u64()) {
+            (Some(i), Some(n)) => format!("{} {i} of {n} {}", p["text"].as_str().unwrap_or(""), p["name"].as_str().unwrap_or("")).trim().to_string(),
+            _ => p["text"].as_str().unwrap_or("").to_string(),
+        };
+        if !line.is_empty() && line != last {
+            eprint!("\r\x1b[2K{}", line.chars().take(110).collect::<String>());
+            last = line;
+        }
+        if j["done"] == true {
+            if !last.is_empty() {
+                eprintln!();
+            }
+            if let Some(e) = j["error"].as_str() {
+                bail!("{e}");
+            }
+            return Ok(j["result"].clone());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
+fn print(v: &Value) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(v)?);
+    Ok(())
+}
+
+/// roots, scan, dat, audit, make-dat and platforms: the window's commands on the app's library.
+async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
+    let (config_dir, data_dir) = match a.flag("--home") {
+        Some(h) => (PathBuf::from(&h).join("config"), PathBuf::from(&h).join("data")),
+        None => app_dirs(),
+    };
+    let app = App::new(AppPaths { config_dir, data_dir, library_url: String::new() })?;
+    if let Some(lib) = a.flag("--library") {
+        // for this run only: the app's own choice of library is kept
+        let saved = app.config();
+        invoke(&app, "library_open", json!({ "path": lib })).await?;
+        let cfg_path = app.paths.config_dir.join("config.json");
+        saved.save(&cfg_path)?;
+    }
+    let json_out = a.rest.iter().any(|x| x == "--json");
+    a.rest.retain(|x| x != "--json");
+    let sub = if matches!(cmd, "roots" | "dat") && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
+    match (cmd, sub.as_str()) {
+        ("platforms", _) => print(&invoke(&app, "platforms", json!({})).await?),
+        ("roots", "list") | ("roots", "") => {
+            let roots = invoke(&app, "roots", json!({})).await?;
+            if json_out {
+                return print(&roots);
+            }
+            for r in roots.as_array().into_iter().flatten() {
+                println!(
+                    "{}  {}{}{}",
+                    r["id"].as_str().unwrap_or(""), r["dir"].as_str().unwrap_or(""),
+                    r["platform"].as_str().map(|p| format!("  [{p}]")).unwrap_or_default(),
+                    if r["found"] == true { "" } else { "  (not found on this computer)" }
+                );
+            }
+            Ok(())
+        }
+        ("roots", "add") => {
+            let platform = a.flag("--platform");
+            let dir = a.rest.first().context("roots add needs a folder")?;
+            let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| PathBuf::from(dir));
+            print(&invoke(&app, "roots_add", json!({ "path": dir.display().to_string(), "platform": platform })).await?)
+        }
+        ("roots", "remove") => {
+            let id = a.rest.first().context("roots remove needs a folder's id (roots list shows them)")?;
+            invoke(&app, "roots_remove", json!({ "id": id })).await?;
+            Ok(())
+        }
+        ("scan", _) => {
+            let full = a.rest.iter().any(|x| x == "--full");
+            let job = invoke(&app, "scan", json!({ "full": full })).await?;
+            let r = follow(&app, job).await?;
+            if json_out {
+                return print(&r);
+            }
+            println!(
+                "{} files: {} new, {} changed, {} moved, {} gone; {} read ({} MB) in {} s{}",
+                r["files"], r["added"], r["changed"], r["moved"], r["removed"], r["hashed"],
+                r["bytes"].as_u64().unwrap_or(0) / 1_000_000, r["seconds"],
+                if r["stopped"] == true { " (stopped)" } else { "" }
+            );
+            for e in r["errors"].as_array().into_iter().flatten() {
+                eprintln!("  couldn't read {}", e.as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
+        ("dat", "import") => {
+            let platform = a.flag("--platform");
+            let paths: Vec<String> = a.rest.iter().map(|p| std::fs::canonicalize(p).map(|p| p.display().to_string()).unwrap_or_else(|_| p.clone())).collect();
+            if paths.is_empty() {
+                bail!("dat import needs a file");
+            }
+            let mut answers = serde_json::Map::new();
+            let r = follow(&app, invoke(&app, "dat_import", json!({ "paths": paths })).await?).await?;
+            let mut all = r.clone();
+            if let (Some(p), Some(ask)) = (&platform, r["needs_platform"].as_array().filter(|a| !a.is_empty())) {
+                for x in ask {
+                    answers.insert(x["name"].as_str().unwrap_or("").to_string(), json!(p));
+                }
+                let again: Vec<&str> = ask.iter().filter_map(|x| x["path"].as_str()).collect();
+                all = follow(&app, invoke(&app, "dat_import", json!({ "paths": again, "answers": answers })).await?).await?;
+                all["imported"] = json!([r["imported"].as_array().cloned().unwrap_or_default(), all["imported"].as_array().cloned().unwrap_or_default()].concat());
+            }
+            if json_out {
+                return print(&all);
+            }
+            for d in all["imported"].as_array().into_iter().flatten() {
+                println!(
+                    "{} ({}) for {}: {} games, {} matched{}",
+                    d["name"].as_str().unwrap_or(""), d["version"].as_str().unwrap_or(""), d["platform_name"].as_str().unwrap_or(""),
+                    d["games"], d["matched"], if d["already"] == true { " (already imported)" } else { "" }
+                );
+            }
+            for d in all["needs_platform"].as_array().into_iter().flatten() {
+                eprintln!("{}: which platform is it for? Import it again with --platform <id> (gamerepo-cli platforms lists them).", d["name"].as_str().unwrap_or(""));
+            }
+            for d in all["failed"].as_array().into_iter().flatten() {
+                eprintln!("{}: {}", d["path"].as_str().unwrap_or(""), d["error"].as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
+        ("dat", "list") | ("dat", "") => {
+            let dats = invoke(&app, "dats", json!({})).await?;
+            if json_out {
+                return print(&dats);
+            }
+            for d in dats.as_array().into_iter().flatten() {
+                println!(
+                    "{:>4}  {:<12} {} ({}){}",
+                    d["id"], d["platform"].as_str().unwrap_or(""), d["name"].as_str().unwrap_or(""),
+                    d["version"].as_str().unwrap_or(""), if d["current"] == true { "  current" } else { "" }
+                );
+            }
+            Ok(())
+        }
+        ("audit", _) => {
+            let dat = a.flag("--dat").map(|d| d.parse::<i64>()).transpose()?;
+            let tab = a.flag("--list");
+            let search = a.flag("--search").unwrap_or_default();
+            let fix = a.flag("--fixdat");
+            let report = a.flag("--report");
+            let platform = a.rest.first().cloned();
+            let s = invoke(&app, "audit_summary", json!({ "platform": platform, "dat": dat })).await?;
+            let sum = &s["summary"];
+            if sum.is_null() {
+                bail!("No DAT has been imported for {} (dat import adds one).", platform.as_deref().unwrap_or("any platform"));
+            }
+            if platform.is_some() && sum["dat"]["platform"].as_str() != platform.as_deref() && dat.is_none() {
+                bail!("No DAT has been imported for {}.", platform.unwrap_or_default());
+            }
+            let dat_id = sum["dat"]["id"].clone();
+            if let Some(f) = fix {
+                let r = invoke(&app, "audit_fixdat", json!({ "dat": dat_id })).await?;
+                let from = PathBuf::from(r["path"].as_str().unwrap_or(""));
+                std::fs::copy(&from, &f)?;
+                let _ = std::fs::remove_file(&from);
+                eprintln!("{} missing games written to {f}", r["games"]);
+            }
+            if let Some(fmt) = report {
+                let r = invoke(&app, "audit_save_report", json!({ "dat": dat_id, "format": fmt })).await?;
+                eprintln!("report saved to {}", r["path"].as_str().unwrap_or(""));
+            }
+            if let Some(tab) = tab {
+                let mut offset = 0;
+                let mut items = vec![];
+                loop {
+                    let page = invoke(&app, "audit_list", json!({ "dat": dat_id, "tab": tab, "search": search, "offset": offset, "limit": 1000 })).await?;
+                    let got = page["items"].as_array().cloned().unwrap_or_default();
+                    let n = got.len();
+                    items.extend(got);
+                    if n < 1000 {
+                        break;
+                    }
+                    offset += 1000;
+                }
+                if json_out {
+                    return print(&json!(items));
+                }
+                for it in items {
+                    let mut line = it["shown"].as_str().or(it["name"].as_str()).unwrap_or("").to_string();
+                    if let Some(e) = it["expected"].as_str().filter(|_| tab == "misnamed") {
+                        line.push_str(&format!("  ->  {e}"));
+                    }
+                    println!("{line}");
+                }
+                return Ok(());
+            }
+            if json_out {
+                return print(sum);
+            }
+            print!("{}", invoke(&app, "audit_report", json!({ "dat": dat_id })).await?["text"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        ("make-dat", _) => {
+            let name = a.need("--name")?;
+            let folder = a.flag("--folder").unwrap_or_default();
+            let platform = a.flag("--platform");
+            let root = a.rest.first().context("make-dat needs a folder with games' id (roots list shows them)")?;
+            let r = follow(&app, invoke(&app, "make_dat", json!({ "root": root, "folder": folder, "name": name, "platform": platform })).await?).await?;
+            if json_out {
+                return print(&r);
+            }
+            println!("{} games, {} ROMs written to {}", r["games"], r["roms"], r["path"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        (c, s) => bail!("unknown command {c} {s} (gamerepo-cli --help lists them)"),
     }
 }
 

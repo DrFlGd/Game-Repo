@@ -18,12 +18,89 @@ use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 
 /// The index's schema, one step at a time: (what it adds, SQL). Phase 0 has only
-/// the index's own details; the tables for files, DATs and games come with the
-/// phases that fill them.
-const MIGRATIONS: &[(&str, &str)] = &[(
-    "the index's own details",
-    "CREATE TABLE index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;",
-)];
+/// the index's own details; Phase 1 adds the scanned files, their hashes, the DATs
+/// and what matched (docs/PLAN.md, "Phase 1 design", Index tables). Hashes are
+/// lowercase hex, as DATs write them.
+const MIGRATIONS: &[(&str, &str)] = &[
+    (
+        "the index's own details",
+        "CREATE TABLE index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;",
+    ),
+    (
+        "the folders with games",
+        // a copy of library.json's roots, so files can be joined with them
+        "CREATE TABLE roots (id TEXT PRIMARY KEY, path TEXT NOT NULL, platform TEXT) STRICT;",
+    ),
+    (
+        "the files' hashes",
+        // quick: 1 when only the CRC32 and size a ZIP records are known (no md5/sha1);
+        // hl_*: the hashes without the header (or in N64's big-endian order)
+        "CREATE TABLE blobs (
+            id INTEGER PRIMARY KEY, size INTEGER NOT NULL, crc32 TEXT NOT NULL, md5 TEXT, sha1 TEXT,
+            header TEXT, hl_size INTEGER, hl_crc32 TEXT, hl_md5 TEXT, hl_sha1 TEXT,
+            quick INTEGER NOT NULL DEFAULT 0
+         ) STRICT;
+         CREATE INDEX blobs_sha1 ON blobs (sha1);
+         CREATE INDEX blobs_crc ON blobs (crc32, size);
+         CREATE INDEX blobs_hl_crc ON blobs (hl_crc32, hl_size);",
+    ),
+    (
+        "the scanned files",
+        // kind: file, zip (its members are files with it as parent) or member;
+        // hashed: 0 not yet, 1 by a ZIP's own CRCs, 2 read and hashed;
+        // matched: 0 when it has to be matched against the DATs again
+        "CREATE TABLE files (
+            id INTEGER PRIMARY KEY, root_id TEXT NOT NULL, parent_id INTEGER REFERENCES files (id) ON DELETE CASCADE,
+            rel_path TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, size INTEGER NOT NULL, mtime INTEGER NOT NULL,
+            blob_id INTEGER, hashed INTEGER NOT NULL DEFAULT 0, matched INTEGER NOT NULL DEFAULT 0,
+            platform TEXT, seen INTEGER NOT NULL DEFAULT 0, missing_since TEXT,
+            UNIQUE (root_id, rel_path)
+         ) STRICT;
+         CREATE INDEX files_blob ON files (blob_id);
+         CREATE INDEX files_parent ON files (parent_id);
+         CREATE INDEX files_platform ON files (platform);
+         CREATE INDEX files_unmatched ON files (matched) WHERE matched = 0;",
+    ),
+    (
+        "the DATs",
+        "CREATE TABLE dats (
+            id INTEGER PRIMARY KEY, platform TEXT NOT NULL, name TEXT NOT NULL, version TEXT NOT NULL,
+            description TEXT, author TEXT, source_path TEXT NOT NULL UNIQUE, imported TEXT NOT NULL,
+            current INTEGER NOT NULL DEFAULT 0, games INTEGER NOT NULL DEFAULT 0, roms INTEGER NOT NULL DEFAULT 0
+         ) STRICT;
+         CREATE TABLE dat_games (
+            id INTEGER PRIMARY KEY, dat_id INTEGER NOT NULL REFERENCES dats (id) ON DELETE CASCADE,
+            name TEXT NOT NULL, description TEXT, parent_id INTEGER, title TEXT, regions TEXT,
+            languages TEXT, revision TEXT, version TEXT, flags TEXT
+         ) STRICT;
+         CREATE INDEX dat_games_dat ON dat_games (dat_id, name);
+         CREATE INDEX dat_games_parent ON dat_games (parent_id);
+         CREATE TABLE dat_roms (
+            id INTEGER PRIMARY KEY, game_id INTEGER NOT NULL REFERENCES dat_games (id) ON DELETE CASCADE,
+            dat_id INTEGER NOT NULL, name TEXT NOT NULL, size INTEGER, crc32 TEXT, md5 TEXT, sha1 TEXT, status TEXT
+         ) STRICT;
+         CREATE INDEX dat_roms_game ON dat_roms (game_id);
+         CREATE INDEX dat_roms_dat ON dat_roms (dat_id, name);
+         CREATE INDEX dat_roms_crc ON dat_roms (crc32, size);",
+    ),
+    (
+        "what matched",
+        "CREATE TABLE matches (
+            file_id INTEGER NOT NULL REFERENCES files (id) ON DELETE CASCADE,
+            rom_id INTEGER NOT NULL REFERENCES dat_roms (id) ON DELETE CASCADE,
+            method TEXT NOT NULL, PRIMARY KEY (file_id, rom_id)
+         ) STRICT, WITHOUT ROWID;
+         CREATE INDEX matches_rom ON matches (rom_id, file_id);",
+    ),
+    (
+        "the scans",
+        "CREATE TABLE scans (
+            id INTEGER PRIMARY KEY, started TEXT NOT NULL, finished TEXT, full INTEGER NOT NULL DEFAULT 0,
+            files_seen INTEGER NOT NULL DEFAULT 0, files_hashed INTEGER NOT NULL DEFAULT 0,
+            bytes_hashed INTEGER NOT NULL DEFAULT 0, stopped INTEGER NOT NULL DEFAULT 0, error TEXT
+         ) STRICT;",
+    ),
+];
 
 /// How many schema steps this build knows.
 pub fn schema_version() -> u32 {
@@ -250,6 +327,7 @@ mod tests {
         assert_eq!(ix.meta("library_id").unwrap().as_deref(), Some("lib-1"));
         let info = ix.info().unwrap();
         assert_eq!(info["tables"]["index_meta"], json!(2));
+        assert_eq!(info["tables"]["files"], json!(0));
         assert!(info["set_aside"].is_null());
         assert!(ix.check().unwrap().is_empty());
         let created = ix.meta("created").unwrap();

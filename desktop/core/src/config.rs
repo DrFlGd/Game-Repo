@@ -28,6 +28,30 @@ pub struct AppConfig {
     /// Libraries opened before, newest first.
     #[serde(default)]
     pub recent_libraries: Vec<PathBuf>,
+    /// How scans read files on this computer.
+    #[serde(default)]
+    pub scan: ScanSettings,
+}
+
+/// How scans read files on this computer (Settings › Folders with games).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ScanSettings {
+    /// Unpack and hash every file in a ZIP, instead of trusting the CRC32s it records (D16: off)
+    #[serde(default)]
+    pub full: bool,
+    /// Files read at once: more for SSDs and network drives, 1 for a single slow disk
+    #[serde(default = "two")]
+    pub readers: usize,
+}
+
+fn two() -> usize {
+    2
+}
+
+impl Default for ScanSettings {
+    fn default() -> Self {
+        Self { full: false, readers: 2 }
+    }
 }
 
 impl AppConfig {
