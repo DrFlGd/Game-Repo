@@ -66,6 +66,10 @@ Phase 1 is released (v0.1.0); what's left of it is Jerred's check on a real No-I
 
 ## Unreleased
 
+- **Plans**: Phase 2 is designed: organising sets by their DAT names with a preview and Undo, then disc systems and converting to CHD, RVZ and CSO.
+
+## 0.1.0 (2026-10-16)
+
 - **Folders with games** (Settings): add the folders your ROMs are in, anywhere on this computer or a network drive, optionally marked with their platform. They're kept in the library; one that's somewhere else on another computer can be pointed there. Nothing in them is ever changed.
 - **Scan** (Home or Audit): every file is read once and hashed (CRC32, MD5 and SHA1 together), files inside ZIPs too, and a second scan reads only what's new or changed. ROMs with headers (iNES, FDS, Atari 7800, Lynx, SNES copier) and N64 ROMs in other byte orders are matched as the DATs list them. ZIPs are matched by the checksums they record unless you choose *Unpack and hash every file*; how many files are read at once is a setting too.
 - **DAT files** (Settings): import No-Intro, Redump, TOSEC or any Logiqx or ClrMamePro DAT, zipped or not. The platform is worked out from the DAT's name, or asked once and remembered. Each DAT is copied into the library; importing a newer version keeps the older one, and you can choose which is in use.
