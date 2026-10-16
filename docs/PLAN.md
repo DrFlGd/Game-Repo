@@ -524,13 +524,47 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
 reordered.
 
+### Phase 0 notes (built 2026-10-16)
+
+What was built, and where it differs from the table above:
+
+- **Seeded from Model Library** (0.5.20): the Tauri shell (`main.rs`: dialogs, file
+  manager, `library://` with ranges, links opening in the browser), the command table and
+  jobs (`api.rs`), `config.rs`, the library folder (`library.rs`, trimmed to `_library/`
+  with `library.json` and a README), `gamerepo-cli serve` for the tests, the page's
+  islands (menu, command bar, status bar, menu and keys, dialogs, messages with Undo,
+  About with the changelog), the build tools and the CI workflow. The 3D pieces (viewer,
+  meshes, previews, categories, the sorting workspace, archives) were left behind; the
+  sorting workspace, journals and archive reading come back in Phases 2 and 4.
+- **Opening a folder adds only `_library/`.** Model Library also made `Unsorted/` and
+  `schemas/`; here a folder of ROMs is left exactly as it was (D5).
+- **Index:** `index.rs`, one SQLite file per library at
+  `<data dir>/index/<library id>.sqlite` (WAL, `foreign_keys`, 5 s busy timeout). Its
+  schema is `MIGRATIONS`, applied in order and counted in `user_version`; Phase 0 has one
+  step (`index_meta`). An index from a newer app or another library is set aside as
+  `<id>.old.sqlite` and made again. A moved library keeps its index, found by id.
+  `index_info` and `index_check` (a job running `PRAGMA integrity_check`) are the
+  commands; `gamerepo-cli index-info` the CLI.
+- **Pages:** Home (the index, what's coming), Settings (name with Undo, folder, the index
+  and Check, other libraries, skin, theme), About, and one page for each of Audit,
+  Collections, PC games and Metadata saying what its phase brings.
+- **Skins:** Drafting Sheet (default) and Classic. Model Library's Parts Bin and Layer
+  Line were themed on 3D printing and weren't brought across; a game-themed skin can be
+  added later.
+- **Icons:** a cartridge mark of its own (menu, favicon, app icons).
+- **`Cargo.lock` is committed**: crates.io was reachable from the session and the whole
+  workspace, Tauri included, resolved.
+- **Tests:** 13 Rust tests (library, index, commands) and 15 page checks in
+  `tests/desktop_page.py`; `tests/desktop_ui.py` drives the built app in CI.
+
 ---
 
-## 8. Working in a cloud session (from Model Library's notes; to confirm here)
+## 8. Working in a cloud session
 
-- crates.io has been blocked in most cloud sessions. Model Library's answer: `vendor.yml`
-  pushes the core's dependencies to a `crates-vendor` branch whenever `Cargo.toml`
-  changes, and the session builds offline from it. Phase 0 sets the same up here.
+- crates.io was reachable on 2026-10-16 and the workspace built online. It has been
+  blocked in many cloud sessions, so `vendor.yml` pushes the core's dependencies to a
+  `crates-vendor` branch whenever `desktop/core/Cargo.toml` changes, and a session can
+  build offline from it (CHANGELOG.md, "For agents").
 - The Tauri app itself can't be built in a cloud session; the backend is tested with
   `gamerepo-cli serve` + `tests/tauri_shim.js` in the pre-installed Chromium. The real app
   builds only in CI.
@@ -607,8 +641,8 @@ they come up.
 
 ## 12. Next steps
 
-1. Phase 0: seed the repository from Model Library, drop the 3D pieces, rename the crates,
-   add the SQLite index and CI, write CHANGELOG's "For agents".
+1. ~~Phase 0: seed the repository from Model Library, drop the 3D pieces, rename the crates,
+   add the SQLite index and CI, write CHANGELOG's "For agents".~~ Done (Phase 0 notes, 7).
 2. Write `docs/dat-formats.md` and `docs/platforms.md` (ES-DE system names ↔ DAT names ↔
    provider ids) while building the DAT importer.
 3. Phase 1: scanner, DAT import and audit, verified end to end on one real No-Intro set.

@@ -1,0 +1,46 @@
+name: Vendor crates
+
+# For local development without crates.io: vendors gamerepo-core's dependencies
+# (Linux only) and pushes them, with a matching Cargo.lock, to the
+# "crates-vendor" branch. Build offline with:
+#   cargo build --offline --config <branch>/vendor-config.toml
+on:
+  push:
+    branches: [main]
+    paths: ["desktop/core/Cargo.toml", ".github/workflows/vendor.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run: { shell: bash }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Vendor gamerepo-core's crates for Linux
+        run: |
+          mkdir -p out ws
+          cp -r desktop/core ws/core
+          printf '[workspace]\nresolver = "2"\nmembers = ["core"]\n\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n' > ws/Cargo.toml
+          cd ws
+          cargo generate-lockfile 2>&1 | tee ../out/vendor.log
+          cargo install cargo-vendor-filterer --locked 2>&1 | tail -2 | tee -a ../out/vendor.log
+          cargo vendor-filterer --platform=x86_64-unknown-linux-gnu --versioned-dirs ../out/vendor > ../out/vendor-config.toml 2>> ../out/vendor.log || { tail -30 ../out/vendor.log; exit 1; }
+          cp Cargo.lock ../out/Cargo.lock
+          sed "s|directory = .*|directory = \"$PWD/../out/vendor\"|" ../out/vendor-config.toml > /tmp/vc.toml && cargo build --offline --config /tmp/vc.toml -p gamerepo-core 2>&1 | tail -5 | tee -a ../out/vendor.log
+          du -sh ../out/vendor | tee -a ../out/vendor.log
+      - name: Push to crates-vendor
+        if: always()
+        run: |
+          cd out
+          sed -i 's#directory = ".*"#directory = "vendor"#' vendor-config.toml || true
+          echo "${GITHUB_SHA}" > COMMIT
+          git init -q && git checkout -q -b crates-vendor
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Vendored crates for ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" crates-vendor
