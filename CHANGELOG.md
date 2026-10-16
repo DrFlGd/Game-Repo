@@ -57,7 +57,7 @@ The code started as a trimmed copy of [Model Library](https://github.com/DrFlGd/
 
 ### Next (roadmap)
 
-Phase 1 (`docs/PLAN.md`, section 7): scanning library roots and hashing files (inside ZIPs too, headered ROMs), DAT import, and the audit of cartridge systems, verified end to end on a No-Intro set; Home and Audit pages. Its design is "Phase 1 design" in the plan (with `docs/dat-formats.md` and `docs/platforms.md`); build it once Jerred has reviewed it, including decisions D15 and D16.
+Phase 1 (`docs/PLAN.md`, section 7): scanning library roots and hashing files (inside ZIPs too, headered ROMs), DAT import, and the audit of cartridge systems, verified end to end on a No-Intro set; Home and Audit pages. Its design is "Phase 1 design" in the plan (with `docs/dat-formats.md` and `docs/platforms.md`); D15 (folders with games kept in the library) and D16 (ZIPs trusted by default, full scan as a setting) were taken on 2026-10-16.
 
 ---
 

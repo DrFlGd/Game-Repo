@@ -578,7 +578,7 @@ file. Renaming, rebuilding, discs, 7z/RAR and conversion are Phase 2.
 5. **Home** shows a bar per platform (have / total, and 1G1R complete), the last scan
    and anything that needs attention (a folder that isn't there on this computer, a DAT
    whose platform wasn't recognised).
-6. The same from the CLI: `roots add|list|remove`, `scan [--quick]`, `dat import|list`,
+6. The same from the CLI: `roots add|list|remove`, `scan [--full]`, `dat import|list`,
    `audit <platform> [--list missing|…] [--fixdat <file>] [--json]`.
 
 **Folders with games (library roots)**
@@ -587,7 +587,7 @@ file. Renaming, rebuilding, discs, 7z/RAR and conversion are Phase 2.
   from the library and its roots. A root inside the library is stored relative to it; one
   outside, absolute. On another computer a root that isn't there shows as *Not found on
   this computer* with *Point it elsewhere…*, which keeps its id (and so everything matched
-  under it). **Default proposed (D15).**
+  under it). **(D15, taken 2026-10-16.)**
 - A root's platform is a hint for files no DAT recognises; matched files take their
   platform from their DAT. Otherwise a folder's name is matched against the platform
   aliases (`SNES`, `Super Nintendo`, `Nintendo - Super Nintendo Entertainment System`…)
@@ -607,11 +607,13 @@ file. Renaming, rebuilding, discs, 7z/RAR and conversion are Phase 2.
   Settings: more for SSDs and NAS, 1 for a single slow disk), each file read once in 1 MB
   blocks feeding CRC32, MD5 and SHA1 together. SHA256 is not computed in Phase 1 (no DAT
   needs it to match); it is a later option.
-- **ZIPs**: each member is a file of its own (with the ZIP as its parent). The *full* scan
-  (the default, **D16**) decompresses each member and hashes it; the *quick* scan trusts
-  the CRC32 and size the ZIP already records, and audits those matches as *matched by
-  CRC only* until a full scan confirms them. Cartridge sets are small enough that full is
-  the right default; quick is there for a first look at a huge set.
+- **ZIPs**: each member is a file of its own (with the ZIP as its parent). The *quick*
+  scan (the default, **D16**) trusts the CRC32 and size the ZIP already records, so a ZIP
+  is matched without being decompressed; those matches are shown as *matched by CRC*. The
+  *full* scan, chosen in Settings (*Scan ZIPs: Trust their checksums / Unpack and hash
+  every file*) or with `scan --full`, decompresses each member and hashes it, and turns
+  those matches into SHA1 matches. A ZIP whose central directory is damaged is hashed in
+  full whatever the setting.
 - **Headers**: while hashing, the first bytes are checked against built-in rules (iNES and
   NES 2.0 `NES\x1A` 16 bytes; FDS `FDS\x1A` 16 bytes; Atari 7800 `ATARI7800` at offset 1,
   128 bytes; Lynx `LYNX` 64 bytes; SNES copier headers when the size is 512 more than a
@@ -702,7 +704,7 @@ lowercase hex text (the DATs' own form, and easy to read in a database tool); if
 
 - *Settings › Folders with games*: add (folder picker), remove (asks; nothing on disk is
   touched), platform hint, *Not found on this computer › Point it elsewhere…*; *Files
-  read at once*; *Full or quick scan*.
+  read at once*; *Scan ZIPs: Trust their checksums (default) / Unpack and hash every file*.
 - *Settings › DAT files*: Import…, the list by platform with version and date, *Use this
   version*, *Remove*.
 - *Home*: Scan (with its job in the status bar), the platform bars, what needs attention.
@@ -729,13 +731,13 @@ lowercase hex text (the DATs' own form, and easy to read in a database tool); if
 (2), discs and CHD/RVZ/CSO (2), a folder watcher (2; Phase 1 rescans on demand), arcade
 (7), automatic DAT downloads (8).
 
-**Decisions proposed (defaults taken unless Jerred says otherwise)**
+**Decisions taken for Phase 1**
 
 - **D15** Folders with games are kept in the library (`library.json`), re-pointed per
-  computer when their path differs. *Alternative:* keep them per computer, so each
-  computer lists its own folders.
-- **D16** Full scan by default (ZIP members decompressed and hashed); quick scan as an
-  option. *Alternative:* quick by default, full on request.
+  computer when their path differs. *(Jerred, 2026-10-16: "for now".)*
+- **D16** ZIPs are trusted by default: matched by the CRC32 and size they record. A
+  setting turns on the full scan (members decompressed and hashed). *(Jerred,
+  2026-10-16.)*
 
 
 ---
@@ -801,6 +803,10 @@ lowercase hex text (the DATs' own form, and easy to read in a database tool); if
   hash, and to the game id for PC games (section 4, "Game identity").
 - **D14 External tools:** dropped into the app's `tools/` folder, or pointed at in
   Settings; not downloaded by the app.
+- **D15 Folders with games:** kept in the library (`library.json`), re-pointed on a
+  computer where a folder's path differs (for now; per-computer lists may follow).
+- **D16 Scanning ZIPs:** trusted by default (matched by the CRC32 and size they record);
+  a Settings option unpacks and hashes every file in them.
 - **D4 Arcade scope:** MAME/FBNeo in Phase 7.
 - **D5 Touching originals:** allowed, as an explicit choice: rename in place, or move
   into the common library folder nested by platform; otherwise originals are not
@@ -815,12 +821,7 @@ lowercase hex text (the DATs' own form, and easy to read in a database tool); if
 
 ## 11. Open decisions
 
-Proposed with the Phase 1 design (7); the default is built unless Jerred says otherwise:
-
-- **D15** Where the folders with games are kept: in the library (default), re-pointed on a
-  computer where the path differs; or per computer.
-- **D16** Scan depth: full by default (ZIP members decompressed and hashed), quick (trust
-  the ZIP's CRC32) as an option; or the other way round.
+None. New ones get a number here as they come up (next: D17).
 
 ---
 
