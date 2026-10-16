@@ -10,6 +10,8 @@ arcade with Phase 7, metadata providers' ids with Phase 5.
 
 **To check during Phase 1:** each DAT name against the current No-Intro release, and each
 id against ES-DE's `es_systems.xml`. Anything found wrong here is fixed in both places.
+TOSEC's DAT names (`Nintendo Game Boy - Games - [GB] (TOSEC-…)`) aren't in the table
+yet: the import asks for their platform once and remembers it.
 
 ## How a DAT finds its platform
 

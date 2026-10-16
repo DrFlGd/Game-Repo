@@ -12,6 +12,7 @@
 //! - [`dat`]: reading and importing DAT files
 //! - [`audit`]: matching files with DATs, and what an audit shows
 //! - [`makedat`]: making a DAT from a scanned set
+//! - [`starter`]: starter DATs downloaded from libretro's copy of No-Intro's
 //! - [`api`]: the commands the page calls
 //!
 //! The layout, the phases and every design decision are in docs/PLAN.md.
@@ -27,6 +28,7 @@ pub mod makedat;
 pub mod platforms;
 pub mod roots;
 pub mod scan;
+pub mod starter;
 
 pub use library::Library;
 

@@ -48,6 +48,10 @@ under <dir>/config and <dir>/data instead of the app's own folders.
                              import DATs (.dat, .xml or a .zip of them); --platform
                              answers for a DAT whose platform isn't recognised
   dat list                   the imported DATs
+  dat starter [<platform>...] [--again]
+                             download and import the No-Intro cartridge DATs from
+                             libretro's public copy, for platforms without a DAT
+                             (--again: for every platform named, or all)
   audit <platform> [--dat <id>] [--list <list>] [--search <text>] [--fixdat <file>]
         [--report txt|csv] [--json]
                              the audit of a platform; lists: have, partial, missing,
@@ -274,6 +278,23 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             }
             for d in all["failed"].as_array().into_iter().flatten() {
                 eprintln!("{}: {}", d["path"].as_str().unwrap_or(""), d["error"].as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
+        ("dat", "starter") => {
+            let again = a.rest.iter().any(|x| x == "--again");
+            let only: Vec<&String> = a.rest.iter().filter(|x| !x.starts_with("--")).collect();
+            let r = follow(&app, invoke(&app, "starter_dats", json!({ "platforms": only, "again": again })).await?).await?;
+            if json_out {
+                return print(&r);
+            }
+            for d in r["imported"].as_array().into_iter().flatten() {
+                println!("{} ({}) for {}: {} games", d["name"].as_str().unwrap_or(""), d["version"].as_str().unwrap_or(""), d["platform_name"].as_str().unwrap_or(""), d["games"]);
+            }
+            let n = |k: &str| r[k].as_array().map(Vec::len).unwrap_or(0);
+            eprintln!("{} imported, {} already had a DAT, {} not found at {}", n("imported"), n("skipped"), n("missing"), r["source"].as_str().unwrap_or(""));
+            for f in r["failed"].as_array().into_iter().flatten() {
+                eprintln!("{}: {}", f["platform"].as_str().unwrap_or(""), f["error"].as_str().unwrap_or(""));
             }
             Ok(())
         }
@@ -564,6 +585,11 @@ async fn serve(mut a: Args) -> Result<()> {
                                     "application/json",
                                     &serde_json::to_vec(&json!(next))?,
                                 )
+                            }
+                            "pick_files" => {
+                                // every queued answer, as the files chosen at once
+                                let all: Vec<String> = picks.lock().unwrap().drain(..).collect();
+                                respond(&mut stream, 200, "application/json", &serde_json::to_vec(&json!(all))?)
                             }
                             "reveal" | "open_path" | "open_url" => {
                                 respond(&mut stream, 200, "application/json", b"null")

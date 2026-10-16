@@ -11,6 +11,11 @@ export const ui = createStore({
   recent: [],              // libraries opened before (paths), newest first
   firstRun: false,         // no library was ever opened: ask where it goes
   index: null,             // index_info for the open library (on this computer)
+  home: null,              // what Home shows: platform bars, the last scan, what needs attention
+  roots: [],               // the folders with games
+  dats: [],                // the imported DATs
+  platforms: [],           // the platforms the app knows
+  scanning: null,          // a scan's progress while one runs
   dialog: null,            // { type: "ask" | "confirm", ... }
   menu: null,              // a right-click or ⋯ menu: { x, y, items, from }
   jobs: [],                // [{ id, label, started, cancel }]

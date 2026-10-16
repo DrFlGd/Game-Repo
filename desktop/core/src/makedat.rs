@@ -40,6 +40,7 @@ fn rom_xml(name: &str, h: &Hashes) -> String {
 
 /// Make a DAT named `name` of the files under `folder` (relative to the folder with
 /// games `root_id`; empty for all of it). With `platform`, it's also imported to audit against.
+#[allow(clippy::too_many_arguments)]
 pub fn make(
     ix: &Index,
     lib: &Library,

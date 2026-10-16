@@ -7,15 +7,6 @@ import { Icon } from "./icons.js";
 import { routeHash } from "./context.js";
 
 export const COMING = {
-  audit: {
-    title: "Audit", icon: "audit", phase: 1,
-    lead: "Check your ROM sets against DAT files from No-Intro, Redump and others.",
-    points: [
-      "Scan the folders where your games are: every file is hashed once (inside ZIPs too) and remembered, so a second scan only reads what changed.",
-      "Import DAT files and see, for each platform, what you have, what's missing, what's misnamed and what no DAT knows.",
-      "Write a fixdat of what's missing, and rename or rebuild a set to match its DAT, with a dry run first and Undo after (Phase 2).",
-    ],
-  },
   collections: {
     title: "Collections", icon: "collection", phase: 3,
     lead: "Build collections from rules and export them for ES-DE or as a plain folder tree.",

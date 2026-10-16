@@ -75,10 +75,10 @@ pub fn detect(first: &[u8], size: u64, ext: &str) -> Option<Header> {
     if at(0, b"LYNX") && bigger(64) {
         return Some(Header::Skip("lynx", 64));
     }
-    if at(0, &[0x37, 0x80, 0x40, 0x12]) && size % 4 == 0 {
+    if at(0, &[0x37, 0x80, 0x40, 0x12]) && size.is_multiple_of(4) {
         return Some(Header::N64Swapped);
     }
-    if at(0, &[0x40, 0x12, 0x37, 0x80]) && size % 4 == 0 {
+    if at(0, &[0x40, 0x12, 0x37, 0x80]) && size.is_multiple_of(4) {
         return Some(Header::N64Little);
     }
     if SNES_EXTS.contains(&ext) && size > 512 && size % 1024 == 512 {

@@ -602,7 +602,8 @@ file. Renaming, rebuilding, discs, 7z/RAR and conversion are Phase 2.
 - Step 1, *walk*: list every file with size and modified time (fast: no file is opened).
   A file whose path, size and modified time are unchanged keeps its hashes. A file that
   vanished and one that appeared with the same name, size and time in the same scan is a
-  move: its hashes go with it, no reread.
+  move: its hashes go with it, no reread. (A rename is read again: by size and time alone
+  it can't be told apart from another file safely.)
 - Step 2, *hash* what's new or changed, in parallel: a pool of readers (default 2, set in
   Settings: more for SSDs and NAS, 1 for a single slow disk), each file read once in 1 MB
   blocks feeding CRC32, MD5 and SHA1 together. SHA256 is not computed in Phase 1 (no DAT
@@ -739,6 +740,53 @@ lowercase hex text (the DATs' own form, and easy to read in a database tool); if
   setting turns on the full scan (members decompressed and hashed). *(Jerred,
   2026-10-16.)*
 
+**Added to Phase 1 at Jerred's request (2026-10-16)**
+
+- *A DAT per system*: the DAT picked for a platform on the Audit page stays its DAT (for
+  Home too), kept in `library.json` as `audit_dats: {platform: DAT name}`. Without a pick,
+  the platform's current No-Intro DAT, else its first by name.
+- *Audit reports*: besides Copy report and the fixdat, *Save report* writes a text report
+  (the counts and what's missing) or a CSV (every list, a row per game or file) to
+  `_library/reports/`.
+- *A DAT from a set*: a scanned folder (or a folder inside one) written as a Logiqx DAT,
+  one game per file or ZIP, to `_library/made-dats/`; ZIP members known only by CRC are
+  read so every ROM has its SHA1. Optionally imported for a platform to audit against.
+- *A starter set of DATs* (**D17**): *Get starter DATs* downloads the No-Intro cartridge
+  DATs from libretro's public copy on GitHub
+  (`libretro-database/metadat/no-intro/<DAT name>.dat`, each of a platform's DAT names
+  tried in turn) and imports them for the platforms that have no DAT yet; anything newer
+  is imported by hand. The address is `dat_source` in config.json on each computer, in
+  case libretro moves them. CI downloads them for real (a reported step, not a gate).
+
+### Phase 1 notes (built 2026-10-16)
+
+- **Core** (`desktop/core/src`): `platforms.rs`, `hash.rs`, `roots.rs`, `scan.rs`,
+  `dat.rs`, `audit.rs`, `makedat.rs`; the index gained six steps (roots, blobs, files,
+  dats with games and ROMs, matches, scans), as designed, plus `files.kind`
+  (file/zip/member), `files.hashed` (0, 1 by a ZIP's CRCs, 2 read) and `files.matched`
+  (0 until matched), and `blobs.hl_size`. Hashes are hex text; the 100k-file check
+  passed without needing blobs.
+- **Jobs get their own connection** to the index (WAL), so a scan or import doesn't hold
+  up the page's reads; hashes are committed 250 files at a time.
+- **Matching** is SQL joined on CRC32 and size, then checked by SHA1 and MD5 where both
+  sides have them; method `sha1|md5|crc`, with `-hl` when matched without the header.
+  Matches are made for files hashed since (`files.matched = 0`) after a scan, and for a
+  new DAT's ROMs after an import. Summaries are cached in `index_meta` and dropped
+  whenever matches change.
+- **The index follows the library's DATs**: `dat::sync_library` loads DAT files in
+  `_library/dats/<platform>/` the index doesn't have and drops rows for ones that are
+  gone; the chosen version of each DAT is `dat_current` in library.json.
+- **Timings** (Linux, release, this session): rescan of 100,000 unchanged files 0.8 s
+  (first scan of them 11 s); import of a 50,000-ROM DAT 1.0 s; its audit and a page of a
+  list 0.26 s. CI runs the same checks on Windows (`--ignored timing`).
+- **Differences from the design**: renames are read again (see Scanning); a damaged ZIP is
+  read from its local headers, and a file named `.zip` that isn't one is hashed as a
+  file; files are *unknown* to a DAT when no DAT of that platform or of another platform
+  matches them (a file matched only by another DAT of the same platform counts as unknown
+  to this one).
+- **To check on a real set** (Jerred): the counts against the tool used now, the DAT
+  names in `docs/platforms.md` against the current No-Intro release.
+
 
 ---
 
@@ -818,10 +866,13 @@ lowercase hex text (the DATs' own form, and easy to read in a database tool); if
 - **D10 Name:** **Game Repo**, as the repository is called (Game Library, Game Shelf and
   Game Vault were offered). Crates `gamerepo-core` and `gamerepo-cli`, app id
   `io.github.drflgd.gamerepo`, default library folder `~/Game Repo`.
+- **D17 Starter DATs:** downloaded on request from libretro's public copy of the No-Intro
+  cartridge DATs and imported for platforms without one; newer DATs imported by hand
+  (not shipped in the installer: each group publishes its DATs on its own terms).
 
 ## 11. Open decisions
 
-None. New ones get a number here as they come up (next: D17).
+None. New ones get a number here as they come up (next: D18).
 
 ---
 
@@ -832,3 +883,4 @@ None. New ones get a number here as they come up (next: D17).
 2. ~~Write `docs/dat-formats.md` and `docs/platforms.md`.~~ First versions written with the
    Phase 1 design; they grow as platforms are added.
 3. Phase 1: scanner, DAT import and audit, verified end to end on one real No-Intro set.
+   Built (Phase 1 notes); the real-set check is Jerred's.

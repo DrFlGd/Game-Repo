@@ -81,6 +81,8 @@ jobs:
           mkdir -p ../ci-out
           cargo build --release -p gamerepo-core 2>&1 | tee ../ci-out/core-build.log
           cargo test --release -p gamerepo-core 2>&1 | tee ../ci-out/core-test.log
+          # the performance targets of docs/PLAN.md (100k-file rescan, 50k-ROM DAT), on generated data
+          cargo test --release -p gamerepo-core -- --ignored timing --nocapture 2>&1 | tee ../ci-out/core-timing.log
           cp Cargo.lock ../ci-out/Cargo.lock
       - name: Front end
         run: |
@@ -160,6 +162,8 @@ jobs:
           mkdir -p ../ci-out
           cargo build --release -p gamerepo-core 2>&1 | tee ../ci-out/core-build.log
           cargo test --release -p gamerepo-core 2>&1 | tee ../ci-out/core-test.log
+          # the performance targets of docs/PLAN.md (100k-file rescan, 50k-ROM DAT), on generated data
+          cargo test --release -p gamerepo-core -- --ignored timing --nocapture 2>&1 | tee ../ci-out/core-timing.log
           cp Cargo.lock ../ci-out/Cargo.lock
       - uses: actions/upload-artifact@v4
         with: { name: cli-windows, path: desktop/target/release/gamerepo-cli.exe, retention-days: 3 }
@@ -174,6 +178,11 @@ jobs:
           python -m playwright install chromium 2>&1 | tail -2
           timeout 900 python tests/desktop_page.py --cli desktop/target/release/gamerepo-cli.exe --ui build/desktop/ui \
             --home "$RUNNER_TEMP/pagehome" --out ci-out/page 2>&1 | tee ci-out/desktop-page.log
+      - name: Starter DATs from libretro (a real download; reported, not required)
+        continue-on-error: true
+        run: |
+          desktop/target/release/gamerepo-cli.exe dat starter --home "$RUNNER_TEMP/starter" --library "$RUNNER_TEMP/starter/lib" 2>&1 | tee ci-out/starter-dats.log
+          desktop/target/release/gamerepo-cli.exe dat list --home "$RUNNER_TEMP/starter" --library "$RUNNER_TEMP/starter/lib" 2>&1 | tee -a ci-out/starter-dats.log
       - name: Build the app (NSIS installer)
         working-directory: desktop
         run: npx --yes @tauri-apps/cli@2 build --bundles nsis 2>&1 | tee ../ci-out/tauri-build.log

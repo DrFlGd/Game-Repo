@@ -4,7 +4,7 @@
 use crate::config::{AppConfig, Prefs};
 use crate::index::{self, Index};
 use crate::library::{self, Library};
-use crate::{audit, dat, makedat, platforms, roots, scan};
+use crate::{audit, dat, makedat, platforms, roots, scan, starter};
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -367,6 +367,20 @@ impl App {
                         bail!("{}", failed[0]["error"].as_str().unwrap_or(""));
                     }
                     Ok(json!({ "imported": imported, "needs_platform": ask, "failed": failed }))
+                }))
+            }
+            "starter_dats" => {
+                // the No-Intro cartridge DATs from libretro's public copy (D17), for platforms without one
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                self.not_running("Getting starter DATs")?;
+                let only: Vec<String> = args["platforms"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(String::from)).collect();
+                let again = args["again"].as_bool().unwrap_or(false);
+                let source = self.config().dat_source.unwrap_or_else(|| starter::SOURCE.to_string());
+                let data_dir = self.paths.data_dir.clone();
+                j(self.spawn_job("Getting starter DATs", move |app, id, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    starter::get(&ix, &lib, &source, &only, again, &cancel, &mut |p| app.job_progress(&id, p))
                 }))
             }
             "dat_use" => {

@@ -31,6 +31,9 @@ pub struct AppConfig {
     /// How scans read files on this computer.
     #[serde(default)]
     pub scan: ScanSettings,
+    /// Where starter DATs are downloaded from, when not libretro's copy (crate::starter::SOURCE).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dat_source: Option<String>,
 }
 
 /// How scans read files on this computer (Settings › Folders with games).
