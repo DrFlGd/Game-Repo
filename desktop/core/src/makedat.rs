@@ -105,7 +105,7 @@ pub fn make(
         if let Some(p) = &row.platform {
             *platforms.entry(p.clone()).or_default() += 1;
         }
-        if row.kind == "zip" {
+        if crate::archive::KINDS.contains(&row.kind.as_str()) {
             let ms: Vec<(String, i64, Option<String>, Hashes)> = members
                 .query_map([row.id], |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?, Hashes {
@@ -119,9 +119,9 @@ pub fn make(
                 }
             }
             let roms = if ms.iter().any(|m| m.1 < 2) {
-                // only known by the CRCs the ZIP records: read it now
+                // only known by the CRCs the archive records: read it now
                 let path = row.rel.split('/').fold(root.dir.clone(), |p, part| p.join(part));
-                match crate::scan::zip_members(&path, cancel) {
+                match crate::archive::members(&path, cancel) {
                     Ok(v) => v,
                     Err(_) => {
                         skipped += 1;

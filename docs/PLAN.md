@@ -965,6 +965,42 @@ is the only step that deletes, asks first, and ends that change's Undo. (**D20**
   drives don't report changes reliably, so they rescan on demand as now, which the
   folder's row says. *Settings › Folders with games › Watch for changes* (on by default).
 
+#### Phase 2a notes (built 2026-10-16)
+
+- **Core**: `archive.rs` (ZIP, 7z, RAR; `files.kind` 'zip', '7z', 'rar' and the new
+  `files.locked`), `torrentzip.rs`, `organise.rs` (plan, preview, run, journal, Undo,
+  finish, set-aside, naming), `watch.rs`; `api.rs` gained `organise_plan`,
+  `organise_duplicates`, `organise_preview`, `organise_run`, `change_history`,
+  `change_undo`, `change_finish`, `change_empty`, `naming`, `naming_example`,
+  `naming_set`, and `watch` in the scan settings. The command line has `organise`,
+  `duplicates`, `history`, `undo`, `finish` and `set-aside empty`.
+- **A plan** is built from the index alone and kept in the data folder
+  (`<data>/plans/<id>.json`, a day) until it's run, so the preview pages through it
+  without planning again. Running writes it to `_library/journal/<id>.json`, and each
+  step done is a line in `<id>.log` (made durable every 64 steps and whenever a step set
+  something aside); a step already done is recognised when a change is finished.
+- **One change at a time**, never during a scan (the API refuses; the page says so).
+  The index is updated step by step (paths, copies, new ZIPs with their members), so no
+  rescan is needed; the watcher's scan after a change finds nothing new.
+- **The folder watcher** watches the folders with games that are found and not on a
+  network drive (`GetDriveTypeW` on Windows, `/proc/mounts` elsewhere), skips hidden
+  folders and `_library/`, and after 3 s of quiet scans only the places that changed
+  (`scan::Options.only`; over 2,000 places, everything). Its scans are jobs marked
+  `auto`, which the page follows by polling `jobs` every 2 s.
+- **Differences from the design**: hardlinks fall back to a copy when the drive refuses
+  them; a 7z or RAR whose members need renaming is rebuilt as a ZIP (the app doesn't
+  write them), which the preview notes; *Rename these* leaves a misnamed copy of a file
+  that's named right elsewhere (it's a duplicate) and the preview says why; set-aside
+  files in the library go to `.gamerepo-set-aside/` at the top of its folder like any
+  other folder with games, not `_library/set-aside/`; the output folder for copies is
+  remembered on this computer for all platforms, not per platform; a `{ext}` field
+  isn't offered (the extension always follows the ROM or the format). An interrupted
+  change is offered at start-up with *Finish it* and *Put it back*, and in History.
+- **Timings** (Linux, release, this session): planning 50,000 matched files 0.5 s;
+  renaming 10,000 files in place with the journal 1.0 s. CI runs both on Windows.
+- **To check on a real set** (Jerred): organise a copy of a real set in mode 1 into
+  ZIPs and compare with a TorrentZip tool's output; mode 2 on a copy, then Undo.
+
 #### 2b. Discs and conversion
 
 **Disc platforms** join the table (`platforms.rs` and `docs/platforms.md`) with their
@@ -1208,4 +1244,4 @@ New ones get a number here as they come up (next: D21).
 3. Phase 1: scanner, DAT import and audit, verified end to end on one real No-Intro set.
    Built (Phase 1 notes); the real-set check is Jerred's.
 4. ~~Merge Phase 1 and release v0.1.0.~~ Done 2026-10-16 (PR #4).
-5. Phase 2: design written ("Phase 2 design"); build 2a, then 2b.
+5. Phase 2: design written ("Phase 2 design"); 2a built ("Phase 2a notes"), then 2b.

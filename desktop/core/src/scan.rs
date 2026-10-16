@@ -3,6 +3,7 @@
 //! hash what's new in parallel, look inside ZIPs, then match what changed against the
 //! DATs. Nothing is written next to the files: what a scan learns goes in the index.
 
+use crate::archive;
 use crate::hash::{self, Hashes};
 use crate::index::Index;
 use crate::library::{now, Library, APP_DIR};
@@ -23,13 +24,19 @@ pub struct Options {
     pub full: bool,
     /// Files read at once
     pub readers: usize,
+    /// Only these paths (files or folders, and what's in them), as the folder watcher
+    /// reports them; None for every folder with games
+    pub only: Option<Vec<PathBuf>>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { full: false, readers: 2 }
+        Self { full: false, readers: 2, only: None }
     }
 }
+
+/// More places than this and a scan looks at everything.
+const MANY_PLACES: usize = 2000;
 
 /// Hashes are written to the index this many files at a time, so a stopped or
 /// crashed scan loses little: the next one carries on from there.
@@ -72,8 +79,13 @@ fn skipped(name: &str, ft: &std::fs::FileType, _meta: Option<&std::fs::Metadata>
 
 /// Every file under `root` (relative paths with `/`), without opening any.
 fn walk(lib: &Library, root: &Path, ri: usize, cancel: &AtomicBool, out: &mut Vec<Walked>, errors: &mut Vec<String>) {
+    walk_from(lib, root.to_path_buf(), String::new(), ri, cancel, out, errors)
+}
+
+/// Every file under `dir`, which is `prefix` in its folder with games.
+fn walk_from(lib: &Library, dir: PathBuf, prefix: String, ri: usize, cancel: &AtomicBool, out: &mut Vec<Walked>, errors: &mut Vec<String>) {
     let app_dir = lib.root().join(APP_DIR);
-    let mut stack: Vec<(PathBuf, String)> = vec![(root.to_path_buf(), String::new())];
+    let mut stack: Vec<(PathBuf, String)> = vec![(dir, prefix)];
     while let Some((dir, prefix)) = stack.pop() {
         if cancel.load(Ordering::Relaxed) {
             return;
@@ -111,8 +123,67 @@ fn walk(lib: &Library, root: &Path, ri: usize, cancel: &AtomicBool, out: &mut Ve
     }
 }
 
-fn is_zip(name: &str) -> bool {
-    crate::platforms::ext_of(name) == "zip"
+/// The places a scan of `only` looks at: (folder with games, path in it, "" for all of it),
+/// none inside another. None when there are too many to be worth it.
+fn places(roots: &[Root], only: &[PathBuf]) -> Option<Vec<(usize, String)>> {
+    let mut out: Vec<(usize, String)> = vec![];
+    for p in only {
+        // the folder with games it's in (the deepest, if one is inside another)
+        let Some((ri, rel)) = roots
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.found())
+            .filter_map(|(i, r)| p.strip_prefix(&r.dir).ok().map(|rel| (i, r.dir.components().count(), rel)))
+            .max_by_key(|(_, depth, _)| *depth)
+            .map(|(i, _, rel)| (i, rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/")))
+        else {
+            continue;
+        };
+        out.push((ri, rel));
+    }
+    if out.len() > MANY_PLACES {
+        return None;
+    }
+    // a place inside another is covered by it
+    out.sort();
+    out.dedup();
+    let mut kept: Vec<(usize, String)> = vec![];
+    for (ri, rel) in out {
+        if kept.iter().any(|(r, k)| *r == ri && within(&rel, k)) {
+            continue;
+        }
+        kept.push((ri, rel));
+    }
+    Some(kept)
+}
+
+/// Is `rel` at or under `place` ("" is the whole folder)?
+fn within(rel: &str, place: &str) -> bool {
+    place.is_empty() || rel == place || (rel.starts_with(place) && rel.as_bytes().get(place.len()) == Some(&b'/'))
+}
+
+/// The files at one place: what's under it if it's a folder, itself if it's a file,
+/// nothing if it's gone (or hidden, or the app's own).
+fn walk_place(lib: &Library, root: &Root, ri: usize, rel: &str, cancel: &AtomicBool, out: &mut Vec<Walked>, errors: &mut Vec<String>) {
+    if rel.is_empty() {
+        return walk(lib, &root.dir, ri, cancel, out, errors);
+    }
+    let path = root.dir.join(rel);
+    if path.starts_with(lib.root().join(APP_DIR)) {
+        return;
+    }
+    let Ok(meta) = std::fs::symlink_metadata(&path) else { return };
+    let ft = meta.file_type();
+    // hidden anywhere on the way: scans skip it
+    let parts: Vec<&str> = rel.split('/').collect();
+    if parts[..parts.len() - 1].iter().any(|d| d.starts_with('.')) || skipped(parts[parts.len() - 1], &ft, Some(&meta)) {
+        return;
+    }
+    if ft.is_dir() {
+        walk_from(lib, path, rel.to_string(), ri, cancel, out, errors);
+    } else if ft.is_file() {
+        out.push(Walked { root: ri, rel: rel.to_string(), name: parts[parts.len() - 1].to_string(), size: meta.len(), mtime: mtime_ms(&meta) });
+    }
 }
 
 /// A file's platform when no DAT says: see [`crate::platforms::guess`].
@@ -141,18 +212,13 @@ struct Work {
     name: String,
     size: u64,
     mtime: i64,
-    zip: bool,
-}
-
-struct Member {
-    name: String,
-    hashes: Hashes,
-    full: bool,
+    /// the archive kind ("zip", "7z", "rar") when it's one
+    archive: Option<&'static str>,
 }
 
 enum Outcome {
     File(Hashes),
-    Zip(Vec<Member>),
+    Archive(&'static str, archive::Listing),
     Failed(String),
     Stopped,
 }
@@ -162,72 +228,13 @@ fn hash_file(w: &Work, cancel: &AtomicBool) -> std::io::Result<Hashes> {
     hash::hash_reader(&mut f, w.size, &w.name, cancel)
 }
 
-/// A ZIP's members: by the CRC32s it records (quick), or decompressed and hashed (full,
-/// or when its central directory can't be read).
-fn read_zip(path: &Path, full: bool, cancel: &AtomicBool) -> std::io::Result<Vec<Member>> {
-    let io = |e: zip::result::ZipError| std::io::Error::other(e.to_string());
-    let f = std::io::BufReader::new(std::fs::File::open(path)?);
-    let mut zip = match zip::ZipArchive::new(f) {
-        Ok(z) => z,
-        Err(_) => return read_zip_stream(path, cancel),
-    };
-    let mut members = vec![];
-    for i in 0..zip.len() {
-        if cancel.load(Ordering::Relaxed) {
-            return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "stopped"));
-        }
-        if full {
-            let mut m = zip.by_index(i).map_err(io)?;
-            if m.is_dir() {
-                continue;
-            }
-            let name = m.name().map_err(io)?.into_owned();
-            let size = m.size();
-            let hashes = hash::hash_reader(&mut m, size, &name, cancel)?;
-            members.push(Member { name, hashes, full: true });
-        } else {
-            let m = zip.by_index_raw(i).map_err(io)?;
-            if m.is_dir() {
-                continue;
-            }
-            let name = m.name().map_err(io)?.into_owned();
-            members.push(Member { hashes: Hashes::quick(m.size(), m.crc32()), name, full: false });
-        }
-    }
-    Ok(members)
-}
-
-/// A ZIP read from its local headers, when its central directory is damaged.
-fn read_zip_stream(path: &Path, cancel: &AtomicBool) -> std::io::Result<Vec<Member>> {
-    let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
-    let mut members = vec![];
-    while let Some(mut m) = zip::read::read_zipfile_from_stream(&mut f).map_err(|e| std::io::Error::other(e.to_string()))? {
-        if m.is_dir() {
-            continue;
-        }
-        let name = m.name().map_err(|e| std::io::Error::other(e.to_string()))?.into_owned();
-        let size = m.size();
-        let hashes = hash::hash_reader(&mut m, size, &name, cancel)?;
-        members.push(Member { name, hashes, full: true });
-    }
-    if members.is_empty() {
-        return Err(std::io::Error::other("not a ZIP that can be read"));
-    }
-    Ok(members)
-}
-
-/// Every member of the ZIP at `path`, decompressed and hashed: (name, hashes).
-pub fn zip_members(path: &Path, cancel: &AtomicBool) -> std::io::Result<Vec<(String, Hashes)>> {
-    Ok(read_zip(path, true, cancel)?.into_iter().map(|m| (m.name, m.hashes)).collect())
-}
-
 fn work_on(w: &Work, full: bool, cancel: &AtomicBool) -> Outcome {
-    let r = if w.zip {
-        read_zip(&w.path, full, cancel).map(Outcome::Zip).or_else(|e| {
+    let r = if let Some(kind) = w.archive {
+        archive::read(&w.path, kind, full, cancel).map(|l| Outcome::Archive(kind, l)).or_else(|e| {
             if e.kind() == std::io::ErrorKind::Interrupted {
                 Err(e)
             } else {
-                // not a ZIP after all: an ordinary file
+                // not an archive after all: an ordinary file
                 hash_file(w, cancel).map(Outcome::File)
             }
         })
@@ -242,7 +249,7 @@ fn work_on(w: &Work, full: bool, cancel: &AtomicBool) -> Outcome {
 }
 
 /// The blob for these hashes (shared by files with the same contents).
-fn blob_id(conn: &Connection, h: &Hashes) -> Result<i64> {
+pub(crate) fn blob_id(conn: &Connection, h: &Hashes) -> Result<i64> {
     let quick = h.sha1.is_none();
     let found: Option<i64> = if quick {
         conn.prepare_cached("SELECT id FROM blobs WHERE crc32 = ?1 AND size = ?2 AND quick = 1")?
@@ -278,8 +285,9 @@ fn record(conn: &Connection, w: &Work, root: &Root, scan_id: i64, outcome: Outco
             conn.prepare_cached("UPDATE files SET kind = 'file', blob_id = ?2, hashed = 2, matched = 0 WHERE id = ?1")?
                 .execute(params![w.file_id, blob])?;
         }
-        Outcome::Zip(members) => {
+        Outcome::Archive(kind, listing) => {
             conn.prepare_cached("DELETE FROM files WHERE parent_id = ?1")?.execute([w.file_id])?;
+            let members = listing.members;
             let all_full = members.iter().all(|m| m.full);
             let mut ins = conn.prepare_cached(
                 "INSERT OR REPLACE INTO files (root_id, parent_id, rel_path, name, kind, size, mtime, blob_id, hashed, matched, platform, seen)
@@ -292,8 +300,8 @@ fn record(conn: &Connection, w: &Work, root: &Root, scan_id: i64, outcome: Outco
                     if m.full { 2 } else { 1 }, guess_platform(root, &w.rel, Some(&m.name)), scan_id
                 ])?;
             }
-            conn.prepare_cached("UPDATE files SET kind = 'zip', blob_id = NULL, hashed = ?2, matched = 1 WHERE id = ?1")?
-                .execute(params![w.file_id, if all_full { 2 } else { 1 }])?;
+            conn.prepare_cached("UPDATE files SET kind = ?3, blob_id = NULL, hashed = ?2, matched = 1, locked = ?4 WHERE id = ?1")?
+                .execute(params![w.file_id, if all_full { 2 } else { 1 }, kind, listing.locked as i64])?;
         }
         Outcome::Failed(_) | Outcome::Stopped => {}
     }
@@ -321,14 +329,22 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
     let scan_id = conn.last_insert_rowid();
     let started = Instant::now();
 
-    // 1. walk
+    // 1. walk (everything, or only the places the watcher saw change)
     progress(json!({ "text": "Listing files" }));
+    let places = opts.only.as_deref().and_then(|only| places(&roots, only));
     let mut walked = vec![];
     let mut errors: Vec<String> = vec![];
     let mut missing_roots = vec![];
     for (i, r) in roots.iter().enumerate() {
         if r.found() {
-            walk(lib, &r.dir, i, cancel, &mut walked, &mut errors);
+            match &places {
+                Some(places) => {
+                    for (_, rel) in places.iter().filter(|(ri, _)| *ri == i) {
+                        walk_place(lib, r, i, rel, cancel, &mut walked, &mut errors);
+                    }
+                }
+                None => walk(lib, &r.dir, i, cancel, &mut walked, &mut errors),
+            }
             conn.execute("UPDATE files SET missing_since = NULL WHERE root_id = ?1 AND missing_since IS NOT NULL", [&r.id])?;
         } else {
             missing_roots.push(r.id.clone());
@@ -359,19 +375,25 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
         })?;
         for row in rows {
             let (k, v) = row?;
-            if found_ids.contains(&k.0.as_str()) {
-                known.insert(k, v);
+            if !found_ids.contains(&k.0.as_str()) {
+                continue;
             }
+            if let Some(places) = &places {
+                if !places.iter().any(|(ri, place)| roots[*ri].id == k.0 && within(&k.1, place)) {
+                    continue;
+                }
+            }
+            known.insert(k, v);
         }
     }
-    let needs_hash = |row: &Row| row.hashed == 0 || (opts.full && row.kind == "zip" && row.hashed < 2);
+    let needs_hash = |row: &Row| row.hashed == 0 || (opts.full && archive::KINDS.contains(&row.kind.as_str()) && row.hashed < 2);
     let mut queue: Vec<Work> = vec![];
     let mut fresh: Vec<Walked> = vec![];
     let (mut changed, mut added, mut moved) = (0usize, 0usize, 0usize);
     let tx = conn.unchecked_transaction()?;
     let work = |id: i64, w: &Walked| Work {
         file_id: id, root: w.root, path: roots[w.root].dir.join(&w.rel), rel: w.rel.clone(), name: w.name.clone(),
-        size: w.size, mtime: w.mtime, zip: is_zip(&w.name),
+        size: w.size, mtime: w.mtime, archive: archive::kind_of(&w.name),
     };
     for w in walked {
         let key = (roots[w.root].id.clone(), w.rel.clone());
@@ -428,7 +450,7 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
         }
         tx.execute(
             "INSERT INTO files (root_id, rel_path, name, kind, size, mtime, platform, seen) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![root.id, w.rel, w.name, if is_zip(&w.name) { "zip" } else { "file" }, w.size as i64, w.mtime, platform, scan_id],
+            params![root.id, w.rel, w.name, archive::kind_of(&w.name).unwrap_or("file"), w.size as i64, w.mtime, platform, scan_id],
         )?;
         added += 1;
         queue.push(work(tx.last_insert_rowid(), &w));
@@ -516,7 +538,7 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
     let summary = json!({
         "scan": scan_id, "files": seen, "added": added, "changed": changed, "moved": moved, "removed": removed,
         "hashed": done, "bytes": bytes, "failed": failed, "errors": errors, "matched": matched, "stopped": stopped,
-        "roots": roots.len(), "roots_missing": missing_roots, "full": opts.full,
+        "roots": roots.len(), "roots_missing": missing_roots, "full": opts.full, "places": places.as_ref().map(Vec::len),
         "seconds": (started.elapsed().as_secs_f64() * 10.0).round() / 10.0,
     });
     finish(conn, scan_id, &summary, done, bytes, seen as usize)

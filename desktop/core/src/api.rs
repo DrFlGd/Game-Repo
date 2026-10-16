@@ -4,7 +4,7 @@
 use crate::config::{AppConfig, Prefs};
 use crate::index::{self, Index};
 use crate::library::{self, Library};
-use crate::{audit, dat, makedat, platforms, roots, scan, starter};
+use crate::{audit, dat, makedat, organise, platforms, roots, scan, starter, watch};
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -38,11 +38,33 @@ struct Job {
     progress: Value,
     started: String,
     cancel: Arc<AtomicBool>,
+    /// started by the app itself (a scan of what the folder watcher saw change), not the page
+    auto: bool,
 }
 
 impl Job {
     fn to_json(&self) -> Value {
-        json!({ "id": self.id, "label": self.label, "done": self.done, "error": self.error, "result": self.result, "progress": self.progress, "started": self.started })
+        json!({ "id": self.id, "label": self.label, "done": self.done, "error": self.error, "result": self.result, "progress": self.progress, "started": self.started, "auto": self.auto })
+    }
+}
+
+/// The label of a scan's job (one at a time).
+const SCANNING: &str = "Scanning";
+
+/// What the folder watcher saw change, waiting for a scan.
+#[derive(Default)]
+struct Changed {
+    /// too much to list: scan everything
+    all: bool,
+    paths: Vec<PathBuf>,
+}
+
+/// Clears the running change when its job ends, however it ends.
+struct ChangeDone(Arc<App>);
+
+impl Drop for ChangeDone {
+    fn drop(&mut self) {
+        *self.0.change.lock().unwrap() = None;
     }
 }
 
@@ -56,6 +78,14 @@ pub struct App {
     index: Arc<Mutex<OpenIndex>>,
     jobs: Mutex<Vec<Job>>,
     job_seq: Mutex<u64>,
+    /// the change (organising, Undo) running now, by its id: one at a time
+    change: Mutex<Option<String>>,
+    /// what the folder watcher watches (library id and folders), and the watcher
+    watched: Mutex<Option<String>>,
+    watcher: Mutex<Option<watch::Watcher>>,
+    changed: Mutex<Option<Changed>>,
+    /// off for the command line, which runs one command and ends
+    watching: AtomicBool,
 }
 
 /// What `library()` says before any library was ever opened (the page then asks where).
@@ -77,6 +107,11 @@ impl App {
             index: Arc::new(Mutex::new(None)),
             jobs: Mutex::new(vec![]),
             job_seq: Mutex::new(0),
+            change: Mutex::new(None),
+            watched: Mutex::new(None),
+            watcher: Mutex::new(None),
+            changed: Mutex::new(None),
+            watching: AtomicBool::new(true),
         }))
     }
 
@@ -183,7 +218,20 @@ impl App {
     where
         F: FnOnce(Arc<Self>, String, Arc<AtomicBool>) -> Result<Value> + Send + 'static,
     {
-        let job = self.start_job(label);
+        self.spawn_job_as(label, false, work)
+    }
+
+    fn spawn_job_as<F>(self: &Arc<Self>, label: &str, auto: bool, work: F) -> Value
+    where
+        F: FnOnce(Arc<Self>, String, Arc<AtomicBool>) -> Result<Value> + Send + 'static,
+    {
+        let mut job = self.start_job(label);
+        if auto {
+            job.auto = true;
+            if let Some(j) = self.jobs.lock().unwrap().iter_mut().find(|j| j.id == job.id) {
+                j.auto = true;
+            }
+        }
         let (app, id, cancel) = (self.clone(), job.id.clone(), job.cancel.clone());
         tokio::spawn(async move {
             let (a, jid) = (app.clone(), id.clone());
@@ -193,6 +241,8 @@ impl App {
                 Err(e) => Err(e.to_string()),
             };
             app.job_done(&id, r);
+            // changes seen while it ran are scanned now
+            app.scan_changed();
         });
         json!({ "job": job.id })
     }
@@ -212,10 +262,134 @@ impl App {
         Ok(())
     }
 
+    fn scanning(&self) -> bool {
+        self.jobs.lock().unwrap().iter().any(|j| !j.done && j.label == SCANNING)
+    }
+
+    /// Mark the change `id` as running (one at a time, and not during a scan); the
+    /// job holds the returned guard, which clears it when the job ends.
+    fn begin_change(self: &Arc<Self>, id: &str) -> Result<ChangeDone, String> {
+        if self.scanning() {
+            return Err("A scan is running: wait for it to finish first.".into());
+        }
+        let mut c = self.change.lock().unwrap();
+        if c.is_some() {
+            return Err("Another change is running: wait for it to finish first.".into());
+        }
+        *c = Some(id.to_string());
+        Ok(ChangeDone(self.clone()))
+    }
+
+    /// Start a scan job (from the page or the folder watcher).
+    fn start_scan(self: &Arc<Self>, lib: Library, opts: scan::Options, auto: bool) -> Value {
+        let data_dir = self.paths.data_dir.clone();
+        self.spawn_job_as(SCANNING, auto, move |app, id, cancel| {
+            let ix = Self::job_index(&data_dir, &lib)?;
+            scan::scan(&ix, &lib, &opts, &cancel, &mut |p| app.job_progress(&id, p))
+        })
+    }
+
+    // ------------------------------------------------------------ changes made outside the app
+
+    /// What the folder watcher should watch now: (what identifies it, the folders,
+    /// the library's own folder). None when nothing is (watching off, read-only library).
+    fn watch_wanted(&self) -> Option<(String, Vec<PathBuf>, PathBuf)> {
+        if !self.watching.load(Ordering::Relaxed) {
+            return None;
+        }
+        let lib = self.library.read().unwrap().clone()?;
+        if !self.config().scan.watch || lib.writable().is_err() {
+            return None;
+        }
+        let dirs: Vec<PathBuf> = roots::list(&lib).into_iter().filter(|r| r.found()).map(|r| r.dir).collect();
+        if dirs.is_empty() {
+            return None;
+        }
+        let key = format!("{}|{}", lib.root().display(), dirs.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join("|"));
+        Some((key, dirs, lib.root().join(library::APP_DIR)))
+    }
+
+    /// Whether the folders with games are watched at all (the command line doesn't).
+    pub fn watch_folders(&self, on: bool) {
+        self.watching.store(on, Ordering::Relaxed);
+    }
+
+    /// Watch the folders with games on local drives (again, when they or the setting
+    /// changed); what changes there is scanned once it settles.
+    fn ensure_watch(self: &Arc<Self>) {
+        let want = self.watch_wanted();
+        {
+            let mut w = self.watched.lock().unwrap();
+            if w.as_deref() == want.as_ref().map(|w| w.0.as_str()) {
+                return;
+            }
+            *w = want.as_ref().map(|w| w.0.clone());
+        }
+        *self.watcher.lock().unwrap() = None;
+        let Some((key, dirs, skip)) = want else { return };
+        let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+        let app = Arc::downgrade(self);
+        // watching a big tree takes a while on some systems: not on the caller's time
+        tokio::task::spawn_blocking(move || {
+            let dirs: Vec<PathBuf> = dirs.into_iter().filter(|d| !watch::is_network(d)).collect();
+            if dirs.is_empty() {
+                return;
+            }
+            let on = app.clone();
+            let r = watch::watch(&dirs, &skip, watch::SETTLE, move |paths| {
+                if let Some(a) = on.upgrade() {
+                    let _rt = handle.enter();
+                    a.changed_outside(paths);
+                }
+            });
+            let Some(a) = app.upgrade() else { return };
+            match r {
+                // only if it's still what should be watched
+                Ok(w) if a.watched.lock().unwrap().as_deref() == Some(key.as_str()) => *a.watcher.lock().unwrap() = Some(w),
+                Ok(_) => {}
+                Err(e) => eprintln!("can't watch the folders with games: {e}"),
+            }
+        });
+    }
+
+    fn changed_outside(self: &Arc<Self>, paths: Option<Vec<PathBuf>>) {
+        {
+            let mut c = self.changed.lock().unwrap();
+            let c = c.get_or_insert_with(Changed::default);
+            match paths {
+                Some(p) => c.paths.extend(p),
+                None => c.all = true,
+            }
+        }
+        self.scan_changed();
+    }
+
+    /// Scan what the watcher saw change, unless a scan or a change is running (then
+    /// this runs again when it ends).
+    fn scan_changed(self: &Arc<Self>) {
+        if self.scanning() || self.change.lock().unwrap().is_some() {
+            return;
+        }
+        let Some(c) = self.changed.lock().unwrap().take() else { return };
+        let Ok(lib) = self.library() else { return };
+        let settings = self.config().scan;
+        if lib.writable().is_err() || !settings.watch {
+            return;
+        }
+        let only = if c.all { None } else { Some(c.paths) };
+        self.start_scan(lib, scan::Options { full: settings.full, readers: settings.readers, only }, true);
+    }
+
     // ------------------------------------------------------------ commands
 
     pub async fn call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
         let j = |v: Value| Ok(Reply::Json(v));
+        if !cmd.starts_with("job") {
+            self.ensure_watch();
+        }
+        if cmd.starts_with("organise_") || cmd.starts_with("change_") || cmd.starts_with("naming") {
+            return self.organise_call(cmd, args).await;
+        }
         match cmd {
             "app_info" => {
                 let lib = self.library();
@@ -270,7 +444,17 @@ impl App {
             // ---------------------------------------------------- folders with games
             "roots" => {
                 let lib = self.library()?;
-                j(json!(roots::list(&lib).iter().map(roots::Root::to_json).collect::<Vec<_>>()))
+                let on = self.config().scan.watch;
+                j(json!(roots::list(&lib)
+                    .iter()
+                    .map(|r| {
+                        let mut v = r.to_json();
+                        let network = r.found() && watch::is_network(&r.dir);
+                        v["network"] = json!(network);
+                        v["watched"] = json!(on && r.found() && !network);
+                        v
+                    })
+                    .collect::<Vec<_>>()))
             }
             "roots_add" => {
                 let lib = self.library()?;
@@ -309,20 +493,24 @@ impl App {
                 if let Some(n) = args["readers"].as_u64() {
                     cfg.scan.readers = (n as usize).clamp(1, 16);
                 }
+                if let Some(w) = args["watch"].as_bool() {
+                    cfg.scan.watch = w;
+                }
                 cfg.save(&self.config_path()).map_err(e2s)?;
                 j(json!(cfg.scan))
             }
             "scan" => {
                 let lib = self.library()?;
                 lib.writable().map_err(e2s)?;
-                self.not_running("Scanning")?;
+                self.not_running(SCANNING)?;
+                if self.change.lock().unwrap().is_some() {
+                    return Err("A change is running: scan when it's finished.".into());
+                }
                 let settings = self.config().scan;
-                let opts = scan::Options { full: args["full"].as_bool().unwrap_or(settings.full), readers: settings.readers };
-                let data_dir = self.paths.data_dir.clone();
-                j(self.spawn_job("Scanning", move |app, id, cancel| {
-                    let ix = Self::job_index(&data_dir, &lib)?;
-                    scan::scan(&ix, &lib, &opts, &cancel, &mut |p| app.job_progress(&id, p))
-                }))
+                let opts = scan::Options { full: args["full"].as_bool().unwrap_or(settings.full), readers: settings.readers, only: None };
+                // everything is read, so what the watcher saw is covered
+                *self.changed.lock().unwrap() = None;
+                j(self.start_scan(lib, opts, false))
             }
 
             // ---------------------------------------------------- DATs
@@ -496,6 +684,118 @@ impl App {
                 if let Some(x) = self.jobs.lock().unwrap().iter().find(|x| x.id == id) {
                     x.cancel.store(true, Ordering::Relaxed);
                 }
+                j(Value::Null)
+            }
+            other => Err(format!("unknown command {other}")),
+        }
+    }
+
+    /// Organising a set (docs/PLAN.md, "Phase 2 design", 2a): planning and previewing a
+    /// change, running it as a job, the history and Undo, and how games are named.
+    async fn organise_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
+        let j = |v: Value| Ok(Reply::Json(v));
+        let data_dir = self.paths.data_dir.clone();
+        match cmd {
+            "organise_plan" => {
+                let lib = self.library()?;
+                let o = organise::Options {
+                    dat_id: args["dat"].as_i64().ok_or("missing dat")?,
+                    mode: args["mode"].as_str().unwrap_or("copy").to_string(),
+                    out: args["out"].as_str().filter(|o| !o.trim().is_empty()).map(PathBuf::from),
+                    format: args["format"].as_str().unwrap_or("keep").to_string(),
+                    partial: args["partial"].as_bool().unwrap_or(false),
+                    always_copy: args["always_copy"].as_bool().unwrap_or(false),
+                    only_misnamed: args["only_misnamed"].as_bool().unwrap_or(false),
+                };
+                j(self
+                    .with_index(move |ix| {
+                        let plan = organise::plan(ix, &lib, &o)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            "organise_duplicates" => {
+                let lib = self.library()?;
+                let dat_id = args["dat"].as_i64().ok_or("missing dat")?;
+                j(self
+                    .with_index(move |ix| {
+                        let plan = organise::plan_duplicates(ix, &lib, dat_id)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            "organise_preview" => {
+                let id = arg(&args, "id").map_err(e2s)?;
+                let plan = organise::load_pending(&data_dir, id).map_err(e2s)?;
+                let what = args["what"].as_str().unwrap_or("all");
+                let (offset, limit) = (args["offset"].as_u64().unwrap_or(0) as usize, args["limit"].as_u64().unwrap_or(100) as usize);
+                j(organise::preview(&plan, what, offset, limit))
+            }
+            "organise_run" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let id = arg(&args, "id").map_err(e2s)?;
+                let plan = organise::load_pending(&data_dir, id).map_err(e2s)?;
+                let label = if plan.kind == "aside" { "Setting aside duplicates" } else { "Organising" };
+                let running = self.begin_change(&plan.id)?;
+                j(self.spawn_job(label, move |app, jid, cancel| {
+                    let _running = running;
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    let r = organise::run(&ix, &lib, &plan, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    let _ = std::fs::remove_file(organise::pending_path(&data_dir, &plan.id));
+                    Ok(r)
+                }))
+            }
+            "change_history" => {
+                let lib = self.library()?;
+                let running: Vec<String> = self.change.lock().unwrap().iter().cloned().collect();
+                j(tokio::task::spawn_blocking(move || organise::history(&lib, &running)).await.map_err(|e| e.to_string())?.map_err(e2s)?)
+            }
+            "change_undo" | "change_finish" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let running = self.begin_change(&id)?;
+                let undo = cmd == "change_undo";
+                j(self.spawn_job(if undo { "Undoing" } else { "Finishing a change" }, move |app, jid, cancel| {
+                    let _running = running;
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    let progress = &mut |p| app.job_progress(&jid, p);
+                    if undo {
+                        organise::undo(&ix, &lib, &id, &cancel, progress)
+                    } else {
+                        organise::finish(&ix, &lib, &id, &cancel, progress)
+                    }
+                }))
+            }
+            "change_empty" => {
+                // set-aside files of one change (or all), deleted for good
+                let lib = self.library()?;
+                if self.change.lock().unwrap().is_some() {
+                    return Err("A change is running: wait for it to finish first.".into());
+                }
+                let id = args["id"].as_str().map(String::from);
+                j(tokio::task::spawn_blocking(move || organise::empty_set_aside(&lib, id.as_deref())).await.map_err(|e| e.to_string())?.map_err(e2s)?)
+            }
+            "naming" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?;
+                let n = organise::naming(&lib, platform);
+                let mut v = organise::example(&n.template).map_err(e2s)?;
+                v["template"] = json!(n.template);
+                v["folder"] = json!(n.folder);
+                v["default"] = json!(organise::DEFAULT_TEMPLATE);
+                j(v)
+            }
+            "naming_example" => j(organise::example(arg(&args, "template").map_err(e2s)?).map_err(e2s)?),
+            "naming_set" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let platform = arg(&args, "platform").map_err(e2s)?;
+                let template = args["template"].as_str().unwrap_or(organise::DEFAULT_TEMPLATE);
+                organise::set_naming(&lib, platform, template, args["folder"].as_bool().unwrap_or(false)).map_err(e2s)?;
                 j(Value::Null)
             }
             other => Err(format!("unknown command {other}")),
@@ -729,7 +1029,7 @@ mod tests {
         assert_eq!(root["found"], true);
         assert!(app.call("roots_add", json!({ "path": roms.display().to_string() })).await.is_err());
         call(&app, "scan_settings_set", json!({ "readers": 3 })).await;
-        assert_eq!(call(&app, "scan_settings", json!({})).await, json!({ "full": false, "readers": 3 }));
+        assert_eq!(call(&app, "scan_settings", json!({})).await, json!({ "full": false, "readers": 3, "watch": true }));
         let done = wait(&app, &call(&app, "scan", json!({})).await).await;
         assert_eq!(done["result"]["hashed"], 2, "{done}");
         let dat = dat_xml("Nintendo - Game Boy", "1", &[
@@ -755,6 +1055,77 @@ mod tests {
         assert_eq!(made["result"]["games"], 2, "{made}");
         call(&app, "roots_remove", json!({ "id": root["id"] })).await;
         assert_eq!(call(&app, "home", json!({})).await["files"], 0);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn organise_undo_and_the_folder_watcher() {
+        use crate::audit::tests::{dat_xml, rom, rom_xml};
+        let (app, home) = app("organise");
+        call(&app, "library_open", json!({ "path": home.join("Lib").display().to_string() })).await;
+        let roms = home.join("Roms/GB");
+        std::fs::create_dir_all(&roms).unwrap();
+        std::fs::write(roms.join("Alpha (USA).gb"), rom(1, 4096)).unwrap();
+        std::fs::write(roms.join("x.gb"), rom(2, 4096)).unwrap();
+        call(&app, "roots_add", json!({ "path": home.join("Roms").display().to_string() })).await;
+        wait(&app, &call(&app, "scan", json!({})).await).await;
+        let dat = dat_xml("Nintendo - Game Boy", "1", &[
+            ("Alpha (USA)", None, rom_xml("Alpha (USA).gb", &rom(1, 4096))),
+            ("Beta (USA)", None, rom_xml("Beta (USA).gb", &rom(2, 4096))),
+            ("Gamma (USA)", None, rom_xml("Gamma (USA).gb", &rom(3, 4096))),
+        ]);
+        std::fs::write(home.join("gb.dat"), dat).unwrap();
+        wait(&app, &call(&app, "dat_import", json!({ "paths": [home.join("gb.dat").display().to_string()] })).await).await;
+        let dat_id = call(&app, "audit_summary", json!({})).await["summary"]["dat"]["id"].clone();
+
+        // the folder is watched: a file added outside the app is scanned without asking
+        let roots = call(&app, "roots", json!({})).await;
+        assert_eq!((roots[0]["watched"].as_bool(), roots[0]["network"].as_bool()), (Some(true), Some(false)), "{roots}");
+        let t = std::time::Instant::now();
+        while app.watcher.lock().unwrap().is_none() {
+            assert!(t.elapsed().as_secs() < 10, "the folders are watched");
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        std::fs::write(roms.join("Gamma (USA).gb"), rom(3, 4096)).unwrap();
+        let auto = loop {
+            let jobs = call(&app, "jobs", json!({})).await;
+            if let Some(job) = jobs.as_array().unwrap().iter().find(|j| j["auto"] == true && j["done"] == true) {
+                break job.clone();
+            }
+            assert!(t.elapsed().as_secs() < 20, "the change was scanned: {jobs}");
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        };
+        assert_eq!((auto["result"]["added"].as_u64(), auto["result"]["places"].as_u64()), (Some(1), Some(1)), "{auto}");
+        let a = call(&app, "audit_summary", json!({ "dat": dat_id })).await;
+        assert_eq!(a["summary"]["have"], 3, "{a}");
+
+        // rename the misnamed file where it is, through a preview
+        let plan = call(&app, "organise_plan", json!({ "dat": dat_id, "mode": "rename", "only_misnamed": true })).await;
+        assert_eq!(plan["ops"], 1, "{plan}");
+        let p = call(&app, "organise_preview", json!({ "id": plan["id"] })).await;
+        assert_eq!(p["items"][0]["op"], "rename");
+        assert!(p["items"][0]["to"].as_str().unwrap().ends_with("Beta (USA).gb"), "{p}");
+        let done = wait(&app, &call(&app, "organise_run", json!({ "id": plan["id"] })).await).await;
+        assert_eq!(done["result"]["done"], 1, "{done}");
+        assert!(roms.join("Beta (USA).gb").is_file() && !roms.join("x.gb").exists());
+        assert!(app.call("organise_run", json!({ "id": plan["id"] })).await.is_err(), "a plan runs once");
+        let h = call(&app, "change_history", json!({})).await;
+        assert_eq!((h[0]["state"].as_str(), h[0]["can_undo"].as_bool()), (Some("done"), Some(true)), "{h}");
+        let undone = wait(&app, &call(&app, "change_undo", json!({ "id": plan["id"] })).await).await;
+        assert!(undone["error"].is_null(), "{undone}");
+        assert!(roms.join("x.gb").is_file() && !roms.join("Beta (USA).gb").exists());
+        assert_eq!(call(&app, "change_history", json!({})).await[0]["state"], "undone");
+
+        // naming
+        let n = call(&app, "naming", json!({ "platform": "gb" })).await;
+        assert_eq!(n["template"], "{name}");
+        call(&app, "naming_set", json!({ "platform": "gb", "template": "{title} ({region})", "folder": true })).await;
+        let n = call(&app, "naming", json!({ "platform": "gb" })).await;
+        assert_eq!((n["folder"].as_bool(), n["examples"][0][1].as_str()), (Some(true), Some("Super Game (USA, Europe)")), "{n}");
+        assert!(app.call("naming_set", json!({ "platform": "gb", "template": "{nope}" })).await.is_err());
+        call(&app, "scan_settings_set", json!({ "watch": false })).await;
+        assert_eq!(call(&app, "roots", json!({})).await[0]["watched"], false);
+        assert!(app.watcher.lock().unwrap().is_none());
         let _ = std::fs::remove_dir_all(&home);
     }
 

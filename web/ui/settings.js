@@ -1,13 +1,14 @@
 // Settings: the open library (name, folder, other libraries), its index on this
-// computer, the folders with games and how they're scanned, the DAT files, the
-// look, and the app's version with a link to About. Naming and storage formats,
-// external tools and metadata sources come with the phases that use them
-// (docs/PLAN.md, 3.7).
+// computer, the folders with games and how they're scanned and watched, the DAT
+// files, how games are named, the history of changes (Undo, set-aside files), the
+// look, and the app's version with a link to About. Storage formats, external
+// tools and metadata sources come with the phases that use them (docs/PLAN.md, 3.7).
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui, THEMES, SKINS, setTheme, setSkin } from "./state.js";
 import { ctx } from "./context.js";
-import { isDesktop, openLibrary, renameLibrary, showLibraryFolder, checkIndex, undoable, size, plural } from "./library.js";
+import { api, toast, isDesktop, openLibrary, renameLibrary, showLibraryFolder, checkIndex, undoable, size, plural } from "./library.js";
+import { undoChange, finishChange } from "./organise.js";
 import { addRoot, updateRoot, repointRoot, removeRoot, scanSettings, setScanSettings, importDats, starterDats, useDat, removeDat, refreshGames, reveal } from "./games.js";
 import { confirmDialog } from "./dialogs.js";
 import { CommandBar } from "./layout.js";
@@ -60,7 +61,8 @@ function FoldersSection({ lib }) {
     <p class="muted">The folders your ROMs are in, anywhere on this computer or a network drive. Scanning reads them; nothing in them is changed. The list is kept in the library; a folder that's somewhere else on another computer can be pointed there.</p>
     ${roots.length ? html`<ul class="ls-list root-list" id="roots">${roots.map((r) => html`<li key=${r.id} data-root=${r.id}>
       <span class="root-path"><span title=${r.dir}>${r.dir}</span>
-        ${r.found ? null : html`<span class="warn-text">Not found on this computer</span>`}</span>
+        ${r.found ? null : html`<span class="warn-text">Not found on this computer</span>`}
+        ${r.network ? html`<span class="muted root-note">A network drive: changes there are read when you scan.</span>` : null}</span>
       <select class="compact" aria-label="Platform of the files no DAT knows" title="The platform of files in it that no DAT recognises (matched files take their DAT's)" value=${r.platform || ""} disabled=${off}
         onChange=${(e) => updateRoot(r.id, { platform: e.target.value || null })}>
         <option value="">Platform: worked out</option>
@@ -84,7 +86,9 @@ function FoldersSection({ lib }) {
         <select id="scan-readers" class="compact" value=${String(scanOpts.readers)} onChange=${(e) => change({ readers: Number(e.target.value) })}>
           ${[1, 2, 3, 4, 6, 8].map((n) => html`<option key=${n} value=${String(n)}>${n}</option>`)}
         </select>
-        <small class="muted">More is faster on SSDs and network drives; 1 suits a single spinning disk.</small></label>` : null}
+        <small class="muted">More is faster on SSDs and network drives; 1 suits a single spinning disk.</small></label>
+      <div class="field-block"><label class="check-row"><input type="checkbox" id="scan-watch" checked=${scanOpts.watch} onChange=${(e) => change({ watch: e.target.checked })} /> Watch for changes</label>
+        <small class="muted">While the app is open, files added, changed or removed in these folders are read a few seconds later, without a scan. Network drives don't report changes reliably, so they're read when you scan. Kept on this computer.</small></div>` : null}
   </section>`;
 }
 
@@ -120,6 +124,102 @@ function DatsSection({ lib }) {
   </section>`;
 }
 
+/** How each platform's games are named when they're organised (kept in the library). */
+function NamingSection({ lib }) {
+  const dats = useStore(ui, (st) => st.dats) || [];
+  const platforms = [...new Map(dats.map((d) => [d.platform, d.platform_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const [platform, setPlatform] = useState(null);
+  const [n, setN] = useState(null);
+  const [template, setTemplate] = useState("");
+  const [example, setExample] = useState(null);
+  const [error, setError] = useState("");
+  const p = platform || platforms[0]?.[0];
+  useEffect(() => {
+    if (!p) return;
+    api("naming", { platform: p }).then((r) => { setN(r); setTemplate(r.template); setExample(r); setError(""); }).catch((e) => setError(e.message || String(e)));
+  }, [p, lib.path]);
+  useEffect(() => {
+    if (!n || template === n.template) return;
+    const t = setTimeout(() => api("naming_example", { template }).then((r) => { setExample(r); setError(""); }).catch((e) => setError(e.message || String(e))), 250);
+    return () => clearTimeout(t);
+  }, [template]);
+  const save = async (patch = {}) => {
+    try {
+      const next = { template, folder: n.folder, ...patch };
+      await api("naming_set", { platform: p, ...next });
+      setN({ ...n, ...next });
+      toast(`Saved how ${platforms.find(([id]) => id === p)?.[1]} games are named.`);
+    } catch (e) {
+      setError(e.message || String(e));
+    }
+  };
+  const off = !!lib.read_only;
+  return html`<section class="ls-section" id="settings-naming">
+    <h2>Naming</h2>
+    <p class="muted">How organised games are named, for each platform with a DAT. The DAT's own name (<code>{name}</code>) is what other collectors' tools expect; the fields below make shorter names. Existing files change only when you organise.</p>
+    ${!platforms.length ? html`<p class="muted">Import a DAT first.</p>` : html`
+      <label class="field-inline"><span>Platform</span>
+        <select id="naming-platform" class="compact" value=${p} onChange=${(e) => setPlatform(e.target.value)}>
+          ${platforms.map(([id, name]) => html`<option key=${id} value=${id}>${name}</option>`)}
+        </select></label>
+      ${n ? html`<form class="field-block" onSubmit=${(e) => { e.preventDefault(); save(); }}>
+        <span class="field-label">Name</span>
+        <div class="pick-row">
+          <input type="text" id="naming-template" value=${template} disabled=${off} onInput=${(e) => setTemplate(e.target.value)} aria-label="Name template" />
+          <button type="submit" class="ghost" id="naming-save" disabled=${off || template === n.template || !!error}>Save</button>
+          ${template !== n.default ? html`<button type="button" class="ghost" disabled=${off} onClick=${() => { setTemplate(n.default); save({ template: n.default }); }}>Use the DAT's names</button>` : null}
+        </div>
+        <small class="muted">Fields: ${(example?.fields || n.fields).map((f) => html`<code key=${f}>{${f}}</code> `)}. Brackets left empty by a field a game doesn't have are dropped.</small>
+        ${error ? html`<p class="form-error" role="alert">${error}</p>` : html`<ul class="naming-examples" id="naming-examples">${(example?.examples || []).map(([from, to]) => html`<li key=${from}><span class="muted">${from}</span> → <code>${to}</code></li>`)}</ul>`}
+      </form>
+      <label class="check-row"><input type="checkbox" id="naming-folder" checked=${n.folder} disabled=${off} onChange=${(e) => save({ folder: e.target.checked })} /> A folder for each game</label>` : null}`}
+  </section>`;
+}
+
+/** The changes made to files (organising, setting aside), newest first: Undo, and the space set-aside files take. */
+function HistorySection({ lib }) {
+  const changes = useStore(ui, (st) => st.changes);
+  const [list, setList] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api("change_history").then(setList).catch((e) => setList({ error: e.message || String(e) }));
+  useEffect(() => { load(); }, [lib.path, changes]);
+  const act = async (fn) => {
+    setBusy(true);
+    try {
+      const said = await fn();
+      if (typeof said === "string") toast(said, 8000);
+    } catch (e) {
+      toast(e.message || String(e), 10000);
+    } finally {
+      setBusy(false);
+      load();
+    }
+  };
+  const empty = (c) => confirmDialog({
+    title: c ? "Empty what this change set aside?" : "Empty everything set aside?",
+    text: c ? `The ${size(c.held)} of files "${c.label}" set aside are deleted, and it can't be undone any more.` : `The ${size(held)} of files set aside by these changes are deleted, and they can't be undone any more.`,
+    button: "Empty", run: async () => { const r = await api("change_empty", { id: c?.id || null }); toast(`Freed ${size(r.freed)}.`); load(); },
+  });
+  const items = Array.isArray(list) ? list : [];
+  const held = items.reduce((t, c) => t + (c.held || 0), 0);
+  const state = { done: "Done", undone: "Undone", interrupted: "Interrupted", running: "Running" };
+  const off = !!lib.read_only;
+  return html`<section class="ls-section" id="settings-history">
+    <h2>History</h2>
+    <p class="muted">The changes the app has made to your files, kept in the library (<code>_library/journal</code>). The newest can be undone. Files a change replaced are set aside in <code>.gamerepo-set-aside</code> at the top of their folder until you empty them.</p>
+    ${list?.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
+    ${list && !items.length ? html`<p id="history-none">No changes yet.</p>` : null}
+    ${items.length ? html`<ul class="ls-list change-list" id="history">${items.map((c) => html`<li key=${c.id} data-change=${c.id} data-state=${c.state}>
+      <span class="change-label"><span>${c.label}</span><span class="muted">${c.created?.replace("T", " ").slice(0, 16)} · ${plural(c.ops, "step", "steps")}${c.held ? ` · ${size(c.held)} set aside` : ""}</span></span>
+      <span class=${c.state === "interrupted" ? "badge review" : "badge"}>${state[c.state] || c.state}</span>
+      ${c.state === "interrupted" ? html`<button type="button" class="ghost" data-action="finish" disabled=${busy || off} onClick=${() => act(() => finishChange(c.id).then(() => "Finished it."))}>Finish</button>` : null}
+      ${c.can_undo ? html`<button type="button" class="ghost" data-action="undo" disabled=${busy || off} onClick=${() => act(() => undoChange(c.id))}>${c.state === "interrupted" ? "Put back" : "Undo"}</button>` : null}
+      ${c.held && c.state !== "running" ? html`<button type="button" class="ghost" data-action="empty" disabled=${busy || off} onClick=${() => empty(c)}>Empty</button>` : null}
+    </li>`)}</ul>` : null}
+    ${held ? html`<div class="home-actions"><button type="button" class="ghost" id="history-empty" disabled=${busy || off} onClick=${() => empty(null)}>Empty everything set aside (${size(held)})</button></div>` : null}
+  </section>`;
+}
+
 export function Settings() {
   const s = useStore(ui, (st) => ({ library: st.library, recent: st.recent, skin: st.skin, theme: st.theme, index: st.index }));
   const lib = s.library;
@@ -142,7 +242,7 @@ export function Settings() {
         <ul class="ls-list" id="recent-libraries">${others.map((p) => html`<li key=${p}><span>${p}</span>
           <button type="button" class="ghost" onClick=${() => openLibrary(p)}>Open</button></li>`)}</ul>` : null}
     </section>
-    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} />` : null}
+    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${HistorySection} lib=${lib} />` : null}
     <section class="ls-section">
       <h2>Appearance</h2>
       <label class="field-block"><span>Skin</span>
@@ -157,7 +257,7 @@ export function Settings() {
     </section>
     <section class="ls-section" id="settings-coming">
       <h2>Still to come</h2>
-      <p class="muted">Each platform's naming convention and preferred storage format (ZIP, CHD, RVZ, CSO, 7z), what's done to your original files, folders for external tools such as chdman, and accounts for metadata sources each arrive with the phase that uses them.</p>
+      <p class="muted">Each platform's preferred storage format (CHD, RVZ, CSO, 7z), folders for external tools such as chdman, and accounts for metadata sources each arrive with the phase that uses them.</p>
     </section>
     <section class="ls-section" id="settings-about">
       <h2>About</h2>

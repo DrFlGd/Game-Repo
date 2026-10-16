@@ -12,7 +12,10 @@ index is made on this computer (not in the library) and checked as a job;
 one whose platform is asked), Home's platform bars, every Audit list against
 tests/fixtures' expected counts, the fixdat and saved reports, a rescan after a
 rename and a deletion, a DAT made from a set, the scan settings, and starter
-DATs (from a local stand-in for libretro's copy);
+DATs (from a local stand-in for libretro's copy); (Phase 2a) a file added outside
+the app is read by the folder watcher, Rename these with its preview and Undo, Set
+aside duplicates, Organise into TorrentZips in another folder, Naming, and the
+History with Undo and emptying what was set aside;
 renaming the library, with Undo; opening a folder that already holds games
 leaves them as they were, and switching back from the recent list; the theme
 and skin follow the settings and are kept; a library from a newer app opens
@@ -297,6 +300,91 @@ async def main():
             await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '5'")
             chosen = json.loads((library / "_library/library.json").read_text()).get("audit_dats", {})
             check("the DAT chosen for a platform is kept for it", chosen.get("gb") == "My GB set", chosen)
+
+            # Phase 2a. the folder watcher, organising with a preview, Undo, naming and the history
+            await pg.select_option("#audit-dat", label="Nintendo - Game Boy (Parent-Clone) (20261001-000000)")
+            await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '3'")
+            (gbdir / "Extra").mkdir()
+            shutil.copy(gbdir / "Alpha (USA).gb", gbdir / "Extra/alpha again.gb")
+            (gbdir / "Extra/gamma.gb").write_bytes(make_fixtures.rom(3, 32768))
+            said = await toast_text(pg, "Read what changed", timeout=30000)
+            misnamed = await tab_names("misnamed")
+            check("files added outside the app are read without a scan (the folder watcher)", "2 new" in said and misnamed == ["alpha again.gb", "gamma.gb"], (said, misnamed))
+
+            await pg.click("#audit-rename")
+            await pg.wait_for_selector('#organise-list li[data-op="rename"]')
+            step = await pg.inner_text("#organise-list")
+            tabs = await pg.inner_text("#organise-tabs")
+            await pg.screenshot(path=str(out / "13-rename-preview.png"))
+            await pg.click("#organise-dialog button[type=submit]")
+            said = await toast_text(pg, "Renamed the misnamed Game Boy files")
+            renamed = (gbdir / "Extra/Gamma (Japan).gb").is_file() and not (gbdir / "Extra/gamma.gb").exists()
+            misnamed = await tab_names("misnamed")
+            await pg.click("#toast .toast-action")
+            undone = await toast_text(pg, "Undone")
+            back = (gbdir / "Extra/gamma.gb").is_file() and not (gbdir / "Extra/Gamma (Japan).gb").exists()
+            check("Rename these shows a preview (a copy of a file named right is left alone), renames in place, and Undo in the message puts it back",
+                  "Gamma (Japan).gb" in step and "Left alone 1" in " ".join(tabs.split()) and "1 of 1 step done" in said and renamed and misnamed == ["alpha again.gb"] and back,
+                  (step, tabs, said, undone, misnamed))
+
+            await pg.click('#audit-tabs [data-tab="duplicates"]')
+            await pg.click("#audit-aside")
+            await pg.wait_for_selector('#organise-list li[data-op="aside"]')
+            await pg.click("#organise-dialog button[type=submit]")
+            said = await toast_text(pg, "Set aside Game Boy duplicates")
+            held = [x for x in (fx / "Roms/.gamerepo-set-aside").rglob("*") if x.is_file()]
+            dupes = await tab_names("duplicates")
+            check("Set aside duplicates keeps the copy that's named right and moves the other out of the way",
+                  (gbdir / "Alpha (USA).gb").is_file() and not (gbdir / "Extra/alpha again.gb").exists() and [x.name for x in held] == ["alpha again.gb"] and dupes == [],
+                  (said, held, dupes))
+
+            sorted_dir = home / "Sorted"
+            pick(sorted_dir)
+            await pg.click("#audit-organise")
+            await pg.wait_for_selector("#organise-dialog")
+            await pg.check('input[name="organise-mode"][value="copy"]')
+            await pg.click("#organise-pick")
+            await pg.wait_for_function("(p) => document.querySelector('#organise-out')?.value === p", arg=str(sorted_dir))
+            await pg.select_option("#organise-format", "zip")
+            await pg.screenshot(path=str(out / "14-organise.png"))
+            await pg.click("#organise-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-totals")
+            totals = await pg.inner_text("#organise-totals")
+            await pg.screenshot(path=str(out / "15-organise-preview.png"))
+            await pg.click("#organise-dialog button[type=submit]")
+            said = await toast_text(pg, "Sorted Game Boy into")
+            zips = sorted(x.name for x in sorted_dir.glob("*.zip")) if sorted_dir.is_dir() else []
+            tz = all(b"TORRENTZIPPED-" in (sorted_dir / z).read_bytes()[-40:] for z in zips)
+            check("Organise copies a set into TorrentZips in another folder, after a preview, and leaves the originals",
+                  "Write ZIP: 4 files" in totals and zips == ["Alpha (USA).zip", "Beta (Europe).zip", "Delta (World).zip", "Gamma (Japan).zip"] and tz and (gbdir / "Delta (World).zip").is_file(),
+                  (totals, said, zips))
+
+            await pg.click('.sidebar a[href="#/settings"]')
+            await pg.wait_for_selector("#naming-template")
+            await pg.fill("#naming-template", "{title} ({region})")
+            await pg.wait_for_function("() => document.querySelector('#naming-examples code')?.textContent === 'Super Game (USA, Europe)'")
+            await pg.click("#naming-save")
+            await toast_text(pg, "Saved how Game Boy games are named")
+            naming = json.loads((library / "_library/library.json").read_text()).get("naming", {})
+            check("Settings › Naming shows how names come out and keeps the platform's template in the library",
+                  naming.get("gb", {}).get("template") == "{title} ({region})", naming)
+
+            await pg.wait_for_selector("#history li")
+            states = await pg.eval_on_selector_all("#history li", "els => els.map(e => e.dataset.state)")
+            await pg.screenshot(path=str(out / "16-history.png"), full_page=True)
+            await pg.click('#history li:first-child [data-action="undo"]')
+            await toast_text(pg, "Undone")
+            gone = not sorted_dir.exists() or not any(sorted_dir.iterdir())
+            await pg.click("#history-empty")
+            await pg.click("#confirm-dialog button[type=submit]")
+            await toast_text(pg, "Freed")
+            emptied = not any(x.is_file() for x in (fx / "Roms").rglob("*") if ".gamerepo-set-aside" in x.parts)
+            await pg.uncheck("#scan-watch")
+            await pg.wait_for_timeout(300)
+            watch = json.loads((home / "config/config.json").read_text()).get("scan", {}).get("watch")
+            check("Settings › History lists the changes; the newest is undone there, what was set aside is emptied, and watching can be turned off",
+                  states == ["done", "done", "undone"] and gone and emptied and watch is False, (states, gone, emptied, watch))
+            await pg.check("#scan-watch")
 
             # Settings: the DATs, and how scans read ZIPs (kept on this computer)
             await pg.click('.sidebar a[href="#/settings"]')

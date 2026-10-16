@@ -1,18 +1,19 @@
 // Dialogs. Which one is open is `ui.dialog`: { type: "ask", … } (a question with
 // a button that does it), { type: "confirm", … } (before something that can't
-// be undone), "dat-platform" (which platform a DAT is for) or "make-dat" (a DAT
-// from a scanned set). The pages that need forms of their own add their types here.
+// be undone), "dat-platform" (which platform a DAT is for), "make-dat" (a DAT
+// from a scanned set) or "organise" (organise.js). The pages that need forms of their own add their types here.
 import { html, useState, useLayoutEffect, useRef } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { Icon } from "./icons.js";
 import { importDats, makeDat } from "./games.js";
+import { OrganiseDialog } from "./organise.js";
 
 export const close = () => ui.set({ dialog: null });
 
 /** A dialog: Esc or Cancel closes it; `danger` makes the button red (it deletes).
  *  Esc and the first box work as soon as it shows (a layout effect, not after a paint). */
-export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger = false, cancelLabel = "Cancel", children }) {
+export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger = false, cancelLabel = "Cancel", onCancel = close, wide = false, children }) {
   const form = useRef(null);
   useLayoutEffect(() => {
     const key = (e) => { if (e.key === "Escape") close(); };
@@ -22,14 +23,14 @@ export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger =
     return () => removeEventListener("keydown", key);
   }, []);
   return html`<div class="dialog-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget) close(); }}>
-    <form class="dialog" id=${id} ref=${form} tabindex="-1" role="dialog" aria-modal="true" aria-label=${title} onSubmit=${(e) => { e.preventDefault(); onSubmit(); }}>
+    <form class=${wide ? "dialog wide" : "dialog"} id=${id} ref=${form} tabindex="-1" role="dialog" aria-modal="true" aria-label=${title} onSubmit=${(e) => { e.preventDefault(); onSubmit(); }}>
       <div class="dialog-head"><h2>${title}</h2>
         <button type="button" class="ghost" aria-label="Close" title="Close (Esc)" onClick=${close}>${Icon.close(15)}</button></div>
       ${children}
       <div class="dialog-foot">
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
         <div class="dialog-actions">
-          <button type="button" class="ghost" id=${id ? `${id}-cancel` : null} onClick=${close}>${cancelLabel}</button>
+          <button type="button" class="ghost" id=${id ? `${id}-cancel` : null} onClick=${onCancel}>${cancelLabel}</button>
           <button type="submit" class=${danger ? "primary danger" : "primary"} disabled=${busy}>${submitLabel}</button>
         </div>
       </div>
@@ -153,5 +154,6 @@ export function Dialogs() {
   if (dialog.type === "confirm") return html`<${ConfirmDialog} ...${dialog} />`;
   if (dialog.type === "dat-platform") return html`<${DatPlatformDialog} ...${dialog} />`;
   if (dialog.type === "make-dat") return html`<${MakeDatDialog} ...${dialog} />`;
+  if (dialog.type === "organise") return html`<${OrganiseDialog} key=${dialog.plan?.id || "new"} ...${dialog} />`;
   return null;
 }

@@ -14,14 +14,25 @@ path = "src/bin/gamerepo-cli.rs"
 [dependencies]
 anyhow = "1"
 crc32fast = "1"
+flate2 = { version = "1", default-features = false, features = ["zlib"] }
+fs4 = "1"
 hex = "0.4"
 md-5 = "0.10"
+notify = { version = "8", default-features = false }
 quick-xml = "0.42"
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+sevenz-rust2 = { version = "0.24", default-features = false, features = ["bzip2", "ppmd"] }
 sha1 = "0.10"
 sha2 = "0.10"
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }
+unrar = "0.5"
 ureq = "3"
 zip = { version = "9", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+sevenz-rust2 = { version = "0.24", default-features = false, features = ["bzip2", "ppmd", "compress"] }

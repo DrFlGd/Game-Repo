@@ -3,6 +3,8 @@
 import { createPlatform } from "./platform.js";
 import { mountShell, ui } from "./ui/shell.js";
 import { routeFromHash } from "./ui/context.js";
+import { followAutoScans } from "./ui/games.js";
+import { offerInterrupted } from "./ui/organise.js";
 
 // errors the tests read back (tests/desktop_page.py)
 window.__errors = [];
@@ -19,6 +21,8 @@ async function start() {
   route();
   window.addEventListener("hashchange", route);
   ui.set({ ready: true });
+  followAutoScans();
+  offerInterrupted();
 }
 
 start();

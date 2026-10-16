@@ -91,13 +91,30 @@ fn norm(p: &Path) -> PathBuf {
 
 /// Check `dir` can be a folder with games next to `others`.
 fn check_dir(lib: &Library, dir: &Path, others: &[Root]) -> Result<PathBuf> {
-    if !dir.is_absolute() {
-        bail!("Choose a folder by its full path.");
-    }
     if !dir.is_dir() {
         bail!("{} isn't a folder on this computer.", dir.display());
     }
-    let d = norm(dir);
+    check_place(lib, dir, others)
+}
+
+/// Check a folder (which may not exist yet) could be one with games next to `others`.
+fn check_place(lib: &Library, dir: &Path, others: &[Root]) -> Result<PathBuf> {
+    if !dir.is_absolute() {
+        bail!("Choose a folder by its full path.");
+    }
+    // a folder not made yet is compared by the nearest one above it that exists
+    let mut base = dir.to_path_buf();
+    let mut rest = vec![];
+    while !base.exists() {
+        match (base.file_name().map(|n| n.to_os_string()), base.parent()) {
+            (Some(n), Some(p)) => {
+                rest.push(n);
+                base = p.to_path_buf();
+            }
+            _ => break,
+        }
+    }
+    let d = rest.into_iter().rev().fold(norm(&base), |p, n| p.join(n));
     if d.starts_with(norm(&lib.root().join(APP_DIR))) {
         bail!("The library's own _library folder can't hold games.");
     }
@@ -124,6 +141,11 @@ fn check_platform(platform: Option<&str>) -> Result<Option<String>> {
             Ok(Some(p.to_string()))
         }
     }
+}
+
+/// Whether `dir` could be added as a folder with games (it isn't inside one, nor holds one).
+pub fn check_new(lib: &Library, dir: &Path) -> Result<()> {
+    check_place(lib, dir, &list(lib)).map(|_| ())
 }
 
 /// Add a folder with games (optionally marked with its platform).

@@ -97,6 +97,36 @@ export async function scan(full) {
   }
 }
 
+/** Scans the app starts itself, when the folder watcher saw files change: shown in
+ *  the status bar like the page's own, and what the page shows is read again after. */
+export function followAutoScans() {
+  const seen = new Set();
+  let first = true;
+  const told = async (done) => {
+    const r = done.result || {};
+    const parts = [r.added && `${r.added} new`, r.changed && `${r.changed} changed`, r.moved && `${r.moved} moved`, r.removed && `${r.removed} gone`].filter(Boolean);
+    if (!parts.length) return;
+    await refreshGames();
+    toast(`Read what changed in your folders: ${parts.join(", ")}.`, 5000);
+  };
+  const poll = async () => {
+    if (ui.get().library && !document.hidden) {
+      try {
+        for (const j of await api("jobs")) {
+          if (!j.auto || seen.has(j.id)) continue;
+          seen.add(j.id);
+          if (first) continue;
+          if (j.done) told(j);
+          else followJob(j.id, "Reading what changed").then(told);
+        }
+        first = false;
+      } catch { /* the next poll tries again */ }
+    }
+    setTimeout(poll, 2000);
+  };
+  poll();
+}
+
 export async function scanSettings() {
   return api("scan_settings");
 }

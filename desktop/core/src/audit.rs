@@ -41,7 +41,7 @@ pub fn match_files(conn: &Connection) -> Result<usize> {
     tx.execute("DELETE FROM matches WHERE file_id IN (SELECT id FROM files WHERE matched = 0)", [])?;
     let scope = "f.matched = 0";
     let n = tx.execute(&match_sql("", scope), [])? + tx.execute(&match_sql("hl_", &format!("{scope} AND b.hl_crc32 IS NOT NULL")), [])?;
-    let touched = tx.execute("UPDATE files SET matched = 1 WHERE matched = 0 AND (blob_id IS NOT NULL OR kind = 'zip')", [])?;
+    let touched = tx.execute("UPDATE files SET matched = 1 WHERE matched = 0 AND (blob_id IS NOT NULL OR kind IN ('zip', '7z', 'rar'))", [])?;
     if touched > 0 {
         changed(&tx)?;
     }
@@ -74,8 +74,8 @@ const GAMES: &str = "
 /// listed under (one it's named for, if any).
 const MATCHED: &str = "
   fm AS (SELECT f.id AS file_id,
-                MAX(CASE WHEN f.name = r.name AND (f.parent_id IS NULL OR p.name = g.name || '.zip') THEN 1 ELSE 0 END) AS named,
-                COALESCE(MIN(CASE WHEN f.name = r.name AND (f.parent_id IS NULL OR p.name = g.name || '.zip') THEN r.id END), MIN(r.id)) AS rom_id
+                MAX(CASE WHEN f.name = r.name AND (f.parent_id IS NULL OR p.name = g.name || '.' || p.kind) THEN 1 ELSE 0 END) AS named,
+                COALESCE(MIN(CASE WHEN f.name = r.name AND (f.parent_id IS NULL OR p.name = g.name || '.' || p.kind) THEN r.id END), MIN(r.id)) AS rom_id
          FROM matches m JOIN dat_roms r ON r.id = m.rom_id AND r.dat_id = ?1 JOIN dat_games g ON g.id = r.game_id
          JOIN files f ON f.id = m.file_id LEFT JOIN files p ON p.id = f.parent_id
          GROUP BY f.id)";
@@ -85,7 +85,7 @@ const MATCHED: &str = "
 const UNMATCHED: &str = "
   um AS (SELECT f.id AS file_id, EXISTS (SELECT 1 FROM dat_roms r WHERE r.dat_id = ?1 AND r.name = f.name) AS bad
          FROM files f
-         WHERE f.platform = ?2 AND f.kind != 'zip' AND f.hashed > 0
+         WHERE f.platform = ?2 AND f.kind NOT IN ('zip', '7z', 'rar') AND f.hashed > 0
            AND NOT EXISTS (SELECT 1 FROM matches m JOIN dat_roms r ON r.id = m.rom_id
                            WHERE m.file_id = f.id AND (r.dat_id = ?1 OR r.dat_id IN (SELECT id FROM dats WHERE platform != ?2))))";
 
@@ -467,7 +467,7 @@ pub fn home(ix: &Index, lib: &Library) -> Result<Value> {
     bars.sort_by(|a, b| a["platform_name"].as_str().cmp(&b["platform_name"].as_str()));
     // files of platforms without a DAT, and files without a platform
     let mut q = conn.prepare(
-        "SELECT COALESCE(platform, ''), COUNT(*) FROM files f WHERE kind != 'zip'
+        "SELECT COALESCE(platform, ''), COUNT(*) FROM files f WHERE kind NOT IN ('zip', '7z', 'rar')
            AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.file_id = f.id)
            AND (platform IS NULL OR platform NOT IN (SELECT platform FROM dats))
          GROUP BY platform ORDER BY platform",
@@ -479,7 +479,7 @@ pub fn home(ix: &Index, lib: &Library) -> Result<Value> {
         })?
         .collect::<rusqlite::Result<_>>()?;
     let roots: Vec<Value> = roots::list(lib).iter().map(|r| r.to_json()).collect();
-    let files: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE kind != 'zip'", [], |r| r.get(0))?;
+    let files: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE kind NOT IN ('zip', '7z', 'rar')", [], |r| r.get(0))?;
     let unhashed: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE hashed = 0", [], |r| r.get(0))?;
     let dats: i64 = conn.query_row("SELECT COUNT(*) FROM dats", [], |r| r.get(0))?;
     Ok(json!({
@@ -530,12 +530,12 @@ pub mod tests {
         s
     }
 
-    fn write(path: &Path, bytes: &[u8]) {
+    pub(crate) fn write(path: &Path, bytes: &[u8]) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, bytes).unwrap();
     }
 
-    fn zip(path: &Path, members: &[(&str, &[u8])]) {
+    pub(crate) fn zip(path: &Path, members: &[(&str, &[u8])]) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut z = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
         for (name, bytes) in members {
@@ -545,14 +545,14 @@ pub mod tests {
         z.finish().unwrap();
     }
 
-    struct Fixture {
-        dir: PathBuf,
-        lib: Library,
-        ix: Index,
-        gb: PathBuf,
+    pub(crate) struct Fixture {
+        pub dir: PathBuf,
+        pub lib: Library,
+        pub ix: Index,
+        pub gb: PathBuf,
     }
 
-    fn fixture(name: &str) -> Fixture {
+    pub(crate) fn fixture(name: &str) -> Fixture {
         let dir = temp_dir(name);
         let lib = Library::open(dir.join("Lib")).unwrap();
         let ix = Index::open(&dir.join("index.sqlite"), "lib-x").unwrap();
@@ -587,11 +587,11 @@ pub mod tests {
         Fixture { dir, lib, ix, gb }
     }
 
-    fn run_scan(f: &Fixture, full: bool) -> Value {
-        scan::scan(&f.ix, &f.lib, &Options { full, readers: 2 }, &AtomicBool::new(false), &mut |_| {}).unwrap()
+    pub(crate) fn run_scan(f: &Fixture, full: bool) -> Value {
+        scan::scan(&f.ix, &f.lib, &Options { full, readers: 2, only: None }, &AtomicBool::new(false), &mut |_| {}).unwrap()
     }
 
-    fn import(f: &Fixture, file: &str) -> Vec<Value> {
+    pub(crate) fn import(f: &Fixture, file: &str) -> Vec<Value> {
         crate::dat::import(&f.ix, &f.lib, &f.dir.join("dats").join(file), &Map::new())
             .unwrap()
             .into_iter()
@@ -602,7 +602,7 @@ pub mod tests {
             .collect()
     }
 
-    fn names(f: &Fixture, dat: i64, tab: &str) -> Vec<String> {
+    pub(crate) fn names(f: &Fixture, dat: i64, tab: &str) -> Vec<String> {
         let l = list(&f.ix, &f.lib, dat, tab, "", 0, 100).unwrap();
         let mut v: Vec<String> = l["items"].as_array().unwrap().iter()
             .map(|i| i["name"].as_str().unwrap().to_string())
@@ -745,6 +745,38 @@ pub mod tests {
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 
+    #[test]
+    fn a_7z_in_the_audit_and_a_scan_of_only_what_changed() {
+        let f = fixture("only");
+        // Delta as a 7z instead of a ZIP: matched, and named like its game
+        let d = rom(4, 65536);
+        std::fs::remove_file(f.gb.join("Delta (World).zip")).unwrap();
+        crate::archive::tests::write_7z(&f.gb.join("Delta (World).7z"), &[("Delta (World).gb", &d)]);
+        run_scan(&f, false);
+        let id = import(&f, "gb.dat")[0]["id"].as_i64().unwrap();
+        assert_eq!(names(&f, id, "matched"), ["Alpha (USA).gb", "Delta (World).gb"]);
+        assert!(!names(&f, id, "misnamed").contains(&"Delta (World).gb".to_string()));
+
+        // changes in the Game Boy folder, and one in the NES folder that isn't reported
+        std::fs::rename(f.gb.join("beta.gb"), f.gb.join("Beta (Europe).gb")).unwrap();
+        std::fs::remove_file(f.gb.join("My Hack.gb")).unwrap();
+        write(&f.gb.join("New/Gamma (Japan).gb"), &rom(3, 32768));
+        write(&f.gb.join(".gamerepo-set-aside/x/old.gb"), &rom(7, 100));
+        std::fs::remove_file(f.dir.join("Roms/NES/Echo (USA).nes")).unwrap();
+        let only = vec![f.gb.join("beta.gb"), f.gb.join("Beta (Europe).gb"), f.gb.join("My Hack.gb"), f.gb.join("New"), f.gb.join("New/Gamma (Japan).gb"), f.dir.join("elsewhere/x.gb")];
+        let s = scan::scan(&f.ix, &f.lib, &Options { only: Some(only), ..Options::default() }, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        // (a file renamed is read again: only one moved under its own name keeps its hashes)
+        assert_eq!((s["added"].as_u64(), s["removed"].as_u64(), s["places"].as_u64()), (Some(2), Some(2), Some(4)), "{s}");
+        assert_eq!(names(&f, id, "matched"), ["Alpha (USA).gb", "Beta (Europe).gb", "Delta (World).gb", "Gamma (Japan).gb"]);
+        assert_eq!(names(&f, id, "unknown"), Vec::<String>::new());
+        let nes: i64 = f.ix.conn().query_row("SELECT COUNT(*) FROM files WHERE name = 'Echo (USA).nes'", [], |r| r.get(0)).unwrap();
+        assert_eq!(nes, 1, "the NES folder wasn't looked at");
+        // a full scan sees the rest
+        let s = run_scan(&f, false);
+        assert_eq!((s["removed"].as_u64(), s["added"].as_u64()), (Some(1), Some(0)), "{s}");
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
     // The performance targets of docs/PLAN.md, on generated data. Run with
     // `cargo test --release -- --ignored timing` (CI does, on Windows).
 
@@ -762,7 +794,7 @@ pub mod tests {
             }
         }
         crate::roots::add(&lib, &dir.join("Roms"), None).unwrap();
-        let opts = Options { full: false, readers: 4 };
+        let opts = Options { full: false, readers: 4, only: None };
         let first = scan::scan(&ix, &lib, &opts, &AtomicBool::new(false), &mut |_| {}).unwrap();
         assert_eq!(first["hashed"], 100_000);
         // the better of two rescans, as a shared runner's timings swing by a third from run to run

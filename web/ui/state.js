@@ -19,6 +19,7 @@ export const ui = createStore({
   dialog: null,            // { type: "ask" | "confirm", ... }
   menu: null,              // a right-click or ⋯ menu: { x, y, items, from }
   jobs: [],                // [{ id, label, started, cancel }]
+  changes: 0,              // counts changes made to files (organising, Undo), so pages showing them read again
   skin: "drafting",
   theme: "system",
   navOpen: false,          // the menu as a drawer in a narrow window

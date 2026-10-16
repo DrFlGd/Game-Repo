@@ -9,6 +9,7 @@ import { ctx, routeHash } from "./context.js";
 import { api, toast, isDesktop, plural } from "./library.js";
 import { importDats, starterDats, reveal, scan } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
+import { organiseDialog, renameMisnamed, setAsideDuplicates } from "./organise.js";
 import { Icon } from "./icons.js";
 
 const PAGE = 200;
@@ -30,10 +31,10 @@ const HELP = {
   partial: "Games with some of their ROMs (a multi-file game missing a part).",
   missing: "Games the DAT lists that none of your files match. Export fixdat writes them as a DAT.",
   matched: "Files that match the DAT and are named as it names them.",
-  misnamed: "Files that match the DAT under another name. Renaming them comes in Phase 2.",
+  misnamed: "Files that match the DAT under another name.",
   baddump: "Files named as one of the DAT's ROMs that don't match it: likely corrupt, trimmed or patched copies.",
   unknown: "Files of this platform that no DAT for it knows: hacks, translations, homebrew or files for another system.",
-  duplicates: "Files that match the same ROM as another file. Choosing which to keep comes in Phase 2.",
+  duplicates: "Files that match the same ROM as another file. Setting them aside keeps the copy that's named right (or the first).",
 };
 
 const prefs = () => ctx.platform?.store?.prefs;
@@ -55,7 +56,7 @@ function Row({ it, tab }) {
 }
 
 export function Audit() {
-  const s = useStore(ui, (st) => ({ library: st.library, home: st.home }));
+  const s = useStore(ui, (st) => ({ library: st.library, home: st.home, changes: st.changes }));
   const [platform, setPlatform] = useState(() => prefs()?.get("gr-audit", {})?.platform || null);
   const [datId, setDatId] = useState(null);
   const [data, setData] = useState(null);
@@ -71,7 +72,7 @@ export function Audit() {
       .then((d) => { if (!gone) setData(d); })
       .catch((e) => { if (!gone) setData({ error: e.message || String(e) }); });
     return () => { gone = true; };
-  }, [s.library?.path, platform, datId, s.home]);
+  }, [s.library?.path, platform, datId, s.home, s.changes]);
 
   const sum = data?.summary;
   const dat = sum?.dat?.id;
@@ -121,7 +122,9 @@ export function Audit() {
   ];
 
   const head = html`<${CommandBar} id="audit-head" title="Audit" count=${sum ? `${sum.dat.name} (${sum.dat.version})` : null}
-    primary=${html`<button type="button" class="primary compact" id="audit-scan" disabled=${!!ui.get().scanning} onClick=${() => scan()}>${Icon.refresh(15)} Scan</button>`}
+    primary=${html`<span class="cmd-buttons">${sum && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-organise" title="Sort this set by its DAT: copy, rename or move, with a preview and Undo"
+        onClick=${() => organiseDialog({ dat, platform: sum.dat.platform, platformName: sum.platform_name || data.platforms.find((p) => p.id === sum.dat.platform)?.name })}>${Icon.stack(15)} Organise…</button>` : null}
+      <button type="button" class="primary compact" id="audit-scan" disabled=${!!ui.get().scanning} onClick=${() => scan()}>${Icon.refresh(15)} Scan</button></span>`}
     more=${{ id: "audit-menu", title: "Export fixdat, reports, make a DAT", items: menu }} />`;
 
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
@@ -147,6 +150,7 @@ export function Audit() {
   }
 
   const n = (k) => sum[k] || 0;
+  const platformName = data.platforms.find((p) => p.id === sum.dat.platform)?.name;
   return html`${head}<div class="pages audit-page" id="audit-page">
     <div class="audit-pick">
       <label class="field-inline"><span>Platform</span>
@@ -170,6 +174,8 @@ export function Audit() {
     <div class="audit-tools">
       <input type="search" id="audit-search" class="compact" placeholder="Search this list" aria-label="Search this list" value=${q} onInput=${(e) => setQ(e.target.value)} />
       <span class="muted">${HELP[tab]}</span>
+      ${tab === "misnamed" && n("misnamed") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-rename" onClick=${() => renameMisnamed(dat, platformName)}>Rename these…</button>` : null}
+      ${tab === "duplicates" && n("duplicates") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-aside" onClick=${() => setAsideDuplicates(dat, platformName)}>Set aside duplicates…</button>` : null}
     </div>
     <${SearchNote} q=${q} found=${list.loading ? null : plural(list.total, "match", "matches")} onClear=${() => setQ("")} />
     ${list.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}

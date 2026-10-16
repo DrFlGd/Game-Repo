@@ -6,6 +6,7 @@
 //!   gamerepo-cli index-info --library <dir> --data <dir>
 //!   gamerepo-cli serve --ui <dir> --home <dir> [--library <dir>] [--port 8790]
 //!   gamerepo-cli roots add|list|remove …, scan, dat import|list, audit, make-dat
+//!   gamerepo-cli organise, duplicates, history, undo, finish, set-aside empty
 //!
 //! `serve` runs the app's commands behind a local web server, so the page can be
 //! tested in an ordinary browser (with tests/tauri_shim.js standing in for Tauri's
@@ -59,6 +60,20 @@ under <dir>/config and <dir>/data instead of the app's own folders.
   make-dat <root id> --name <name> [--folder <path in it>] [--platform <id>]
                              write a DAT of a scanned set (and import it with --platform)
   platforms                  the platforms this version knows
+
+  organise <platform> --mode copy|rename|move [--out <dir>] [--format keep|zip|loose]
+        [--partial] [--always-copy] [--misnamed] [--dat <id>] [--dry-run]
+                             sort a platform's set by its DAT: copy it to --out, rename
+                             the files where they are, or move them into the library
+                             (or --out); --misnamed renames only the misnamed files;
+                             --dry-run shows the plan without changing anything
+  duplicates <platform> [--dat <id>] [--dry-run]
+                             set aside the extra copies of each matched file
+  history                    the changes made, newest first
+  undo <change id>           put a change back (the newest that can be undone)
+  finish <change id>         finish a change that was interrupted
+  set-aside empty [<change id>]
+                             delete the files set aside by a change (or by all of them)
 ";
 
 struct Args {
@@ -119,7 +134,8 @@ async fn run() -> Result<()> {
             Ok(())
         }
         "serve" => serve(a).await,
-        "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" => library_command(&cmd, a).await,
+        "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" | "organise" | "duplicates" | "history" | "undo" | "finish"
+        | "set-aside" => library_command(&cmd, a).await,
         other => bail!("unknown command {other} (gamerepo-cli --help lists them)"),
     }
 }
@@ -190,6 +206,8 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
         None => app_dirs(),
     };
     let app = App::new(AppPaths { config_dir, data_dir, library_url: String::new() })?;
+    // one command and done: nothing to watch
+    app.watch_folders(false);
     if let Some(lib) = a.flag("--library") {
         // for this run only: the app's own choice of library is kept
         let saved = app.config();
@@ -199,7 +217,7 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
     }
     let json_out = a.rest.iter().any(|x| x == "--json");
     a.rest.retain(|x| x != "--json");
-    let sub = if matches!(cmd, "roots" | "dat") && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
+    let sub = if matches!(cmd, "roots" | "dat" | "set-aside") && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
     match (cmd, sub.as_str()) {
         ("platforms", _) => print(&invoke(&app, "platforms", json!({})).await?),
         ("roots", "list") | ("roots", "") => {
@@ -380,6 +398,97 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
                 return print(&r);
             }
             println!("{} games, {} ROMs written to {}", r["games"], r["roms"], r["path"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        ("organise", _) | ("duplicates", _) => {
+            let dat = a.flag("--dat").map(|d| d.parse::<i64>()).transpose()?;
+            let mode = a.flag("--mode");
+            let out = a.flag("--out").map(|o| std::path::absolute(&o).map(|p| p.display().to_string()).unwrap_or(o));
+            let format = a.flag("--format").unwrap_or_else(|| "keep".into());
+            let has = |f: &str| a.rest.iter().any(|x| x == f);
+            let (partial, always_copy, misnamed, dry) = (has("--partial"), has("--always-copy"), has("--misnamed"), has("--dry-run"));
+            let platform = a.rest.iter().find(|x| !x.starts_with("--")).cloned().with_context(|| format!("{cmd} needs a platform (gamerepo-cli platforms lists them)"))?;
+            let s = invoke(&app, "audit_summary", json!({ "platform": platform, "dat": dat })).await?;
+            if s["summary"].is_null() || (dat.is_none() && s["summary"]["dat"]["platform"].as_str() != Some(platform.as_str())) {
+                bail!("No DAT has been imported for {platform} (dat import adds one).");
+            }
+            let dat_id = s["summary"]["dat"]["id"].clone();
+            let plan = if cmd == "duplicates" {
+                invoke(&app, "organise_duplicates", json!({ "dat": dat_id })).await?
+            } else {
+                let mode = match (mode, misnamed) {
+                    (Some(m), _) => m,
+                    (None, true) => "rename".into(),
+                    (None, false) => bail!("organise needs --mode copy, rename or move"),
+                };
+                invoke(&app, "organise_plan", json!({ "dat": dat_id, "mode": mode, "out": out, "format": format, "partial": partial, "always_copy": always_copy, "only_misnamed": misnamed })).await?
+            };
+            let ops = invoke(&app, "organise_preview", json!({ "id": plan["id"], "limit": 1000 })).await?;
+            if json_out && dry {
+                return print(&json!({ "plan": plan, "ops": ops }));
+            }
+            if !json_out {
+                println!("{}: {} games, {} already in place", plan["label"].as_str().unwrap_or(""), plan["games"], plan["in_place"]);
+                for o in plan["by_op"].as_array().into_iter().flatten() {
+                    println!("  {:<8} {:>6}  ({} MB)", o["op"].as_str().unwrap_or(""), o["count"], o["bytes"].as_u64().unwrap_or(0) / 1_000_000);
+                }
+                for (k, what) in [("conflicts", "in the way (left as they are)"), ("duplicates", "duplicates"), ("left", "games left out")] {
+                    if plan[k].as_u64().unwrap_or(0) > 0 {
+                        println!("  {} {what}", plan[k]);
+                    }
+                }
+                for sp in plan["space"].as_array().into_iter().flatten().filter(|s| s["short"] == true) {
+                    eprintln!("  not enough space on {}: {} MB needed, {} MB free", sp["drive"].as_str().unwrap_or(""), sp["needed"].as_u64().unwrap_or(0) / 1_000_000, sp["free"].as_u64().unwrap_or(0) / 1_000_000);
+                }
+                if dry {
+                    for o in ops["items"].as_array().into_iter().flatten() {
+                        println!("{:<8} {}  <-  {}", o["op"].as_str().unwrap_or(""), o["to"].as_str().unwrap_or(""), o["from"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join(", "));
+                    }
+                    if ops["total"].as_u64().unwrap_or(0) > 1000 {
+                        println!("… and {} more", ops["total"].as_u64().unwrap_or(0) - 1000);
+                    }
+                }
+            }
+            if dry || plan["ops"].as_u64().unwrap_or(0) == 0 {
+                return Ok(());
+            }
+            let r = follow(&app, invoke(&app, "organise_run", json!({ "id": plan["id"] })).await?).await?;
+            if json_out {
+                return print(&r);
+            }
+            println!("{} of {} steps done{}; change {} (undo {} puts it back)", r["done"], r["ops"], if r["stopped"] == true { " (stopped)" } else { "" }, r["id"].as_str().unwrap_or(""), r["id"].as_str().unwrap_or(""));
+            for f in r["failed"].as_array().into_iter().flatten().take(20) {
+                eprintln!("  {}", f["error"].as_str().or(f.as_str()).unwrap_or(""));
+            }
+            Ok(())
+        }
+        ("history", _) => {
+            let h = invoke(&app, "change_history", json!({})).await?;
+            if json_out {
+                return print(&h);
+            }
+            for c in h.as_array().into_iter().flatten() {
+                let held = c["held"].as_u64().unwrap_or(0);
+                println!(
+                    "{}  {:<11} {}{}{}",
+                    c["id"].as_str().unwrap_or(""), c["state"].as_str().unwrap_or(""), c["label"].as_str().unwrap_or(""),
+                    if held > 0 { format!("  ({} MB set aside)", held / 1_000_000) } else { String::new() },
+                    if c["can_undo"] == true { "  [can undo]" } else { "" }
+                );
+            }
+            Ok(())
+        }
+        ("undo", _) | ("finish", _) => {
+            let id = a.rest.first().with_context(|| format!("{cmd} needs a change's id (history shows them)"))?;
+            let r = follow(&app, invoke(&app, &format!("change_{cmd}"), json!({ "id": id })).await?).await?;
+            print(&r)
+        }
+        ("set-aside", "empty") => {
+            let r = invoke(&app, "change_empty", json!({ "id": a.rest.first() })).await?;
+            if json_out {
+                return print(&r);
+            }
+            println!("{} MB freed ({} changes)", r["freed"].as_u64().unwrap_or(0) / 1_000_000, r["changes"]);
             Ok(())
         }
         (c, s) => bail!("unknown command {c} {s} (gamerepo-cli --help lists them)"),
