@@ -124,6 +124,7 @@ impl Plan {
             "ops": self.ops.len(), "by_op": by_op.iter().map(|(k, (n, b))| json!({ "op": k, "count": n, "bytes": b })).collect::<Vec<_>>(),
             "set_aside": set_aside, "conflicts": self.conflicts.len(), "duplicates": self.duplicates.len(), "left": self.left.len(),
             "space": self.space, "short": self.space.iter().any(|s| s["short"] == true), "new_root": self.new_root,
+            "layout_name": self.export.as_ref().and_then(|e| e.get("layout_name")).cloned(),
         })
     }
 }

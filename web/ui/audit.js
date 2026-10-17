@@ -149,7 +149,7 @@ export function Audit() {
           <li>Scan. Each file is read once; a second scan only reads what changed.</li>
         </ol>
         <div class="home-actions">
-          <button type="button" class="primary" id="audit-starter" onClick=${starterDats}>Get starter DATs…</button>
+          <button type="button" class="primary" id="audit-starter" onClick=${() => starterDats()}>Get starter DATs…</button>
           ${isDesktop() ? html`<button type="button" class="ghost" id="audit-import" onClick=${() => importDats()}>Import DATs…</button>` : null}
           <button type="button" class="ghost" onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a set…</button>
         </div>

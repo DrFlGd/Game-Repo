@@ -25,7 +25,9 @@ export const TREE = `_library/                       the app's own files
   dats/<platform>/              the DAT files you imported, every version
   fixdats/  reports/            what's missing as DATs, and saved audit reports
   made-dats/                    DATs you made from your own sets
+  layouts/                      export layouts of your own (JSON), for Export…
   journal/                      moves and renames, for Undo
+BIOS/<system>/                  BIOS files, gathered from the BIOS files page
 Nintendo - SNES/                platform folders, when you move ROMs in
   Chrono Trigger (USA).zip
 Sony - PlayStation/
@@ -43,9 +45,9 @@ const DONE = [
   ["Phase 3", "Collections from rules with one game per title, saved as DATs and exported to ES-DE or a folder and kept in step, and systems of your own"],
   ["Phase 4", "PC games and installers imported into one layout, identified from Steam, GOG and LaunchBox, unpacked and added to Steam; Add a game… for any system"],
   ["Phase 5", "Details, pictures, video and manuals scraped from ScreenScraper, IGDB, TheGamesDB and LaunchBox for a system's games or its whole DAT; your documents imported, paired with their games and searched by their words; exports that carry what you choose"],
+  ["Phase 5b", "Exports to your handhelds' SD cards (muOS, Knulli, ROCKNIX, ES-DE on Android or Linux) in layouts you can copy and change in a visual editor, and BIOS files audited, gathered and exported with the games"],
 ];
 export const NEXT = [
-  ["Phase 5b", "Profiles for your handhelds' SD cards: muOS, Knulli, ROCKNIX, and ES-DE on Android or Linux"],
   ["Phase 6", "The library page: covers, search and filters"],
   ["Phase 7", "Arcade sets (MAME and FBNeo)"],
   ["Phase 8", "More frontends (RetroArch, Pegasus, Playnite, LaunchBox), MobyGames, and a collection of magazines"],

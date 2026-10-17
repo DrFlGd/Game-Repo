@@ -449,7 +449,8 @@ pub fn import(ix: &Index, lib: &Library, path: &Path, answers: &Map<String, Valu
 
 pub fn import_bytes(ix: &Index, lib: &Library, bytes: &[u8], file: &str, answers: &Map<String, Value>) -> Result<Imported> {
     let dat = parse(bytes).with_context(|| format!("{file} isn't a DAT that can be read"))?;
-    let answered = answers.get(&dat.name).and_then(Value::as_str).filter(|p| !p.is_empty());
+    // "*": every DAT in this import is for that platform (the BIOS page's Import a BIOS DAT…)
+    let answered = answers.get(&dat.name).or_else(|| answers.get("*")).and_then(Value::as_str).filter(|p| !p.is_empty());
     let platform = match answered {
         Some(p) => {
             valid_id(p)?;

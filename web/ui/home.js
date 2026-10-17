@@ -54,7 +54,7 @@ function PlatformsCard({ home }) {
     </li>`)}</ul>` : html`<p class="muted" id="home-no-dats">${home.dats ? "No DAT is in use yet." : "Import the DATs for your systems to see what you have and what's missing."}</p>`}
     <div class="home-actions">
       ${isDesktop() ? html`<button type="button" class="ghost" id="home-import" onClick=${() => importDats()}>Import DATs…</button>` : null}
-      ${bars.length ? null : html`<button type="button" class="primary" id="home-starter" onClick=${starterDats}>Get starter DATs…</button>`}
+      ${bars.length ? null : html`<button type="button" class="primary" id="home-starter" onClick=${() => starterDats()}>Get starter DATs…</button>`}
       <a class="ghost button-link" href=${routeHash("audit")}>Open the audit</a>
     </div>
   </section>`;

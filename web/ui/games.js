@@ -167,18 +167,22 @@ export async function importDats(paths, answers = {}) {
   }
 }
 
-/** Download the No-Intro cartridge DATs from libretro's public copy (D17), for
- *  the platforms that have no DAT yet, after asking. */
-export function starterDats() {
-  ui.set({ dialog: { type: "ask", title: "Get starter DATs?",
-    text: ["No-Intro's DATs for the cartridge systems and Redump's for the disc systems are downloaded from libretro's public copies on GitHub and imported, for each system that has no DAT yet.",
+/** Download the No-Intro cartridge DATs, Redump's disc DATs and libretro's list of BIOS
+ *  files from libretro's public copy (D17, D40), for the platforms that have no DAT yet
+ *  (or only `platforms`), after asking. */
+export function starterDats(platforms = null) {
+  const bios = platforms?.length === 1 && platforms[0] === "bios";
+  ui.set({ dialog: { type: "ask", title: bios ? "Get libretro's list of BIOS files?" : "Get starter DATs?",
+    text: bios ? ["libretro's System.dat lists the BIOS files its emulators look for, with their hashes, for each system. It's downloaded from libretro's public copy on GitHub and imported, so the library's BIOS files can be audited against it.",
+      "It lists the files, not the files themselves: those are yours to find. A BIOS DAT you import yourself is used beside it."]
+      : ["No-Intro's DATs for the cartridge systems and Redump's for the disc systems are downloaded from libretro's public copies on GitHub and imported, for each system that has no DAT yet, with libretro's list of BIOS files.",
       "They can be a little behind the newest, and libretro's copies of Redump's DATs list only one track of each disc. A DAT you import yourself becomes the version in use."],
-    button: "Download them", run: runStarter } });
+    button: bios ? "Download it" : "Download them", run: () => runStarter(platforms) } });
 }
 
-async function runStarter() {
+async function runStarter(platforms) {
   try {
-    const { job } = await api("starter_dats", {});
+    const { job } = await api("starter_dats", platforms ? { platforms } : {});
     const done = await followJob(job, "Getting starter DATs");
     if (done.error) throw new Error(done.error);
     const r = done.result || {};

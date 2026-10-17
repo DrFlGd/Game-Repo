@@ -1971,6 +1971,59 @@ own layout to make a layout from it, ArkOS and Batocera (if asked for).
 - **D41** A system's BIOS files are known from a BIOS DAT (libretro's `System.dat` by
   default) and gathered into the library's `BIOS/<system>/`, as copies.
 
+### Phase 5b notes (built 2026-10-17)
+
+- **Core**: `layout.rs` (D36, D37: the layout's JSON, unknown keys kept and a newer
+  `format` refused; places, tokens, `expand`, `check`; the built-in layouts compiled in
+  from `desktop/core/layouts/*.json`, the user's in `_library/layouts/<id>.json`, saved
+  as a copy with `copied_from {id, version}`, imported and written as files), `bios.rs`
+  (D40, D41: BIOS DATs kept as the system `bios`; libretro's System.dat, one game with a
+  comment before each system's files, read as a game per system by `by_system`;
+  `ALIASES` from libretro's system names to Game Repo's; the summary, the report,
+  `gather_plan`, `found_for`), and `export.rs` (D38: `plan` works only from the layout;
+  Phase 3's `target`, `out` and `esde` are mapped onto the built-in `esde` and `folder`
+  layouts, so exports made before keep working, and the Phase 3 and 5 tests pass
+  unchanged; text files for muOS; BIOS files; `sample` and `preview` for the editor).
+  The commands are `layouts`, `layout_*`, `bios`, `bios_report`, `bios_gather_plan`;
+  `export_plan` takes `layout` and `places`. A DAT import's answer `"*"` names the
+  platform for every DAT in it (Import a BIOS DAT…).
+- **The page**: *Export layouts* is a page of its own, in the menu after Collections and
+  linked from Settings, rather than a Settings section: three columns didn't fit there.
+  Its ⋯ menu has Import a layout…, Save as a file…, Open the layouts folder, Save as a
+  new layout…, Undo the changes and Remove; there's no *New from…*, since changing any
+  layout and saving makes the new one. *BIOS files* is in the menu after Audit, with
+  Gather…, Get libretro's list…, Import a BIOS DAT… and the report. The Export dialog
+  picks a layout, asks for its places, and offers in *What it carries* only what the
+  layout has a place for, its picture size chosen from the layout's.
+- **Not as designed**: libretro's System.dat marks no file required or optional, so the
+  BIOS page and the export don't either: a system's files are listed as its DAT lists
+  them, and the export carries every one the library has for the collection's systems.
+  The BIOS page lists the systems you have games for first. Gathered files go in
+  `BIOS/<the DAT's name for the system>/` (`BIOS/Nintendo - Gameboy/`), taken out of a
+  ZIP when that's where it is; an export carries loose files only, so a BIOS file in a
+  ZIP is exported once it's gathered. The plain
+  folder's BIOS path is `{out}/BIOS/{dat_name}/{bios_file}`. A picture with a gamelist
+  tag must be under the system's games folder, since gamelists give `./` paths. The
+  export's size check is the drive's free space, as before; the collection's size limit
+  is still said in the dialog from the games' size alone.
+- **Tests**: the core's layout tests (the built-in layouts pass their check, paths made
+  from places and tokens, the check's problems and where they are, a built-in changed by
+  saving a copy and a newer format refused), a collection exported to Knulli's and muOS's layouts and again
+  after a layout is changed, the editor's preview with a stand-in and a clash, and BIOS
+  files audited, gathered and exported; the page test gets libretro's list from a
+  stand-in, audits and gathers, edits Knulli's layout in the tree (a system's folder,
+  a path that breaks it), saves it as *Knulli (mine)*, and exports to a card in it with
+  the BIOS files.
+- **To check on a real card** (Jerred): the layouts follow each firmware's documentation
+  and Batocera's scraper, not a real card. Export a small collection to each device's
+  card with pictures and BIOS files ticked and look at it on the device: Knulli's and
+  ROCKNIX's picture names (`images/<game>-thumb.png`, `-image`, `-marquee`), muOS's
+  catalogue folders (its names for systems other than Game Boy and SNES), Batocera's
+  folder names (`megadrive`, `wswanc`, `gamecube`…) and each BIOS folder. A
+  `gamelist.xml` from a device that scraped its own games would settle the picture
+  names. Anything wrong can be put right in a copy of the layout, and the built-in one
+  fixed in the next release.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -2127,4 +2180,4 @@ New ones get a number here as they come up (next: D42).
    Phase 5b, device profiles for SD cards (D18, D29).
 9. Phase 5 merged and released as v0.5.0 (2026-10-17). Phase 5b: design written
    ("Phase 5b design", D36–D41), with layouts the user can change (D36) and BIOS
-   files (D40).
+   files (D40), and built ("Phase 5b notes"). Next: Phase 6, the library page.

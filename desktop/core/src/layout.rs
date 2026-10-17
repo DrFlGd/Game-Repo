@@ -252,7 +252,7 @@ impl Layout {
         json!({
             "id": self.id, "name": self.name, "about": self.about, "builtin": self.builtin,
             "places": self.asked().map(|p| json!({ "id": p.id, "label": p.label, "example": p.example, "note": p.note, "optional": p.optional })).collect::<Vec<_>>(),
-            "carries": self.carries(), "pictures": self.pictures.max,
+            "carries": self.carries(), "pictures": self.pictures.max, "gamelist": self.gamelist.is_some(), "collection": self.collection.is_some(),
             "copied_from": self.copied_from.as_ref().map(|c| json!({ "id": c["id"], "name": base.as_ref().map(|b| b.name.clone()), "newer": newer })),
         })
     }

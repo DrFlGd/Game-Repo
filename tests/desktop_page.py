@@ -23,7 +23,9 @@ properties, DATs and exports; (Phase 4) PC games imported from an inbox and iden
 from stand-ins for Steam and GOG, unpacked, added to a stand-in Steam, and Add a game…;
 (Phase 5) a source's key, a scrape from a stand-in for TheGamesDB, a game's panel,
 documents imported from a folder with a pairing changed, searched and read, and an
-export carrying pictures and documents;
+export carrying pictures and documents; (Phase 5b) BIOS files from a stand-in for
+libretro's list, audited and gathered, the layout editor with a change saved as a new
+layout, and an export to a card in it with the BIOS files;
 renaming the library, with Undo; opening a folder that already holds games
 leaves them as they were, and switching back from the recent list; the theme
 and skin follow the settings and are kept; a library from a newer app opens
@@ -34,6 +36,7 @@ Writes <out>/library-info.json and <out>/library.zip for the cross-platform chec
 import argparse
 import asyncio
 import functools
+import hashlib
 import http.server
 import json
 import shutil
@@ -240,7 +243,7 @@ async def main():
             active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
             lead = await pg.inner_text("#audit-empty")
             check("the menu's places open, with the pages still to come saying what they'll do",
-                  labels == ["Game Repo", "Home", "Audit", "Collections", "PC games", "Metadata", "Documents", "Settings", "About", "Theme: System"]
+                  labels == ["Game Repo", "Home", "Audit", "BIOS files", "Collections", "Export layouts", "PC games", "Metadata", "Documents", "Settings", "About", "Theme: System"]
                   and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
             await pg.screenshot(path=str(out / "01-coming.png"))
 
@@ -704,10 +707,12 @@ async def main():
             esde.mkdir(exist_ok=True)
             await pg.click("#collection-export")
             await pg.wait_for_selector("#export-dialog")
-            await pg.fill("#export-out", str(roms))
-            await pg.fill("#export-esde", str(esde))
+            await pg.wait_for_selector('#export-layout option[value="knulli"]', state="attached")
+            layout_first = await pg.input_value("#export-layout")
+            await pg.fill("#export-place-roms", str(roms))
+            await pg.fill("#export-place-esde", str(esde))
             over = await pg.query_selector("#export-over")
-            check("Export says when the collection is over its size limit", over is not None and "more than its size limit" in await over.inner_text())
+            check("Export says when the collection is over its size limit, and starts from the ES-DE layout", over is not None and "more than its size limit" in await over.inner_text() and layout_first == "esde", layout_first)
             await pg.click("#export-dialog button[type=submit]")
             await pg.wait_for_selector("#organise-totals")
             totals = await pg.inner_text("#organise-totals")
@@ -958,8 +963,9 @@ async def main():
             await pg.wait_for_selector("#collection-export:not([disabled])")
             await pg.click("#collection-export")
             await pg.wait_for_selector("#export-dialog")
-            await pg.check('input[name="export-target"][value="folder"]')
-            await pg.fill("#export-folder", str(flat))
+            await pg.wait_for_selector('#export-layout option[value="folder"]', state="attached")
+            await pg.select_option("#export-layout", "folder")
+            await pg.fill("#export-place-out", str(flat))
             await pg.click("#export-carry summary")
             await pg.check('#carry-media [data-id="cover"] input')
             await pg.check("#carry-docs")
@@ -971,6 +977,97 @@ async def main():
             carried = sorted(str(x.relative_to(flat)).replace("\\", "/") for x in flat.rglob("*") if x.is_file() and ".gamerepo" not in str(x))
             check("an export to a folder carries the chosen pictures (made smaller) and the documents beside each game",
                   any(c.endswith("/cover.png") for c in carried) and any(c.endswith("docs/Alpha Manual.txt") for c in carried), (said, carried))
+
+            # Phase 5b. BIOS files: libretro's list (a stand-in), audited by system, gathered into the library
+            gb_bios = bytes((i * 7) % 256 for i in range(256))
+            (fx / "Roms" / "gb_bios.bin").write_bytes(gb_bios)
+            line = lambda name, b: f"\trom ( name {name} size {len(b)} crc {zlib.crc32(b):08x} sha1 {hashlib.sha1(b).hexdigest()} )\n"
+            (home / "starter-source/dat").mkdir(exist_ok=True)
+            (home / "starter-source/dat/System.dat").write_text(
+                'clrmamepro (\n\tname "System"\n\tdescription "System"\n\tversion 1\n\tauthor "libretro"\n)\n\ngame (\n\tname "System"\n\tcomment "System"\n\n'
+                f'\tcomment "Nintendo - Gameboy"\n{line("gb_bios.bin", gb_bios)}{line("sgb_bios.bin", bytes([1, 2, 3]))}\n\tcomment "Sega - Dreamcast"\n{line("dc/dc_boot.bin", bytes(512))})\n')
+            await pg.click('.sidebar a[href="#/"]')
+            await pg.click("#home-scan-button")
+            await toast_text(pg, "Scanned")
+            await pg.click('.sidebar a[href="#/bios"]')
+            await pg.wait_for_selector("#bios-empty")
+            await pg.click("#bios-get")
+            await pg.click("#ask-dialog button[type=submit]")
+            said = await toast_text(pg, "starter DATs for 1 system")
+            gb_row = '#bios-list .bios-system[data-system="Nintendo - Gameboy"]'
+            await pg.wait_for_selector(gb_row)
+            shown = await pg.eval_on_selector_all("#bios-list .bios-system", "els => els.map(e => [e.dataset.system, +e.dataset.have, +e.dataset.missing])")
+            await pg.click('#bios-show [data-show="all"]')
+            await pg.wait_for_selector('#bios-list .bios-system[data-system="Sega - Dreamcast"]')
+            every = await pg.eval_on_selector_all("#bios-list .bios-system", "els => els.map(e => e.dataset.system)")
+            totals = await pg.inner_text("#bios-totals")
+            check("BIOS files: libretro's list is got from the BIOS page and each system audited, the ones you have games for first",
+                  shown == [["Nintendo - Gameboy", 1, 1]] and every == ["Nintendo - Gameboy", "Sega - Dreamcast"] and "0 of 1 systems" in totals, (said, shown, every, totals))
+            await pg.screenshot(path=str(out / "40-bios.png"), full_page=True)
+            await pg.click("#bios-gather")
+            await pg.wait_for_selector("#bios-gather-dialog #organise-totals")
+            await pg.click("#bios-gather-dialog button[type=submit]")
+            said = await toast_text(pg, "Gathered the BIOS files")
+            gathered = library / "BIOS/Nintendo - Gameboy/gb_bios.bin"
+            check("Gather copies the BIOS files the library has into its BIOS folder, a folder for each system",
+                  gathered.is_file() and gathered.read_bytes() == gb_bios and (fx / "Roms/gb_bios.bin").is_file(), said)
+
+            # the layout editor: Knulli's layout as a tree, a system's folder changed, saved as a new layout
+            await pg.click('.sidebar a[href="#/layouts"]')
+            await pg.wait_for_selector('#layout-list [data-id="knulli"]')
+            await pg.click('#layout-list [data-id="knulli"]')
+            await pg.wait_for_selector('#lt-tree .lt-node[data-path="card/roms/gb"]')
+            builtin_label = await pg.inner_text("#layout-save")
+            await pg.click('#lt-tree .lt-node[data-path="card/roms/gb"] > .lt-row .lt-name')
+            await pg.wait_for_selector('#lt-inspect[data-at="systems.gb"]')
+            await pg.fill("#lt-system-folder", "gameboy")
+            await pg.wait_for_selector('#lt-tree .lt-node[data-path="card/roms/gameboy"]')
+            game = await pg.get_attribute('#lt-tree .lt-node[data-at="games.path"][data-path^="card/roms/gameboy/"]', "data-path")
+            await pg.click(f'#lt-tree .lt-node[data-path="{game}"] > .lt-row .lt-name')
+            await pg.wait_for_selector('#lt-inspect[data-at="games.path"]')
+            await pg.fill("#lt-path", "roms/{folder}/{file}")
+            await pg.wait_for_selector("#lt-problems")
+            blocked = await pg.is_disabled("#layout-save")
+            await pg.fill("#lt-path", "{card}/roms/{folder}/{file}")
+            await pg.wait_for_selector("#lt-problems", state="detached")
+            await pg.select_option("#lt-sample", label="Best Of's first games")
+            await pg.wait_for_function("(n) => document.querySelector('#lt-tree')?.textContent.includes(n)", arg=names[0])
+            await pg.screenshot(path=str(out / "41-layout-editor.png"))
+            await pg.click("#lt-tab-json")
+            text = await pg.input_value("#lt-json")
+            await pg.click("#lt-tab-tree")
+            await pg.click("#layout-save")
+            await pg.fill("#layout-save-name", "Knulli (mine)")
+            await pg.click("#layout-save-dialog button[type=submit]")
+            await toast_text(pg, "Saved the layout Knulli")
+            await pg.wait_for_selector('#layout-list [data-id="knulli-mine"].active')
+            saved_file = library / "_library/layouts/knulli-mine.json"
+            mine = json.loads(saved_file.read_text()) if saved_file.exists() else {}
+            check("the layout editor shows Knulli's layout as a tree, follows a change at once, catches a path that breaks it, and saves the change as a new layout",
+                  builtin_label == "Save as new…" and blocked and '"gb": "gameboy"' in text and mine.get("systems", {}).get("gb") == "gameboy"
+                  and (mine.get("copied_from") or {}).get("id") == "knulli" and not mine.get("builtin"), (builtin_label, blocked, mine.get("systems"), mine.get("copied_from")))
+
+            # an export to an SD card in the new layout, with the BIOS files
+            card = home / "Card"
+            await pg.click('.sidebar a[href="#/collections"]')
+            await pg.wait_for_selector("#collection-export:not([disabled])")
+            await pg.click("#collection-export")
+            await pg.wait_for_selector('#export-layout option[value="knulli-mine"]', state="attached")
+            await pg.select_option("#export-layout", "knulli-mine")
+            await pg.fill("#export-place-card", str(card))
+            await pg.evaluate("() => { document.querySelector('#export-carry').open = true; }")
+            await pg.check("#carry-bios")
+            await pg.click("#export-dialog button[type=submit]")
+            await pg.wait_for_selector("#export-layout-used")
+            await pg.click("#export-dialog button[type=submit]")
+            said = await toast_text(pg, "Exported Best Of")
+            on_card = sorted(str(x.relative_to(card)).replace("\\", "/") for x in card.rglob("*") if x.is_file() and ".gamerepo" not in str(x)) if card.is_dir() else []
+            gl = (card / "roms/gameboy/gamelist.xml").read_text() if (card / "roms/gameboy/gamelist.xml").exists() else ""
+            await pg.wait_for_selector('#exports li[data-target="knulli-mine"]')
+            listed = await pg.inner_text('#exports li[data-target="knulli-mine"]')
+            check("an export to a card in the new layout puts the games in its folders, with a gamelist, small pictures and the BIOS files",
+                  all(f"roms/gameboy/{n}" in " ".join(on_card) for n in names) and "bios/gb_bios.bin" in on_card and gl.count("<game>") == len(names)
+                  and any(c.startswith("roms/gameboy/images/") and c.endswith("-thumb.png") for c in on_card) and "Knulli (mine)" in listed, (said, on_card, gl[:300], listed))
             await pg.click('.sidebar a[href="#/settings"]')
             await pg.wait_for_selector("#theme-select")
 

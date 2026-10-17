@@ -175,23 +175,27 @@ export function MetaDialogs({ dialog }) {
 
 /** The Export dialog's choices of what goes with the games: `value` { fields, media,
  *  manuals, docs, image_size }; `target` esde | folder. */
-export function CarryChoices({ value, onChange, target }) {
+export function CarryChoices({ value, onChange, carries, layout }) {
   const [c, setC] = useState(null);
   useEffect(() => { api("scrape_choices").then(setC).catch(() => setC({ fields: [], media: [] })); }, []);
   if (!c) return null;
+  const can = carries || { fields: c.fields.map((f) => f.id), media: c.media.map((m) => m.id), manuals: true, docs: true, bios: false };
   const set = (patch) => onChange({ ...value, ...patch });
-  const pictures = c.media.filter((m) => m.id !== "manual");
-  return html`<details class="field-block carry" id="export-carry" open=${!!(value.fields.length || value.media.length || value.manuals || value.docs)}>
-    <summary>What it carries <span class="muted">(details, pictures, manuals)</span></summary>
-    <p class="muted">The library keeps everything it scraped; an export takes only what you tick here.</p>
-    ${target === "esde" ? html`<div class="field-block"><span class="field-label">Details in the gamelist</span>
-      <${Ticks} id="carry-fields" items=${c.fields} value=${value.fields} onChange=${(fields) => set({ fields })} /></div>` : null}
-    <div class="field-block"><span class="field-label">Pictures and video</span>
+  const fields = c.fields.filter((f) => can.fields.includes(f.id));
+  const pictures = c.media.filter((m) => m.id !== "manual" && can.media.includes(m.id));
+  const where = layout?.gamelist ? "in each system's gamelist" : "as text files beside the pictures";
+  return html`<details class="field-block carry" id="export-carry" open=${!!(value.fields.length || value.media.length || value.manuals || value.docs || value.bios)}>
+    <summary>What it carries <span class="muted">(details, pictures, manuals, BIOS files)</span></summary>
+    <p class="muted">The library keeps everything it scraped; an export takes only what you tick here, where ${layout ? `the layout ${layout.name}` : "its layout"} puts it.</p>
+    ${fields.length ? html`<div class="field-block"><span class="field-label">Details, ${where}</span>
+      <${Ticks} id="carry-fields" items=${fields} value=${value.fields} onChange=${(f) => set({ fields: f })} /></div>` : null}
+    ${pictures.length ? html`<div class="field-block"><span class="field-label">Pictures and video</span>
       <${Ticks} id="carry-media" items=${pictures} value=${value.media} onChange=${(media) => set({ media })} />
-      <small class="muted">${target === "esde" ? "Into ES-DE's downloaded_media folder (or the one its settings name), named after each game: give ES-DE's folder above." : "Beside each game, in a folder of its name."}</small></div>
-    <label class="check-row"><input type="checkbox" id="carry-manuals" checked=${value.manuals} onChange=${(e) => set({ manuals: e.target.checked })} /> Each game's manual (yours first, else a scraped one${target === "esde" ? "; PDFs only, as ES-DE reads them" : ""})</label>
-    ${target === "folder" ? html`<label class="check-row"><input type="checkbox" id="carry-docs" checked=${value.docs} onChange=${(e) => set({ docs: e.target.checked })} /> Every document of each game (guides, maps, posters)</label>` : null}
-    ${value.media.length ? html`<label class="field-inline"><span>Picture size</span>
+      ${layout?.id === "esde" ? html`<small class="muted">Into ES-DE's downloaded_media folder (or the one its settings name), named after each game: give ES-DE's folder above.</small>` : null}</div>` : null}
+    ${can.manuals ? html`<label class="check-row"><input type="checkbox" id="carry-manuals" checked=${value.manuals} onChange=${(e) => set({ manuals: e.target.checked })} /> Each game's manual (yours first, else a scraped one)</label>` : null}
+    ${can.docs ? html`<label class="check-row"><input type="checkbox" id="carry-docs" checked=${value.docs} onChange=${(e) => set({ docs: e.target.checked })} /> Every document of each game (guides, maps, posters)</label>` : null}
+    ${can.bios ? html`<label class="check-row"><input type="checkbox" id="carry-bios" checked=${!!value.bios} onChange=${(e) => set({ bios: e.target.checked })} /> The systems' BIOS files the library has (<a href=${routeHash("bios")} onClick=${close}>BIOS files</a>)</label>` : null}
+    ${value.media.length && pictures.length ? html`<label class="field-inline"><span>Picture size</span>
       <select id="carry-size" class="compact" value=${String(value.image_size || 0)} onChange=${(e) => set({ image_size: Number(e.target.value) })}>
         <option value="0">As they are</option>
         ${[320, 480, 640, 800, 1080].map((n) => html`<option key=${n} value=${String(n)}>At most ${n} pixels (for a handheld's screen)</option>`)}
@@ -199,7 +203,7 @@ export function CarryChoices({ value, onChange, target }) {
   </details>`;
 }
 
-export const NO_CARRY = { fields: [], media: [], manuals: false, docs: false, image_size: 0 };
+export const NO_CARRY = { fields: [], media: [], manuals: false, docs: false, bios: false, image_size: 0 };
 
 // ------------------------------------------------------------ a game's panel
 
