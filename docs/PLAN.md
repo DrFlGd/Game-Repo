@@ -241,12 +241,27 @@ called.*
 - Stored locally: structured metadata (title, alt titles, description, developer,
   publisher, release date, genres, players, rating, provider ids) and media files
   (box front/back/3D, screenshot, title screen, marquee, wheel/logo, video, manual) under
-  `_library/media/<platform>/<game>/`. Everything is cached so re-exports never
-  re-download.
+  `_library/games/<platform>/<game>/media/` (D13). Everything is cached so re-exports
+  never re-download.
 - Written out through the exporters above (`gamelist.xml` + ES-DE media folders, Steam
   grid artwork).
 - Providers that offer manuals (ScreenScraper does) save them as documents of kind
   *manual* (3.8), marked as scraped so a user's own copy is never overwritten.
+- **The library holds everything; an export takes a subset** (Jerred, 2026-10-17). The
+  library is meant to be the complete set of metadata and media, and an export picks
+  what it carries:
+  - **What is scraped** is chosen per scrape and saved as the default: which fields,
+    which media types (and from which provider each, in priority order), which regions
+    and languages to prefer, and whether to replace, fill gaps only, or skip games that
+    already have something.
+  - **What is scraped for**: the games in the library, a platform, a collection, or a
+    **whole DAT**, including the games it lists that aren't in the library yet.
+    ScreenScraper looks games up by the hashes a DAT records, so a DAT's media can be
+    gathered before the ROMs are, and it's there when they arrive.
+  - **What an export writes** is chosen in the export: which media types, which fields
+    in the gamelist, whether to include manuals and other documents, and image sizes
+    (a handheld's SD card wants small images). The choice is remembered per export, and
+    device profiles (3.10) start from defaults that suit the device.
 
 ### 3.7 User interface
 
@@ -286,9 +301,15 @@ maps, box and cartridge scans, soundtracks, patch notes, readmes.
 - **Kinds**: manual, guide, poster, map, box scan, cartridge/disc scan, soundtrack,
   readme, other. The kind is guessed from the name and format and can be changed.
 - **Attaching**: drop files on a game or its page; *Attach documents…* from a game's
-  menu; or **bulk attach** a folder of manuals/scans to a platform, matched to games by
-  DAT name the way scrapers match (exact, then fuzzy with review), which is how
-  collectors' manual packs arrive.
+  menu; or **bulk import** a folder (Jerred, 2026-10-17), which is how collectors'
+  packs of manuals, guides and scans arrive:
+  1. choose the folder, and the platform if the pack is for one;
+  2. a review list shows every file with the game Game Repo thinks it belongs to (by
+     DAT name, the way scrapers match: exact, then fuzzy, with how sure it is), and the
+     kind it guessed;
+  3. change any pairing (search for another game, or leave the file out) or any kind,
+     then preview and import. It runs as an Organise change (copy by default, or move),
+     journalled with Undo, like the PC games import (3.5).
 - **Viewing**: PDFs, images, text and markdown in the side viewer (Model Library's
   `docs.rs` and `document-viewer.js` carry over); audio plays in the page; anything else
   opens externally. Documents inside archives are listed and viewed in place, as Model
@@ -298,6 +319,17 @@ maps, box and cartridge scans, soundtracks, patch notes, readmes.
   documents beside its files when the target is a plain folder tree.
 - **Scraped manuals** (3.6) are documents of kind manual with `source: screenscraper`;
   a user's own file of the same kind is preferred on export.
+- **Documents on their own** (Jerred, 2026-10-17): guides, FAQs, manuals and the rest are
+  searchable apart from games. A **Documents** page lists every document in the library,
+  with search across titles, file names and the text inside PDFs, text and markdown
+  files, and filters by kind, platform and source. Opening one shows it in the side
+  viewer, with a link to its game. Documents stay stored with their game (D13); the page
+  is a view over the index, and a document can also belong to no game (a general FAQ or
+  a platform's guide), kept in `_library/docs/`.
+- **Magazines** (Jerred, 2026-10-17; a later phase, D31): a magazine collection treated
+  like games: magazines listed by title and issue, with their own folder and metadata
+  (publisher, date, issue number, cover), imported, audited against a list and exported
+  the way games are, and searchable with the documents.
 
 ### 3.9 Compression, decompression and conversion
 
@@ -357,8 +389,18 @@ take games from it, without copying an SD card by hand.
      the collection it carries, how much space it has) and a sync job that brings the
      device to match, sending only what changed and verifying what was written. This is
      the export of 3.4 aimed at a device instead of a folder.
-- **Device profiles** know each firmware's ROM and media folder names (muOS, Knulli,
-  ROCKNIX, ArkOS, Batocera, ES-DE on Android), as the ES-DE export knows ES-DE's.
+- **Device profiles** know each firmware's ROM and media folder names, as the ES-DE
+  export knows ES-DE's. The ones Jerred uses come first (D18): **ES-DE on Android or
+  Linux** (the Phase 3 ES-DE export's layout, with the device's ROM folder as the
+  target), **Knulli** and **ROCKNIX** (a folder per system with its own `gamelist.xml`
+  and media beside it), and **muOS** (its ROM folders plus its own catalogue of box art,
+  previews and descriptions). ArkOS and Batocera follow if asked for. Each profile's
+  folder names and media layout are checked against that firmware's documentation when
+  it is built.
+- **SD cards first, then the network.** A device profile is first an export target: a
+  collection exported to an SD card in that firmware's layout, within the card's size
+  limit (Phase 3's *Size limit*). Serving and syncing over the network reuse the same
+  profiles.
 - **Safety on the network**: off until switched on, listening on the home network only,
   paired with a code shown in the app, and never exposed to the internet by the app.
 - A dedicated client app on the device is not planned; existing frontends and file
@@ -575,10 +617,11 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **2** | Rename/rebuild + disc systems + conversion (two releases, D19: 2a sort and rebuild, 2b discs and conversion) | Sorted output by DAT name (copy/hardlink/move with dry run and Undo); Redump cue/bin; 7z/rar reading; CHD, RVZ and CSO audited as the games they hold; Convert and Extract with verification and Undo, deterministic zip and 7z writing, preferred format per platform. |
 | **3** | Collections + ES-DE export | Rule-based collections with 1G1R; export to ES-DE (ROMs, gamelist.xml, custom collections) and a plain tree; export verification and re-sync. |
 | **4** | PC game import + Steam | Inbox classification, GOG id detection, common structure + `game.json`, duplicate detection; Steam non-Steam shortcuts with artwork; Add a game… for one ROM, disc or PC game, and Identify with Steam, GOG and LaunchBox (D24). |
-| **5** | Metadata, media & documents | Provider settings; LaunchBox offline provider, then ScreenScraper (hash lookup, manuals), IGDB and TheGamesDB, all in Identify (D24); media storage; the game folder with `docs/`, attach and bulk attach, the side viewer for PDFs/images/text/audio; ES-DE media and manuals folders and Steam grid output; review queue for weak matches. |
+| **5** | Metadata, media & documents | Provider settings; LaunchBox offline provider, then ScreenScraper (hash lookup, manuals), IGDB and TheGamesDB, all in Identify (D24); media storage; the game folder with `docs/`, attach and bulk attach, the side viewer for PDFs/images/text/audio; ES-DE media and manuals folders and Steam grid output; review queue for weak matches. Choosing what is scraped and for what (a whole DAT included) and what each export writes (3.6); bulk import of documents with a review of the pairings, and the Documents page with search (3.8). |
+| **5b** | Device profiles | Export a collection to an SD card in the layout of muOS, Knulli, ROCKNIX, or ES-DE on Android or Linux (3.10, D18, D29): each firmware's ROM folders, gamelists and media, within the card's size limit. Built on Phase 3's export and Phase 5's media. |
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
-| **8** | More targets and providers | RetroArch playlists, Pegasus, Playnite, LaunchBox exports; MobyGames; automatic DAT updates where allowed; Linux build if wanted. |
+| **8** | More targets and providers | RetroArch playlists, Pegasus, Playnite, LaunchBox exports; MobyGames; automatic DAT updates where allowed; Linux build if wanted; magazines (3.8, D31). |
 | **9** | Serve to devices | The app as a server on the home network (3.10): browse and download from a browser, a read-only WebDAV view, device profiles for Android, Linux and handheld firmwares, and sync of a collection to a device with verification. Needs Phase 3's collections and export; can move ahead of 4–8. |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
@@ -1614,12 +1657,15 @@ IGDB, TheGamesDB: Phase 5), scraped media for ES-DE (Phase 5).
   cartridge DATs and imported for platforms without one; newer DATs imported by hand
   (not shipped in the installer: each group publishes its DATs on its own terms).
 
-## 11. Open decisions
+- **D18 Devices (taken 2026-10-17):** the devices are muOS, Knulli and ROCKNIX
+  handhelds, and Android or Linux running ES-DE. Their device profiles come first
+  (3.10); none of them needs a client app of its own (browser, WebDAV and sync cover
+  them).
+- **D29 When device profiles come (taken 2026-10-17):** right after Phase 5, as export
+  targets for SD cards (Phase 5b), since what they carry is Phase 5's metadata and
+  media; serving and syncing over the network stay in Phase 9.
 
-- **D18 Serving to devices (3.10, Phase 9):** which devices and firmwares come first
-  (proposed: Android with ES-DE, then the handheld firmware Jerred uses), and whether
-  any of them needs a client app of its own (proposed: no; browser, WebDAV and sync
-  cover them). Settled before Phase 9 starts.
+## 11. Open decisions
 
 - **D19, D20** (Phase 2 design): Phase 2 in two halves; originals and duplicates set aside
   on the same drive until emptied. Proposed defaults, followed unless Jerred changes them.
@@ -1637,7 +1683,16 @@ IGDB, TheGamesDB: Phase 5), scraped media for ES-DE (Phase 5).
   Phase 4's sources, Steam's shortcuts. Proposed defaults, followed in the build
   ("Phase 4 notes"); Jerred asked for Phase 4 to be built and released on 2026-10-17.
 
-New ones get a number here as they come up (next: D29).
+- **D30 Scraping and export choices** (Jerred, 2026-10-17): the library keeps the complete
+  set of metadata and media, scraped for the library, a collection or a whole DAT; each
+  export picks the subset it writes (3.6). Bulk import of documents with a review of the
+  pairings, and documents searchable on their own page (3.8). Taken as asked; built in
+  Phase 5.
+- **D31 Magazines** (Jerred, 2026-10-17, "a later feature"): a magazine collection treated
+  like games (3.8). Proposed for Phase 8, after arcade; it reuses the documents page and
+  viewer from Phase 5.
+
+New ones get a number here as they come up (next: D32).
 
 ---
 
