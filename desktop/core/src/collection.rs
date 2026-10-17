@@ -29,7 +29,7 @@ pub const FLAGS: &[&str] = &[
 pub struct Rules {
     /// The systems it covers; none: every system with a DAT
     pub platforms: Vec<String>,
-    /// have (the games you have) | all (every game in the DAT)
+    /// have (the games you have) | all (every game in the DAT) | none (only the games added by hand)
     pub include: String,
     /// One game per parent/clone group
     pub one_per_title: bool,
@@ -44,6 +44,36 @@ pub struct Rules {
     pub search: String,
     /// Only games in these DATs (by DAT name), by name or by a ROM's hashes
     pub from_dats: Vec<String>,
+    /// Only games with these details (the Library page's filters, Phase 6)
+    #[serde(skip_serializing_if = "Details::is_empty")]
+    pub details: Details,
+}
+
+/// A collection's rules by the games' details, as the Library page filters them: values
+/// of one OR'd, the rules AND'd.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Details {
+    /// Words in the title, name, description, developer or publisher
+    pub search: String,
+    pub genre: Vec<String>,
+    pub decade: Vec<i64>,
+    pub developer: Vec<String>,
+    pub publisher: Vec<String>,
+    /// At least this many players
+    pub players: i64,
+    /// At least this rating (0 to 1)
+    pub rating: f64,
+    /// pictures | description | manual | video | documents
+    pub has: Vec<String>,
+    /// Only games needing a look
+    pub look: bool,
+}
+
+impl Details {
+    pub fn is_empty(&self) -> bool {
+        *self == Details::default()
+    }
 }
 
 impl Default for Rules {
@@ -58,12 +88,15 @@ impl Default for Rules {
             exclude: DEFAULT_EXCLUDE.iter().map(|s| s.to_string()).collect(),
             search: String::new(),
             from_dats: vec![],
+            details: Details::default(),
         }
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Collection {
+    /// Empty for a new one, which `save` gives an id
+    #[serde(default)]
     pub id: String,
     pub name: String,
     #[serde(default)]
@@ -119,8 +152,8 @@ pub fn save(lib: &Library, mut c: Collection) -> Result<Collection> {
     if c.name.is_empty() {
         bail!("Give the collection a name.");
     }
-    if !["have", "all"].contains(&c.rules.include.as_str()) {
-        bail!("A collection has the games you have or every game in the DAT.");
+    if !["have", "all", "none"].contains(&c.rules.include.as_str()) {
+        bail!("A collection has the games you have, every game in the DAT, or only the games added to it.");
     }
     if list(lib).iter().any(|o| o.id != c.id && o.name.eq_ignore_ascii_case(&c.name)) {
         bail!("There's a collection called {} already.", c.name);
@@ -267,8 +300,15 @@ pub fn work_out(ix: &Index, lib: &Library, c: &Collection) -> Result<Arc<Worked>
     for p in &systems {
         dats.push((p.clone(), audit::primary_dat(conn, lib, p)?));
     }
+    // rules by details read the library's rows (browse.rs), brought up to date first
+    let library = if c.rules.details.is_empty() {
+        String::new()
+    } else {
+        crate::browse::refresh(ix, lib)?;
+        conn.query_row("SELECT COALESCE(group_concat(value, ','), '') FROM index_meta WHERE key LIKE 'library:%'", [], |r| r.get(0))?
+    };
     // (its name and size limit don't change its games)
-    let key = format!("{}|{}|{:?}|{:?}|{}|{dats:?}", ix.path().display(), serde_json::to_string(&c.rules)?, c.added, c.removed, audit::generation(conn)?);
+    let key = format!("{}|{}|{:?}|{:?}|{}|{dats:?}|{library}", ix.path().display(), serde_json::to_string(&c.rules)?, c.added, c.removed, audit::generation(conn)?);
     if let Some((k, w)) = LAST.lock().unwrap().as_ref() {
         if *k == key {
             return Ok(w.clone());
@@ -320,7 +360,7 @@ fn sources(conn: &Connection, names: &[String], missing: &mut Vec<String>) -> Re
 }
 
 /// "1", "A" or "1.1" as something that sorts: higher is newer.
-fn revision_key(s: &str) -> Vec<u64> {
+pub(crate) fn revision_key(s: &str) -> Vec<u64> {
     s.split(['.', ' '])
         .map(|p| p.parse::<u64>().unwrap_or_else(|_| p.chars().next().map(|c| c.to_ascii_uppercase() as u64).unwrap_or(0)))
         .collect()
@@ -378,8 +418,11 @@ fn work_out_fresh(conn: &Connection, c: &Collection, dats: &[(String, Option<i64
             }
             None => HashSet::new(),
         };
+        let with_details = if r.details.is_empty() { None } else { Some(crate::browse::matching(conn, platform, &r.details)?) };
         let passes = |g: &Row| -> bool {
-            (r.include == "all" || g.status == "have")
+            r.include != "none"
+                && (r.include == "all" || g.status == "have")
+                && with_details.as_ref().is_none_or(|d| d.contains(&g.id))
                 && !split(&g.flags).any(|f| exclude.contains(f))
                 && (langs.is_empty() || g.languages.is_empty() || split(&g.languages).any(|l| langs.contains(&l.to_ascii_lowercase())))
                 && (search.is_empty() || g.name.to_lowercase().contains(&search))
@@ -436,7 +479,7 @@ fn work_out_fresh(conn: &Connection, c: &Collection, dats: &[(String, Option<i64
 /// Each game of a DAT with the bytes its files take on disk and the bytes of its ROMs as
 /// the DAT lists them. On disk, a ROM counts once, by one of the files found for it (the
 /// archive or image it's in, else the file itself), and each file counts once per game.
-fn sizes(conn: &Connection, dat_id: i64) -> Result<HashMap<i64, (u64, u64)>> {
+pub(crate) fn sizes(conn: &Connection, dat_id: i64) -> Result<HashMap<i64, (u64, u64)>> {
     let mut out: HashMap<i64, (u64, u64)> = HashMap::new();
     let mut q = conn.prepare("SELECT game_id, SUM(COALESCE(size, 0)) FROM dat_roms WHERE dat_id = ?1 AND (status IS NULL OR status != 'nodump') GROUP BY game_id")?;
     for r in q.query_map([dat_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))? {
@@ -668,6 +711,11 @@ pub(crate) mod tests {
         assert_eq!(names(&w), ["Alpha (Europe)", "Beta (Europe) (Rev 1)", "Epsilon (Japan) (En,Ja)", "Gamma (USA) (Beta)"]);
         assert_eq!(w.systems[0].removed.len(), 1);
         assert!(w.games().find(|g| g.name.starts_with("Gamma")).unwrap().manual);
+        // only the games added by hand, saved from the page without an id
+        let c: Collection = serde_json::from_value(json!({ "name": "Picked", "rules": { "platforms": ["gb"], "include": "none" }, "added": ["gb/Delta (World)"] })).unwrap();
+        let c = save(&lib, c).unwrap();
+        assert!(!c.id.is_empty());
+        assert_eq!(names(&work_out(&ix, &lib, &c).unwrap()), ["Delta (World)"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

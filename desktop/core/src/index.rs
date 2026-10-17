@@ -130,6 +130,39 @@ const MIGRATIONS: &[(&str, &str)] = &[
          CREATE INDEX docs_kind ON docs (kind);
          CREATE VIRTUAL TABLE docs_text USING fts5 (title, name, body, tokenize = 'unicode61 remove_diacritics 2');",
     ),
+    (
+        "the library page",
+        // Phase 6 (D42): each game folder's details and the picture shown for it (read again
+        // from every game.json), and a row per game the Library page lists, rebuilt one system
+        // at a time (browse.rs); `key` is `<system>/<DAT name>`, `<system>/~<folder>` for a game
+        // no DAT knows, `pc/<id>` for a PC game
+        "ALTER TABLE meta_games ADD COLUMN facts TEXT NOT NULL DEFAULT '{}';
+         ALTER TABLE meta_games ADD COLUMN picture TEXT;
+         UPDATE meta_games SET mtime = -1;
+         CREATE TABLE library (
+            id INTEGER PRIMARY KEY, key TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, platform TEXT NOT NULL, dat_game INTEGER,
+            name TEXT NOT NULL, title TEXT NOT NULL, sort TEXT NOT NULL, year INTEGER, developer TEXT, publisher TEXT, genre TEXT,
+            genres TEXT NOT NULL DEFAULT '', languages TEXT NOT NULL DEFAULT '',
+            players INTEGER, rating REAL, regions TEXT NOT NULL DEFAULT '', have INTEGER NOT NULL, folder TEXT, picture TEXT,
+            media TEXT NOT NULL DEFAULT '', described INTEGER NOT NULL DEFAULT 0, docs INTEGER NOT NULL DEFAULT 0,
+            review INTEGER NOT NULL DEFAULT 0, size INTEGER NOT NULL DEFAULT 0, date INTEGER, best_all INTEGER NOT NULL DEFAULT 1,
+            best_have INTEGER NOT NULL DEFAULT 1,
+            -- what the sorts other than by title go by, in the order they list (highest rating, biggest, newest first; unknown last)
+            year_sort INTEGER NOT NULL, rating_sort REAL NOT NULL, size_sort INTEGER NOT NULL, date_sort INTEGER NOT NULL
+         ) STRICT;
+         CREATE INDEX library_sort ON library (have, sort);
+         CREATE INDEX library_platform ON library (platform, have, sort);
+         CREATE INDEX library_year ON library (have, year_sort, sort);
+         CREATE INDEX library_rating ON library (have, rating_sort, sort);
+         CREATE INDEX library_size ON library (have, size_sort, sort);
+         CREATE INDEX library_date ON library (have, date_sort, sort);
+         CREATE TABLE library_values (
+            game INTEGER NOT NULL REFERENCES library (id) ON DELETE CASCADE, field TEXT NOT NULL, value TEXT NOT NULL
+         ) STRICT;
+         CREATE INDEX library_values_field ON library_values (field, value, game);
+         CREATE INDEX library_values_game ON library_values (game);
+         CREATE VIRTUAL TABLE library_text USING fts5 (title, name, body, tokenize = 'unicode61 remove_diacritics 2');",
+    ),
 ];
 
 /// How many schema steps this build knows.

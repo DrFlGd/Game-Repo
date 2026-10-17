@@ -14,7 +14,7 @@ import { CommandBar, SearchNote } from "./layout.js";
 import { Dialog, close, confirmDialog } from "./dialogs.js";
 import { Preview, runPlan } from "./organise.js";
 import { Icon } from "./icons.js";
-import { CarryChoices, NO_CARRY } from "./metadata.js";
+import { CarryChoices, NO_CARRY, scrapeDialog } from "./metadata.js";
 
 const PAGE = 200;
 
@@ -255,6 +255,7 @@ function RulesEditor({ c, onSave, off }) {
       <select id="rule-include" class="compact" value=${r.include} onChange=${(e) => set({ include: e.target.value })}>
         <option value="have">The games you have</option>
         <option value="all">Every game in the DAT (to see what to look for)</option>
+        <option value="none">Only the games added by hand</option>
       </select></label>
     <label class="check-row"><input type="checkbox" id="rule-1g1r" checked=${r.one_per_title} onChange=${(e) => set({ one_per_title: e.target.checked })} /> One game per title (1G1R)</label>
     <div class="rule-pair">
@@ -269,7 +270,27 @@ function RulesEditor({ c, onSave, off }) {
     <div class="field-block"><span class="field-label">Only games in these DATs (optional)</span>
       <${Ticks} id="rule-from-dats" items=${datNames} value=${r.from_dats} onChange=${(v) => set({ from_dats: v })} />
       <small class="muted">A DAT of your own (a best-of list, a RetroAchievements list) picks the games, by name or by any ROM's hashes.</small></div>
+    ${detailsOf(r.details) ? html`<div class="field-block" id="rule-details"><span class="field-label">Details</span>
+      <span>${detailsOf(r.details)}</span>
+      <small class="muted">From the Library page's filters: only games with these details, as they're scraped. <button type="button" class="linkish" id="rule-details-clear" onClick=${() => set({ details: {} })}>Clear them</button></small></div>` : null}
   </fieldset>`;
+}
+
+/** A collection's rules by details, in words ("Genre Puzzle or Action; 1990s; 2+ players"). */
+function detailsOf(d) {
+  if (!d) return "";
+  const parts = [];
+  const or = (name, v) => { if (v?.length) parts.push(`${name} ${v.join(" or ")}`); };
+  if (d.search) parts.push(`with "${d.search}"`);
+  or("Genre", d.genre);
+  if (d.decade?.length) parts.push(d.decade.map((x) => `${x}s`).join(" or "));
+  or("Developer", d.developer);
+  or("Publisher", d.publisher);
+  if (d.players) parts.push(`${d.players}+ players`);
+  if (d.rating) parts.push(`rated ${Math.round(d.rating * 100)}% or more`);
+  if (d.has?.length) parts.push(`with ${d.has.join(", ")}`);
+  if (d.look) parts.push("needing a look");
+  return parts.join("; ");
 }
 
 // ------------------------------------------------------------ properties
@@ -470,6 +491,8 @@ export function Collections() {
     { id: "collection-rename", label: "Rename…", icon: "edit", disabled: off, run: rename },
     { id: "collection-duplicate", label: "Duplicate…", icon: "copy", disabled: off, run: duplicate },
     { id: "collection-save-dats", label: "Save as DATs…", icon: "download", run: () => ui.set({ dialog: { type: "save-dats", c } }) },
+    { id: "collection-scrape", label: "Scrape its games…", icon: "scrape", disabled: off, run: () => scrapeDialog({ collection: c.id, platformName: c.name, gameName: c.name }) },
+    { id: "collection-browse", label: "Show in the Library", icon: "grid", run: () => { location.hash = `#/library?collection=${encodeURIComponent(c.id)}`; } },
     { sep: true },
     { id: "collection-delete", label: "Delete…", icon: "trash", disabled: off, run: remove },
   ] : [];
@@ -478,7 +501,7 @@ export function Collections() {
       ${c ? html`<button type="button" class="ghost compact" id="collection-dats" title="One DAT per system, for RomVault, clrmamepro or igir" onClick=${() => ui.set({ dialog: { type: "save-dats", c } })}>${Icon.download(15)} Save as DATs…</button>
         <button type="button" class="ghost compact" id="collection-export" disabled=${off} title="To ES-DE or a plain folder, with a preview and Undo" onClick=${() => ui.set({ dialog: { type: "export", c, sum } })}>${Icon.stack(15)} Export…</button>` : null}
       <button type="button" class="primary compact" id="collection-new" disabled=${off} onClick=${create}>${Icon.plus(15)} New collection</button></span>`}
-    more=${c ? { id: "collection-menu", title: "Rename, duplicate, save as DATs, delete", items: menu } : null} />`;
+    more=${c ? { id: "collection-menu", title: "Rename, duplicate, save as DATs, scrape, delete", items: menu } : null} />`;
 
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   if (!all) return html`${head}<div class="pages"><p class="muted">Reading the collections…</p></div>`;

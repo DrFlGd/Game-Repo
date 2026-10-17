@@ -186,10 +186,13 @@ pub fn write_game(ix: &Index, lib: &Library, dir: &Path, v: &Value) -> Result<()
     index_folder(ix.conn(), lib, dir)
 }
 
+/// A game folder's `game.json` size and modified time, the later of its and its `media/`
+/// folder's, so pictures added or removed by hand are seen too.
 fn stamp(p: &Path) -> Option<(i64, i64)> {
+    let ms = |m: &std::fs::Metadata| m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_millis() as i64);
     let m = std::fs::metadata(p).ok()?;
-    let t = m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64;
-    Some((m.len() as i64, t))
+    let media = p.parent().and_then(|d| std::fs::metadata(d.join("media")).ok()).and_then(|m| ms(&m)).unwrap_or(0);
+    Some((m.len() as i64, ms(&m)?.max(media)))
 }
 
 /// The kinds of media a game's folder has.
@@ -205,6 +208,15 @@ pub fn media_kinds(dir: &Path) -> Vec<String> {
     v
 }
 
+/// The picture a game is shown by (its box front, else its 3D box, screenshot, title
+/// screen or fan art): its file name in `media/`.
+pub fn picture_of(dir: &Path) -> Option<String> {
+    let names: Vec<String> = std::fs::read_dir(dir.join("media")).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    ["cover", "box3d", "screenshot", "titlescreen", "fanart"].iter().find_map(|k| {
+        names.iter().filter(|n| n.split_once('.').is_some_and(|(s, x)| s == *k && ["png", "jpg", "jpeg", "webp", "gif", "bmp"].contains(&x.to_ascii_lowercase().as_str()))).min().cloned()
+    })
+}
+
 /// Read one game's folder into the index.
 pub fn index_folder(conn: &Connection, lib: &Library, dir: &Path) -> Result<()> {
     let Some(rel) = lib.relative(dir) else { return Ok(()) };
@@ -218,11 +230,15 @@ pub fn index_folder(conn: &Connection, lib: &Library, dir: &Path) -> Result<()> 
     let details = v["details"].as_object().is_some_and(|d| FIELDS.iter().any(|(k, _)| d.get(*k).is_some_and(|x| !x.is_null() && x != "")));
     let review = v["review"].as_array().is_some_and(|a| !a.is_empty());
     let title = v["title"].as_str().filter(|s| !s.is_empty()).or(v["name"].as_str()).unwrap_or("").to_string();
+    // the details the Library page lists and searches (browse.rs), and the picture it shows
+    let facts = v["details"].as_object().cloned().unwrap_or_default();
     conn.execute(
-        "INSERT INTO meta_games (folder, platform, id, name, title, year, details, media, review, size, mtime) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+        "INSERT INTO meta_games (folder, platform, id, name, title, year, details, media, review, size, mtime, facts, picture) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(folder) DO UPDATE SET platform = excluded.platform, id = excluded.id, name = excluded.name, title = excluded.title, year = excluded.year,
-           details = excluded.details, media = excluded.media, review = excluded.review, size = excluded.size, mtime = excluded.mtime",
-        params![rel, platform, v["id"].as_str(), v["name"].as_str(), title, v["year"].as_i64(), details as i64, media_kinds(dir).join(","), review as i64, size, mtime],
+           details = excluded.details, media = excluded.media, review = excluded.review, size = excluded.size, mtime = excluded.mtime,
+           facts = excluded.facts, picture = excluded.picture",
+        params![rel, platform, v["id"].as_str(), v["name"].as_str(), title, v["year"].as_i64(), details as i64, media_kinds(dir).join(","), review as i64, size, mtime,
+                serde_json::to_string(&facts)?, picture_of(dir)],
     )?;
     conn.execute("DELETE FROM meta_roms WHERE folder = ?1", [&rel])?;
     // a ROM no DAT knows: its one file's hashes
@@ -347,12 +363,12 @@ pub fn game(ix: &Index, lib: &Library, dat_game_id: i64) -> Result<Value> {
         "id": g.id, "platform": g.platform, "platform_name": platforms::name_of(&g.platform), "dat": g.dat, "name": g.name,
         "title": g.title, "regions": g.regions, "have": have, "folder": folder,
         "roms": g.roms.iter().map(Rom::to_json).collect::<Vec<_>>(),
-        "details": {}, "media": {}, "docs": [], "ids": {}, "review": [], "scraped": {},
+        "details": {}, "media": {}, "docs": [], "ids": {}, "review": [], "scraped": {}, "edited": [],
     });
     if let Some(f) = &folder {
         let dir = lib.resolve(f)?;
         let j = read_game(&dir);
-        for k in ["details", "ids", "review", "scraped"] {
+        for k in ["details", "ids", "review", "scraped", "edited"] {
             if !j[k].is_null() {
                 v[k] = j[k].clone();
             }
@@ -389,6 +405,156 @@ pub fn clear(ix: &Index, lib: &Library, dat_game_id: i64) -> Result<Value> {
     game(ix, lib, dat_game_id)
 }
 
+/// Change one of a game's details by hand (D44): `title`, `year` or one of FIELDS. It's
+/// marked as edited, so later scrapes leave it; `None` takes the mark off (the value stays
+/// until a scrape replaces it).
+pub fn edit(ix: &Index, lib: &Library, dat_game_id: i64, field: &str, value: Option<&Value>) -> Result<Value> {
+    lib.writable()?;
+    edit_value(field, &Value::Null)?;
+    let g = dat_game(ix.conn(), dat_game_id)?;
+    let dir = ensure_folder(ix, lib, &g)?;
+    edit_dir(ix, lib, &dir, field, value)?;
+    game(ix, lib, dat_game_id)
+}
+
+/// A hand-edited value as it's kept: a year a number, genres a list, a rating 0 to 1.
+pub fn edit_value(field: &str, x: &Value) -> Result<Value> {
+    if field != "title" && field != "year" && !FIELDS.iter().any(|(k, _)| *k == field) {
+        bail!("There's no detail called {field}.");
+    }
+    Ok(match field {
+        "year" => match x.as_i64().or_else(|| x.as_str().and_then(|s| s.trim().parse().ok())) {
+            Some(y) => json!(y),
+            None if x.is_null() || x == "" => Value::Null,
+            None => bail!("A year is a number, such as 1991."),
+        },
+        "genres" => match x {
+            Value::String(s) => json!(s.split(',').map(str::trim).filter(|s| !s.is_empty()).collect::<Vec<_>>()),
+            _ => x.clone(),
+        },
+        "rating" => match x.as_f64().or_else(|| x.as_str().and_then(|s| s.trim().parse().ok())) {
+            Some(r) if (0.0..=1.0).contains(&r) => json!(r),
+            Some(_) => bail!("A rating is from 0 to 1 (0.8 is four stars of five)."),
+            None => Value::Null,
+        },
+        "title" => match x.as_str().map(str::trim) {
+            Some(t) if !t.is_empty() => json!(t),
+            _ if x.is_null() => Value::Null,
+            _ => bail!("Give the game a title."),
+        },
+        _ => x.clone(),
+    })
+}
+
+/// Edit one of the details in a game folder's `game.json` (D44).
+pub fn edit_dir(ix: &Index, lib: &Library, dir: &Path, field: &str, value: Option<&Value>) -> Result<()> {
+    lib.writable()?;
+    let mut v = read_game(dir);
+    let mut edited: Vec<Value> = v["edited"].as_array().cloned().unwrap_or_default();
+    edited.retain(|e| e != field);
+    if let Some(x) = value {
+        let x = edit_value(field, x)?;
+        match field {
+            "title" | "year" => v[field] = x,
+            _ => {
+                if !v["details"].is_object() {
+                    v["details"] = json!({});
+                }
+                v["details"][field] = x;
+            }
+        }
+        if !v["scraped"].is_object() {
+            v["scraped"] = json!({});
+        }
+        v["scraped"][field] = json!("you");
+        edited.push(json!(field));
+    }
+    v["edited"] = json!(edited);
+    write_game(ix, lib, dir, &v)
+}
+
+/// The game folders whose names are the old names of their games, after a DAT renamed
+/// them (D45): a change renaming each to its game's name in the DAT in use, with a preview
+/// and Undo. A folder is its game's by its ROMs; one whose ROMs are several games', or
+/// whose new name is taken, is left (and said why).
+pub fn rename_folders_plan(ix: &Index, lib: &Library) -> Result<crate::organise::Plan> {
+    use crate::organise::{Op, Plan, Src};
+    lib.writable()?;
+    let conn = ix.conn();
+    let platforms: Vec<String> = conn.prepare("SELECT DISTINCT platform FROM meta_games WHERE platform != 'pc' ORDER BY platform")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let (mut ops, mut left, mut in_place) = (vec![], vec![], 0);
+    let mut taken: HashSet<PathBuf> = HashSet::new();
+    for p in &platforms {
+        let Some(dat) = crate::audit::primary_dat(conn, lib, p)? else { continue };
+        // each folder with exactly a DAT game's ROMs, and the games it's
+        let mut q = conn.prepare(
+            "WITH fv AS (SELECT r.game_id, mr.folder, COUNT(*) AS n FROM dat_roms r JOIN meta_roms mr ON mr.crc32 = r.crc32 AND mr.size = r.size
+                         JOIN meta_games mg ON mg.folder = mr.folder AND mg.platform = ?2 WHERE r.dat_id = ?1 GROUP BY r.game_id, mr.folder),
+                  gr AS (SELECT game_id, COUNT(*) AS n FROM dat_roms WHERE dat_id = ?1 AND crc32 IS NOT NULL AND size IS NOT NULL GROUP BY game_id),
+                  fr AS (SELECT folder, COUNT(*) AS n FROM meta_roms GROUP BY folder)
+             SELECT fv.folder, g.name FROM fv JOIN gr ON gr.game_id = fv.game_id AND gr.n = fv.n JOIN fr ON fr.folder = fv.folder AND fr.n = fv.n
+             JOIN dat_games g ON g.id = fv.game_id ORDER BY fv.folder, g.name",
+        )?;
+        let mut by: Vec<(String, Vec<String>)> = vec![];
+        for x in q.query_map(params![dat, p], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+            let (f, g) = x?;
+            match by.last_mut() {
+                Some((lf, gs)) if *lf == f => gs.push(g),
+                _ => by.push((f, vec![g])),
+            }
+        }
+        for (folder, games) in by {
+            let dir = lib.resolve(&folder)?;
+            let now = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            if games.iter().any(|g| safe_name(g) == now) {
+                in_place += 1;
+                continue;
+            }
+            if games.len() > 1 {
+                left.push(json!({ "path": dir.display().to_string(), "why": format!("Its ROMs are those of {} games in the DAT ({}), so it keeps its name.", games.len(), games.join(", ")) }));
+                continue;
+            }
+            let to = dir.with_file_name(safe_name(&games[0]));
+            if to.exists() || !taken.insert(to.clone()) {
+                left.push(json!({ "path": dir.display().to_string(), "why": format!("A folder called {} is there already.", safe_name(&games[0])) }));
+                continue;
+            }
+            ops.push(Op {
+                op: "rename".into(),
+                game: games[0].clone(),
+                to: to.display().to_string(),
+                from: vec![Src { file_id: 0, root: String::new(), rel: folder.clone(), path: dir.display().to_string(), member: None, size: 0, crc32: String::new(), sha1: None }],
+                names: vec![],
+                aside: vec![],
+                size: 0,
+                note: Some(format!("was {now}")),
+            });
+        }
+    }
+    let n = ops.len();
+    Ok(Plan {
+        id: new_id(),
+        created: now(),
+        kind: "folders".into(),
+        label: format!("Renamed {n} game{} folder{} to {} DAT name{}", if n == 1 { "'s" } else { "s'" }, if n == 1 { "" } else { "s" }, if n == 1 { "its" } else { "their" }, if n == 1 { "" } else { "s" }),
+        dat: Value::Null,
+        platform: if platforms.len() == 1 { platforms[0].clone() } else { String::new() },
+        mode: "rename".into(),
+        format: "keep".into(),
+        out: Some(games_root(lib).display().to_string()),
+        space: vec![],
+        games: n,
+        ops,
+        in_place,
+        conflicts: vec![],
+        duplicates: vec![],
+        left,
+        new_root: None,
+        present: vec![],
+        export: None,
+    })
+}
+
 /// Put what a scrape (or Identify) found into a game's `game.json`.
 pub struct Found<'a> {
     pub source: &'a str,
@@ -412,8 +578,10 @@ pub fn merge_details(v: &mut Value, f: &Found, fields: &[String], replace: bool)
     }
     v["ids"][f.source] = json!(f.id);
     let mut set = vec![];
+    // what was edited by hand stays (D44)
+    let edited: Vec<String> = v["edited"].as_array().into_iter().flatten().filter_map(|e| e.as_str().map(String::from)).collect();
     for (k, x) in f.details {
-        if !fields.iter().any(|w| w == k) || x.is_null() || x == "" {
+        if !fields.iter().any(|w| w == k) || x.is_null() || x == "" || edited.contains(k) {
             continue;
         }
         let has = v["details"].get(k).is_some_and(|y| !y.is_null() && y != "");
@@ -424,13 +592,13 @@ pub fn merge_details(v: &mut Value, f: &Found, fields: &[String], replace: bool)
         v["scraped"][k] = json!(f.source);
         set.push(k.clone());
     }
-    if let Some(t) = f.title.filter(|t| !t.is_empty()) {
+    if let Some(t) = f.title.filter(|t| !t.is_empty() && !edited.iter().any(|e| e == "title")) {
         if replace || v["scraped"]["title"].is_null() {
             v["title"] = json!(t);
             v["scraped"]["title"] = json!(f.source);
         }
     }
-    if f.year.is_some() && (replace || v["year"].is_null()) {
+    if f.year.is_some() && (replace || v["year"].is_null()) && !edited.iter().any(|e| e == "year") {
         v["year"] = json!(f.year);
     }
     v["scraped"]["when"] = json!(now());

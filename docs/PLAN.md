@@ -2024,6 +2024,186 @@ own layout to make a layout from it, ArkOS and Batocera (if asked for).
   names. Anything wrong can be put right in a copy of the layout, and the built-in one
   fixed in the next release.
 
+### Phase 6 design (written 2026-10-17)
+
+Phase 6 brings one page for every game the library holds, across every system, browsed
+by its pictures and found by its details, and a page for each game. It also ties off
+what Phases 3 and 5 left: renaming a game's folder when its DAT renames the game, and
+scraping or attaching from the page instead of the command line.
+
+**What the Library shows**
+
+- **Every game you have**: each DAT game with a file that matches it, in each system's
+  DAT in use (the audit's *Have*). Each PC game (`PC/<Title> (<Year>)/game.json`). Each
+  game Add a game… kept that no DAT knows (`_library/games/<system>/<SHA1>/`). BIOS
+  files stay on their own page.
+- A switch shows **every game in the DATs** instead, so games you've scraped but don't
+  have can be browsed too, drawn faintly.
+- All regions are shown by default. *One per title* keeps one game of each title, in
+  the collection rules' region order (Phase 3's 1G1R).
+
+**The index (D42)**
+
+- A new table, `library`, holds one row per game:
+  - what it is: the kind (DAT, PC or added) and its key
+  - its system, DAT name, title, and the name it sorts by (*The Legend of Zelda* under L)
+  - its details: year, developer, publisher, players, rating, regions, languages
+  - its state: whether you have it, its folder, the picture shown for it, which kinds
+    of media it has, how many documents, and its size on disk
+- Genres and other details with several values go in `library_values (game, field,
+  value)`, indexed by field and value. Search uses an FTS5 table of the title, the DAT
+  name, the description, the developer and the publisher.
+- `meta_games` gains the details read from `game.json` (a new migration), so the
+  library is built from the index without opening a folder.
+- It's rebuilt **one system at a time**, in a transaction, when that system's audit
+  generation or its game folders change. A scan that touches one system rebuilds only
+  that one.
+- Lists page through it with keyset paging (the last row's sort key). Each filter's
+  counts come from one GROUP BY over the filtered games, with the top 50 values shown
+  and the rest searchable.
+- **Target**: 200,000 games, a page of the list in under 100 ms, the filter counts in
+  under 300 ms, on a mid-range laptop. A timing test checks it, as Phase 1's do.
+
+**Pictures in the grid (D43)**
+
+- **Thumbnails** are made from the game's cover, else its 3D box, screenshot or title
+  screen. A PC game uses its portrait cover. They are 256 pixels on the long side for
+  the grid (512 for the large size), as JPEG.
+- They're kept on this computer, never in the library: `<data dir>/thumbs/<library
+  id>/`, keyed by the picture's path, size and modified time, so a new picture makes a
+  new thumbnail. The newest 50,000 are kept.
+- Each is made on first request, at most four at once, and served by `library://` like
+  the pictures themselves. The page loads only the ones in view (Model Library's
+  IntersectionObserver queue).
+- A game with no picture shows its title's first letter on its system's colour.
+
+**The page**
+
+- **Command bar**: search (titles, names, descriptions, developers), the view switch
+  (Model Library's `ViewSwitch`, with grid, list and table), the sort (title, system,
+  year, rating, size, file date) and ⋯.
+- **Filters**, on the left, each with counts: System, Genre, Year (by decade, opening to
+  years), Developer, Publisher, Players, Rating (at least), Region, Language, *Has*
+  (pictures, description, manual, documents, video), *Needs a look*, and *In a
+  collection*. Values within one filter combine with OR; separate filters combine with
+  AND. The filters in use show as chips above the games, each with ×, and *Clear*. They
+  are kept in the page's address, so Back works and a view can be bookmarked.
+- **Grid**: covers in three sizes, each with its title and the system as a badge. The
+  grid is virtualised (only the rows in view are drawn) and pages are fetched as it
+  scrolls, since Model Library's "Show more" won't do for 200,000 games. **List**: a
+  row per game with a small cover. **Table**: title, system, year, developer, genre,
+  players, rating, region, size and status, with sortable columns.
+- **Group by** system, genre, decade or developer: a heading for each group, with its
+  count, in any view.
+- **Select**: click, Ctrl or Shift, and Ctrl+A for everything filtered, with Model
+  Library's keys. What's selected can be:
+  - *Added to a collection…*
+  - *Scraped…*
+  - *Converted…*
+  - given *Attach documents…* (for one game)
+  - *Shown in folder*
+- **Save as a collection…**: the filters become a new collection's rules, so it keeps
+  up as games are scraped. Collections gain rules for genre, year, developer,
+  publisher, players and rating.
+- **The panel** (Model Library's inspector) shows the chosen game's cover, details and
+  actions, and *Open* goes to its page.
+
+**A game's page** (`#/game/<id>`)
+
+- Its pictures as a gallery, video included, and its details, each saying where it came
+  from.
+- **Edit** any detail by hand. It's kept in `game.json` `edited` and wins over later
+  scrapes (D44).
+- Its documents, in the side viewer.
+- Its files: where each is, its format and size, the audit's word on it, *Convert…* and
+  *Show in folder*.
+- Its DAT's facts: region, languages, revision, and what it's a clone of.
+- The collections it's in, to add it to or take it out of.
+- *Scrape…*, *Identify…*, *Attach documents…*, and **files dropped on the page are
+  attached** (also on the Metadata page's panel).
+- Previous and next go through the list it was opened from.
+
+**Loose ends**
+
+- **A game's folder renamed when its DAT renames it (D45)**: after a DAT import, the
+  games whose folders have their old names are offered as one change (*Rename 12
+  games' folders to their new names*), journalled with a preview and Undo. Until then
+  the folder is still found by its ROMs. The command line has `games rename-folders`.
+- *Scrape…* for a collection or for the games selected on the Library page (until now
+  only on the command line).
+- The About page's library layout and the CHANGELOG map follow.
+
+**Not in Phase 6**: starting games (the frontends do that), favourites and play counts
+(those are the frontends' too; Phase 8 may read them back), arcade sets (Phase 7),
+MobyGames and magazines (Phase 8).
+
+**Decisions proposed for Phase 6** (defaults the build follows unless changed)
+
+- **D42** The Library page reads a `library` table in the index on this computer, rebuilt
+  one system at a time, never a file in the library.
+- **D43** Thumbnails are a cache on this computer (`<data dir>/thumbs/`), made from the
+  library's own pictures when first shown.
+- **D44** A detail edited by hand is kept in `game.json` and wins over later scrapes,
+  until it's cleared.
+- **D45** A game's folder is renamed to its DAT's new name only as a change the user
+  runs, with a preview and Undo, never by itself.
+
+### Phase 6 notes (built 2026-10-17)
+
+- **Core**: `browse.rs` (D42: the `library` table, `library_values` and the FTS5 table
+  `library_text`, a new migration that also gives `meta_games` the details and picture
+  from `game.json`; `refresh` rebuilds a system when its stamp changes, kept in
+  `index_meta` as `library:<system>`, PC games being a system of their own; `query`,
+  `facets`, `keys`, `overview`, `game` and `edit`; `matching` for collection rules;
+  thumbnails and `prune`, D43). `meta.rs` gains `edit_value`/`edit_dir` (D44, the edit
+  marked in `game.json` `edited` and `scraped[field] = "you"`, skipped by
+  `merge_details`) and `rename_folders_plan` (D45, an Organise change of kind
+  `folders`, run and undone like any other). `collection.rs` gains `Rules.details`
+  (search, genre, decade, developer, publisher, players, rating, has, look) and the
+  `include` value `none`, only the games added by hand. The commands are `browse`,
+  `browse_query`, `browse_keys`, `browse_game`, `browse_edit`, `meta_edit` and
+  `organise_rename_folders`; thumbnails are served at
+  `library://~thumb/<128|256|512>/<path>`. The command line has `library [filters]
+  [--facets]`, `games rename-folders [--dry-run]` and `game <id> --edit <field> <value>`
+  / `--unmark <field>`.
+- **The pages**: *Library* is in the menu after Home (`browse.js`); a game's page is
+  `#/game/<system>/<DAT name>` (`gamepage.js`). The query is kept in the address
+  (`#/library?genre=Action&sort=year`), a filter change being a new history entry and
+  typing in the search replacing it. Previous and Next on a game's page replace the
+  entry too, so Back goes to the list it came from.
+- **Not as designed**:
+  - Lists page by offset, not by key: each sort has a covering index (`year_sort`,
+    `rating_sort`, `size_sort`, `date_sort`, with unknowns last) and a page fetches its
+    ids first, which keeps a page at 120,000 under 15 ms, so keyset paging wasn't needed.
+  - The filters' counts are added up in Rust over the filtered games, one pass for the
+    filters not in use and one per filter in use (leaving it out), instead of a GROUP
+    BY per filter, which took about a second at 200,000 games. Each filter sends its
+    500 most-used values; its Find box searches those.
+  - Year is by decade only, not opening to years.
+  - Grouping by genre uses a game's first genre; games with no value for the grouping
+    go under *Unknown*.
+  - Thumbnails load with the browser's own lazy loading rather than an
+    IntersectionObserver queue; the core makes at most four at once either way.
+  - A game's page lists its files with their format and size but not the audit's word
+    on each, and its DAT facts are the DAT, the name, the regions and the ROM count:
+    languages, revision and clone-of aren't shown yet.
+  - *Add to a collection…* with a new collection makes one with `include: none`, so it
+    holds only the games chosen.
+- **Timing** (the ignored test `timing_the_library_of_200k_games`, run in release on
+  CI): a page in 7–15 ms at any depth and sort, the counts in about 190 ms, a search
+  matching every game in about 230 ms (limits 100 ms and 300 ms).
+- **Tests**: the core's (the list with 1G1R and refresh, edits kept over a scrape,
+  search, filters and counts, a collection by details, a folder renamed to its new DAT
+  name and undone, thumbnails made and pruned, the timing test); the page test opens
+  the Library with thumbnails, filters by genre and goes Back, searches, picks a game
+  and opens its page, edits the developer there, drops a file on the page to attach
+  it, steps to the next game and back, and saves the filters as a collection, checked
+  against `library --genre Action`.
+- **To check with a real library** (Jerred): open the Library on a large scraped set
+  and scroll the grid quickly; filter by genre and year; open a game, change a detail,
+  scrape it again and see the change kept; import a newer DAT that renames games and
+  run *Rename the folders…*.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -2158,7 +2338,7 @@ own layout to make a layout from it, ArkOS and Batocera (if asked for).
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-New ones get a number here as they come up (next: D42).
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). New ones get a number here as they come up (next: D46).
 
 ---
 
@@ -2180,4 +2360,5 @@ New ones get a number here as they come up (next: D42).
    Phase 5b, device profiles for SD cards (D18, D29).
 9. Phase 5 merged and released as v0.5.0 (2026-10-17). Phase 5b: design written
    ("Phase 5b design", D36–D41), with layouts the user can change (D36) and BIOS
-   files (D40), and built ("Phase 5b notes"). Next: Phase 6, the library page.
+   files (D40), and built ("Phase 5b notes"). Merged on Jerred's go-ahead.
+10. Phase 6: design written ("Phase 6 design", D42–D45) and built ("Phase 6 notes").

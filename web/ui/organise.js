@@ -36,7 +36,7 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting", import: "Importing", add: "Adding", docs: "Bringing in documents" })[kind] || "Organising";
+const verb = (kind) => ({ folders: "Renaming game folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting", import: "Importing", add: "Adding", docs: "Bringing in documents" })[kind] || "Organising";
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
 export const organiseDialog = (opts) => ui.set({ dialog: { type: "organise", ...opts } });
@@ -124,7 +124,7 @@ export async function runPlan(plan) {
 function Totals({ plan }) {
   return html`<div class="organise-totals" id="organise-totals">
     <p><b>${plural(plan.games, "game", "games")}</b> to ${plan.kind === "export" ? "export" : "change"}${plan.in_place ? html`, <span class="muted">${plan.in_place} already in place</span>` : null}.</p>
-    ${plan.by_op.length ? html`<ul class="ls-list">${plan.by_op.map((o) => html`<li key=${o.op} data-op=${o.op}><span>${OPS[o.op] || o.op}: ${plural(o.count, "file", "files")}</span><span class="muted">${size(o.bytes)}</span></li>`)}</ul>` : null}
+    ${plan.by_op.length ? html`<ul class="ls-list">${plan.by_op.map((o) => html`<li key=${o.op} data-op=${o.op}><span>${OPS[o.op] || o.op}: ${plan.kind === "folders" ? plural(o.count, "folder", "folders") : plural(o.count, "file", "files")}</span><span class="muted">${size(o.bytes)}</span></li>`)}</ul>` : null}
     ${plan.set_aside ? html`<p class="muted">${plural(plan.set_aside, "file is", "files are")} set aside in <code>.gamerepo-set-aside</code> at the top of ${plan.set_aside === 1 ? "its" : "their"} folder, until you empty it (Settings › History).</p>` : null}
     ${plan.out ? html`<p class="muted">Into <span class="op-to">${plan.out}</span>${plan.new_root ? ", which becomes a folder with games" : ""}.</p>` : null}
     ${plan.space.filter((s) => s.short).map((s) => html`<p class="warn-note" role="alert" key=${s.drive}>Not enough space on ${s.drive}: ${size(s.needed)} needed, ${size(s.free)} free.</p>`)}
@@ -198,7 +198,9 @@ export function OrganiseDialog({ dat, platform, platformName, plan: given }) {
     return html`<${Dialog} title=${plan.label} id="organise-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "OK" : plan.kind === "aside" ? "Set them aside" : "Run"}
       cancelLabel=${given ? "Cancel" : "Back"} onCancel=${given ? close : () => setPlan(null)}>
       <${Preview} plan=${plan} />
-      ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.in_place ? "everything is in place already." : "no files match this DAT yet."}</p>` : html`<p class="muted">Every file written is read back and checked before anything is set aside. The change can be undone from the message afterwards or from Settings › History.</p>`}
+      ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.kind === "folders" ? "no game folder can be renamed (the preview says why)." : plan.in_place ? "everything is in place already." : "no files match this DAT yet."}</p>`
+        : plan.kind === "folders" ? html`<p class="muted">Each game's folder in the library is renamed where it is, with what's in it (details, pictures, documents). The change can be undone from the message afterwards or from Settings › History.</p>`
+        : html`<p class="muted">Every file written is read back and checked before anything is set aside. The change can be undone from the message afterwards or from Settings › History.</p>`}
     <//>`;
   }
   const modeHelp = MODES.find(([m]) => m === mode)?.[2];

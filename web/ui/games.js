@@ -156,6 +156,7 @@ export async function importDats(paths, answers = {}) {
     }
     for (const f of r.failed || []) toast(`Couldn't import ${f.path}: ${f.error}`, 8000);
     await refreshGames();
+    if (got.some((d) => !d.already)) offerFolderRenames();
     if (r.needs_platform?.length) {
       await platforms();
       ui.set({ dialog: { type: "dat-platform", asks: r.needs_platform, answers } });
@@ -164,6 +165,18 @@ export async function importDats(paths, answers = {}) {
   } catch (e) {
     toast(`Couldn't import: ${e.message || e}`, 8000);
     return null;
+  }
+}
+
+/** After a DAT's new version: the game folders whose games it renamed are offered as one
+ *  change, renaming them to the new names (D45). Until then they're found by their ROMs. */
+async function offerFolderRenames() {
+  try {
+    const plan = await api("organise_rename_folders");
+    if (!plan.ops) return;
+    toast(`The new DAT renamed ${plural(plan.ops, "game", "games")} the library has a folder for.`, { ms: 15000, actions: [{ label: "Rename the folders…", run: () => ui.set({ dialog: { type: "organise", plan, platformName: "" } }) }] });
+  } catch {
+    // a read-only library, or no games' folders: nothing to offer
   }
 }
 

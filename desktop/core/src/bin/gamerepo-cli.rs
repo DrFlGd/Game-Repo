@@ -168,9 +168,22 @@ under <dir>/config and <dir>/data instead of the app's own folders.
                              a system's games in its DAT, with what the library has
                              for each (details, pictures, documents); look: those a
                              scrape wasn't sure about
-  game <id> [--clear] [--pick <source> <id>]
+  game <id> [--clear] [--pick <source> <id>] [--edit <field> <value>] [--unmark <field>]
                              a game's details, pictures and documents; --clear forgets
-                             what was scraped, --pick takes a source's game for it
+                             what was scraped, --pick takes a source's game for it,
+                             --edit changes a detail by hand (kept over later scrapes
+                             until --unmark)
+  games rename-folders [--dry-run]
+                             rename the game folders a DAT's new version renamed the
+                             games of, with a preview and Undo
+  library [--search <text>] [--all] [--one] [--system <a,b>] [--genre <a,b>]
+        [--decade <1990,2000>] [--developer <a>] [--publisher <a>] [--region <a>]
+        [--language <a>] [--players <n>] [--rating <0-1>] [--has <pictures,manual,…>]
+        [--look] [--collection <id>] [--sort title|system|year|rating|size|date]
+        [--desc] [--group system|genre|decade|developer|publisher] [--facets]
+                             every game in the library, across its systems (--all: in
+                             the DATs too; --one: one per title), with the filters'
+                             counts (--facets)
   scrape <platform> [--all] [--game <id>]... [--collection <id>] [--sources <a,b>]
         [--fields <a,b>] [--media <a,b>] [--regions <us,eu,…>] [--language <en>]
         [--existing fill|replace|skip]
@@ -246,7 +259,7 @@ async fn run() -> Result<()> {
         "serve" => serve(a).await,
         "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" | "organise" | "duplicates" | "history" | "undo" | "finish"
         | "set-aside" | "convert" | "extract" | "formats" | "tools" | "systems" | "collections" | "collection" | "export" | "exports" | "pc" | "identify"
-        | "sources" | "launchbox" | "steam" | "add" | "games" | "game" | "scrape" | "docs" | "layouts" | "layout" | "bios" => library_command(&cmd, a).await,
+        | "sources" | "launchbox" | "steam" | "add" | "games" | "game" | "scrape" | "docs" | "layouts" | "layout" | "bios" | "library" => library_command(&cmd, a).await,
         other => bail!("unknown command {other} (gamerepo-cli --help lists them)"),
     }
 }
@@ -355,7 +368,8 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
     let json_out = a.rest.iter().any(|x| x == "--json");
     a.rest.retain(|x| x != "--json");
     let subs = matches!(cmd, "roots" | "dat" | "set-aside" | "systems" | "collection" | "export" | "pc" | "launchbox" | "steam" | "layout" | "bios")
-        || (matches!(cmd, "sources" | "docs") && a.rest.first().is_some_and(|x| matches!(x.as_str(), "key" | "check" | "read" | "import")));
+        || (matches!(cmd, "sources" | "docs") && a.rest.first().is_some_and(|x| matches!(x.as_str(), "key" | "check" | "read" | "import")))
+        || (cmd == "games" && a.rest.first().is_some_and(|x| x == "rename-folders"));
     let sub = if subs && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
     let list_of = |v: Option<String>, all: &[&str]| -> Option<Vec<String>> {
         v.map(|v| if v == "all" { all.iter().map(|s| s.to_string()).collect() } else { v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect() })
@@ -1026,6 +1040,70 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             Ok(())
         }
         ("sources", _) => print(&invoke(&app, "sources", json!({})).await?),
+        ("games", "rename-folders") => {
+            let dry = a.rest.iter().any(|x| x == "--dry-run");
+            let plan = invoke(&app, "organise_rename_folders", json!({})).await?;
+            show_and_run(&app, plan, dry, json_out).await
+        }
+        ("library", _) => {
+            let rebuilt = invoke(&app, "browse", json!({})).await?;
+            let mut q = json!({ "limit": 1000, "facets": a.rest.iter().any(|x| x == "--facets") });
+            q["search"] = json!(a.flag("--search").unwrap_or_default());
+            for (flag, key) in [("--sort", "sort"), ("--group", "group"), ("--collection", "collection")] {
+                if let Some(v) = a.flag(flag) {
+                    q[key] = json!(v);
+                }
+            }
+            for (flag, key) in [("--all", "all"), ("--one", "one_per_title"), ("--desc", "desc"), ("--look", "look")] {
+                q[key] = json!(a.rest.iter().any(|x| x == flag));
+            }
+            for (flag, key) in [("--system", "platform"), ("--genre", "genre"), ("--developer", "developer"), ("--publisher", "publisher"), ("--region", "region"), ("--language", "language"), ("--has", "has")] {
+                if let Some(v) = list_of(a.flag(flag), &[]) {
+                    q[key] = json!(v);
+                }
+            }
+            if let Some(v) = list_of(a.flag("--decade"), &[]) {
+                q["decade"] = json!(v.iter().filter_map(|d| d.trim_end_matches('s').parse::<i64>().ok()).collect::<Vec<_>>());
+            }
+            for (flag, key) in [("--players", "players"), ("--rating", "rating")] {
+                if let Some(v) = a.flag(flag) {
+                    q[key] = json!(v.parse::<f64>().with_context(|| format!("{flag} takes a number"))?);
+                }
+            }
+            if let Some(n) = q["players"].as_f64() {
+                q["players"] = json!(n as i64);
+            }
+            let v = invoke(&app, "browse_query", json!({ "query": q })).await?;
+            if json_out {
+                return print(&v);
+            }
+            println!("{} games ({} in the library across {} systems, {} in the DATs)", v["total"], rebuilt["have"], rebuilt["systems"], rebuilt["all"]);
+            let mut group = Value::Null;
+            for g in v["items"].as_array().into_iter().flatten() {
+                if g["group"] != group && q["group"].is_string() {
+                    group = g["group"].clone();
+                    println!("{}", g["group_name"].as_str().map(String::from).unwrap_or_else(|| if group.is_null() { "(none)".into() } else { group.to_string().trim_matches('"').to_string() }));
+                }
+                let year = g["year"].as_i64().map(|y| format!(" ({y})")).unwrap_or_default();
+                let more: Vec<String> = [g["developer"].as_str().map(String::from), g["genres"].as_array().filter(|a| !a.is_empty()).map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                println!("  {}{year}  [{}]{}{}  {}", g["title"].as_str().unwrap_or(""), g["platform"].as_str().unwrap_or(""), if more.is_empty() { String::new() } else { format!("  {}", more.join(" · ")) }, if g["have"] == true { "" } else { "  (not in the library)" }, g["key"].as_str().unwrap_or(""));
+            }
+            if let Some(f) = v.get("facets") {
+                println!("\nFilters:");
+                for (k, list) in f.as_object().into_iter().flatten() {
+                    match list {
+                        Value::Array(a) if !a.is_empty() => println!("  {k}: {}", a.iter().take(12).map(|x| format!("{} {}", x["name"].as_str().map(String::from).unwrap_or_else(|| x["value"].to_string().trim_matches('"').to_string()), x["count"])).collect::<Vec<_>>().join(", ")),
+                        Value::Object(o) => println!("  {k}: {}", o.iter().map(|(n, c)| format!("{n} {c}")).collect::<Vec<_>>().join(", ")),
+                        Value::Number(n) => println!("  {k}: {n}"),
+                        _ => {}
+                    }
+                }
+            }
+            Ok(())
+        }
         ("games", _) => {
             let platform = a.rest.iter().find(|x| !x.starts_with("--")).cloned().context("games needs a system (platforms lists them)")?;
             let show = a.flag("--show").unwrap_or_else(|| "have".into());
@@ -1063,6 +1141,13 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             }
             if a.rest.iter().any(|x| x == "--clear") {
                 return print(&invoke(&app, "meta_clear", json!({ "id": id })).await?);
+            }
+            if let Some(i) = a.rest.iter().position(|x| x == "--edit") {
+                let (field, value) = (a.rest.get(i + 1).cloned().context("--edit <field> <value>")?, a.rest.get(i + 2).cloned().context("--edit <field> <value>")?);
+                return print(&invoke(&app, "meta_edit", json!({ "id": id, "field": field, "value": value })).await?);
+            }
+            if let Some(field) = a.flag("--unmark") {
+                return print(&invoke(&app, "meta_edit", json!({ "id": id, "field": field })).await?);
             }
             print(&invoke(&app, "meta_game", json!({ "id": id })).await?)
         }

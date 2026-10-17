@@ -15,7 +15,7 @@ import { reveal } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
 import { Dialog, close, confirmDialog } from "./dialogs.js";
 import { identifyDialog } from "./pcgames.js";
-import { attachDocs, viewDoc, sourceName } from "./documents.js";
+import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
 import { Icon } from "./icons.js";
 
 const PAGE = 200;
@@ -88,7 +88,7 @@ function Ticks({ id, items, value, onChange }) {
 
 /** Scrape…: for `platform`'s games (or `games`, chosen ones), with the choices the last
  *  scrape kept. */
-function ScrapeDialog({ platform, platformName, games = null, gameName = "", have = 0, all = 0 }) {
+function ScrapeDialog({ platform = "", platformName, games = null, collection = "", gameName = "", have = 0, all = 0 }) {
   const [c, setC] = useState(null);
   const [o, setO] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -96,7 +96,7 @@ function ScrapeDialog({ platform, platformName, games = null, gameName = "", hav
   useEffect(() => {
     api("scrape_choices").then((x) => {
       setC(x);
-      setO({ ...x.options, platform, scope: games ? "games" : "have", games: games || [] });
+      setO({ ...x.options, platform, scope: games ? "games" : collection ? "collection" : "have", games: games || [], collection });
     }).catch((e) => setError(err(e)));
   }, []);
   const set = (patch) => setO((v) => ({ ...v, ...patch }));
@@ -108,7 +108,7 @@ function ScrapeDialog({ platform, platformName, games = null, gameName = "", hav
       // a source that isn't ready yet keeps its place for next time, but isn't asked
       const { job } = await api("scrape_run", { options: { ...o, sources: o.sources.filter((s) => ready.includes(s)) } });
       close();
-      const done = await followJob(job, games ? `Scraping ${gameName}` : `Scraping ${platformName}`);
+      const done = await followJob(job, games || collection ? `Scraping ${gameName}` : `Scraping ${platformName}`);
       again();
       if (done.error) throw new Error(done.error);
       const r = done.result;
@@ -123,13 +123,13 @@ function ScrapeDialog({ platform, platformName, games = null, gameName = "", hav
       setBusy(false);
     }
   };
-  const title = games ? `Scrape ${gameName}` : `Scrape ${platformName}`;
+  const title = games || collection ? `Scrape ${gameName}` : `Scrape ${platformName}`;
   if (!c || !o) return html`<${Dialog} title=${title} id="scrape-dialog" onSubmit=${close} submitLabel="OK" error=${error}><p class="muted">Reading the choices…</p><//>`;
   const asked = o.sources.filter((s) => ready.includes(s));
   const pictureKinds = c.media.filter((m) => m.id !== "manual");
   const regions = [...o.regions, ...REGIONS.map(([k]) => k).filter((k) => !o.regions.includes(k))];
   return html`<${Dialog} title=${title} id="scrape-dialog" wide=${true} onSubmit=${run} busy=${busy || !asked.length || (!o.fields.length && !o.media.length)} error=${error} submitLabel=${busy ? "Starting…" : "Scrape"}>
-    ${games ? null : html`<div class="field-block" role="radiogroup" aria-label="Which games">
+    ${games || collection ? null : html`<div class="field-block" role="radiogroup" aria-label="Which games">
       <span class="field-label">Which games</span>
       <label class="check-row"><input type="radio" name="scrape-scope" value="have" checked=${o.scope === "have"} onChange=${() => set({ scope: "have" })} /> The ${plural(have, "game", "games")} in the library</label>
       <label class="check-row"><input type="radio" name="scrape-scope" value="all" checked=${o.scope === "all"} onChange=${() => set({ scope: "all" })} /> Every game in its DAT (${all.toLocaleString()}), so the library has them all ahead of the games</label>
@@ -213,6 +213,8 @@ function MetaPanel({ id, off, version, onChange }) {
   const [error, setError] = useState("");
   const load = () => api("meta_game", { id }).then(setG).catch((e) => setError(err(e)));
   useEffect(() => { setError(""); load(); }, [id, version]);
+  // files dropped on the window while the panel shows are attached to its game
+  useDroppedFiles((paths) => { if (g && !off) attachDocs({ game: g.id, gameName: g.title, platform: g.platform, paths }); });
   const pick = async (source, sid) => {
     setBusy(true);
     setError("");
@@ -248,6 +250,7 @@ function MetaPanel({ id, off, version, onChange }) {
     </div>
     ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
     <div class="home-actions">
+      <a class="ghost compact button-link" id="meta-open" href=${`#/game/${encodeURIComponent(g.platform)}/${encodeURIComponent(g.name)}`}>${Icon.external(14)} Its page</a>
       <button type="button" class="ghost compact" id="meta-scrape-one" disabled=${off || busy} onClick=${() => scrapeDialog({ platform: g.platform, platformName: g.platform_name, games: [g.id], gameName: g.title })}>${Icon.scrape(14)} Scrape…</button>
       <button type="button" class="ghost compact" id="meta-identify" disabled=${off || busy} onClick=${identify}>${Icon.search(14)} Identify…</button>
       <button type="button" class="ghost compact" id="meta-attach" disabled=${off || busy || !isDesktop()} title=${isDesktop() ? "Attach guides, manuals, maps or posters to this game" : "In the app"} onClick=${() => attachDocs({ game: g.id, gameName: g.title, platform: g.platform })}>${Icon.file(14)} Attach documents…</button>
