@@ -67,11 +67,15 @@ The code started as a trimmed copy of [Model Library](https://github.com/DrFlGd/
 
 ### Next (roadmap)
 
-Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion), 3 (collections, Save as DATs, export to ES-DE or a folder) and 4 (PC games, Identify with Steam, GOG and LaunchBox, Add to Steam, Add a game…; "Phase 4 notes" in `docs/PLAN.md`) are released (v0.4.0). Phase 5 (scraping from ScreenScraper, IGDB, TheGamesDB and LaunchBox, the Metadata and Documents pages, document import with pairings, exports that carry what's chosen; "Phase 5 notes" in `docs/PLAN.md`) is released (v0.5.0). Phase 5b (export layouts for SD cards and frontends with the visual editor, BIOS files; "Phase 5b notes" in `docs/PLAN.md`) is v0.5.1. Phase 6 (the Library page and a page for each game; "Phase 6 notes") is v0.5.2. Phase 6b (each source's metadata kept apart, picture variants, delete and scrape again; "Phase 6b design") is v0.5.3. A UI pass ("UI pass notes" in `docs/PLAN.md`) is next to be released, then Phase 7 (arcade sets). Phase 9 serves games to devices on the home network (`docs/PLAN.md` 3.10).
+Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion), 3 (collections, Save as DATs, export to ES-DE or a folder) and 4 (PC games, Identify with Steam, GOG and LaunchBox, Add to Steam, Add a game…; "Phase 4 notes" in `docs/PLAN.md`) are released (v0.4.0). Phase 5 (scraping from ScreenScraper, IGDB, TheGamesDB and LaunchBox, the Metadata and Documents pages, document import with pairings, exports that carry what's chosen; "Phase 5 notes" in `docs/PLAN.md`) is released (v0.5.0). Phase 5b (export layouts for SD cards and frontends with the visual editor, BIOS files; "Phase 5b notes" in `docs/PLAN.md`) is v0.5.1. Phase 6 (the Library page and a page for each game; "Phase 6 notes") is v0.5.2. Phase 6b (each source's metadata kept apart, picture variants, delete and scrape again; "Phase 6b design") is v0.5.3. A UI pass ("UI pass notes" in `docs/PLAN.md`) is v0.5.4. Next: PC games on the shared game page, then Phase 7 (arcade sets). Phase 9 serves games to devices on the home network (`docs/PLAN.md` 3.10).
 
 ---
 
 ## Unreleased
+
+- **The Library opens again** when a DAT lists two different games under the same name (libretro's copies of some DATs do). It failed with "UNIQUE constraint failed: library.key"; now both games are listed, the second with its own page.
+
+## 0.5.4 (2026-10-17)
 
 A pass over the whole interface, page by page:
 
