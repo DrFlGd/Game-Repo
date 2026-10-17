@@ -246,6 +246,7 @@ function RulesEditor({ c, onSave, off }) {
   const set = (patch) => onSave((x) => ({ ...x, rules: { ...x.rules, ...patch } }));
   const systems = [...new Map(dats.filter((d) => d.current).map((d) => [d.platform, d.platform_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
   const datNames = [...new Set(dats.map((d) => d.name))].sort().map((n) => [n, n]);
+  const more = [r.languages.length ? `languages ${r.languages.join(", ")}` : "", r.exclude.length ? `${r.exclude.length} left out` : "", r.search ? `names with "${r.search}"` : "", r.from_dats.length ? plural(r.from_dats.length, "DAT", "DATs") : ""].filter(Boolean).join(" · ");
   const text = (k, v) => html`<input type="text" id=${`rule-${k}`} class="compact" disabled=${off} value=${v} onChange=${(e) => set({ [k]: k === "search" ? e.target.value : list(e.target.value) })} />`;
   return html`<fieldset class="rules" id="collection-rules" disabled=${off}>
     <div class="field-block"><span class="field-label">Systems</span>
@@ -262,14 +263,19 @@ function RulesEditor({ c, onSave, off }) {
       <label class="field-block"><span class="field-label">Regions, first preferred</span>${text("regions", r.regions.join(", "))}</label>
       <label class="check-row"><input type="checkbox" id="rule-only-regions" checked=${r.only_regions} onChange=${(e) => set({ only_regions: e.target.checked })} /> Only these regions</label>
     </div>
-    <label class="field-block"><span class="field-label">Languages (optional)</span>${text("languages", r.languages.join(", "))}
-      <small class="muted">e.g. En, Fr: games that list none of them are left out (those that list no language are kept).</small></label>
-    <div class="field-block"><span class="field-label">Leave out</span>
-      <${Ticks} id="rule-exclude" items=${FLAGS} value=${r.exclude} onChange=${(v) => set({ exclude: v })} /></div>
-    <label class="field-block"><span class="field-label">Names with (optional)</span>${text("search", r.search)}</label>
-    <div class="field-block"><span class="field-label">Only games in these DATs (optional)</span>
-      <${Ticks} id="rule-from-dats" items=${datNames} value=${r.from_dats} onChange=${(v) => set({ from_dats: v })} />
-      <small class="muted">A DAT of your own (a best-of list, a RetroAchievements list) picks the games, by name or by any ROM's hashes.</small></div>
+    <details class="rules-more" id="rules-more">
+      <summary>More rules <span class="muted">${more || "languages, leave out, names, DATs"}</span></summary>
+      <div class="rules-more-body">
+      <label class="field-block"><span class="field-label">Languages (optional)</span>${text("languages", r.languages.join(", "))}
+        <small class="muted">e.g. En, Fr: games that list none of them are left out (those that list no language are kept).</small></label>
+      <div class="field-block"><span class="field-label">Leave out</span>
+        <${Ticks} id="rule-exclude" items=${FLAGS} value=${r.exclude} onChange=${(v) => set({ exclude: v })} /></div>
+      <label class="field-block"><span class="field-label">Names with (optional)</span>${text("search", r.search)}</label>
+      <div class="field-block"><span class="field-label">Only games in these DATs (optional)</span>
+        <${Ticks} id="rule-from-dats" items=${datNames} value=${r.from_dats} onChange=${(v) => set({ from_dats: v })} />
+        <small class="muted">A DAT of your own (a best-of list, a RetroAchievements list) picks the games, by name or by any ROM's hashes.</small></div>
+      </div>
+    </details>
     ${detailsOf(r.details) ? html`<div class="field-block" id="rule-details"><span class="field-label">Details</span>
       <span>${detailsOf(r.details)}</span>
       <small class="muted">From the Library page's filters: only games with these details, as they're scraped. <button type="button" class="linkish" id="rule-details-clear" onClick=${() => set({ details: {} })}>Clear them</button></small></div>` : null}
@@ -496,7 +502,10 @@ export function Collections() {
     { sep: true },
     { id: "collection-delete", label: "Delete…", icon: "trash", disabled: off, run: remove },
   ] : [];
-  const head = html`<${CommandBar} id="collections-head" title="Collections" count=${sum ? plural(sum.games, "game", "games") : null}
+  const picker = Array.isArray(all) && all.length ? html`<select id="collection-pick" class="compact collection-pick" aria-label="Collection" value=${id || ""} onChange=${(e) => { setId(e.target.value); setPlatform(""); setQ(""); setTab("in"); }}>
+    ${all.map((x) => html`<option key=${x.id} value=${x.id}>${x.name}</option>`)}
+  </select>` : null;
+  const head = html`<${CommandBar} id="collections-head" title="Collections" count=${sum ? plural(sum.games, "game", "games") : null} tools=${picker}
     primary=${html`<span class="cmd-buttons">
       ${c ? html`<button type="button" class="ghost compact" id="collection-dats" title="One DAT per system, for RomVault, clrmamepro or igir" onClick=${() => ui.set({ dialog: { type: "save-dats", c } })}>${Icon.download(15)} Save as DATs…</button>
         <button type="button" class="ghost compact" id="collection-export" disabled=${off} title="To ES-DE or a plain folder, with a preview and Undo" onClick=${() => ui.set({ dialog: { type: "export", c, sum } })}>${Icon.stack(15)} Export…</button>` : null}
@@ -518,12 +527,6 @@ export function Collections() {
   }
   const tabs = [["in", "In the collection", sum?.games || 0], ["out", "Left out by hand", sum?.removed || 0]];
   return html`${head}<div class="pages collections-page" id="collections-page">
-    <div class="audit-pick">
-      <label class="field-inline"><span>Collection</span>
-        <select id="collection-pick" class="compact" value=${id || ""} onChange=${(e) => { setId(e.target.value); setPlatform(""); setQ(""); setTab("in"); }}>
-          ${all.map((x) => html`<option key=${x.id} value=${x.id}>${x.name}</option>`)}
-        </select></label>
-    </div>
     ${data?.error ? html`<p class="warn-note" role="alert">${data.error}</p>` : null}
     ${c ? html`<div class="collection-body">
       <section class="ls-section collection-rules-section">
@@ -532,6 +535,7 @@ export function Collections() {
       </section>
       <div class="collection-result">
       <${Properties} c=${c} sum=${sum} off=${off} onSave=${quietly} onPick=${(p) => { setPlatform(p); setTab("in"); }} />
+      <${Exports} c=${c} exports=${exports} off=${off} onChange=${again} />
       <section class="ls-section" id="collection-result">
         <h2>Games</h2>
         <div class="audit-totals" id="collection-totals">
@@ -563,7 +567,6 @@ export function Collections() {
         ${games.items.length < games.total ? html`<div class="home-actions"><button type="button" class="ghost" id="collection-more" onClick=${more}>Show ${Math.min(PAGE, games.total - games.items.length)} more (${games.total - games.items.length} left)</button></div>` : null}
       </section>
       </div>
-      <${Exports} c=${c} exports=${exports} off=${off} onChange=${again} />
     </div>` : null}
   </div>`;
 }

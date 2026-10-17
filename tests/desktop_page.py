@@ -226,13 +226,16 @@ async def main():
             await pg.click("#choose-library")
             await pg.wait_for_function("() => document.querySelector('#home-head h1')?.textContent === 'My Games'")
             made = (library / "_library/library.json").is_file() and sorted(x.name for x in library.iterdir()) == ["_library"]
-            status = await pg.inner_text(".statusbar")
+            status = await pg.get_attribute(".status-library", "title")
             check("the first start asks where the library goes and makes only _library/ there",
-                  "Where" in asked and coming_off == 0 and made and str(library) in status, (asked, made, status))
+                  "Where" in asked and coming_off == 0 and made and str(library) == status, (asked, made, status))
 
-            # 2. the index: made on this computer, under the data folder, not in the library
-            await pg.wait_for_selector("#home-index #index-tables")
-            tables = await pg.inner_text("#index-tables")
+            # 2. the index: made on this computer, under the data folder, not in the library (Settings › Library)
+            await pg.click('.sidebar a[href="#/settings"]')
+            await pg.wait_for_selector("#settings-index #index-tables", state="attached")
+            tables = await pg.text_content("#index-tables")
+            await pg.click('.sidebar a[href="#/"]')
+            await pg.wait_for_selector("#home-platforms")
             lib_id = json.loads((library / "_library/library.json").read_text())["id"]
             index_files = sorted(x.name for x in (home / "data/index").iterdir()) if (home / "data/index").is_dir() else []
             in_library = [str(x) for x in library.rglob("*.sqlite*")]
@@ -269,7 +272,7 @@ async def main():
             stored = json.loads((library / "_library/library.json").read_text())["name"]
             await toast_text(pg, "Renamed the library Retro")
             await pg.click("#toast .toast-action")
-            await pg.wait_for_function("() => document.querySelector('.statusbar').textContent.includes('My Games ·')")
+            await pg.wait_for_function("() => document.querySelector('.status-library').textContent === 'My Games'")
             back = json.loads((library / "_library/library.json").read_text())["name"]
             check("the library is renamed, and Undo puts the name back", stored == "Retro" and back == "My Games", (stored, back))
             check("Settings shows where the index is on this computer", index_path.endswith(f"{lib_id}.sqlite") and str(home / "data") in index_path, index_path)
@@ -1232,7 +1235,7 @@ async def main():
             sizes = cli_json("games", "sizes", "--home", str(home), "--json")
             await pg.click('.sidebar a[href="#/settings"]')
             await pg.click("#meta-sizes-work")
-            await pg.wait_for_selector('#meta-sizes li[data-platform="gb"]')
+            await pg.wait_for_selector('#meta-sizes tr[data-platform="gb"]')
             shown = await pg.inner_text("#settings-metadata")
             check("Settings › Metadata shows what the metadata takes, by system and kind, and which source each detail comes from",
                   "Game Boy" in shown and "Box front" in shown and sizes.get("kinds", {}).get("cover", 0) > 0 and await pg.locator('#details-from select[data-field="description"]').count() == 1, (shown[:300], sizes.get("kinds")))

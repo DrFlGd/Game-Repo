@@ -843,6 +843,7 @@ pub fn plan(ix: &Index, lib: &Library, items: &[Item], mode: &str, always_copy: 
         created: now(),
         kind: "docs".into(),
         label: format!("Brought in {n} document{}", if n == 1 { "" } else { "s" }),
+        title: format!("Bring in {n} document{}", if n == 1 { "" } else { "s" }),
         dat: Value::Null,
         platform: String::new(),
         mode: mode.into(),

@@ -134,6 +134,8 @@ export function About() {
     ["Game Repo", version || "unknown"],
     ["Running on", OS[info.os] || info.os || "unknown"],
     ["Library format", `${info.library_format ?? "?"} (this app writes)${lib?.format != null ? ` · the open library: ${lib.format}` : ""}`],
+  ];
+  const built = [
     ...(b ? [["Built", [b.date, b.commit].filter(Boolean).join(" · ")]] : []),
     ...(b?.parts || []).map((p) => [p.name, p.version]),
   ];
@@ -142,6 +144,8 @@ export function About() {
     <section class="ls-section" id="about-versions">
       <h2>Versions</h2>
       <dl class="about-versions">${rows.map(([k, v]) => html`<div key=${k}><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>
+      ${built.length ? html`<details class="about-built" id="about-built"><summary>How it was built</summary>
+        <dl class="about-versions">${built.map(([k, v]) => html`<div key=${k}><dt>${k}</dt><dd>${v}</dd></div>`)}</dl></details>` : null}
       <p><a href=${RELEASES} target="_blank" rel="noopener noreferrer">All releases on GitHub</a></p>
     </section>
     <section class="ls-section" id="about-changelog">

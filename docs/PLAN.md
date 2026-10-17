@@ -2315,6 +2315,34 @@ scrapes was offered and set aside by Jerred, 2026-10-17.)
   description, scrape it again and see both kept; export it and see only the chosen box;
   Delete metadata… for a system, look in Settings › Metadata, then Undo.
 
+### UI pass notes (built 2026-10-17)
+
+From the UI review (a Claude Doc, "Game Repo UI review"), which Jerred accepted as
+proposed. One PR, in three steps:
+
+- **Everywhere**: a plan has `title` (what it will do, for the preview) beside `label`
+  (what it did, for History and the message); paths shown short with the whole path
+  in a tooltip (`shortPath`/`baseName` in `library.js`, `organise::shown`/`tail`, and
+  a preview's destination shown beside its source as a relative path); messages at the
+  bottom right, hidden under dialogs, three lines at most; read-only libraries grey out
+  the pages and buttons that would change them; Drafting Sheet headings in the heading
+  face.
+- **The pages used most**: Library (regions on tiles and lines, no System column when
+  grouped by system, quieter covers); a game's page (details as text until pointed at,
+  the main source named once); Settings' section index (`SectionIndex`, sticky, hidden
+  under 1000px wide); the Scrape dialog's kinds as a table, the rest under *More
+  choices*.
+- **Tidying**: Home without the index card (now *What's in it* in Settings › The
+  index); Metadata's panel with *Open its page*, *Scrape…* and a ⋯ menu; Collections'
+  picker in the bar, the rarer rules under *More rules*, the exports under Properties;
+  Identify's results first; Documents' reader at full height; BIOS systems by the app's
+  names; Export layouts without the breadcrumb; About's build details folded; a dialog
+  can have one button (`cancelLabel={null}`).
+- **Left for later**: PC games on the shared game page (it means the game page reading
+  `game.json` in `PC/<Title> (<Year>)/` and its Unpack/program parts; its own PR before
+  Phase 7 or with it), Home's *Next* strip, the Theme control shown twice (menu and
+  Settings), and the Library's Players filter as a list.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been

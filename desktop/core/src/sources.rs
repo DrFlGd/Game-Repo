@@ -702,6 +702,7 @@ pub fn delete_plan(ix: &Index, lib: &Library, platform: Option<&str>, folder: Op
         created: now(),
         kind: "metadata".into(),
         label: format!("Deleted the {label_what} of {whose}"),
+        title: format!("Delete the {label_what} of {whose}"),
         dat: Value::Null,
         platform: platform.map(String::from).or_else(|| dirs.first().and_then(|d| d.parent()).and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned())).unwrap_or_default(),
         mode: "aside".into(),

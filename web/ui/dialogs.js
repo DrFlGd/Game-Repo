@@ -39,7 +39,7 @@ export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger =
       <div class="dialog-foot">
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
         <div class="dialog-actions">
-          <button type="button" class="ghost" id=${id ? `${id}-cancel` : null} onClick=${onCancel}>${cancelLabel}</button>
+          ${cancelLabel ? html`<button type="button" class="ghost" id=${id ? `${id}-cancel` : null} onClick=${onCancel}>${cancelLabel}</button>` : null}
           <button type="submit" class=${danger ? "primary danger" : "primary"} disabled=${busy}>${submitLabel}</button>
         </div>
       </div>

@@ -7,7 +7,7 @@
 import { html, useState, useEffect, useRef } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
-import { ctx, routeHash } from "./context.js";
+import { ctx } from "./context.js";
 import { api, toast, isDesktop, plural } from "./library.js";
 import { CommandBar } from "./layout.js";
 import { Dialog, close, confirmDialog } from "./dialogs.js";
@@ -217,14 +217,14 @@ function Overview({ draft, set, choose }) {
           <option value="keep">In their own format</option><option value="png">As PNG</option><option value="jpg">As JPEG</option>
         </select></div>
       <small class="muted">The size the Export dialog starts from for this device; it can be changed there.</small></div>
-    <div class="field-block"><span class="field-label">Add to it</span>
+    <details class="field-block lt-add-more"><summary class="field-label">Add to it</summary>
       <div class="lt-tokens" id="lt-add">
         ${missing.map((k) => html`<button type="button" key=${k} class="ghost compact" data-add=${k} onClick=${() => { add(k); choose({ at: `media.${k}` }); }}>${Icon.plus(13)} ${KINDS[k]}</button>`)}
         ${draft.gamelist ? null : html`<button type="button" class="ghost compact" data-add="gamelist" onClick=${() => { set((l) => { l.gamelist = { kind: "es-xml", path: `${gamesDir}/gamelist.xml`, fields: { description: "desc", developer: "developer", publisher: "publisher", released: "releasedate", genres: "genre", players: "players", rating: "rating" } }; }); choose({ at: "gamelist.path" }); }}>${Icon.plus(13)} A gamelist</button>`}
         ${draft.text?.description ? null : html`<button type="button" class="ghost compact" data-add="text" onClick=${() => { set((l) => { l.text = { ...(l.text || {}), description: { path: `${gamesDir}/text/{stem}.txt` } }; }); choose({ at: "text.description" }); }}>${Icon.plus(13)} The description as text</button>`}
         ${draft.documents ? null : html`<button type="button" class="ghost compact" data-add="documents" onClick=${() => { set((l) => { l.documents = { path: `${gamesDir}/docs/{stem}/{doc_file}` }; }); choose({ at: "documents" }); }}>${Icon.plus(13)} Every document</button>`}
         ${draft.bios ? null : html`<button type="button" class="ghost compact" data-add="bios" onClick=${() => { const place = (draft.games?.path || "{card}").match(/^\{[^}]+\}/)?.[0] || "{card}"; set((l) => { l.bios = { path: `${place}/bios/{bios_file}` }; }); choose({ at: "bios" }); }}>${Icon.plus(13)} BIOS files</button>`}
-      </div></div>
+      </div></details>
     <p class="muted">Choose a file or folder in the tree to change where it goes. The places a layout asks for (${(draft.places || []).filter((p) => !p.from).map((p) => `{${p.id}}`).join(", ")}) can be changed in its JSON.</p>
   </div>`;
 }
@@ -385,7 +385,7 @@ export function Layouts() {
     { id: "layout-revert", label: "Undo the changes", icon: "refresh", disabled: !dirty, run: () => edit(clone(base.layout)) },
     { id: "layout-remove", label: "Remove this layout", icon: "trash", disabled: off || builtin || !id, run: remove },
   ];
-  const head = html`<${CommandBar} id="layouts-head" up=${[["Settings", routeHash("settings")]]} title="Export layouts" count=${list ? plural(list.length, "layout", "layouts") : null}
+  const head = html`<${CommandBar} id="layouts-head" title="Export layouts" count=${list ? plural(list.length, "layout", "layouts") : null}
     primary=${html`<button type="button" class="primary compact" id="layout-save" disabled=${off || !draft || (!dirty && !builtin) || !!textError || !!preview?.problems?.length}
       title=${preview?.problems?.length ? "Put the problems right first" : builtin ? "A built-in layout is kept as it is: your changes become a new layout" : "Save the changes"} onClick=${save}>${builtin ? "Save as new…" : "Save"}</button>`}
     more=${{ id: "layouts-menu", title: "Import, save as a file, remove", items: menu }} />`;
@@ -419,8 +419,8 @@ export function Layouts() {
             </select></label>
           ${summary?.copied_from ? html`<button type="button" class="ghost compact" id="lt-compare" onClick=${showCompare}>${compare ? "Hide the comparison" : `Compare with ${summary.copied_from.name || "the built-in"}`}</button>` : null}
         </div>
-        ${builtin ? html`<p class="muted" id="lt-builtin-note">Built in: it isn't changed. Change anything and save it as a new layout.</p>` : null}
-        ${dirty ? html`<p class="warn-note" id="lt-dirty">Not saved yet.</p>` : null}
+        ${dirty ? html`<p class="warn-note" id="lt-dirty">${builtin ? "Changed, not saved yet: Save as new… keeps it as a layout of your own." : "Not saved yet."}</p>`
+          : builtin ? html`<p class="muted" id="lt-builtin-note">Built in: it isn't changed. Change anything and save it as a new layout.</p>` : null}
         ${compare ? html`<div class="field-block" id="lt-compare-list"><span class="field-label">What it changed from ${compare.name}</span>
           ${compare.rows.length ? html`<ul class="lt-diff">${compare.rows.map(([k, a, b]) => html`<li key=${k}><code>${k}</code>: ${a ?? "(none)"} → ${b ?? "(none)"}</li>`)}</ul>` : html`<p class="muted">Nothing: it's the same.</p>`}</div>` : null}
         ${tab === "json" ? html`<div class="field-block">
@@ -435,7 +435,7 @@ export function Layouts() {
           <button type="button" class="linkish" onClick=${() => setChosen(p.at.split(".").slice(0, p.at.startsWith("gamelist.fields") ? 1 : 2).join(".").replace(/^gamelist$/, "gamelist.path"))}>${partName(p.at)}</button>: ${p.message}</li>`)}</ul>` : null}
       </div>
       <aside class="pc-panel lt-panel">
-        ${chosen ? html`<button type="button" class="ghost compact" id="lt-back" onClick=${() => setChosen(null)}>‹ The layout</button>` : null}
+        ${chosen ? html`<button type="button" class="linkish lt-back" id="lt-back" onClick=${() => setChosen(null)}>‹ The layout</button>` : null}
         <${Inspector} draft=${draft} at=${chosen} preview=${preview} setDraft=${edit} choose=${choose} />
       </aside>
     </div>

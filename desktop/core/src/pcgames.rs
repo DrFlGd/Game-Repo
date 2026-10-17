@@ -1014,6 +1014,7 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
         created: now(),
         kind: "import".into(),
         label: format!("Import {n} PC game{}", if n == 1 { "" } else { "s" }),
+        title: String::new(),
         dat: Value::Null,
         platform: "pc".into(),
         mode: mode.into(),

@@ -255,6 +255,7 @@ pub fn gather_plan(ix: &Index, lib: &Library) -> Result<Plan> {
         ..Default::default()
     })?;
     plan.label = "Gathered the BIOS files into the library's BIOS folder".into();
+    plan.title = "Gather the BIOS files into the library's BIOS folder".into();
     if organise::in_root(&roots::list(lib), &out.join("x")).is_none() {
         roots::check_new(lib, &out).map_err(|e| anyhow!("The BIOS files can't go to {}: {e:#}", out.display()))?;
         plan.new_root = Some(out.display().to_string());

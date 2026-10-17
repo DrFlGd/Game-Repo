@@ -1,15 +1,14 @@
 // Home: the place to start. Each platform's completeness against its DAT, the
-// last scan and what needs attention (docs/PLAN.md, 3.7), the index on this
-// computer and what's coming. Also the first-start screen, which asks where the
+// last scan and what needs attention (docs/PLAN.md, 3.7). (The index on this
+// computer is in Settings › Library, what's coming in About.) Also the first-start screen, which asks where the
 // library should go.
 import { html, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
-import { isDesktop, openLibrary, showLibraryFolder, checkIndex, size, plural } from "./library.js";
+import { isDesktop, openLibrary, showLibraryFolder, checkIndex, plural, baseName } from "./library.js";
 import { refreshGames, scan, importDats, starterDats, repointRoot, addRoot } from "./games.js";
 import { CommandBar } from "./layout.js";
-import { NEXT } from "./about.js";
 import { Icon } from "./icons.js";
 
 /** The Library ⋯ menu: what's done to the whole library. */
@@ -22,26 +21,10 @@ function libraryItems() {
   ];
 }
 
-/** The index on this computer: what it holds so far. */
-export function IndexCard({ index }) {
-  if (!index) return html`<section class="home-card" id="home-index"><h2>Index</h2><p class="muted">Reading the index…</p></section>`;
-  if (index.error) return html`<section class="home-card" id="home-index"><h2>Index</h2><p class="warn-note" role="alert">${index.error}</p></section>`;
-  const tables = Object.entries(index.tables || {});
-  return html`<section class="home-card" id="home-index">
-    <h2>Index</h2>
-    <p>What the app has worked out about your files is kept in an index on this computer, so a library of hundreds of thousands of ROMs opens quickly. It can always be made again from the library and your folders.</p>
-    <dl class="about-versions">
-      <div><dt>Size</dt><dd id="index-size">${size(index.size)}</dd></div>
-      <div><dt>Tables</dt><dd id="index-tables">${tables.map(([t, n]) => `${t} (${plural(n, "row", "rows")})`).join(", ")}</dd></div>
-      <div><dt>Schema</dt><dd id="index-version">step ${index.version} of ${index.schema_version}</dd></div>
-    </dl>
-  </section>`;
-}
-
 const when = (iso) => (iso ? new Date(iso).toLocaleString() : "");
 
 /** A bar per platform with a DAT: games had of the DAT's, and 1G1R groups. */
-function PlatformsCard({ home }) {
+function PlatformsCard({ home, off }) {
   const bars = home.platforms || [];
   return html`<section class="home-card home-wide" id="home-platforms">
     <h2>Platforms</h2>
@@ -53,15 +36,15 @@ function PlatformsCard({ home }) {
       <span class="muted pbar-dat" title=${b.dat_name}>${b.dat_name}</span>
     </li>`)}</ul>` : html`<p class="muted" id="home-no-dats">${home.dats ? "No DAT is in use yet." : "Import the DATs for your systems to see what you have and what's missing."}</p>`}
     <div class="home-actions">
-      ${isDesktop() ? html`<button type="button" class="ghost" id="home-import" onClick=${() => importDats()}>Import DATs…</button>` : null}
-      ${bars.length ? null : html`<button type="button" class="primary" id="home-starter" onClick=${() => starterDats()}>Get starter DATs…</button>`}
+      ${isDesktop() ? html`<button type="button" class="ghost" id="home-import" disabled=${off} title=${off ? "This library is open read-only" : null} onClick=${() => importDats()}>Import DATs…</button>` : null}
+      ${bars.length ? null : html`<button type="button" class="primary" id="home-starter" disabled=${off} title=${off ? "This library is open read-only" : null} onClick=${() => starterDats()}>Get starter DATs…</button>`}
       <a class="ghost button-link" href=${routeHash("audit")}>Open the audit</a>
     </div>
   </section>`;
 }
 
 /** The last scan, and what needs attention: folders not found here, files no DAT or platform takes. */
-function AttentionCard({ home }) {
+function AttentionCard({ home, off }) {
   const last = home.last_scan;
   const missing = (home.roots || []).filter((r) => !r.found);
   const loose = home.loose || [];
@@ -69,7 +52,7 @@ function AttentionCard({ home }) {
     <h2>Folders with games</h2>
     ${(home.roots || []).length ? html`<p>${plural(home.roots.length, "folder", "folders")}, ${plural(home.files || 0, "file", "files")} found.
       ${last ? html` Last scan ${when(last.finished || last.started)}${last.stopped ? " (stopped)" : ""}.` : " Not scanned yet."}</p>`
-      : html`<p>Add the folders your games are in, then scan them.${isDesktop() ? html` <button type="button" class="ghost" id="home-add-root" onClick=${() => addRoot()}>Add a folder…</button>` : null}</p>`}
+      : html`<p>Add the folders your games are in, then scan them.${isDesktop() ? html` <button type="button" class="ghost" id="home-add-root" disabled=${off} title=${off ? "This library is open read-only" : null} onClick=${() => addRoot()}>Add a folder…</button>` : null}</p>`}
     ${home.unhashed ? html`<p class="warn-note">${plural(home.unhashed, "file hasn't", "files haven't")} been read yet: scan to finish.</p>` : null}
     ${home.needs_tool ? html`<p class="warn-note" id="home-needs-tool">${plural(home.needs_tool, "RVZ file waits", "RVZ files wait")} for dolphin-tool: set where it is in <a href=${routeHash("settings")}>Settings › Tools</a>, then scan.</p>` : null}
     ${missing.map((r) => html`<p class="warn-note" key=${r.id}>${r.dir} isn't on this computer.
@@ -80,16 +63,8 @@ function AttentionCard({ home }) {
   </section>`;
 }
 
-function Coming() {
-  return html`<section class="home-card" id="home-coming">
-    <h2>Coming next</h2>
-    <p>Game Repo is being built in phases; <a href=${routeHash("about")}>About</a> has the whole plan.</p>
-    <ul class="ls-list">${NEXT.slice(0, 3).map(([phase, what]) => html`<li key=${phase}><span>${what}</span><span class="muted">${phase}</span></li>`)}</ul>
-  </section>`;
-}
-
 export function Home() {
-  const s = useStore(ui, (st) => ({ library: st.library, error: st.libraryError, firstRun: st.firstRun, index: st.index, home: st.home, scanning: st.scanning }));
+  const s = useStore(ui, (st) => ({ library: st.library, error: st.libraryError, firstRun: st.firstRun, home: st.home, scanning: st.scanning }));
   const lib = s.library;
   useEffect(() => { if (lib) refreshGames(); }, [lib?.path]);
   if (s.firstRun && !lib) return html`<${FirstRun} />`;
@@ -107,14 +82,12 @@ export function Home() {
         onClick=${() => scan()}>${Icon.refresh(15)} ${scanLabel}</button>`}
       more=${{ id: "library-menu", title: "Library: show in folder, check the index, open another library", items: libraryItems }} />
   <div class="home">
-    <p class="page-lead">Your library is in <b>${lib.path}</b>. How its folders are laid out is in <a href="#/about" id="home-layout-link">About</a>.</p>
+    <p class="page-lead">Your library is the folder <b title=${lib.path}>${baseName(lib.path)}</b>${isDesktop() ? html` (<button type="button" class="linkish" id="home-show-library" onClick=${showLibraryFolder}>show in folder</button>)` : null}. How its folders are laid out is in <a href="#/about" id="home-layout-link">About</a>.</p>
     ${s.error ? html`<p class="warn-note" role="alert">${s.error}</p>` : null}
     ${lib.read_only ? html`<p class="warn-note" role="alert">${lib.read_only}</p>` : null}
     ${s.home?.error ? html`<p class="warn-note" role="alert">${s.home.error}</p>` : null}
     <div class="home-grid">
-      ${s.home && !s.home.error ? html`<${PlatformsCard} home=${s.home} /><${AttentionCard} home=${s.home} />` : null}
-      <${IndexCard} index=${s.index} />
-      <${Coming} />
+      ${s.home && !s.home.error ? html`<${PlatformsCard} home=${s.home} off=${!!lib.read_only} /><${AttentionCard} home=${s.home} off=${!!lib.read_only} />` : null}
     </div>
   </div>`;
 }

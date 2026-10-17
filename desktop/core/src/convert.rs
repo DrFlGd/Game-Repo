@@ -217,14 +217,28 @@ fn image_kind(chosen: &[(&RomRow, &Cand)]) -> Option<String> {
     chosen.first().filter(|(_, c)| c.in_image()).and_then(|(_, c)| c.archive.as_ref().map(|a| a.0.clone()))
 }
 
-fn new_plan(lib: &Library, d: &audit::DatRef, kind: &str, label: String, to: &str, out: Option<&Path>) -> Plan {
+fn new_plan(lib: &Library, d: &audit::DatRef, kind: &str, (label, title): (String, String), to: &str, out: Option<&Path>) -> Plan {
     let _ = lib;
     Plan {
-        id: organise::new_id(), created: now(), kind: kind.into(), label,
+        id: organise::new_id(), created: now(), kind: kind.into(), label, title,
         dat: json!({ "id": d.id, "name": d.name, "version": d.version }), platform: d.platform.clone(),
         mode: if out.is_some() { "copy".into() } else { "in-place".into() }, format: to.into(),
         out: out.map(|o| o.display().to_string()), ops: vec![], games: 0, in_place: 0,
         conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, present: vec![], export: None,
+    }
+}
+
+/// What a conversion did (for History) and what its preview says it will do.
+fn labels(name: &str, to: &str, out: Option<&Path>) -> (String, String) {
+    let place = match out {
+        Some(out) => format!("into {}", organise::shown(out)),
+        None => "where they are".into(),
+    };
+    if to == "extract" {
+        (format!("Extracted {name} {place}"), format!("Extract {name} {place}"))
+    } else {
+        let to = to.to_uppercase();
+        (format!("Converted {name} to {to} {place}"), format!("Convert {name} to {to} {place}"))
     }
 }
 
@@ -253,12 +267,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             partial: false, always_copy: false, only_misnamed: false, games: o.games.clone(), ..Default::default()
         })?;
         plan.kind = if o.to == "extract" { "extract".into() } else { "convert".into() };
-        plan.label = match (o.to.as_str(), &o.out) {
-            ("extract", Some(out)) => format!("Extracted {name} into {}", out.display()),
-            ("extract", None) => format!("Extracted {name} where they are"),
-            (_, Some(out)) => format!("Converted {name} to ZIP into {}", out.display()),
-            (_, None) => format!("Converted {name} to ZIP where they are"),
-        };
+        (plan.label, plan.title) = labels(&name, if o.to == "extract" { "extract" } else { "zip" }, o.out.as_deref());
         return Ok(plan);
     }
     if o.to == "rvz" && crate::tools::find("dolphin-tool").is_none() {
@@ -271,12 +280,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         let only: HashSet<&str> = only.iter().map(String::as_str).collect();
         games.retain(|g| only.contains(g.fields.name.as_str()));
     }
-    let label = match (o.to.as_str(), &o.out) {
-        ("extract", Some(out)) => format!("Extracted {name} into {}", out.display()),
-        ("extract", None) => format!("Extracted {name} where they are"),
-        (to, Some(out)) => format!("Converted {name} to {} into {}", to.to_uppercase(), out.display()),
-        (to, None) => format!("Converted {name} to {} where they are", to.to_uppercase()),
-    };
+    let label = labels(&name, &o.to, o.out.as_deref());
     let mut p = new_plan(lib, &d, if o.to == "extract" { "extract" } else { "convert" }, label, &o.to, o.out.as_deref());
     let mut taken: HashSet<String> = HashSet::new();
     for g in &games {
