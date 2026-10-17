@@ -169,7 +169,33 @@ called.*
      API gives title/year/slug;
   2. Steam-style `steam_appid.txt` / depot manifests if present;
   3. filename parsing (`Title (Year) [Source] v1.2.3`) with a user confirmation step;
-  4. manual entry.
+  4. the **Identify** dialog (below), searching online sources;
+  5. manual entry.
+- **Add a game… and Identify (D24, Jerred 2026-10-17).** One game can be added on its own,
+  from the window or `gamerepo-cli add <path>`: a ROM, a disc (any of its files, or its
+  CHD/RVZ/CSO), or a PC archive, installer or folder. A ROM or disc is hashed and matched
+  against the DATs; a match goes into the library the way Organise places games (copies
+  or hardlinks by default, D5). A PC game goes through the import above. A game nothing
+  recognises opens **Identify**: a search box filled in from the file name, the system
+  (an existing one or a new one, as in the DAT question), and results from the sources
+  in their order, each with title, year, system, cover and where it came from. Picking
+  one stores the provider's id in `game.json` and pulls its details (and, from Phase 5,
+  its media); "None of these" falls back to manual entry. The same dialog is how any
+  game, including one already in the library, is re-identified, and in Phase 5 it is the
+  review queue for weak matches. Sources come in by how easy they are to integrate:
+
+  | Order | Source | Covers | Needs | Phase |
+  |---|---|---|---|---|
+  | 1 | Steam store search | PC | nothing | 4 |
+  | 2 | GOG catalogue | PC | nothing | 4 |
+  | 3 | LaunchBox GamesDB (offline `Metadata.zip`) | every system | nothing; one download, searched locally | 4 |
+  | 4 | ScreenScraper (Skraper's source) | every system, by ROM hash first | the user's account; the app's developer id, which ScreenScraper grants on request | 5 |
+  | 5 | IGDB | every system | the user's own Twitch developer app (free) | 5 (from 8) |
+  | 6 | TheGamesDB | every system | an API key (free, on request) | 5 (from 8) |
+  | 7 | MobyGames | every system | an API key; no longer free | 8 |
+
+  The order a user sees is a Settings choice (D8); a source without its key is offered
+  greyed out with a link to Settings.
 - Organised into a common structure (decision D6):
 
   ```
@@ -207,6 +233,8 @@ called.*
     and per-application developer credentials; thread limits depend on account level.
   - **IGDB** (Twitch developer app), **TheGamesDB** (API key), **MobyGames** (API key),
     **GOG / Steam store** for PC titles (no key needed for basic data).
+  - Every provider also answers the **Identify** dialog's searches (3.5, D24), in the
+    order of the table there.
 - Matching strategy: hash lookup when a provider supports it → exact name match within
   the platform → fuzzy name match with a confidence score. Low-confidence matches queue
   for review instead of being written silently.
@@ -546,11 +574,11 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **1** | Scan + DAT + Audit (cartridge systems) | `gamerepo-cli scan <root>` hashes files incl. zip members and headered ROMs; `dat import`; `audit <platform>` prints Have/Missing/Unknown/Misnamed and writes a fixdat. Home and Audit pages in the app. Verified on a No-Intro set. |
 | **2** | Rename/rebuild + disc systems + conversion (two releases, D19: 2a sort and rebuild, 2b discs and conversion) | Sorted output by DAT name (copy/hardlink/move with dry run and Undo); Redump cue/bin; 7z/rar reading; CHD, RVZ and CSO audited as the games they hold; Convert and Extract with verification and Undo, deterministic zip and 7z writing, preferred format per platform. |
 | **3** | Collections + ES-DE export | Rule-based collections with 1G1R; export to ES-DE (ROMs, gamelist.xml, custom collections) and a plain tree; export verification and re-sync. |
-| **4** | PC game import + Steam | Inbox classification, GOG id detection, common structure + `game.json`, duplicate detection; Steam non-Steam shortcuts with artwork. |
-| **5** | Metadata, media & documents | Provider settings; LaunchBox offline provider, then ScreenScraper (hash lookup, manuals); media storage; the game folder with `docs/`, attach and bulk attach, the side viewer for PDFs/images/text/audio; ES-DE media and manuals folders and Steam grid output; review queue for weak matches. |
+| **4** | PC game import + Steam | Inbox classification, GOG id detection, common structure + `game.json`, duplicate detection; Steam non-Steam shortcuts with artwork; Add a game… for one ROM, disc or PC game, and Identify with Steam, GOG and LaunchBox (D24). |
+| **5** | Metadata, media & documents | Provider settings; LaunchBox offline provider, then ScreenScraper (hash lookup, manuals), IGDB and TheGamesDB, all in Identify (D24); media storage; the game folder with `docs/`, attach and bulk attach, the side viewer for PDFs/images/text/audio; ES-DE media and manuals folders and Steam grid output; review queue for weak matches. |
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
-| **8** | More targets and providers | RetroArch playlists, Pegasus, Playnite, LaunchBox exports; IGDB, TheGamesDB, MobyGames; automatic DAT updates where allowed; Linux build if wanted. |
+| **8** | More targets and providers | RetroArch playlists, Pegasus, Playnite, LaunchBox exports; MobyGames; automatic DAT updates where allowed; Linux build if wanted. |
 | **9** | Serve to devices | The app as a server on the home network (3.10): browse and download from a browser, a read-only WebDAV view, device profiles for Android, Linux and handheld firmwares, and sync of a collection to a device with verification. Needs Phase 3's collections and export; can move ahead of 4–8. |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
@@ -1437,7 +1465,13 @@ checked.
 - **D21–D23** (Phase 3 design): collections in the library, systems added by hand, one
   DAT per system when a collection is saved as DATs. Taken 2026-10-17.
 
-New ones get a number here as they come up (next: D24).
+- **D24 Add a game and Identify** (Jerred's suggestion, 2026-10-17): one game added on
+  its own; one it isn't recognised is identified by searching online sources, brought in
+  by ease of integration (3.5). Proposed: Add a game… and Identify with Steam, GOG and
+  LaunchBox in Phase 4; ScreenScraper, IGDB and TheGamesDB in Phase 5 (IGDB and
+  TheGamesDB moved up from Phase 8); MobyGames stays in Phase 8.
+
+New ones get a number here as they come up (next: D25).
 
 ---
 

@@ -63,7 +63,7 @@ The code started as a trimmed copy of [Model Library](https://github.com/DrFlGd/
 
 ### Next (roadmap)
 
-Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion, PR #7) and 3 (collections, Save as DATs, export to ES-DE or a folder with Update and Check, systems added by hand; "Phase 3 notes" in `docs/PLAN.md`) are built. Next is Phase 4, PC games and installers. Phase 9 (added 2026-10-16) serves games to Android, Linux and handheld devices on the home network (`docs/PLAN.md` 3.10); D18 asks which devices come first.
+Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion, PR #7) and 3 (collections, Save as DATs, export to ES-DE or a folder with Update and Check, systems added by hand; "Phase 3 notes" in `docs/PLAN.md`) are built. Next is Phase 4, PC games and installers, with Add a game… and Identify (D24). Phase 9 (added 2026-10-16) serves games to Android, Linux and handheld devices on the home network (`docs/PLAN.md` 3.10); D18 asks which devices come first.
 
 ---
 
@@ -80,6 +80,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion, 
 - **Export…** a collection to ES-DE (each system in its folder in ES-DE's ROMs folder, a cue/bin game as one folder ES-DE shows as one game, an entry in each system's gamelist and the collection as an ES-DE custom collection) or to a plain folder. Files are hardlinked on the same drive, else copied, and checked, with a preview and Undo. **Update** adds what the collection gained and sets aside what it lost (only files the export put there); **Check** reads the export back against the DATs.
 - **Settings › Systems**: add the systems the app doesn't know (a DAT's, a computer's, a handheld's), with their DAT names, folders and file extensions; DATs, folders and files then find them like any other. When a DAT's system isn't recognised, choose any system or add a new one by its name, with no id to type.
 - **Command line**: `systems [add|edit|remove]`, `collections`, `collection new|edit|show|dats|delete`, `export <collection> --out <folder> [--to esde|folder] [--esde <folder>]`, `export update|check|forget <export>` and `exports`.
+- **Planned** (docs/PLAN.md, D24): **Add a game…** for one ROM, disc or PC game, and **Identify** for one nothing recognises, searching Steam, GOG and LaunchBox in Phase 4, then ScreenScraper, IGDB and TheGamesDB in Phase 5.
 
 ## 0.2.0 (2026-10-16)
 
