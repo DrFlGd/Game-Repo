@@ -225,6 +225,10 @@ pub fn identify_rom(lib: &Library, platform: &str, file: &Value, m: &Match) -> R
     v["ids"][m.source.as_str()] = json!(m.id);
     v["details"] = json!(m.details);
     v["identified"] = json!(now());
+    // kept as the source's answer too (D46)
+    let fields: Vec<String> = crate::meta::FIELDS.iter().map(|(k, _)| k.to_string()).collect();
+    crate::sources::keep(&d, m, &fields, true)?;
+    crate::sources::make(&mut v, &d, &crate::sources::Rules::of(lib));
     crate::config::write_json(&p, &v)?;
     identify::fetch_art(&d.join("media"), &m.art, true);
     Ok(rom_identity(lib, platform, sha1).unwrap_or(v))

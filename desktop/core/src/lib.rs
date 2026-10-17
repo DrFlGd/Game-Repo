@@ -26,6 +26,7 @@
 //! - [`starter`]: starter DATs downloaded from libretro's copy of No-Intro's
 //! - [`torrentzip`]: writing ZIPs that are the same bytes every time
 //! - [`watch`]: noticing changes in the folders with games while the app is open
+//! - [`sources`]: each source's answer kept apart, the pictures' variants, deleting metadata
 //! - [`api`]: the commands the page calls
 //!
 //! The layout, the phases and every design decision are in docs/PLAN.md.
@@ -59,6 +60,7 @@ pub mod roots;
 pub mod scan;
 pub mod scrape;
 pub mod scrapers;
+pub mod sources;
 pub mod starter;
 pub mod steam;
 pub mod systems;

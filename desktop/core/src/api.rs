@@ -841,6 +841,7 @@ impl App {
                     "import" => "Importing",
                     "add" => "Adding",
                     "docs" => "Bringing in documents",
+                    "metadata" => "Deleting metadata",
                     _ => "Organising",
                 };
                 let running = self.begin_change(&plan.id)?;
@@ -1003,6 +1004,73 @@ impl App {
                 let lib = self.library()?;
                 let id = id_arg("id")?;
                 j(self.with_index(move |ix| meta::clear(ix, &lib, id)).await?)
+            }
+            // each source's answer, its pictures, deleting and sizes (Phase 6b, D46–D48)
+            "meta_pin" => {
+                let lib = self.library()?;
+                let (folder, field) = (arg(&args, "folder").map_err(e2s)?.to_string(), arg(&args, "field").map_err(e2s)?.to_string());
+                let source = args["source"].as_str().map(String::from);
+                j(self
+                    .with_index(move |ix| {
+                        crate::sources::pin(ix, &lib, &meta::resolve(&lib, &folder)?, &field, source.as_deref())?;
+                        crate::browse::refresh(ix, &lib)?;
+                        Ok(json!({ "ok": true }))
+                    })
+                    .await?)
+            }
+            "meta_choose" => {
+                let lib = self.library()?;
+                let (folder, kind, name) = (arg(&args, "folder").map_err(e2s)?.to_string(), arg(&args, "kind").map_err(e2s)?.to_string(), arg(&args, "name").map_err(e2s)?.to_string());
+                j(self
+                    .with_index(move |ix| {
+                        crate::sources::choose(ix, &lib, &meta::resolve(&lib, &folder)?, &kind, &name)?;
+                        crate::browse::refresh(ix, &lib)?;
+                        Ok(json!({ "ok": true }))
+                    })
+                    .await?)
+            }
+            "meta_delete" => {
+                // a change setting aside a system's or a game's metadata, with a preview and Undo
+                let lib = self.library()?;
+                let platform = args["platform"].as_str().filter(|s| !s.is_empty()).map(String::from);
+                let folder = args["folder"].as_str().filter(|s| !s.is_empty()).map(String::from);
+                let what: Vec<String> = serde_json::from_value(args["what"].clone()).map_err(|e| e.to_string())?;
+                j(self
+                    .with_index(move |ix| {
+                        meta::sync(ix, &lib)?;
+                        let plan = crate::sources::delete_plan(ix, &lib, platform.as_deref(), folder.as_deref(), &what)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            "meta_sizes" => {
+                let lib = self.library()?;
+                j(tokio::task::spawn_blocking(move || crate::sources::sizes(&lib)).await.map_err(|e| e.to_string())?)
+            }
+            "meta_details_from" => {
+                let lib = self.library()?;
+                let fields: Vec<Value> = [("title", "Title"), ("year", "Year")].into_iter().chain(meta::FIELDS.iter().copied()).map(|(k, n)| json!({ "id": k, "name": n })).collect();
+                j(json!({
+                    "from": crate::sources::details_from(&lib),
+                    "fields": fields,
+                    "sources": scrape::SCRAPE_SOURCES.iter().map(|s| json!({ "id": s, "name": crate::identify::source_name(s) })).collect::<Vec<_>>(),
+                }))
+            }
+            "meta_set_details_from" => {
+                // every game's details made again from the answers kept
+                let lib = self.library()?;
+                let field = arg(&args, "field").map_err(e2s)?.to_string();
+                crate::sources::set_details_from(&lib, &field, args["source"].as_str()).map_err(e2s)?;
+                let label = "Making details again";
+                self.not_running(label)?;
+                j(self.spawn_job(label, move |app, jid, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    meta::sync(&ix, &lib)?;
+                    let n = crate::sources::remake_all(&ix, &lib, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    crate::browse::refresh(&ix, &lib)?;
+                    Ok(json!({ "games": n }))
+                }))
             }
             "meta_pick" => {
                 let lib = self.library()?;
@@ -1662,6 +1730,8 @@ impl App {
     /// What a `library://` path is: a file in the open library.
     fn served_path(&self, rel: &str) -> Result<PathBuf> {
         let rel = percent_decode(rel.trim_start_matches('/'));
+        // `?v=…` after a picture's name only keeps the page from showing an old one (D47)
+        let rel = rel.split('?').next().unwrap_or("").to_string();
         let lib = self.library().map_err(|e| anyhow!(e))?;
         // ~thumb/<size>/<path>: a thumbnail of a picture (D43), made the first time
         if let Some(rest) = rel.strip_prefix("~thumb/") {

@@ -3,9 +3,11 @@
 // the game's folder under _library/games/. Scrape… asks the sources for a system's games
 // in the library, every game in its DAT, or chosen ones, with its choices (sources and
 // their order, details, pictures, regions, what to do with games that have something)
-// kept with the library. A game's panel shows what it has, scrapes it alone, picks
-// from the candidates a scrape wasn't sure about, attaches documents and clears it.
-// What an export carries (CarryChoices) is chosen in the Export dialog.
+// kept with the library. Each source's answer is kept apart, and a kind of picture can
+// be kept from every source that has one ("Phase 6b design", D46, D47). A game's panel
+// shows what it has, scrapes it alone, picks from the candidates a scrape wasn't sure
+// about and attaches documents. Scrape again… and Delete metadata… (D48) work on a
+// system or a game. What an export carries (CarryChoices) is chosen in the Export dialog.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -13,7 +15,7 @@ import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, libraryUrl } from "./library.js";
 import { reveal } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
-import { Dialog, close, confirmDialog } from "./dialogs.js";
+import { Dialog, close } from "./dialogs.js";
 import { identifyDialog } from "./pcgames.js";
 import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
 import { Icon } from "./icons.js";
@@ -88,7 +90,7 @@ function Ticks({ id, items, value, onChange }) {
 
 /** Scrape…: for `platform`'s games (or `games`, chosen ones), with the choices the last
  *  scrape kept. */
-function ScrapeDialog({ platform = "", platformName, games = null, collection = "", gameName = "", have = 0, all = 0 }) {
+function ScrapeDialog({ platform = "", platformName, games = null, collection = "", gameName = "", have = 0, all = 0, again: anew = false }) {
   const [c, setC] = useState(null);
   const [o, setO] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -96,7 +98,7 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
   useEffect(() => {
     api("scrape_choices").then((x) => {
       setC(x);
-      setO({ ...x.options, platform, scope: games ? "games" : collection ? "collection" : "have", games: games || [], collection });
+      setO({ ...x.options, platform, scope: games ? "games" : collection ? "collection" : "have", games: games || [], collection, ...(anew ? { existing: "replace", fresh: true } : {}) });
     }).catch((e) => setError(err(e)));
   }, []);
   const set = (patch) => setO((v) => ({ ...v, ...patch }));
@@ -123,7 +125,7 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
       setBusy(false);
     }
   };
-  const title = games || collection ? `Scrape ${gameName}` : `Scrape ${platformName}`;
+  const title = `Scrape ${games || collection ? gameName : platformName}${anew ? " again" : ""}`;
   if (!c || !o) return html`<${Dialog} title=${title} id="scrape-dialog" onSubmit=${close} submitLabel="OK" error=${error}><p class="muted">Reading the choices…</p><//>`;
   const asked = o.sources.filter((s) => ready.includes(s));
   const pictureKinds = c.media.filter((m) => m.id !== "manual");
@@ -143,6 +145,10 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
     <div class="field-block"><span class="field-label">Pictures, video and manual</span>
       <${Ticks} id="scrape-media" items=${c.media} value=${o.media} onChange=${(media) => set({ media })} />
       <small class="muted">Manuals are kept with the game's documents, so they can be searched and read on the Documents page.</small></div>
+    ${pictureKinds.some((m) => o.media.includes(m.id)) ? html`<div class="field-block"><span class="field-label">From every source that has one</span>
+      <${Ticks} id="scrape-variants" items=${pictureKinds.filter((m) => o.media.includes(m.id))} value=${(o.variants || []).filter((k) => o.media.includes(k))}
+        onChange=${(v) => set({ variants: [...v, ...(o.variants || []).filter((k) => !o.media.includes(k))] })} />
+      <small class="muted">One of each kind is chosen and shown; the other sources' are kept beside it, to choose from on the game's page. Exports take only the chosen one.</small></div>` : null}
     ${pictureKinds.some((m) => o.media.includes(m.id)) ? html`<details class="field-block" id="scrape-prefer"><summary>A picture from a source of its own</summary>
       <div class="prefer-grid">${pictureKinds.filter((m) => o.media.includes(m.id)).map((m) => html`<label class="field-inline" key=${m.id}><span>${m.name}</span>
         <select class="compact" data-kind=${m.id} value=${o.prefer[m.id] || ""} onChange=${(e) => set({ prefer: { ...o.prefer, [m.id]: e.target.value || undefined } })}>
@@ -160,14 +166,46 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
     <div class="field-block" role="radiogroup" aria-label="Games that have something already">
       <span class="field-label">Games that have something already</span>
       ${EXISTING.map(([k, l]) => html`<label class="check-row" key=${k}><input type="radio" name="scrape-existing" value=${k} checked=${o.existing === k} onChange=${() => set({ existing: k })} /> ${l}</label>`)}
-      <small class="muted">What you've written yourself and your own documents are never replaced.</small></div>
+      <small class="muted">What you've written yourself, what you chose on a game's page and your own documents are never replaced.</small></div>
+    <label class="check-row"><input type="checkbox" id="scrape-fresh" checked=${!!o.fresh} onChange=${(e) => set({ fresh: e.target.checked })} /> Ask the sources again <span class="muted">(their answers are otherwise kept for a week)</span></label>
   <//>`;
 }
 
 export const scrapeDialog = (opts) => ui.set({ dialog: { type: "scrape", ...opts } });
 
+// ------------------------------------------------------------ Delete metadata…
+
+/** Delete metadata…: what a system's games (or one game's folder) have from the sources,
+ *  set aside as a change with a preview and Undo (D48). */
+function DeleteDialog({ platform = "", platformName = "", folder = "", gameName = "" }) {
+  const [c, setC] = useState(null);
+  const [what, setWhat] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { api("scrape_choices").then((x) => { setC(x.delete); setWhat(x.delete.map((d) => d.id)); }).catch((e) => setError(err(e))); }, []);
+  const whose = folder ? gameName : platformName;
+  const run = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const plan = await api("meta_delete", { platform: folder ? "" : platform, folder, what });
+      ui.set({ dialog: { type: "organise", plan, platformName } });
+    } catch (e) {
+      setError(err(e));
+      setBusy(false);
+    }
+  };
+  return html`<${Dialog} title=${`Delete ${whose}'s metadata`} id="meta-delete-dialog" onSubmit=${run} busy=${busy || !c || !what.length} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
+    <p class="muted">${folder ? "What this game has from the sources" : `What ${platformName}'s games have from the sources`} is set aside, with a preview first and Undo after. Your own documents and what you've written yourself stay.</p>
+    ${c ? html`<${Ticks} id="meta-delete-what" items=${c} value=${what} onChange=${setWhat} />` : html`<p class="muted">Reading…</p>`}
+  <//>`;
+}
+
+export const deleteMetadata = (opts) => ui.set({ dialog: { type: "meta-delete", ...opts } });
+
 export function MetaDialogs({ dialog }) {
   if (dialog.type === "scrape") return html`<${ScrapeDialog} ...${dialog} />`;
+  if (dialog.type === "meta-delete") return html`<${DeleteDialog} ...${dialog} />`;
   return null;
 }
 
@@ -237,10 +275,6 @@ function MetaPanel({ id, off, version, onChange }) {
     title: `Identify ${g.name}`, query: g.title, platform: g.platform,
     onPick: async (x) => { await pick(x.source, x.id); },
   });
-  const clear = () => confirmDialog({
-    title: `Clear ${g.title}?`, text: "Its scraped details, pictures and manual are deleted from the library. Your own documents stay.", button: "Clear",
-    run: async () => { setG(await api("meta_clear", { id })); onChange(); },
-  });
   return html`<aside class="pc-panel meta-panel" id="meta-panel" data-id=${g.id}>
     <div class="pc-panel-head">
       <${Picture} media=${g.media} title=${g.title} cls="meta-cover big" />
@@ -273,7 +307,9 @@ function MetaPanel({ id, off, version, onChange }) {
         <button type="button" class="linkish" onClick=${() => viewDoc(x.id)}>${x.title}</button><span class="muted">${x.kind_name}${x.source ? ` · ${sourceName(x.source)}` : ""}</span></li>`)}</ul>`
         : html`<p class="muted">None yet. Attach your own, or scrape its manual.</p>`}</section>
     ${!kinds.length && !Object.keys(d).length && !g.docs.length ? html`<p class="muted" id="meta-nothing">Nothing in the library for this game yet: Scrape… or Identify… fills it in.</p>` : null}
-    ${(kinds.length || Object.keys(d).length) && !off ? html`<p><button type="button" class="linkish" id="meta-clear" onClick=${clear}>Clear what was scraped</button></p>` : null}
+    ${g.folder && (kinds.length || Object.keys(d).length || g.docs.length) && !off ? html`<p class="home-actions">
+      <button type="button" class="linkish" id="meta-again" onClick=${() => scrapeDialog({ platform: g.platform, platformName: g.platform_name, games: [g.id], gameName: g.title, again: true })}>Scrape again…</button>
+      <button type="button" class="linkish" id="meta-delete" onClick=${() => deleteMetadata({ folder: g.folder, gameName: g.title, platformName: g.platform_name })}>Delete metadata…</button></p>` : null}
   </aside>`;
 }
 
@@ -328,6 +364,9 @@ export function Metadata() {
     more=${{ id: "meta-menu", title: "Documents, sources", items: () => [
       { id: "meta-docs-page", label: "Documents", icon: "book", run: () => { location.hash = routeHash("documents"); } },
       { id: "meta-import-docs", label: "Import documents…", icon: "file", disabled: off || !isDesktop(), run: () => attachDocs({ platform: p }) },
+      { sep: true },
+      { id: "meta-scrape-again", label: "Scrape again…", icon: "scrape", disabled: off || !p, run: () => scrapeDialog({ platform: p, platformName: pName, have: counts.have || 0, all: counts.all || 0, again: true }) },
+      { id: "meta-delete-all", label: "Delete metadata…", icon: "trash", disabled: off || !p, run: () => deleteMetadata({ platform: p, platformName: pName }) },
       { sep: true },
       { id: "meta-sources", label: "Sources settings", icon: "cog", run: () => { location.hash = "#/settings"; setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); } },
     ] }} />`;

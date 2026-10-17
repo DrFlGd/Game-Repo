@@ -20,6 +20,7 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -184,7 +185,13 @@ fn cache_path(data_dir: &Path, source: &str, what: &str) -> PathBuf {
 
 const WEEK: Duration = Duration::from_secs(7 * 86_400);
 
+/// Set while a scrape asks the sources again (D48): the answers kept are passed over.
+pub static FRESH: AtomicBool = AtomicBool::new(false);
+
 fn cached(data_dir: &Path, source: &str, what: &str) -> Option<Value> {
+    if FRESH.load(Ordering::Relaxed) {
+        return None;
+    }
     let p = cache_path(data_dir, source, what);
     let age = std::fs::metadata(&p).ok()?.modified().ok().and_then(|t| SystemTime::now().duration_since(t).ok())?;
     if age > WEEK {

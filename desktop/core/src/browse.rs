@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex};
 
 /// Bumped when what a row holds changes, so every system is rebuilt once.
-const FORMAT: &str = "1";
+const FORMAT: &str = "2";
 /// Between the genres in a row's `genres` (a genre may have a comma in it).
 const SEP: &str = "\u{1f}";
 
@@ -133,9 +133,11 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
     Ok(())
 }
 
-/// The pictures of a game folder's `media/`, as the folder's library path and a file name.
-fn picture_path(folder: &Option<String>, picture: &Option<String>) -> Option<String> {
-    Some(format!("{}/media/{}", folder.as_ref()?, picture.as_ref()?))
+/// The pictures of a game folder's `media/`, as the folder's library path and a file name,
+/// with the folder's stamp after it (`?v=`, which the page's server leaves out) so a picture
+/// changed under the same name (another source's chosen, D47) isn't shown from the cache.
+fn picture_path(folder: &Option<String>, picture: &Option<String>, stamp: i64) -> Option<String> {
+    Some(format!("{}/media/{}?v={stamp}", folder.as_ref()?, picture.as_ref()?))
 }
 
 /// Rebuild a system's rows: every game of the DAT it's audited against, and the games no
@@ -158,7 +160,8 @@ fn rebuild_system(conn: &Connection, platform: &str, dat: Option<i64>) -> Result
                     COALESCE(g.version, ''), COALESCE(gs.flags, ''), gs.parent_id, gs.status,
                     mg.folder, mg.title, mg.year, COALESCE(mg.media, ''), COALESCE(mg.review, 0), COALESCE(mg.facts, '{{}}'), mg.picture,
                     (SELECT COUNT(*) FROM docs dc WHERE dc.folder = mg.folder),
-                    (SELECT MAX(f.mtime) FROM dat_roms r JOIN matches m ON m.rom_id = r.id JOIN files f ON f.id = m.file_id WHERE r.game_id = gs.id)
+                    (SELECT MAX(f.mtime) FROM dat_roms r JOIN matches m ON m.rom_id = r.id JOIN files f ON f.id = m.file_id WHERE r.game_id = gs.id),
+                    COALESCE(mg.mtime, 0)
              FROM gs JOIN dat_games g ON g.id = gs.id LEFT JOIN fm ON fm.game_id = gs.id LEFT JOIN meta_games mg ON mg.folder = fm.folder"
         );
         let sizes = collection::sizes(conn, dat)?;
@@ -199,7 +202,7 @@ fn rebuild_system(conn: &Connection, platform: &str, dat: Option<i64>) -> Result
                 regions: split(&regions),
                 languages: split(&x.get::<_, String>(4)?),
                 have: status != "missing",
-                picture: picture_path(&folder, &picture),
+                picture: picture_path(&folder, &picture, x.get(19)?),
                 folder,
                 media: x.get(13)?,
                 review: x.get::<_, i64>(14)? == 1,
@@ -231,7 +234,7 @@ fn rebuild_system(conn: &Connection, platform: &str, dat: Option<i64>) -> Result
         }
     }
     // games no DAT knows (Add a game…): their folder is named by the file's SHA1
-    let mut q = conn.prepare("SELECT folder, name, title, year, media, review, facts, picture, (SELECT COUNT(*) FROM docs dc WHERE dc.folder = mg.folder) FROM meta_games mg WHERE platform = ?1")?;
+    let mut q = conn.prepare("SELECT folder, name, title, year, media, review, facts, picture, (SELECT COUNT(*) FROM docs dc WHERE dc.folder = mg.folder), COALESCE(mtime, 0) FROM meta_games mg WHERE platform = ?1")?;
     let mut it = q.query([platform])?;
     while let Some(x) = it.next()? {
         let folder: String = x.get(0)?;
@@ -253,7 +256,7 @@ fn rebuild_system(conn: &Connection, platform: &str, dat: Option<i64>) -> Result
             year: x.get(3)?,
             facts: serde_json::from_str(&facts).unwrap_or_default(),
             have: true,
-            picture: picture_path(&folder, &picture),
+            picture: picture_path(&folder, &picture, x.get(9)?),
             folder,
             media: x.get(4)?,
             review: x.get::<_, i64>(5)? == 1,
@@ -816,7 +819,9 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
             let j = meta::read_game(&dir);
             json!({
                 "platform": platform, "platform_name": system_name(&platform), "name": j["name"], "title": title, "year": j["year"],
-                "details": j["details"], "ids": j["ids"], "scraped": j["scraped"], "edited": j["edited"], "folder": f, "have": true,
+                "details": j["details"], "ids": j["ids"], "scraped": j["scraped"], "edited": j["edited"], "folder": f, "have": true, "pinned": j["pinned"],
+                "sources": crate::sources::answers(&dir).into_iter().map(|(s, mut a)| { a["name"] = json!(crate::sources::source_name(&s)); a }).collect::<Vec<_>>(),
+                "variants": crate::sources::variants(lib, &dir, &j),
                 "media": crate::identify::media_of(lib, &dir.join("media")), "docs": docs::of_folder(conn, &f)?, "roms": j["files"],
             })
         }
@@ -1088,10 +1093,12 @@ mod tests {
         assert_eq!(names(&c), ["Delta (World)", "Epsilon (Japan) (En,Ja)"]);
         let saved = collection::save(&lib, c).unwrap();
         assert_eq!(collection::load(&lib, &saved.id).unwrap().rules.details.genre, ["Puzzle"]);
-        // the mark taken off: the next scrape may replace it
+        // the mark taken off: the source's value comes back (D46)
+        let m = crate::pcgames::Match { source: "igdb".into(), id: "1".into(), details: found.clone(), ..Default::default() };
+        crate::sources::keep(&dir_of, &m, &["developer".into()], false).unwrap();
         let g = edit(&ix, &lib, key, "developer", None).unwrap();
         assert_eq!(g["edited"], json!(["genres", "year", "players", "rating"]));
-        assert_eq!(g["details"]["developer"], "Acme Soft");
+        assert_eq!((g["details"]["developer"].as_str(), g["scraped"]["developer"].as_str()), (Some("Other"), Some("igdb")), "{g}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1150,7 +1157,8 @@ mod tests {
         assert_eq!(titles(&v), ["Delta (World)"]);
         assert_eq!(v["facets"]["has"]["pictures"], 1);
         let rel = v["items"][0]["picture"].as_str().unwrap().to_string();
-        assert!(rel.ends_with("/media/cover.png"), "{rel}");
+        assert!(rel.contains("/media/cover.png?v="), "{rel}");
+        let rel = rel.split('?').next().unwrap().to_string();
         let data = dir.join("data");
         let t = thumb(&lib, &data, &rel, 256).unwrap();
         assert!(t.starts_with(data.join("thumbs")));

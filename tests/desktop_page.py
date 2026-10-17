@@ -28,7 +28,9 @@ libretro's list, audited and gathered, the layout editor with a change saved as 
 layout, and an export to a card in it with the BIOS files; (Phase 6) the Library
 with thumbnails, a filter with counts kept in the address, the search, selecting,
 the table sorted and grouped, a game's page with a detail edited and a file dropped
-on it, Next, and the filters saved as a collection;
+on it, Next, and the filters saved as a collection; (Phase 6b) each source's answer kept, a box from
+another source chosen and a detail used from it on a game's page, Scrape again…,
+Delete metadata… with Undo, and Settings › Metadata's sizes;
 renaming the library, with Undo; opening a folder that already holds games
 leaves them as they were, and switching back from the recent list; the theme
 and skin follow the settings and are kept; a library from a newer app opens
@@ -1177,6 +1179,64 @@ async def main():
             check("Save as a collection… makes the filters a collection's rules (by its games' details); the command line filters the same",
                   mine.get("rules", {}).get("details", {}).get("genre") == ["Action"] and cli.get("total") == int(action), (mine.get("rules"), cli.get("total")))
             await pg.click('#lib-chips [data-chip="genre-Action"] button')
+
+            # Phase 6b: each source's answer kept apart, one picture from each source to choose
+            # from, Delete metadata… with Undo, Scrape again… and the sizes in Settings. A second
+            # source's answer and box are put in Alpha's folder as an earlier scrape would have.
+            (alpha / "sources/igdb.json").write_text(json.dumps({"source": "igdb", "id": "55", "title": "Alpha", "details": {"description": "Alpha from IGDB."}}))
+            (alpha / "media/cover").mkdir(exist_ok=True)
+            (alpha / "media/cover/igdb.png").write_bytes(png(90, 60, (10, 160, 60)))
+            kept = json.loads((alpha / "sources/thegamesdb.json").read_text())
+            await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Alpha (USA)'); }")
+            await pg.wait_for_selector('#game-variants button[data-name="igdb"]')
+            await pg.click('#game-variants button[data-name="igdb"]')
+            await pg.wait_for_selector('#game-variants button[data-name="igdb"][aria-pressed="true"]')
+            hero = await pg.get_attribute("#game-gallery .game-hero", "src")
+            alpha_json = json.loads((alpha / "game.json").read_text())
+            check("a scrape keeps each source's answer apart, and a game's page shows each source's box to choose from (one each), the chosen one where exports look",
+                  kept.get("details", {}).get("developer") == "Stand-in Soft" and alpha_json.get("chosen", {}).get("cover") == "igdb"
+                  and (alpha / "media/cover.png").read_bytes() == png(90, 60, (10, 160, 60)) and (alpha / "media/cover/thegamesdb.png").is_file() and hero.endswith("v=igdb"),
+                  (kept, alpha_json.get("chosen"), hero, sorted(x.name for x in (alpha / "media").rglob("*"))))
+            await pg.screenshot(path=str(out / "53-game-variants.png"), full_page=True)
+            row = '.game-detail[data-field="description"]'
+            await pg.click(f"{row} .game-detail-others summary")
+            await pg.click(f'{row} .game-detail-others [data-source="igdb"] [data-action="use"]')
+            await pg.wait_for_function("() => document.querySelector('#game-description')?.value === 'Alpha from IGDB.'")
+            alpha_json = json.loads((alpha / "game.json").read_text())
+            check("a detail lists what the other sources said, and Use this takes it from one (kept over the source order)",
+                  alpha_json.get("pinned", {}).get("description") == "igdb" and alpha_json["details"]["description"] == "Alpha from IGDB.", alpha_json.get("pinned"))
+            await pg.click("#game-menu")
+            await pg.click('#context-menu [data-action="game-scrape-again"]')
+            await pg.wait_for_selector("#scrape-dialog #scrape-variants")
+            again = await pg.evaluate("() => [document.querySelector('input[name=scrape-existing][value=replace]').checked, document.querySelector('#scrape-fresh').checked, document.querySelector('#scrape-dialog h2, #scrape-dialog .dialog-title')?.textContent || '']")
+            check("Scrape again… is the Scrape dialog set to replace and ask the sources afresh", again[0] and again[1] and "again" in again[2], again)
+            await pg.keyboard.press("Escape")
+            await pg.wait_for_selector("#scrape-dialog", state="detached")
+            await pg.click("#game-menu")
+            await pg.click('#context-menu [data-action="game-delete-metadata"]')
+            await pg.wait_for_selector("#meta-delete-dialog #meta-delete-what")
+            await pg.click("#meta-delete-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-dialog #organise-totals")
+            await pg.screenshot(path=str(out / "54-delete-metadata.png"))
+            await pg.click("#organise-dialog button[type=submit]")
+            said = await toast_text(pg, "Deleted")
+            alpha_json = json.loads((alpha / "game.json").read_text())
+            gone = not (alpha / "sources").exists() and not (alpha / "media/cover.png").exists() and not (alpha / "media/cover").exists()
+            check("Delete metadata… sets a game's details from sources and pictures aside; what you wrote and your own documents stay",
+                  gone and alpha_json["details"].get("developer") == "My Own Studio" and "description" not in alpha_json["details"] and (alpha / "docs/Alpha Map.txt").is_file(),
+                  (said, alpha_json.get("details"), sorted(x.name for x in alpha.rglob("*"))))
+            await pg.click("#toast .toast-action")
+            await toast_text(pg, "Undone")
+            alpha_json = json.loads((alpha / "game.json").read_text())
+            check("its Undo puts them back and the details are made again", (alpha / "media/cover.png").is_file() and alpha_json["details"].get("description") == "Alpha from IGDB.", alpha_json.get("details"))
+            sizes = cli_json("games", "sizes", "--home", str(home), "--json")
+            await pg.click('.sidebar a[href="#/settings"]')
+            await pg.click("#meta-sizes-work")
+            await pg.wait_for_selector('#meta-sizes li[data-platform="gb"]')
+            shown = await pg.inner_text("#settings-metadata")
+            check("Settings › Metadata shows what the metadata takes, by system and kind, and which source each detail comes from",
+                  "Game Boy" in shown and "Box front" in shown and sizes.get("kinds", {}).get("cover", 0) > 0 and await pg.locator('#details-from select[data-field="description"]').count() == 1, (shown[:300], sizes.get("kinds")))
+            await pg.screenshot(path=str(out / "55-settings-metadata.png"), full_page=True)
 
             await pg.click('.sidebar a[href="#/settings"]')
             await pg.wait_for_selector("#theme-select")
