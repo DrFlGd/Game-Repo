@@ -72,6 +72,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 ## Unreleased
 
 - Plan: Phase 5b's design. Device and frontend export layouts (ES-DE, muOS, Knulli, ROCKNIX, a plain folder) become JSON files you can copy, edit and share, with a visual editor in Settings › Layouts that shows the folders an export would write and saves your changes as a new layout.
+- Plan: BIOS files join Phase 5b: each system's BIOS files are audited against a BIOS DAT (libretro's System.dat from Get starter DATs), gathered into the library's BIOS folder, and exported with a collection into each device's BIOS folder.
 
 ## 0.5.0 (2026-10-17)
 

@@ -622,7 +622,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **3** | Collections + ES-DE export | Rule-based collections with 1G1R; export to ES-DE (ROMs, gamelist.xml, custom collections) and a plain tree; export verification and re-sync. |
 | **4** | PC game import + Steam | Inbox classification, GOG id detection, common structure + `game.json`, duplicate detection; Steam non-Steam shortcuts with artwork; Add a game… for one ROM, disc or PC game, and Identify with Steam, GOG and LaunchBox (D24). |
 | **5** | Metadata, media & documents | Provider settings; LaunchBox offline provider, then ScreenScraper (hash lookup, manuals), IGDB and TheGamesDB, all in Identify (D24); media storage; the game folder with `docs/`, attach and bulk attach, the side viewer for PDFs/images/text/audio; ES-DE media and manuals folders and Steam grid output; review queue for weak matches. Choosing what is scraped and for what (a whole DAT included) and what each export writes (3.6); bulk import of documents with a review of the pairings, and the Documents page with search (3.8). |
-| **5b** | Device profiles | Export a collection to an SD card in the layout of muOS, Knulli, ROCKNIX, or ES-DE on Android or Linux (3.10, D18, D29): each firmware's ROM folders, gamelists and media, within the card's size limit. Layouts are JSON files the user can copy and change, in a visual editor (D36). Built on Phase 3's export and Phase 5's media. |
+| **5b** | Device profiles | Export a collection to an SD card in the layout of muOS, Knulli, ROCKNIX, or ES-DE on Android or Linux (3.10, D18, D29): each firmware's ROM folders, gamelists and media, within the card's size limit. Layouts are JSON files the user can copy and change, in a visual editor (D36). Each system's BIOS files as a set of their own, audited and exported with the games (D40). Built on Phase 3's export and Phase 5's media. |
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets and providers | RetroArch playlists, Pegasus, Playnite, LaunchBox exports; MobyGames; automatic DAT updates where allowed; Linux build if wanted; magazines (3.8, D31). |
@@ -1920,6 +1920,42 @@ built; what couldn't be confirmed there is said in the notes)
 - Gamelists are merged as they are for ES-DE (D35): entries for the exported games are
   added or updated, and the device's own entries (play counts, favourites) kept.
 
+**BIOS files (D40)**
+
+Jerred asked (2026-10-17) for each system's BIOS files to be kept as a set of their
+own: a separate category, audited for what each system is missing, and exported with a
+set of games so another device has what they need.
+
+- **What a system needs** comes from a **BIOS DAT**: libretro's `System.dat` (its public
+  database, `dat/System.dat`, which lists every core's BIOS and firmware files with their
+  sizes and hashes, grouped by system) is offered by *Get starter DATs* beside the
+  game DATs, and any other BIOS DAT (a firmware's own list, one made by hand) can be
+  imported as a system's BIOS DAT. A file a system needs is *required* or *optional* as
+  the DAT says (libretro's marks some optional), and keeps its folder (`dc/dc_boot.bin`,
+  `np2kai/font.bmp`), since cores look for it there.
+- **The BIOS page** (in the nav after Audit): each system with a BIOS DAT, its files as
+  *Have*, *Missing* or *Wrong* (a file of the right name whose hashes don't match, a bad
+  dump or another region's), required ones first, and the systems missing a required
+  file at the top. Found anywhere in the folders with games, by hash like any game
+  (Phase 1's scan), so nothing has to be moved first. *Report* saves the list of what's
+  missing, as Phase 1's reports do.
+- **The BIOS set**: *Gather the BIOS files* puts a copy of each one found into the
+  library's own `BIOS/<system>/` folder (named and nested as its DAT says; hardlinked on
+  the same drive, D5), as an Organise change with a preview and Undo. That folder is a
+  folder with games like the others, scanned with them, so the set stays audited.
+- **Exported with the games**: the Export dialog's *What it carries* gains **BIOS files
+  for these systems** (required ones, or optional ones too), for the systems the
+  collection's games are on. Each layout says where they go, as `"bios": { "path": … }`,
+  with the token `{bios_file}` (the file's name with its DAT folder): Knulli
+  `{card}/bios/{bios_file}`, ROCKNIX `{card}/roms/bios/{bios_file}` (its documentation:
+  the BIOS folder is under `roms`), muOS `{card}/MUOS/bios/{bios_file}`, ES-DE on
+  Android or Linux `{card}/BIOS/{bios_file}`, to point RetroArch's system folder at,
+  and the plain folder `{out}/BIOS/{system_name}/{bios_file}`. The editor shows them in
+  the tree like the rest. Each layout's BIOS folder is checked against its firmware's
+  documentation when it's built.
+- Game Repo never ships, downloads or names a source for BIOS files: it audits and
+  copies the user's own (6, legal notes).
+
 **Not in Phase 5b**: converting games on the way to the card (a format the device can't
 play is the collection's to choose; 3.9's convert-on-export comes later), `.m3u` lists
 for multi-disc games, writing to a device over the network (Phase 9), reading a card's
@@ -1933,6 +1969,8 @@ own layout to make a layout from it, ArkOS and Batocera (if asked for).
   devices' ones.
 - **D39** The editor's tree is worked out from the user's own games (a collection's
   first few), not a fixed example, so it shows the names the card will really hold.
+- **D41** A system's BIOS files are known from a BIOS DAT (libretro's `System.dat` by
+  default) and gathered into the library's `BIOS/<system>/`, as copies.
 
 ## 8. Working in a cloud session
 
@@ -2063,7 +2101,12 @@ own layout to make a layout from it, ArkOS and Batocera (if asked for).
   copying; one export engine; the editor's tree made from the user's own games.
   Proposed defaults, followed in the build unless changed.
 
-New ones get a number here as they come up (next: D40).
+- **D40 BIOS files** (Jerred, 2026-10-17): each system's BIOS files kept as a separate
+  category, audited for systems missing them, and exported with a set of games for
+  another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
+  proposed.
+
+New ones get a number here as they come up (next: D42).
 
 ---
 
@@ -2084,4 +2127,5 @@ New ones get a number here as they come up (next: D40).
 8. Phase 5: design written ("Phase 5 design", D32–D35) and built ("Phase 5 notes"). Next:
    Phase 5b, device profiles for SD cards (D18, D29).
 9. Phase 5 merged and released as v0.5.0 (2026-10-17). Phase 5b: design written
-   ("Phase 5b design", D36–D39), with layouts the user can change (D36).
+   ("Phase 5b design", D36–D41), with layouts the user can change (D36) and BIOS
+   files (D40).
