@@ -23,6 +23,11 @@ pub const TOOLS: &[Tool] = &[
         names: &["dolphin-tool", "DolphinTool"],
         what: "Reads and writes RVZ (GameCube and Wii). It comes with Dolphin.",
     },
+    Tool {
+        id: "innoextract",
+        names: &["innoextract"],
+        what: "Finds a GOG installer's game id and unpacks GOG installers (PC games). From constexpr.org/innoextract.",
+    },
 ];
 
 /// The paths set in Settings › Tools.

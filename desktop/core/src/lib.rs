@@ -28,6 +28,7 @@
 //!
 //! The layout, the phases and every design decision are in docs/PLAN.md.
 
+pub mod addgame;
 pub mod api;
 pub mod archive;
 pub mod audit;
@@ -38,15 +39,19 @@ pub mod cue;
 pub mod dat;
 pub mod export;
 pub mod hash;
+pub mod identify;
 pub mod image;
 pub mod index;
+pub mod launchbox;
 pub mod library;
 pub mod makedat;
 pub mod organise;
+pub mod pcgames;
 pub mod platforms;
 pub mod roots;
 pub mod scan;
 pub mod starter;
+pub mod steam;
 pub mod systems;
 pub mod tools;
 pub mod torrentzip;

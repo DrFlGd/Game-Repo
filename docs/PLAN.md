@@ -1379,6 +1379,161 @@ first, saved as DATs, exported to ES-DE (warned of the limit), updated and check
 
 ---
 
+### Phase 4 design (written 2026-10-17; Jerred asked for it to be built straight away)
+
+Phase 4 brings **PC games** into the library (3.5), adds them to **Steam** as non-Steam
+shortcuts with their artwork, and adds **Add a game…** and **Identify** for one game at a
+time, PC or not (D24).
+
+**The PC games folder (D25)**
+
+- PC games live in one folder, `<library>/PC/` unless Settings › PC games chooses another
+  (library.json `pc.folder`, relative to the library when inside it). Each game is
+  `<Title> (<Year>)/` with `install/`, `patches/`, `extras/`, `dlc/`, an optional
+  `extracted/` and `game.json` (D6). It is not a folder with games (no DAT knows PC
+  games, and hashing every installer on each scan would be slow): the PC games page reads
+  the `game.json` files, which hold everything the app knows about each game.
+- `game.json`: `id` (made once, never changed), `title`, `year`, `source` (gog, steam,
+  retail, other), `version`, `ids` (gog, steam, launchbox…), `details` (developer,
+  publisher, released, genres, description), `files` (path in the game's folder, kind
+  install/patch/extra/dlc, size, CRC32, SHA1, version), `launch` (program, arguments,
+  working folder) and `installed` (a folder outside the library where it's installed).
+  Unknown keys are kept when the app rewrites it.
+- Scraped artwork for a PC game goes in `_library/games/pc/<id>/media/` (D6, D13): cover
+  (portrait), banner (horizontal), hero, logo, icon.
+
+**Import (3.5, D26)**
+
+- *Import…* reads an **inbox** (a folder remembered on this computer, Downloads by
+  default) or the files and folders chosen, as a job: each top-level file or folder is an
+  item, except that a GOG installer's `setup_<slug>…exe` and its `.bin` parts are one
+  item and its `patch_<slug>…` files join it as patches.
+- Each item is classified (GOG installer, installer, MSI, archive, disc image, folder),
+  hashed (CRC32 and SHA1, one read) and identified, best first:
+  1. a `goggame-<id>.info` file (in a folder or an archive): GOG id, name and the
+     program to start;
+  2. `innoextract --gog-game-id` on a GOG installer, when innoextract is found (D14);
+  3. `steam_appid.txt` or `appmanifest_<id>.acf`: Steam app id;
+  4. the name: `setup_<slug>_<version>_(<build>).exe` gives GOG's slug and the version;
+     `Title (Year) [Source] v1.2` gives those;
+  5. a search of the sources (below) with that title, taking a result only when its title
+     is the same (ignoring case and punctuation) and its year agrees, if there is one.
+- Items that need a look say so; *Identify…* settles them. An item whose files are all in
+  a PC game already (by SHA1) is *in the library already* and left out; one with the same
+  GOG or Steam id as a game there goes into that game's folder (a newer installer, a
+  patch) and its `game.json` lists both versions.
+- The import is an Organise change (D26): files are copied (hardlinked on the same
+  drive) by default, or moved if you choose (D5), each checked, with the preview, the
+  journal and Undo; `game.json` is written by the change, and the one it replaces is set
+  aside so Undo puts it back.
+- **Unpack** puts a copy of the game in `extracted/`: ZIP and 7z by the app, a GOG
+  installer by innoextract. The program to start is taken from `goggame-*.info` when
+  there is one, else chosen from the `.exe` files found (*Choose the program…*).
+  *Installed at…* points at an installed copy elsewhere instead. Removing the unpacked
+  copy is a button.
+
+**Identify and the sources (D24, D27)**
+
+- One dialog for any game: a search box (filled from the name), the system, and results
+  from each source in turn (title, year, system, cover, source). Picking one stores the
+  source's id and details in `game.json` (for a ROM game without a DAT match,
+  `_library/games/<system>/<id>/game.json`, keyed by its SHA1) and fetches its artwork.
+- Phase 4's sources need no account: **Steam** (store search and app details), **GOG**
+  (catalogue search and product details), both PC only, and **LaunchBox Games DB**,
+  every system, from its `Metadata.zip`, fetched on request (*Settings › Sources › Get
+  LaunchBox's database*) and kept on this computer as `<data dir>/launchbox.sqlite`,
+  searched there. Their order and which are on are a Settings choice on this computer
+  (config.json `sources`), as their keys will be when Phase 5 adds sources that need one.
+- Every source's address can be changed in config.json (as `dat_source` can), which is
+  how the tests serve their answers locally.
+
+**Add a game… (D24)**
+
+- For a PC game it's Import with one item. For any other system: choose the file (a
+  ROM, an archive, a disc's sheet or image), the system (guessed from its extension;
+  an existing system or a new one) and the folder with games it goes into (the system's,
+  or one chosen), copied or moved. After the change the app scans the file: a DAT match
+  is offered *Name it as the DAT does* (Organise for that game); no match opens Identify.
+
+**Steam (3.4, D28)**
+
+- *Add to Steam…* finds Steam (`HKCU\Software\Valve\Steam\SteamPath`, then the usual
+  folder, or the folder set in Settings) and its users (`userdata/<id>/`, named from
+  `config/loginusers.vdf`). Every PC game with a program to start becomes a non-Steam
+  shortcut: its name, program, working folder, the tag "Game Repo", and its artwork
+  copied to `userdata/<id>/config/grid/` as Steam names it (`<appid>p` portrait,
+  `<appid>` banner, `<appid>_hero`, `<appid>_logo`, `<appid>_icon`). The shortcut's id is
+  Steam's own rule (CRC32 of program and name, with the top bit set), so the same game
+  keeps its id.
+- `shortcuts.vdf` is binary; the app reads it, keeps every shortcut that isn't its own,
+  replaces its own (tagged "Game Repo") with the current list and writes it back. Only
+  while Steam is closed (the app checks and says so); the file is backed up first
+  (`shortcuts.vdf.gamerepo-<time>`, the last five kept), and *Put back the shortcuts as
+  they were* restores the latest backup and removes the artwork it added.
+- Artwork: from Steam's CDN for a game with a Steam id, else GOG's images, else
+  LaunchBox's; fetched once into the game's media folder.
+
+**Not in Phase 4**: running installers (unpack or *Installed at…* instead), emulated
+games in Steam (a launcher command per system, as Steam ROM Manager does), DLC and
+version choice beyond keeping the files, sources that need an account (ScreenScraper,
+IGDB, TheGamesDB: Phase 5), scraped media for ES-DE (Phase 5).
+
+**Decisions proposed for Phase 4** (defaults the build follows unless changed)
+
+- **D25** PC games are in their own folder (`<library>/PC/` by default), listed from
+  their `game.json` files, not scanned as a folder with games.
+- **D26** Import is an Organise change (copy or hardlink by default, move if chosen),
+  with the preview, journal and Undo; duplicates are found by SHA1.
+- **D27** Phase 4's sources are Steam, GOG and LaunchBox (no accounts); their order and
+  LaunchBox's database are kept on this computer.
+- **D28** Steam's shortcuts are written only while Steam is closed, backed up each time,
+  and the app's own are tagged "Game Repo" so the rest are never touched.
+
+### Phase 4 notes (built 2026-10-17)
+
+- **Core**: `pcgames.rs` (D25: the PC games folder, library.json `pc.folder`; `game.json`
+  per game as `PcGame`, unknown keys kept in `extra`; the inbox read into `Item`s: GOG
+  installers grouped with their `.bin` parts and patches, discs with their tracks,
+  folders walked; each hashed, looked inside (a folder's files, a ZIP's names and small
+  files, other archives under 256 MB), then named, then searched; `plan_import` makes the
+  Organise change, D26; `unpack` and `remove_unpacked`), `identify.rs` (D27: the sources,
+  their order in config.json `sources`, every address in `source_urls`; Steam's store
+  search and appdetails, GOG's catalogue and api.gog.com products, LaunchBox; `best` for
+  the import, which checks the year after fetching details since Steam's search has
+  none), `launchbox.rs` (Metadata.zip streamed into `<data dir>/launchbox.sqlite`: games,
+  alternate names, images; scored by words), `steam.rs` (D28: binary VDF read and written
+  back byte for byte, keys read in any case; the shortcut id; Steam's folder from the
+  registry or the usual places; users from `userdata/` and `loginusers.vdf`, the latest
+  sign-in first; shortcuts written with their grid art and a record in
+  `<data dir>/steam/<user>.json`), `addgame.rs` (Add a game… for other systems).
+  `api.rs` routes `pc_*`, `identify_*`, `sources*`, `launchbox_fetch`, `steam_*` and
+  `add_*` to `pc_call`; `organise_run` fetches an import's artwork afterwards
+  (`game.json` keeps the URLs as `art` until then) and scans an add's files, returning
+  what each is (`added`). The command line has `pc`, `identify`, `sources`, `launchbox`,
+  `steam` and `add`.
+- **Checked against the sources' real shapes** (a research pass reading Steam ROM
+  Manager, Heroic, Lutris, Playnite, RomM and innoextract, and the live Steam and GOG
+  answers): Steam's store answers `null` when it's had too many requests, keys appdetails
+  by another id now and then, and HTML-escapes descriptions; many games keep their library
+  art under a hashed folder, which `IStoreBrowseService/GetItems` (no key) names, so that
+  is asked first and the fixed names are the fallback. A `goggame-*.info` for a DLC sits
+  beside the game's (only `gameId == rootGameId` counts) and paths may use `//`;
+  `innoextract --gog-game-id` prints just the id with `--silent`. Steam stopped writing
+  `MostRecent`, so the latest `Timestamp` is the user signed in last.
+- **The page**: PC games (the list, a game's panel with its title, program, Unpack and
+  Identify, Import… and its review list, Add to Steam…), the Identify dialog (which
+  takes the review list's or Add's place and comes back to it), Add a game… on the Audit
+  page's ⋯ menu, Settings › PC games, Sources and Steam, innoextract in Settings › Tools.
+- **Not as designed**: *Installed at…* is `installed` in `game.json` and `pc set`'s
+  program can be any path, but the page has no button for it yet; Steam's *Put back*
+  removes the app's shortcuts and their art (keeping yours) instead of restoring the
+  latest backup, which would lose shortcuts you added since; Add a game… doesn't guess
+  the system from the extension (the Audit page's system is chosen) and its DAT match is
+  named by Rename these on the Misnamed list rather than a button of its own.
+- **To check on a real set** (Jerred): import a few GOG installers and zipped games from
+  an inbox; Identify one; Unpack a GOG installer (with innoextract in the tools folder);
+  Add to Steam with Steam closed, then open Steam and look at the shortcuts' artwork.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -1478,7 +1633,11 @@ first, saved as DATs, exported to ES-DE (warned of the limit), updated and check
   GOG and LaunchBox in Phase 4; ScreenScraper, IGDB and TheGamesDB in Phase 5 (IGDB and
   TheGamesDB moved up from Phase 8); MobyGames stays in Phase 8.
 
-New ones get a number here as they come up (next: D25).
+- **D25–D28** (Phase 4 design): the PC games folder, import as an Organise change,
+  Phase 4's sources, Steam's shortcuts. Proposed defaults, followed in the build
+  ("Phase 4 notes"); Jerred asked for Phase 4 to be built and released on 2026-10-17.
+
+New ones get a number here as they come up (next: D29).
 
 ---
 
@@ -1494,3 +1653,5 @@ New ones get a number here as they come up (next: D25).
 5. Phase 2: design written ("Phase 2 design"); 2a built ("Phase 2a notes"), merged and
    released as v0.2.0; 2b built ("Phase 2b notes").
 6. Phase 3: design written ("Phase 3 design", D21–D23) and built ("Phase 3 notes").
+7. Phase 4: design written ("Phase 4 design", D25–D28) and built ("Phase 4 notes"); 2b, 3
+   and 4 merged and released together, as Jerred asked (2026-10-17). Next: Phase 5.

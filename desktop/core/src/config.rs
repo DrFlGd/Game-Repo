@@ -37,6 +37,26 @@ pub struct AppConfig {
     /// Where each external tool is, when set in Settings › Tools (crate::tools)
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub tools: std::collections::BTreeMap<String, PathBuf>,
+    /// The sources Identify asks, in order, and which are on (Settings › Sources; crate::identify)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<SourceSetting>,
+    /// A source's address, when not its own (crate::identify::URLS)
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub source_urls: std::collections::BTreeMap<String, String>,
+    /// The PC games inbox (Import… reads it; Downloads when not set)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pc_inbox: Option<PathBuf>,
+    /// Steam's folder, when the app shouldn't look for it
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steam_dir: Option<PathBuf>,
+}
+
+/// A source in Settings › Sources: on or off.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct SourceSetting {
+    pub id: String,
+    #[serde(default = "yes")]
+    pub on: bool,
 }
 
 /// How scans read files on this computer (Settings › Folders with games).

@@ -11,6 +11,7 @@ import { importDats, starterDats, reveal, scan } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
 import { organiseDialog, convertDialog, renameMisnamed, setAsideDuplicates } from "./organise.js";
 import { Icon } from "./icons.js";
+import { addGameDialog } from "./pcgames.js";
 
 const PAGE = 200;
 
@@ -118,6 +119,7 @@ export function Audit() {
     { id: "save-report", label: "Save report", icon: "file", disabled: !dat, run: () => saveReport("txt") },
     { id: "save-report-csv", label: "Save report as CSV", icon: "table", disabled: !dat, run: () => saveReport("csv") },
     { sep: true },
+    { id: "add-game", label: "Add a game…", icon: "plus", disabled: !!s.library?.read_only, run: () => addGameDialog({ platform: sum?.dat.platform && sum.dat.platform !== "pc" ? sum.dat.platform : "" }) },
     { id: "make-dat", label: "Make a DAT from a set…", icon: "stack", run: () => ui.set({ dialog: { type: "make-dat" } }) },
     ...(isDesktop() ? [{ id: "import-dats", label: "Import DATs…", icon: "plus", run: () => importDats() }] : []),
   ];

@@ -36,7 +36,7 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting" })[kind] || "Organising";
+const verb = (kind) => ({ aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting", import: "Importing", add: "Adding" })[kind] || "Organising";
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
 export const organiseDialog = (opts) => ui.set({ dialog: { type: "organise", ...opts } });
@@ -99,7 +99,8 @@ export async function offerInterrupted() {
   } catch { /* Settings › History offers it too */ }
 }
 
-/** Run a planned change, then say what it did, with Undo. */
+/** Run a planned change, then say what it did, with Undo. Resolves with the job's result
+ *  (null when it failed). */
 export async function runPlan(plan) {
   try {
     const { job } = await api("organise_run", { id: plan.id });
@@ -109,10 +110,13 @@ export async function runPlan(plan) {
     if (done.error) throw new Error(done.error);
     const r = done.result || {};
     const failed = r.failed?.length ? ` ${plural(r.failed.length, "step", "steps")} failed: ${r.failed[0].error}` : "";
-    const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}`;
+    const art = r.art?.length ? ` Artwork for ${plural(r.art.length, "game", "games")}.` : "";
+    const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}${art}`;
     undoable(text, () => undoChange(r.id), 15000, [{ label: "History", run: () => { location.hash = "#/settings"; setTimeout(() => document.getElementById("settings-history")?.scrollIntoView(), 200); } }]);
+    return r;
   } catch (e) {
     toast(`Couldn't finish it: ${e.message || e}`, 10000);
+    return null;
   }
 }
 

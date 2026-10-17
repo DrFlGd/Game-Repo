@@ -2,7 +2,7 @@
 // a button that does it), { type: "confirm", … } (before something that can't
 // be undone), "dat-platform" (which system a DAT is for), "make-dat" (a DAT
 // from a scanned set), "organise" and "convert" (organise.js), "system"
-// (systems.js) or a collection's (collections.js). The pages that need forms of their own add their types here.
+// (systems.js), a collection's (collections.js) or the PC games' and Identify's (pcgames.js). The pages that need forms of their own add their types here.
 import { html, useState, useLayoutEffect, useRef } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -11,24 +11,25 @@ import { importDats, makeDat } from "./games.js";
 import { OrganiseDialog, ConvertDialog } from "./organise.js";
 import { SystemDialogs, resolveSystem, idFromName } from "./systems.js";
 import { CollectionDialogs } from "./collections.js";
+import { PcDialogs } from "./pcgames.js";
 
 export const close = () => ui.set({ dialog: null });
 
-/** A dialog: Esc or Cancel closes it; `danger` makes the button red (it deletes).
+/** A dialog: Esc or Cancel closes it (`onDismiss` and `onCancel` say otherwise); `danger` makes the button red (it deletes).
  *  Esc and the first box work as soon as it shows (a layout effect, not after a paint). */
-export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger = false, cancelLabel = "Cancel", onCancel = close, wide = false, children }) {
+export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger = false, cancelLabel = "Cancel", onCancel = close, onDismiss = close, wide = false, children }) {
   const form = useRef(null);
   useLayoutEffect(() => {
-    const key = (e) => { if (e.key === "Escape") close(); };
+    const key = (e) => { if (e.key === "Escape") onDismiss(); };
     addEventListener("keydown", key);
     const f = form.current;
     if (f && !f.contains(document.activeElement)) (f.querySelector("input:not([type=hidden]):not([disabled]), select, textarea") || f).focus();
     return () => removeEventListener("keydown", key);
   }, []);
-  return html`<div class="dialog-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget) close(); }}>
+  return html`<div class="dialog-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget) onDismiss(); }}>
     <form class=${wide ? "dialog wide" : "dialog"} id=${id} ref=${form} tabindex="-1" role="dialog" aria-modal="true" aria-label=${title} onSubmit=${(e) => { e.preventDefault(); onSubmit(); }}>
       <div class="dialog-head"><h2>${title}</h2>
-        <button type="button" class="ghost" aria-label="Close" title="Close (Esc)" onClick=${close}>${Icon.close(15)}</button></div>
+        <button type="button" class="ghost" aria-label="Close" title="Close (Esc)" onClick=${onDismiss}>${Icon.close(15)}</button></div>
       ${children}
       <div class="dialog-foot">
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
@@ -179,5 +180,5 @@ export function Dialogs() {
   if (dialog.type === "make-dat") return html`<${MakeDatDialog} ...${dialog} />`;
   if (dialog.type === "organise") return html`<${OrganiseDialog} key=${dialog.plan?.id || "new"} ...${dialog} />`;
   if (dialog.type === "convert") return html`<${ConvertDialog} ...${dialog} />`;
-  return SystemDialogs({ dialog }) || CollectionDialogs({ dialog });
+  return SystemDialogs({ dialog }) || CollectionDialogs({ dialog }) || PcDialogs({ dialog });
 }

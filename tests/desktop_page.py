@@ -18,7 +18,9 @@ aside duplicates, Organise into TorrentZips in another folder, Naming, and the
 History with Undo and emptying what was set aside; (Phase 2b) a cue/bin set and an
 ISO audited against disc DATs, Organise keeping disc images whole, Convert… to CHD
 in place, Extract to cue/bin into a folder, Undo of both, Preferred formats, and
-Settings › Tools with a stand-in for dolphin-tool;
+Settings › Tools with a stand-in for dolphin-tool; (Phase 3) collections, their
+properties, DATs and exports; (Phase 4) PC games imported from an inbox and identified
+from stand-ins for Steam and GOG, unpacked, added to a stand-in Steam, and Add a game…;
 renaming the library, with Undo; opening a folder that already holds games
 leaves them as they were, and switching back from the recent list; the theme
 and skin follow the settings and are kept; a library from a newer app opens
@@ -32,11 +34,15 @@ import functools
 import http.server
 import json
 import shutil
+import struct
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
+import zipfile
+import zlib
 from pathlib import Path
 
 from playwright.async_api import async_playwright
@@ -83,8 +89,64 @@ def starter_source():
     (home / "config/config.json").write_text(json.dumps({"dat_source": f"http://127.0.0.1:{srv.server_port}/no-intro/"}))
 
 
+def png(w, h, rgb):
+    """A real PNG of one colour (the sources' artwork in the tests)."""
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    rows = b"".join(b"\0" + bytes(rgb) * w for _ in range(h))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
+COVER, WIDE = png(60, 90, (40, 90, 160)), png(184, 69, (200, 140, 40))
+
+
+def sources_stand_in():
+    """Local stand-ins for Steam's store and GOG's catalogue (Identify's sources), with artwork."""
+    steam_games = [{"type": "app", "name": "Alpha Strike", "id": 4000}, {"type": "app", "name": "Zeta Quest", "id": 4001}]
+    answers = {
+        "/api/appdetails": lambda q: {q["appids"]: {"success": True, "data": {"type": "game", "steam_appid": int(q["appids"]),
+            "name": next(g["name"] for g in steam_games if str(g["id"]) == q["appids"]), "developers": ["Stand-in Soft"],
+            "short_description": "A game the test made up.", "release_date": {"date": "Mar 3, 2001" if q["appids"] == "4000" else "Feb 24, 1999"}}}},
+        "/v1/catalog": lambda q: {"products": [{"id": "1207658930", "slug": "zeta_quest", "title": "Zeta Quest", "releaseDate": "1999.02.24", "coverVertical": f"{base}/img/zeta.jpg"}]
+            if "zeta" in q.get("query", "").lower() else []},
+        "/products/1207658930": lambda q: {"id": 1207658930, "title": "Zeta Quest", "slug": "zeta_quest", "release_date": "1999-02-24T00:00:00+0200",
+            "images": {"background": f"{base}/img/zeta-bg.jpg", "logo": f"{base}/img/zeta-logo.png"}, "description": {"lead": "<p>Quest <b>on</b>.</p>"}},
+    }
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            path, _, query = self.path.partition("?")
+            q = dict(urllib.parse.parse_qsl(query))
+            if path == "/api/storesearch/":
+                words = q.get("term", "").lower().split()
+                body = json.dumps({"items": [g for g in steam_games if all(w in g["name"].lower() for w in words)]}).encode()
+            elif path in answers:
+                body = json.dumps(answers[path](q)).encode()
+            elif path.endswith(".png") or path.endswith(".jpg"):
+                body = COVER if "600x900" in path or path.endswith("zeta.jpg") else WIDE
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    base = f"http://127.0.0.1:{srv.server_port}"
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return {"steam_store": base, "steam_api": base, "steam_cdn": f"{base}/cdn", "gog_catalog": base, "gog_api": base,
+            "launchbox_zip": f"{base}/Metadata.zip", "launchbox_images": f"{base}/lb"}
+
+
 def start_server():
     starter_source()
+    cfg = json.loads((home / "config/config.json").read_text())
+    cfg["source_urls"] = sources_stand_in()
+    (home / "config/config.json").write_text(json.dumps(cfg))
     log = open(out / "serve.log", "w")
     p = subprocess.Popen([a.cli, "serve", "--ui", a.ui, "--home", str(home), "--port", str(a.port)], stdout=log, stderr=log)
     for _ in range(100):
@@ -142,7 +204,7 @@ async def main():
             made = (library / "_library/library.json").is_file() and sorted(x.name for x in library.iterdir()) == ["_library"]
             status = await pg.inner_text(".statusbar")
             check("the first start asks where the library goes and makes only _library/ there",
-                  "Where" in asked and coming_off == 2 and made and str(library) in status, (asked, made, status))
+                  "Where" in asked and coming_off == 1 and made and str(library) in status, (asked, made, status))
 
             # 2. the index: made on this computer, under the data folder, not in the library
             await pg.wait_for_selector("#home-index #index-tables")
@@ -667,6 +729,116 @@ async def main():
             check("a card's size is its label's (32 GB card: 32,000,000,000 bytes), and the collection fits",
                   stored.get("size_limit") == 32_000_000_000 and "to spare" in await pg.inner_text("#collection-fit"), stored.get("size_limit"))
             await pg.screenshot(path=str(out / "23-exports.png"), full_page=True)
+
+            # Phase 4: PC games. The inbox (set in Settings), Import… with its review list
+            # (one found by its goggame file, one by a search of the sources), the preview,
+            # each game's folder, artwork, Unpack and its program, Identify, Add to Steam
+            inbox = home / "Inbox"
+            zeta = inbox / "Zeta Quest (1999)"
+            (zeta / "bin").mkdir(parents=True)
+            (zeta / "bin/zeta.exe").write_bytes(b"MZ zeta")
+            (zeta / "goggame-1207658930.info").write_text(json.dumps({"gameId": "1207658930", "rootGameId": "1207658930", "name": "Zeta Quest",
+                "playTasks": [{"category": "game", "isPrimary": True, "path": "bin\\zeta.exe", "type": "FileTask"}]}))
+            with zipfile.ZipFile(inbox / "Alpha Strike.zip", "w") as z:
+                z.writestr("Alpha Strike/alpha.exe", b"MZ alpha")
+                z.writestr("Alpha Strike/data/level1.dat", b"level one")
+            steam = home / "Steam"
+            (steam / "userdata/22222/config").mkdir(parents=True)
+            (steam / "config").mkdir(parents=True)
+            (steam / "config/loginusers.vdf").write_text('"users"\n{\n\t"76561197960287950"\n\t{\n\t\t"AccountName"\t\t"tester"\n\t\t"PersonaName"\t\t"Tester"\n\t\t"Timestamp"\t\t"1790000000"\n\t}\n}\n')
+            await pg.click("#nav-pc")
+            await pg.wait_for_selector("#pc-empty")
+            await pg.click('.sidebar a[href="#/settings"]')
+            await pg.wait_for_selector("#settings-pc-inbox")
+            pick(inbox)
+            await pg.click('#settings-pc-inbox [data-action="choose"]')
+            await pg.wait_for_function("(p) => document.querySelector('#pc-inbox-path')?.textContent === p", arg=str(inbox))
+            pick(steam)
+            await pg.click("#steam-choose")
+            await pg.wait_for_function("(p) => document.querySelector('#steam-path')?.textContent === p", arg=str(steam))
+            check("Settings keeps the PC games inbox and Steam's folder, and lists Identify's sources",
+                  await pg.locator("#sources li").count() == 3 and str(library / "PC") in await pg.inner_text("#pc-folder-path"), await pg.inner_text("#settings-sources"))
+            await pg.click("#nav-pc")
+            await pg.click("#pc-first")
+            await pg.wait_for_selector("#pc-items li", timeout=30000)
+            items = await pg.eval_on_selector_all("#pc-items li", "els => els.map(e => [e.querySelector('.pc-item-title').value, e.dataset.status, e.querySelector('.pc-item-meta').textContent])")
+            check("Import… reads the inbox: one game found by its goggame file, the other by a search of the sources",
+                  sorted(i[0] for i in items) == ["Alpha Strike", "Zeta Quest"] and all(i[1] == "ready" for i in items)
+                  and any("goggame" in i[2] and "gog 1207658930" in i[2] for i in items) and any("steam 4000" in i[2] and "search" in i[2] for i in items), items)
+            await pg.screenshot(path=str(out / "24-pc-import.png"))
+            await pg.click("#pc-import-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-totals")
+            await pg.click("#pc-import-dialog button[type=submit]")
+            said = await toast_text(pg, "Import 2 PC games", timeout=30000)
+            await pg.wait_for_selector("#pc-list li:nth-child(2)")
+            made = sorted(x.name for x in (library / "PC").iterdir()) if (library / "PC").is_dir() else []
+            alpha_dir = library / "PC/Alpha Strike (2001)"
+            alpha = json.loads((alpha_dir / "game.json").read_text()) if (alpha_dir / "game.json").exists() else {}
+            art = list((library / "_library/games/pc").glob("*/media/cover.*"))
+            check("each PC game gets its own folder with a game.json, and the artwork the sources offered",
+                  made == ["Alpha Strike (2001)", "Zeta Quest (1999)"] and alpha.get("ids") == {"steam": "4000"} and (alpha_dir / "install/Alpha Strike.zip").is_file()
+                  and (library / "PC/Zeta Quest (1999)/extracted/bin/zeta.exe").is_file() and len(art) == 1 and (inbox / "Alpha Strike.zip").is_file(), (said, made, alpha, art))
+            await pg.click('#pc-list .pc-row:has-text("Alpha Strike")')
+            await pg.wait_for_selector('#pc-unpack-section [data-action="unpack"]')
+            await pg.click('#pc-unpack-section [data-action="unpack"]')
+            await toast_text(pg, "Unpacked")
+            await pg.wait_for_selector("#pc-program")
+            programs = await pg.eval_on_selector_all("#pc-program option", "els => els.map(e => e.value)")
+            await pg.select_option("#pc-program", "extracted/Alpha Strike/alpha.exe")
+            await pg.click("#pc-program-form button[type=submit]")
+            await toast_text(pg, "Saved the program")
+            alpha = json.loads((alpha_dir / "game.json").read_text())
+            check("Unpack puts a game's archive in its extracted folder, and its program is chosen from what's there",
+                  "extracted/Alpha Strike/alpha.exe" in programs and (alpha_dir / "extracted/Alpha Strike/data/level1.dat").is_file()
+                  and alpha["launch"]["program"] == "extracted/Alpha Strike/alpha.exe", (programs, alpha.get("launch")))
+            await pg.screenshot(path=str(out / "25-pc-game.png"))
+            await pg.click('#pc-list .pc-row:has-text("Zeta Quest")')
+            await pg.click("#pc-identify")
+            await pg.wait_for_selector('#identify-results li[data-source="gog"]')
+            sources = await pg.eval_on_selector_all("#identify-results li", "els => els.map(e => e.dataset.source)")
+            await pg.screenshot(path=str(out / "26-identify.png"))
+            await pg.click('#identify-results li[data-source="gog"] [data-action="pick"]')
+            await pg.wait_for_selector("#identify-dialog", state="detached")
+            await pg.wait_for_selector("#pc-panel .pc-description")
+            zeta_json = json.loads((library / "PC/Zeta Quest (1999)/game.json").read_text())
+            zeta_media = sorted(x.name for x in (library / f"_library/games/pc/{zeta_json['id']}/media").iterdir())
+            check("Identify searches the sources in order; the pick keeps its id and details with the game and gets its artwork",
+                  sources == ["steam", "gog"] and zeta_json["ids"].get("gog") == "1207658930" and zeta_json["details"].get("description", "").startswith("Quest")
+                  and "cover.png" in zeta_media and "hero.png" in zeta_media,
+                  (sources, zeta_json.get("details"), zeta_media))
+            await pg.click("#pc-steam")
+            await pg.wait_for_selector("#steam-preview")
+            preview = await pg.inner_text("#steam-preview")
+            await pg.screenshot(path=str(out / "26b-steam.png"))
+            await pg.click("#steam-dialog button[type=submit]")
+            said = await toast_text(pg, "Wrote 2 shortcuts")
+            vdf = (steam / "userdata/22222/config/shortcuts.vdf").read_bytes() if (steam / "userdata/22222/config/shortcuts.vdf").exists() else b""
+            grid = sorted(x.name for x in (steam / "userdata/22222/config/grid").iterdir()) if (steam / "userdata/22222/config/grid").is_dir() else []
+            check("Add to Steam writes the PC games as non-Steam shortcuts, tagged as the app's, with their artwork in Steam's grid",
+                  "2 shortcuts to add" in preview and b"Zeta Quest" in vdf and b"Alpha Strike" in vdf and b"Game Repo" in vdf and any(g.endswith("p.png") for g in grid), (preview, said, grid))
+
+            # Add a game… (a system's ROM from outside its folders), scanned and checked against its DAT
+            downloads = home / "Downloads"
+            downloads.mkdir()
+            (downloads / "alpha-eu.gb").write_bytes(make_fixtures.rom(11, 32768))
+            await pg.click('.sidebar a[href="#/audit"]')
+            await pg.wait_for_selector("#audit-menu")
+            await pg.click("#audit-menu")
+            await pg.click('#context-menu [data-action="add-game"]')
+            await pg.wait_for_selector("#add-game-dialog")
+            await pg.select_option("#add-platform", "gb")
+            pick(downloads / "alpha-eu.gb")
+            await pg.click("#add-pick-files")
+            await pg.wait_for_function("() => document.querySelector('#add-files')?.textContent.includes('alpha-eu.gb') && document.querySelector('#add-into')?.value")
+            await pg.click("#add-game-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-totals")
+            await pg.click("#add-game-dialog button[type=submit]")
+            await pg.wait_for_selector("#add-results li", timeout=30000)
+            row = await pg.inner_text("#add-results li")
+            check("Add a game… copies a ROM into a folder with games, scans it and says which DAT game it is",
+                  "Alpha (Europe)" in row and (fx / "Roms/alpha-eu.gb").is_file() and (downloads / "alpha-eu.gb").is_file(), row)
+            await pg.screenshot(path=str(out / "27-add-game.png"))
+            await pg.click("#add-results-dialog button[type=submit]")
             await pg.click('.sidebar a[href="#/settings"]')
             await pg.wait_for_selector("#theme-select")
 
@@ -702,7 +874,7 @@ async def main():
             await pg.wait_for_selector("#about-versions")
             about = await pg.inner_text("#about-page")
             check("About shows the version, what's coming and how a library is laid out",
-                  "Game Repo" in about and "Phase 4" in about and "_library/" in about and "game.json" in about, about[:200])
+                  "Game Repo" in about and "Phase 5" in about and "_library/" in about and "game.json" in about, about[:200])
             await pg.screenshot(path=str(out / "04-about.png"), full_page=True)
 
             # 10. a library made by a newer app opens read-only

@@ -7,15 +7,6 @@ import { Icon } from "./icons.js";
 import { routeHash } from "./context.js";
 
 export const COMING = {
-  import: {
-    title: "PC games", icon: "monitor", phase: 4,
-    lead: "Bring zipped PC games and installers into one layout.",
-    points: [
-      "Drop archives and installers in an inbox; the app works out what each game is (GOG ids, names and years) and asks when it isn't sure.",
-      "Each game gets its own folder: PC/<Title> (<Year>)/ with install, extracted, patches and extras, and a game.json.",
-      "Add your PC games to Steam as non-Steam shortcuts, with their artwork.",
-    ],
-  },
   scraper: {
     title: "Metadata", icon: "scrape", phase: 5,
     lead: "Fill in each game's details, pictures, videos and manuals from online sources such as ScreenScraper.",
