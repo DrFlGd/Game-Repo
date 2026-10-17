@@ -44,6 +44,36 @@ pub struct Rules {
     pub search: String,
     /// Only games in these DATs (by DAT name), by name or by a ROM's hashes
     pub from_dats: Vec<String>,
+    /// Only games with these details (the Library page's filters, Phase 6)
+    #[serde(skip_serializing_if = "Details::is_empty")]
+    pub details: Details,
+}
+
+/// A collection's rules by the games' details, as the Library page filters them: values
+/// of one OR'd, the rules AND'd.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Details {
+    /// Words in the title, name, description, developer or publisher
+    pub search: String,
+    pub genre: Vec<String>,
+    pub decade: Vec<i64>,
+    pub developer: Vec<String>,
+    pub publisher: Vec<String>,
+    /// At least this many players
+    pub players: i64,
+    /// At least this rating (0 to 1)
+    pub rating: f64,
+    /// pictures | description | manual | video | documents
+    pub has: Vec<String>,
+    /// Only games needing a look
+    pub look: bool,
+}
+
+impl Details {
+    pub fn is_empty(&self) -> bool {
+        *self == Details::default()
+    }
 }
 
 impl Default for Rules {
@@ -58,6 +88,7 @@ impl Default for Rules {
             exclude: DEFAULT_EXCLUDE.iter().map(|s| s.to_string()).collect(),
             search: String::new(),
             from_dats: vec![],
+            details: Details::default(),
         }
     }
 }
@@ -267,8 +298,15 @@ pub fn work_out(ix: &Index, lib: &Library, c: &Collection) -> Result<Arc<Worked>
     for p in &systems {
         dats.push((p.clone(), audit::primary_dat(conn, lib, p)?));
     }
+    // rules by details read the library's rows (browse.rs), brought up to date first
+    let library = if c.rules.details.is_empty() {
+        String::new()
+    } else {
+        crate::browse::refresh(ix, lib)?;
+        conn.query_row("SELECT COALESCE(group_concat(value, ','), '') FROM index_meta WHERE key LIKE 'library:%'", [], |r| r.get(0))?
+    };
     // (its name and size limit don't change its games)
-    let key = format!("{}|{}|{:?}|{:?}|{}|{dats:?}", ix.path().display(), serde_json::to_string(&c.rules)?, c.added, c.removed, audit::generation(conn)?);
+    let key = format!("{}|{}|{:?}|{:?}|{}|{dats:?}|{library}", ix.path().display(), serde_json::to_string(&c.rules)?, c.added, c.removed, audit::generation(conn)?);
     if let Some((k, w)) = LAST.lock().unwrap().as_ref() {
         if *k == key {
             return Ok(w.clone());
@@ -378,8 +416,10 @@ fn work_out_fresh(conn: &Connection, c: &Collection, dats: &[(String, Option<i64
             }
             None => HashSet::new(),
         };
+        let with_details = if r.details.is_empty() { None } else { Some(crate::browse::matching(conn, platform, &r.details)?) };
         let passes = |g: &Row| -> bool {
             (r.include == "all" || g.status == "have")
+                && with_details.as_ref().is_none_or(|d| d.contains(&g.id))
                 && !split(&g.flags).any(|f| exclude.contains(f))
                 && (langs.is_empty() || g.languages.is_empty() || split(&g.languages).any(|l| langs.contains(&l.to_ascii_lowercase())))
                 && (search.is_empty() || g.name.to_lowercase().contains(&search))

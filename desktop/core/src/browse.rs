@@ -487,6 +487,30 @@ fn where_of(q: &Query, keys: &Option<Vec<String>>, skip: &str) -> (String, Vec<S
     (if w.is_empty() { "1".into() } else { w.join(" AND ") }, p)
 }
 
+/// The DAT games of a system with these details (a collection's rules by details).
+pub(crate) fn matching(conn: &Connection, platform: &str, d: &collection::Details) -> Result<HashSet<i64>> {
+    let q = Query {
+        all: true,
+        platform: vec![platform.to_string()],
+        search: d.search.clone(),
+        genre: d.genre.clone(),
+        decade: d.decade.clone(),
+        developer: d.developer.clone(),
+        publisher: d.publisher.clone(),
+        players: d.players,
+        rating: d.rating,
+        has: d.has.clone(),
+        look: d.look,
+        ..Default::default()
+    };
+    let (w, p) = where_of(&q, &None, "");
+    let ids = conn
+        .prepare(&format!("SELECT l.dat_game FROM library l WHERE {w} AND l.dat_game IS NOT NULL"))?
+        .query_map(params_from_iter(p.iter()), |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(ids)
+}
+
 fn group_col(group: &str) -> Option<&'static str> {
     match group {
         "system" => Some("l.platform"),
@@ -996,10 +1020,62 @@ mod tests {
         let set = meta::merge_details(&mut v, &meta::Found { source: "test", id: "1", title: Some("Delta!"), year: Some(1995), details: &found }, &["developer".into(), "publisher".into()], true);
         assert_eq!(set, ["publisher"]);
         assert_eq!((v["details"]["developer"].as_str(), v["year"].as_i64(), v["title"].as_str()), (Some("Acme Soft"), Some(1991), Some("Delta!")));
+        // a collection by details keeps up with them
+        let mut rules = collection::Rules::default();
+        rules.platforms = vec!["gb".into()];
+        rules.details.genre = vec!["Puzzle".into()];
+        rules.details.decade = vec![1990];
+        let c = collection::Collection { id: String::new(), name: "Puzzles".into(), rules, added: vec![], removed: vec![], size_limit: None, created: String::new(), modified: String::new() };
+        let names = |c: &collection::Collection| collection::work_out(&ix, &lib, c).unwrap().games().map(|g| g.name.clone()).collect::<Vec<_>>();
+        assert_eq!(names(&c), ["Delta (World)"]);
+        edit(&ix, &lib, "gb/Epsilon (Japan) (En,Ja)", "genres", Some(&json!(["Puzzle"]))).unwrap();
+        edit(&ix, &lib, "gb/Epsilon (Japan) (En,Ja)", "year", Some(&json!(1994))).unwrap();
+        assert_eq!(names(&c), ["Delta (World)", "Epsilon (Japan) (En,Ja)"]);
+        let saved = collection::save(&lib, c).unwrap();
+        assert_eq!(collection::load(&lib, &saved.id).unwrap().rules.details.genre, ["Puzzle"]);
         // the mark taken off: the next scrape may replace it
         let g = edit(&ix, &lib, key, "developer", None).unwrap();
         assert_eq!(g["edited"], json!(["genres", "year", "players", "rating"]));
         assert_eq!(g["details"]["developer"], "Acme Soft");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_game_folder_is_renamed_to_its_new_dat_name_as_a_change_that_can_be_undone() {
+        use crate::audit::tests::{dat_xml, rom, rom_xml};
+        let (dir, lib, ix) = fixture("browse-rename");
+        meta::sync(&ix, &lib).unwrap();
+        refresh(&ix, &lib).unwrap();
+        for k in ["gb/Delta (World)", "gb/Beta (Japan)"] {
+            edit(&ix, &lib, k, "developer", Some(&json!("Acme"))).unwrap();
+        }
+        let plan = meta::rename_folders_plan(&ix, &lib).unwrap();
+        assert_eq!((plan.ops.len(), plan.in_place), (0, 2));
+        // the DAT's next version renames Delta
+        let games = vec![("Delta (World) (Rev 1)", None, rom_xml("Delta (World) (Rev 1).gb", &rom(8, 1024))), ("Beta (Japan)", None, rom_xml("Beta (Japan).gb", &rom(4, 1024)))];
+        std::fs::write(dir.join("gb2.dat"), dat_xml("Nintendo - Game Boy", "20261101", &games)).unwrap();
+        crate::dat::import(&ix, &lib, &dir.join("gb2.dat"), &Map::new()).unwrap();
+        let gb: i64 = ix.conn().query_row("SELECT id FROM dats WHERE name = 'Nintendo - Game Boy' AND current = 1", [], |r| r.get(0)).unwrap();
+        audit::choose_dat(ix.conn(), &lib, gb).unwrap();
+        // until it's renamed, the folder is still found by its ROMs
+        refresh(&ix, &lib).unwrap();
+        let g = game(&ix, &lib, "gb/Delta (World) (Rev 1)").unwrap();
+        assert_eq!(g["details"]["developer"], "Acme");
+        let plan = meta::rename_folders_plan(&ix, &lib).unwrap();
+        assert_eq!((plan.ops.len(), plan.in_place, plan.label.as_str()), (1, 1, "Renamed 1 game's folder to its DAT name"));
+        assert!(plan.ops[0].to.ends_with("Delta (World) (Rev 1)"));
+        let old = PathBuf::from(&plan.ops[0].from[0].path);
+        let none = std::sync::atomic::AtomicBool::new(false);
+        let r = crate::organise::run(&ix, &lib, &plan, &none, &mut |_| {}).unwrap();
+        assert_eq!(r["done"], 1);
+        assert!(!old.exists() && Path::new(&plan.ops[0].to).join("game.json").is_file());
+        meta::sync(&ix, &lib).unwrap();
+        refresh(&ix, &lib).unwrap();
+        assert_eq!(game(&ix, &lib, "gb/Delta (World) (Rev 1)").unwrap()["folder"], "_library/games/gb/Delta (World) (Rev 1)");
+        assert!(meta::rename_folders_plan(&ix, &lib).unwrap().ops.is_empty());
+        // and back
+        crate::organise::undo(&ix, &lib, &plan.id, &none, &mut |_| {}).unwrap();
+        assert!(old.join("game.json").is_file());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

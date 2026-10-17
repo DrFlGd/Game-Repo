@@ -798,6 +798,18 @@ impl App {
                 crate::tools::configure(&cfg.tools);
                 j(tokio::task::spawn_blocking(crate::tools::list).await.map_err(|e| e.to_string())?)
             }
+            "organise_rename_folders" => {
+                // game folders to their DAT's new names (D45)
+                let lib = self.library()?;
+                j(self
+                    .with_index(move |ix| {
+                        crate::meta::sync(ix, &lib)?;
+                        let plan = crate::meta::rename_folders_plan(ix, &lib)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
             "organise_duplicates" => {
                 let lib = self.library()?;
                 let dat_id = args["dat"].as_i64().ok_or("missing dat")?;

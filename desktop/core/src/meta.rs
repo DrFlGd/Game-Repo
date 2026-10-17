@@ -473,6 +473,88 @@ pub fn edit_dir(ix: &Index, lib: &Library, dir: &Path, field: &str, value: Optio
     write_game(ix, lib, dir, &v)
 }
 
+/// The game folders whose names are the old names of their games, after a DAT renamed
+/// them (D45): a change renaming each to its game's name in the DAT in use, with a preview
+/// and Undo. A folder is its game's by its ROMs; one whose ROMs are several games', or
+/// whose new name is taken, is left (and said why).
+pub fn rename_folders_plan(ix: &Index, lib: &Library) -> Result<crate::organise::Plan> {
+    use crate::organise::{Op, Plan, Src};
+    lib.writable()?;
+    let conn = ix.conn();
+    let platforms: Vec<String> = conn.prepare("SELECT DISTINCT platform FROM meta_games WHERE platform != 'pc' ORDER BY platform")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let (mut ops, mut left, mut in_place) = (vec![], vec![], 0);
+    let mut taken: HashSet<PathBuf> = HashSet::new();
+    for p in &platforms {
+        let Some(dat) = crate::audit::primary_dat(conn, lib, p)? else { continue };
+        // each folder with exactly a DAT game's ROMs, and the games it's
+        let mut q = conn.prepare(
+            "WITH fv AS (SELECT r.game_id, mr.folder, COUNT(*) AS n FROM dat_roms r JOIN meta_roms mr ON mr.crc32 = r.crc32 AND mr.size = r.size
+                         JOIN meta_games mg ON mg.folder = mr.folder AND mg.platform = ?2 WHERE r.dat_id = ?1 GROUP BY r.game_id, mr.folder),
+                  gr AS (SELECT game_id, COUNT(*) AS n FROM dat_roms WHERE dat_id = ?1 AND crc32 IS NOT NULL AND size IS NOT NULL GROUP BY game_id),
+                  fr AS (SELECT folder, COUNT(*) AS n FROM meta_roms GROUP BY folder)
+             SELECT fv.folder, g.name FROM fv JOIN gr ON gr.game_id = fv.game_id AND gr.n = fv.n JOIN fr ON fr.folder = fv.folder AND fr.n = fv.n
+             JOIN dat_games g ON g.id = fv.game_id ORDER BY fv.folder, g.name",
+        )?;
+        let mut by: Vec<(String, Vec<String>)> = vec![];
+        for x in q.query_map(params![dat, p], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+            let (f, g) = x?;
+            match by.last_mut() {
+                Some((lf, gs)) if *lf == f => gs.push(g),
+                _ => by.push((f, vec![g])),
+            }
+        }
+        for (folder, games) in by {
+            let dir = lib.resolve(&folder)?;
+            let now = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            if games.iter().any(|g| safe_name(g) == now) {
+                in_place += 1;
+                continue;
+            }
+            if games.len() > 1 {
+                left.push(json!({ "path": dir.display().to_string(), "why": format!("Its ROMs are those of {} games in the DAT ({}), so it keeps its name.", games.len(), games.join(", ")) }));
+                continue;
+            }
+            let to = dir.with_file_name(safe_name(&games[0]));
+            if to.exists() || !taken.insert(to.clone()) {
+                left.push(json!({ "path": dir.display().to_string(), "why": format!("A folder called {} is there already.", safe_name(&games[0])) }));
+                continue;
+            }
+            ops.push(Op {
+                op: "rename".into(),
+                game: games[0].clone(),
+                to: to.display().to_string(),
+                from: vec![Src { file_id: 0, root: String::new(), rel: folder.clone(), path: dir.display().to_string(), member: None, size: 0, crc32: String::new(), sha1: None }],
+                names: vec![],
+                aside: vec![],
+                size: 0,
+                note: Some(format!("was {now}")),
+            });
+        }
+    }
+    let n = ops.len();
+    Ok(Plan {
+        id: new_id(),
+        created: now(),
+        kind: "folders".into(),
+        label: format!("Renamed {n} game{} folder{} to {} DAT name{}", if n == 1 { "'s" } else { "s'" }, if n == 1 { "" } else { "s" }, if n == 1 { "its" } else { "their" }, if n == 1 { "" } else { "s" }),
+        dat: Value::Null,
+        platform: if platforms.len() == 1 { platforms[0].clone() } else { String::new() },
+        mode: "rename".into(),
+        format: "keep".into(),
+        out: Some(games_root(lib).display().to_string()),
+        space: vec![],
+        games: n,
+        ops,
+        in_place,
+        conflicts: vec![],
+        duplicates: vec![],
+        left,
+        new_root: None,
+        present: vec![],
+        export: None,
+    })
+}
+
 /// Put what a scrape (or Identify) found into a game's `game.json`.
 pub struct Found<'a> {
     pub source: &'a str,
