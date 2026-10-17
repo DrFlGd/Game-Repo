@@ -1,0 +1,103 @@
+[build-dependencies.cfg_aliases]
+version = "0.2.1"
+
+[dependencies.bitflags]
+version = "2.3.3"
+
+[dependencies.cfg-if]
+version = "1.0"
+
+[dependencies.libc]
+features = ["extra_traits"]
+version = "0.2.186"
+
+[dependencies.memoffset]
+optional = true
+version = "0.9"
+
+[dependencies.pin-utils]
+optional = true
+version = "0.1.0"
+
+[dev-dependencies.assert-impl]
+version = "0.1"
+
+[dev-dependencies.parking_lot]
+version = "0.12"
+
+[dev-dependencies.rand]
+version = "0.9"
+
+[dev-dependencies.semver]
+version = "1.0.7"
+
+[dev-dependencies.tempfile]
+version = "3.7.1"
+
+[features]
+acct = []
+aio = ["pin-utils"]
+default = []
+dir = ["fs"]
+env = []
+event = ["poll"]
+fanotify = []
+feature = []
+fs = []
+hostname = []
+inotify = []
+ioctl = []
+kmod = []
+mman = []
+mount = ["uio"]
+mqueue = ["fs"]
+net = ["socket"]
+personality = []
+poll = []
+process = []
+pthread = []
+ptrace = ["process"]
+quota = []
+reboot = []
+resource = []
+sched = ["process"]
+signal = ["process"]
+socket = ["memoffset"]
+syslog = []
+term = []
+time = []
+ucontext = ["signal"]
+uio = []
+user = ["feature"]
+zerocopy = ["fs", "uio"]
+
+[lib]
+path = "src/lib.rs"
+
+[package]
+autobenches = false
+autobins = false
+autoexamples = false
+autolib = false
+autotests = false
+categories = ["os::unix-apis"]
+description = "Rust friendly bindings to *nix APIs"
+edition = "2021"
+include = ["build.rs", "src/**/*", "test/**/*", "LICENSE", "README.md", "CHANGELOG.md"]
+license = "MIT"
+name = "nix"
+readme = "README.md"
+repository = "https://github.com/nix-rust/nix"
+rust-version = "1.69"
+version = "0.31.3"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-linux-android", "x86_64-apple-darwin", "aarch64-apple-ios", "x86_64-unknown-freebsd", "x86_64-unknown-openbsd", "x86_64-unknown-netbsd", "x86_64-unknown-dragonfly", "x86_64-unknown-fuchsia", "x86_64-unknown-redox", "x86_64-unknown-illumos"]
+
+[target.'cfg(any(target_os = "android", target_os = "linux"))'.dev-dependencies.caps]
+version = "0.5.3"
+
+[target.'cfg(target_os = "freebsd")'.dev-dependencies.sysctl]
+version = "0.4"

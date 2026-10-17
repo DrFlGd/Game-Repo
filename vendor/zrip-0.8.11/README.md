@@ -1,0 +1,224 @@
+# zrip
+
+Pure Rust zstd codec. The decoder reads standard zstd blocks and frames
+produced at any zstd compression level. The encoder supports levels -8 through
+4 for fast transfer pipelines. First-class dictionary support.
+
+## Why zrip
+
+**Fastest pure-Rust zstd encoder.** Consistently outperforms other pure-Rust
+zstd implementations on both encode and decode across all supported levels.
+See the [benchmarks below](#performance).
+
+**Negative levels (-8 through -1).** Unlocks zstd's fastest compression tiers,
+useful when throughput matters more than ratio. L-8 is zrip's own addition
+beyond C zstd's range: a faster L-7 that skips ahead more aggressively where
+it finds no matches.
+
+**Memory safety.** Unsafe is minimized and confined to small, auditable
+primitives modules. The `paranoid` feature eliminates all remaining unsafe.
+See [SAFETY.md](SAFETY.md).
+
+**Small codebase.** ~13k Rust SLOC. Levels above 4 add
+complexity for compression ratios that only matter in archival storage, not
+transfer pipelines.
+
+**Dictionary compression.** COVER and FastCOVER training built in for
+small-message workloads (log lines, JSON records, RPC payloads).
+
+**`no_std` + `alloc`.** Works in embedded and kernel contexts with the `alloc`
+feature; `frame` requires `std`.
+
+**WebAssembly.** Available as [`@paddor/zrip`](https://jsr.io/@paddor/zrip)
+on JSR and npm. Auto-detects WASM SIMD support. 15% faster encode than C zstd
+compiled to WASM.
+
+## Performance
+
+![zstd pipeline benchmark](https://raw.githubusercontent.com/paddor/zrip/main/doc/charts/x86_64/summary.svg)
+
+<details>
+<summary>x86_64 details (per-file pipeline, scatter, matrix)</summary>
+
+![per-file pipeline](https://raw.githubusercontent.com/paddor/zrip/main/doc/charts/x86_64/pipeline.svg)
+![encode speed vs compression ratio](https://raw.githubusercontent.com/paddor/zrip/main/doc/charts/x86_64/scatter.svg)
+![per-file encode/decode matrix](https://raw.githubusercontent.com/paddor/zrip/main/doc/charts/x86_64/matrix.svg)
+![small input encode throughput](https://raw.githubusercontent.com/paddor/zrip/main/doc/charts/x86_64/small_encode.svg)
+![small input decode throughput](https://raw.githubusercontent.com/paddor/zrip/main/doc/charts/x86_64/small_decode.svg)
+</details>
+
+No current aarch64 charts. If you have an aarch64 machine, run the benchmark
+and chart commands from [`DEVELOPMENT.md`](DEVELOPMENT.md) and send a PR with
+`doc/charts/aarch64/`.
+
+<details>
+<summary>wasm32 (wasmtime)</summary>
+
+![wasm32 pipeline summary](https://raw.githubusercontent.com/paddor/zrip/main/doc/charts/wasm32/summary.svg)
+![wasm32 per-file pipeline](https://raw.githubusercontent.com/paddor/zrip/main/doc/charts/wasm32/pipeline.svg)
+![wasm32 encode speed vs compression ratio](https://raw.githubusercontent.com/paddor/zrip/main/doc/charts/wasm32/scatter.svg)
+![wasm32 per-file encode/decode matrix](https://raw.githubusercontent.com/paddor/zrip/main/doc/charts/wasm32/matrix.svg)
+</details>
+
+## API
+
+```rust
+// One-shot (allocating)
+let compressed = zrip::compress(input, 1)?;
+let original   = zrip::decompress(&compressed)?;
+
+// One-shot into caller buffer
+let n = zrip::compress_into(input, &mut output_buf, 1)?;
+zrip::decompress_into(&compressed, &mut output_vec)?;
+
+// Reusable context (amortizes table allocation across calls)
+let mut ctx = zrip::CompressContext::new(1)?;
+let compressed = ctx.compress(input)?;
+
+let mut dec = zrip::DecompressContext::new();
+let original = dec.decompress(&compressed)?;
+
+// Reuse context state while writing into caller-owned buffers.
+let mut frame = vec![0u8; zrip::compress_bound(input.len())];
+let n = ctx.compress_into(input, &mut frame)?;
+let mut owned = Vec::new();
+dec.decompress_into(&frame[..n], &mut owned)?;
+```
+
+### Streaming
+
+```rust
+use std::io::Write;
+
+let mut enc = zrip::FrameEncoder::new(Vec::new(), 1)?;
+enc.write_all(b"hello")?;
+enc.write_all(b" world")?;
+let compressed = enc.finish()?;
+
+use std::io::Read;
+let mut dec = zrip::FrameDecoder::new(&compressed[..]);
+let mut out = String::new();
+dec.read_to_string(&mut out)?;
+```
+
+`FrameEncoder` and `FrameDecoder` own persistent hash tables and
+workspace buffers. Call `reset()` to start a new frame while reusing
+all allocations:
+
+```rust
+let mut enc = zrip::FrameEncoder::new(Vec::new(), 1)?;
+enc.write_all(b"first frame")?;
+let first  = enc.reset(Vec::new())?;  // finishes frame, keeps buffers
+enc.write_all(b"second frame")?;
+let second = enc.finish()?;
+```
+
+### Large-window and long distance matching
+
+The normal match finder operates within a sliding window (512 KiB at L1).
+LDM finds matches at distances up to `1 << window_log` bytes by sampling
+positions into a separate hash table. Useful for data with long-range
+repeats: log files, database dumps, source archives. See
+[DESIGN.md](DESIGN.md) for how LDM works.
+
+```rust
+let opts = zrip::Options::default().window_log(24).ldm(true);
+let compressed = zrip::compress_opts(input, 1, &opts)?;
+```
+
+Streaming with LDM:
+
+```rust
+use std::io::Write;
+let opts = zrip::Options::default().window_log(24).ldm(true);
+let mut enc = zrip::FrameEncoder::with_options(Vec::new(), 1, &opts)?;
+enc.write_all(input)?;
+let compressed = enc.finish()?;
+```
+
+`window_log` controls the maximum match distance (24 = 16 MiB, 27 = 128 MiB).
+The main cost is memory: the encoder allocates an 8 MiB LDM hash table plus
+a window buffer of `1 << window_log` bytes, and the decoder allocates a
+window buffer of the same size (declared in the frame header). At
+`window_log=27` that is ~136 MiB on each side. On data without long-range
+repeats, LDM adds overhead with no ratio benefit.
+
+### Dictionary compression
+
+```rust
+let dict = zrip::Dictionary::from_bytes(&dict_bytes)?;
+let compressed = zrip::compress_with_dict(input, 1, &dict)?;
+let original   = zrip::decompress_with_dict(&compressed, &dict)?;
+```
+
+Streaming with a dictionary:
+
+```rust
+let mut enc = zrip::FrameEncoder::with_dict(Vec::new(), 1, dict.clone())?;
+enc.write_all(input)?;
+let compressed = enc.finish()?;
+
+let mut dec = zrip::FrameDecoder::with_dict(&compressed[..], dict);
+let mut output = Vec::new();
+dec.read_to_end(&mut output)?;
+```
+
+`CompressContext::with_dict()` and `DecompressContext::with_dict()`
+provide the same reuse for one-shot compression.
+
+### Dictionary training
+
+Build a dictionary from sample data using the built-in FastCOVER trainer.
+Requires the `dict_builder` feature.
+
+```rust
+use zrip::dict::{train_dict_fastcover, fastcover::FastCoverParams};
+
+let samples: Vec<&[u8]> = messages.iter().map(|m| m.as_bytes()).collect();
+let dict = train_dict_fastcover(&samples, 16384, FastCoverParams::default());
+// Use with compress_with_dict() / decompress_with_dict()
+```
+
+## Features
+
+| Feature        | Default | Description                                   |
+|:---------------|:-------:|:----------------------------------------------|
+| `std`          | yes     | Enables `CompressContext`, `FrameEncoder`, `FrameDecoder` |
+| `frame`        | yes     | Frame header parsing and writing; implies `std` |
+| `alloc`        | yes     | `no_std` + heap via `alloc` crate; includes `DecompressContext` |
+| `ldm`          | yes     | Long distance matching for large-window compression |
+| `dict_builder` | no      | COVER/FastCOVER dictionary training            |
+| `simd`         | yes     | `fearless_simd` runtime dispatch (AVX2+BMI2, NEON, SIMD128) |
+| `paranoid`     | no      | Pure safe Rust: `forbid(unsafe_code)` on all crates    |
+| `nightly`      | no      | `#[optimize]` attributes on hot functions      |
+
+## Safety
+
+[SAFETY.md](SAFETY.md) documents the unsafe boundary and catalogs C zstd
+memory safety bugs that Rust prevents by construction.
+
+All codec paths are fuzz-tested (16 targets, ~10.7M executions) and verified
+under Miri on both x86_64 and aarch64. Fuzz targets cover round-trip
+correctness, cross-validation against C zstd, streaming, dictionary modes,
+and corruption resistance (bitflip, splice, truncate, overwrite).
+
+## Design
+
+[DESIGN.md](DESIGN.md) covers the encode/decode pipeline, performance
+architecture, SIMD dispatch, compile-time specialization, and divergences
+from C zstd.
+
+## Levels
+
+zrip's encoder covers the fast end of the zstd speed/ratio curve. Negative
+levels favor throughput over ratio. Positive levels spend more match-finding
+work for better ratios while staying in the Fast/DFast range.
+
+Level 0 maps to the library default, currently level 1.
+
+L-8 is zrip-specific. It is L-7 with a larger match-search step and faster
+skip acceleration: it encodes faster than L-7 at a slightly lower ratio.
+
+The decoder is level-independent and supports standard zstd frames produced
+by all zstd compression levels. See [DESIGN.md](DESIGN.md) for exact encoder
+level parameters and pipeline behavior.
