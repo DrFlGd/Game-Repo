@@ -186,13 +186,14 @@ pub fn write_game(ix: &Index, lib: &Library, dir: &Path, v: &Value) -> Result<()
     index_folder(ix.conn(), lib, dir)
 }
 
-/// A game folder's `game.json` size and modified time, the later of its and its `media/`
-/// folder's, so pictures added or removed by hand are seen too.
+/// A game folder's `game.json` size, and its modified time added to its `media/` folder's,
+/// so pictures added or removed by hand are seen too. Added rather than the later of the
+/// two: Windows can give both the same time when a picture comes just after an edit.
 fn stamp(p: &Path) -> Option<(i64, i64)> {
     let ms = |m: &std::fs::Metadata| m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_millis() as i64);
     let m = std::fs::metadata(p).ok()?;
     let media = p.parent().and_then(|d| std::fs::metadata(d.join("media")).ok()).and_then(|m| ms(&m)).unwrap_or(0);
-    Some((m.len() as i64, ms(&m)?.max(media)))
+    Some((m.len() as i64, ms(&m)? + media))
 }
 
 /// The kinds of media a game's folder has.
