@@ -7,7 +7,7 @@
 import { html, useState, useEffect } from "../lib/html.js";
 import { ui } from "./state.js";
 import { ctx } from "./context.js";
-import { api, toast, followJob, undoable, isDesktop, plural, size } from "./library.js";
+import { api, toast, followJob, undoable, isDesktop, plural, size, shortPath } from "./library.js";
 import { refreshGames } from "./games.js";
 import { Dialog, close } from "./dialogs.js";
 
@@ -126,7 +126,7 @@ function Totals({ plan }) {
     <p><b>${plural(plan.games, "game", "games")}</b> to ${plan.kind === "export" ? "export" : "change"}${plan.in_place ? html`, <span class="muted">${plan.in_place} already in place</span>` : null}.</p>
     ${plan.by_op.length ? html`<ul class="ls-list">${plan.by_op.map((o) => html`<li key=${o.op} data-op=${o.op}><span>${OPS[o.op] || o.op}: ${plan.kind === "folders" ? plural(o.count, "folder", "folders") : plural(o.count, "file", "files")}</span><span class="muted">${size(o.bytes)}</span></li>`)}</ul>` : null}
     ${plan.set_aside ? html`<p class="muted">${plural(plan.set_aside, "file is", "files are")} set aside in <code>.gamerepo-set-aside</code> at the top of ${plan.set_aside === 1 ? "its" : "their"} folder, until you empty it (Settings › History).</p>` : null}
-    ${plan.out ? html`<p class="muted">Into <span class="op-to">${plan.out}</span>${plan.new_root ? ", which becomes a folder with games" : ""}.</p>` : null}
+    ${plan.out ? html`<p class="muted">Into <span class="op-to" title=${plan.out}>${shortPath(plan.out, 3)}</span>${plan.new_root ? ", which becomes a folder with games" : ""}.</p>` : null}
     ${plan.space.filter((s) => s.short).map((s) => html`<p class="warn-note" role="alert" key=${s.drive}>Not enough space on ${s.drive}: ${size(s.needed)} needed, ${size(s.free)} free.</p>`)}
   </div>`;
 }
@@ -195,7 +195,7 @@ export function OrganiseDialog({ dat, platform, platformName, plan: given }) {
   };
   if (plan) {
     const nothing = !plan.ops;
-    return html`<${Dialog} title=${plan.label} id="organise-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "OK" : plan.kind === "aside" ? "Set them aside" : "Run"}
+    return html`<${Dialog} title=${plan.title || plan.label} id="organise-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "OK" : plan.kind === "aside" ? "Set them aside" : "Run"}
       cancelLabel=${given ? "Cancel" : "Back"} onCancel=${given ? close : () => setPlan(null)}>
       <${Preview} plan=${plan} />
       ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.kind === "folders" ? "no game folder can be renamed (the preview says why)." : plan.kind === "metadata" ? "there's none of that to delete." : plan.in_place ? "everything is in place already." : "no files match this DAT yet."}</p>`
@@ -265,7 +265,7 @@ export function ConvertDialog({ dat, platform, platformName, games }) {
   };
   if (plan) {
     const nothing = !plan.ops;
-    return html`<${Dialog} title=${plan.label} id="convert-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Run"}
+    return html`<${Dialog} title=${plan.title || plan.label} id="convert-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Run"}
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
       ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.in_place ? "everything is in that format already." : "no files of these games are here."}</p>` : html`<p class="muted">Each result is read back and compared with the files it came from before anything is replaced. The change can be undone from the message afterwards or from Settings › History.</p>`}

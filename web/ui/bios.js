@@ -38,12 +38,12 @@ function System({ s, open }) {
   const names = s.systems.map((x) => x.name).join(", ");
   const badge = s.have === all ? "all" : s.have ? "some" : "none";
   return html`<li><details class="bios-system" data-system=${s.name} data-have=${s.have} data-missing=${s.missing} data-wrong=${s.wrong} open=${open}>
-    <summary><strong>${s.name}</strong>
-      ${names && names !== s.name ? html`<span class="muted">${names}</span>` : null}
+    <summary><strong>${names || s.name}</strong>
+      ${names && names !== s.name ? html`<span class="muted" title="Its name in the BIOS DAT">${s.name}</span>` : null}
       ${s.yours ? html`<span class="muted">you have games for it</span>` : null}
       <span class=${`bios-badge ${badge}`}>${s.have} of ${plural(all, "file", "files")}</span></summary>
     <ul class="bios-files">${s.files.map((f, i) => html`<li key=${i} class=${`bios-${f.status}`} data-status=${f.status}>
-      <code>${f.name}</code>${f.size ? html` <span class="muted">${size(f.size)}</span>` : null} · ${STATUS[f.status]}${f.at ? html` <span class="muted">(${f.at}${f.loose === false ? ", inside a ZIP: Gather… takes it out, and exports carry it then" : ""})</span>` : null}</li>`)}</ul>
+      <code>${f.name}</code>${f.size ? html` <span class="muted">${size(f.size)}</span>` : null} · <span title=${f.at || null}>${STATUS[f.status]}</span>${f.loose === false ? html` <span class="muted">(inside a ZIP: Gather… takes it out, and exports carry it then)</span>` : null}</li>`)}</ul>
   </details></li>`;
 }
 
@@ -115,7 +115,7 @@ export function Bios() {
   const yours = data.systems.filter((x) => x.yours);
   const complete = yours.filter((x) => x.have === x.files.length).length;
   return html`${head}<div class="pages bios-page" id="bios-page">
-    <p class="page-lead">${Icon.chip(18)} Each system's BIOS files, as ${data.dats.map((d) => (d.name === "System" ? "libretro's System.dat" : d.name)).join(" and ")} list${data.dats.length === 1 ? "s" : ""} them. Gathered ones are in <code>${data.folder}</code>.</p>
+    <p class="page-lead">${Icon.chip(18)} Each system's BIOS files, as ${data.dats.map((d) => (d.name === "System" ? "libretro's System.dat" : d.name)).join(" and ")} list${data.dats.length === 1 ? "s" : ""} them. Gathered ones are in the library's <code title=${data.folder}>BIOS</code> folder.</p>
     <div class="audit-totals" id="bios-totals">
       <div class="audit-bar" role="img" aria-label=${`${complete} of ${yours.length} systems`}><span style=${`width:${yours.length ? (100 * complete) / yours.length : 0}%`}></span></div>
       <p>${yours.length ? html`<b id="bios-complete">${complete}</b> of <b id="bios-yours">${yours.length}</b> systems you have games for have every BIOS file${data.none ? html`; <b id="bios-none">${data.none}</b> ${data.none === 1 ? "has" : "have"} none` : ""}.`

@@ -8,18 +8,18 @@ import { Icon } from "./icons.js";
 import { COMING } from "./coming.js";
 import { NavHead, ThemeButton, useMedia, NARROW } from "./chrome.js";
 
-function NavLink({ route, label, icon, current, note = null }) {
+function NavLink({ route, label, icon, current, note = null, off = false }) {
   const active = current === route;
   return html`<li class="nav-row">
     <span class="nav-toggle-space"></span>
-    <a class=${`nav-link${active ? " active" : ""}`} id=${`nav-${route}`} href=${routeHash(route)} title=${note ? `${label} (${note})` : label} aria-label=${label} aria-current=${active ? "page" : null}
+    <a class=${`nav-link${active ? " active" : ""}${off ? " off" : ""}`} id=${`nav-${route}`} href=${routeHash(route)} title=${off ? `${label} (open a library first)` : note ? `${label} (${note})` : label} aria-label=${label} aria-current=${active ? "page" : null}
       onClick=${() => ui.set({ navOpen: false })}>
       <span class="nav-icon">${Icon[icon](15)}</span><span class="nav-label">${label}</span>
 </a></li>`;
 }
 
 export function Sidebar() {
-  const s = useStore(ui, (st) => ({ route: st.route, navOpen: st.navOpen, navCollapsed: st.navCollapsed }));
+  const s = useStore(ui, (st) => ({ route: st.route, navOpen: st.navOpen, navCollapsed: st.navCollapsed, open: !!st.library }));
   const narrow = useMedia(NARROW);
   const folded = s.navCollapsed && !narrow;
   return html`${s.navOpen ? html`<div class="nav-backdrop" onClick=${() => ui.set({ navOpen: false })}></div>` : null}
@@ -27,14 +27,14 @@ export function Sidebar() {
       <${NavHead} />
       <ul class="nav-list">
         <${NavLink} route="home" label="Home" icon="home" current=${s.route} />
-        <${NavLink} route="library" label="Library" icon="grid" current=${s.route === "game" ? "library" : s.route} />
-        <${NavLink} route="audit" label="Audit" icon="audit" current=${s.route} />
-        <${NavLink} route="bios" label="BIOS files" icon="chip" current=${s.route} />
-        <${NavLink} route="collections" label="Collections" icon="collection" current=${s.route} />
-        <${NavLink} route="layouts" label="Export layouts" icon="layers" current=${s.route} />
-        <${NavLink} route="pc" label="PC games" icon="monitor" current=${s.route} />
-        <${NavLink} route="metadata" label="Metadata" icon="scrape" current=${s.route} />
-        <${NavLink} route="documents" label="Documents" icon="book" current=${s.route} />
+        <${NavLink} route="library" label="Library" icon="grid" current=${s.route === "game" ? "library" : s.route} off=${!s.open} />
+        <${NavLink} route="audit" label="Audit" icon="audit" current=${s.route} off=${!s.open} />
+        <${NavLink} route="bios" label="BIOS files" icon="chip" current=${s.route} off=${!s.open} />
+        <${NavLink} route="collections" label="Collections" icon="collection" current=${s.route} off=${!s.open} />
+        <${NavLink} route="layouts" label="Export layouts" icon="layers" current=${s.route} off=${!s.open} />
+        <${NavLink} route="pc" label="PC games" icon="monitor" current=${s.route} off=${!s.open} />
+        <${NavLink} route="metadata" label="Metadata" icon="scrape" current=${s.route} off=${!s.open} />
+        <${NavLink} route="documents" label="Documents" icon="book" current=${s.route} off=${!s.open} />
       </ul>
       ${Object.keys(COMING).length ? html`<p class="nav-head">Coming</p>
       <ul class="nav-list" id="coming-pages">

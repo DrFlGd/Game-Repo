@@ -11,7 +11,7 @@ import { html, useState, useEffect, useLayoutEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { routeHash } from "./context.js";
-import { api, toast, isDesktop, plural, size, libraryUrl } from "./library.js";
+import { api, toast, isDesktop, plural, size, libraryUrl, shortPath } from "./library.js";
 import { reveal } from "./games.js";
 import { CommandBar } from "./layout.js";
 import { usePageKeys } from "./actions.js";
@@ -56,7 +56,7 @@ const short = (t) => (t.length > 90 ? `${t.slice(0, 88)}…` : t);
 
 /** One detail: its box, where it came from (a source, or you), and what the other
  *  sources said, to use instead. */
-function Detail({ g, field, label, off, onSave, onUnmark, onUse }) {
+function Detail({ g, field, label, off, main, onSave, onUnmark, onUse }) {
   const value = field === "title" || field === "year" ? g[field] : g.details?.[field];
   const [v, setV] = useState(shown(field, value));
   useLayoutEffect(() => setV(shown(field, value)), [JSON.stringify(value)]);
@@ -72,9 +72,9 @@ function Detail({ g, field, label, off, onSave, onUnmark, onUse }) {
   const props = { id: `game-${field}`, "aria-label": label, value: v, disabled: off, onInput: (e) => setV(e.target.value), onKeyDown: key, onBlur: save };
   return html`<div class=${`game-detail${field === "description" ? " wide" : ""}`} data-field=${field} data-edited=${mine ? "yes" : "no"}>
     <label class="game-detail-label" for=${`game-${field}`}>${label}</label>
-    ${field === "description" ? html`<textarea rows="5" ...${props}></textarea>` : html`<input type="text" ...${props} placeholder=${field === "rating" ? "e.g. 80%" : field === "genres" ? "e.g. Puzzle, Action" : ""} />`}
+    ${field === "description" ? html`<textarea rows="5" ...${props}></textarea>` : html`<input type="text" ...${props} placeholder=${off ? "" : field === "rating" ? "Not known (e.g. 80%)" : field === "genres" ? "Not known (e.g. Puzzle, Action)" : "Not known"} />`}
     <span class="game-detail-from muted">${mine ? html`Yours, kept over scrapes <button type="button" class="linkish" data-action="unmark" title="The sources' value comes back, and later scrapes may change it" onClick=${() => onUnmark(field)}>Let scrapes change it</button>`
-      : from ? html`From ${sourceName(from)}${pinned === from ? html`, as you chose <button type="button" class="linkish" data-action="unpin" title="Take it from the sources in their usual order" onClick=${() => onUse(field, null)}>Usual order</button>` : ""}` : ""}</span>
+      : from && (from !== main || pinned === from) ? html`From ${sourceName(from)}${pinned === from ? html`, as you chose <button type="button" class="linkish" data-action="unpin" title="Take it from the sources in their usual order" onClick=${() => onUse(field, null)}>Usual order</button>` : ""}` : ""}</span>
     ${others.length && !off ? html`<details class="game-detail-others" data-count=${others.length}><summary class="muted">${others.length === 1 ? `${others[0].name} says otherwise` : `${others.length} other sources say otherwise`}</summary>
       <ul>${others.map((a) => html`<li key=${a.source} data-source=${a.source}><span><b>${a.name}</b>: ${short(shown(field, said(a, field)))}</span>
         <button type="button" class="linkish" data-action="use" onClick=${() => onUse(field, a.source)}>Use this</button></li>`)}</ul></details>` : null}
@@ -95,10 +95,11 @@ function Gallery({ g, off, onChoose }) {
     <p class="muted">No pictures yet: Scrape… brings them${g.kind === "pc" ? " (or Identify on the PC games page)" : ""}.</p></div>`;
   return html`<div class="game-gallery" id="game-gallery">
     ${isVideo(rel) ? html`<video class="game-hero" src=${url(kind)} controls preload="metadata"></video>` : html`<img class="game-hero" src=${url(kind)} alt=${PICTURES[cur] || cur} />`}
-    ${kinds.length > 1 ? html`<div class="game-strip" role="tablist" aria-label="Pictures">${kinds.map((k) => html`<button type="button" role="tab" key=${k} data-kind=${k} aria-selected=${k === cur ? "true" : "false"} title=${PICTURES[k] || k} onClick=${() => setCur(k)}>
+    ${kinds.length > 1 ? html`<div class="game-strip" id="game-strip" role="tablist" aria-label="Pictures">${kinds.map((k) => html`<button type="button" role="tab" key=${k} data-kind=${k} aria-selected=${k === cur ? "true" : "false"} title=${PICTURES[k] || k} onClick=${() => setCur(k)}>
       ${isVideo(media[k]) ? html`<span class="game-strip-video">${Icon.image(16)} Video</span>` : html`<img src=${url(k, "~thumb/128/")} alt="" loading="lazy" />`}</button>`)}</div>` : null}
-    <p class="muted">${PICTURES[cur] || cur}${g.scraped?.media?.[cur] ? ` · from ${sourceName(g.scraped.media[cur])}` : ""}</p>
-    ${vs.length > 1 ? html`<div class="game-variants" id="game-variants" data-kind=${cur} role="group" aria-label="From each source">${vs.map((x) => html`<button type="button" key=${x.name} data-name=${x.name} aria-pressed=${x.chosen ? "true" : "false"}
+    <p class="muted game-caption">${PICTURES[cur] || cur}${g.scraped?.media?.[cur] ? ` · from ${sourceName(g.scraped.media[cur])}` : ""}</p>
+    ${vs.length > 1 ? html`<p class="game-variants-label">${PICTURES[cur] || cur} from each source</p>
+    <div class="game-variants" id="game-variants" data-kind=${cur} role="group" aria-label="From each source">${vs.map((x) => html`<button type="button" key=${x.name} data-name=${x.name} aria-pressed=${x.chosen ? "true" : "false"}
       disabled=${off} title=${x.chosen ? `Shown: ${x.source_name}'s` : `Use ${x.source_name}'s`} onClick=${() => { if (!x.chosen) onChoose(cur, x.name); }}>
       ${isVideo(x.path) ? html`<span class="game-strip-video">${Icon.image(16)} Video</span>` : html`<img src=${libraryUrl(`~thumb/128/${x.path}`)} alt="" loading="lazy" />`}
       <span class="muted">${x.source_name}${x.chosen ? " · shown" : ""}</span></button>`)}</div>` : null}
@@ -186,7 +187,7 @@ export function GamePage() {
     { sep: true },
     { id: "game-add", label: "Add to a collection…", icon: "collection", disabled: off || !dat, run: () => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } }) },
   ];
-  const head = html`<${CommandBar} id="game-head" back=${{ id: "game-back", run: back }} up=${[["Library", routeHash("library")]]} title=${g?.title || "A game"} count=${g?.platform_name || null}
+  const head = html`<${CommandBar} id="game-head" back=${{ id: "game-back", run: back }} title=${g?.title || "A game"} count=${g ? [g.regions, g.platform_name].filter(Boolean).join(" · ") || null : null}
     tools=${fromList ? html`<span class="seg"><button type="button" class="ghost compact" id="game-prev" title="The previous game in the list (←)" disabled=${opened.index <= 0} onClick=${() => step(-1)}>‹</button>
       <span class="muted game-pos">${(opened.index + 1).toLocaleString()} of ${opened.total.toLocaleString()}</span>
       <button type="button" class="ghost compact" id="game-next" title="The next game in the list (→)" disabled=${opened.index >= opened.total - 1} onClick=${() => step(1)}>›</button></span>` : null}
@@ -208,6 +209,10 @@ export function GamePage() {
     }
   };
   const files = g.files || [];
+  // the source most details came from: named once, above them, instead of under each
+  const tally = {};
+  for (const [k] of FIELDS) { const f = g.scraped?.[k]; if (f && f !== "you") tally[f] = (tally[f] || 0) + 1; }
+  const main = Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
   const dir = g.dir || "";
   return html`${head}<div class="pages game-page" id="game-page" data-key=${g.key} data-kind=${g.kind}>
     <div class="game-top">
@@ -215,8 +220,9 @@ export function GamePage() {
       <section class="game-details" id="game-details" aria-busy=${busy ? "true" : "false"}>
         <p class="muted game-sub">${[g.platform_name, g.kind === "dat" ? (g.have ? "in the library" : "not in the library") : g.kind === "pc" ? "a PC game" : "a game no DAT knows", g.name && g.name !== g.title ? g.name : null].filter(Boolean).join(" · ")}</p>
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
-        <div class="game-fields">${FIELDS.map(([k, l]) => html`<${Detail} key=${k} g=${g} field=${k} label=${l} off=${off || busy} onSave=${save} onUnmark=${unmark} onUse=${use} />`)}</div>
-        <p class="muted">What you change here is kept in the game's folder and stays when it's scraped again.</p>
+        ${main ? html`<p class="muted game-main-source" id="game-main-source">Details from ${sourceName(main)}, unless a detail says otherwise.</p>` : null}
+        <div class="game-fields">${FIELDS.map(([k, l]) => html`<${Detail} key=${k} g=${g} field=${k} label=${l} off=${off || busy} main=${main} onSave=${save} onUnmark=${unmark} onUse=${use} />`)}</div>
+        <p class="muted">${off ? "" : "Click a detail to change it. "}What you change here is kept in the game's folder and stays when it's scraped again.</p>
         ${Object.keys(g.ids || {}).length ? html`<p class="muted" id="game-ids">Its ids at the sources: ${Object.entries(g.ids).map(([k, v]) => `${sourceName(k)} ${v}`).join(" · ")}</p>` : null}
       </section>
     </div>
@@ -229,7 +235,7 @@ export function GamePage() {
     </section>
     <section class="ls-section" id="game-files"><h2>Files</h2>
       ${files.length ? html`<ul class="ls-list">${files.map((f, i) => html`<li key=${i} data-missing=${f.missing ? "yes" : "no"}>
-        <span class="op-paths"><span class="op-to">${dir ? `${f.path}` : f.path}</span>
+        <span class="op-paths"><span class="op-to" title=${f.path}>${dir ? f.path : shortPath(f.path, 3)}</span>
           <span class="muted">${[f.kind, f.size ? size(f.size) : null, f.roms?.length > 1 ? plural(f.roms.length, "ROM", "ROMs") : null, f.missing ? "gone since the last scan" : null].filter(Boolean).join(" · ")}</span></span>
         ${isDesktop() && !f.missing && !dir ? html`<button type="button" class="ghost compact" onClick=${() => reveal(f.path)}>Show</button>` : null}</li>`)}</ul>`
         : html`<p class="muted">${g.kind === "dat" && !g.have ? "You don't have it: the audit lists what to look for." : "No files."}</p>`}

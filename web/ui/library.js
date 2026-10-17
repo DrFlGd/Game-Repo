@@ -25,6 +25,7 @@ export function toast(text, opts = {}) {
   if (!el) return;
   const span = document.createElement("span");
   span.textContent = text;
+  span.title = text;
   el.replaceChildren(span);
   for (const item of [...(action ? [action] : []), ...actions]) {
     const b = document.createElement("button");
@@ -184,3 +185,13 @@ export function size(bytes) {
 }
 
 export const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/** A path shown short: its last `n` parts (the whole path goes in a tooltip). */
+export function shortPath(p, n = 2) {
+  if (!p) return "";
+  const parts = String(p).split(/[\\/]/).filter(Boolean);
+  return parts.length <= n ? String(p) : `…/${parts.slice(-n).join("/")}`;
+}
+
+/** The last part of a path: a folder's name. */
+export const baseName = (p) => String(p || "").split(/[\\/]/).filter(Boolean).pop() || String(p || "");

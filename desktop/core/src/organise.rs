@@ -82,6 +82,9 @@ pub struct Plan {
     /// organise | aside (duplicates set aside)
     pub kind: String,
     pub label: String,
+    /// What the preview is headed with, in the present tense (the label says what was done)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
     pub dat: Value,
     pub platform: String,
     pub mode: String,
@@ -118,7 +121,8 @@ impl Plan {
         }
         let set_aside: usize = self.ops.iter().map(|o| o.aside.len() + (o.op == "aside") as usize).sum();
         json!({
-            "id": self.id, "created": self.created, "kind": self.kind, "label": self.label, "dat": self.dat,
+            "id": self.id, "created": self.created, "kind": self.kind, "label": self.label,
+            "title": if self.title.is_empty() { &self.label } else { &self.title }, "dat": self.dat,
             "platform": self.platform, "platform_name": platforms::name_of(&self.platform), "mode": self.mode,
             "format": self.format, "out": self.out, "games": self.games, "in_place": self.in_place,
             "ops": self.ops.len(), "by_op": by_op.iter().map(|(k, (n, b))| json!({ "op": k, "count": n, "bytes": b })).collect::<Vec<_>>(),
@@ -127,6 +131,11 @@ impl Plan {
             "layout_name": self.export.as_ref().and_then(|e| e.get("layout_name")).cloned(),
         })
     }
+}
+
+/// A folder as a label shows it: its name, not the whole path (the plan's `out` has that).
+pub fn shown(p: &Path) -> String {
+    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.display().to_string())
 }
 
 /// What the Organise dialog chose.
@@ -651,15 +660,22 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         games.retain(|g| only.contains(g.fields.name.as_str()));
     }
     let id = new_id();
-    let label = match (o.only_misnamed, mode.as_str()) {
-        (true, _) => format!("Renamed the misnamed {} files", platforms::name_of(&d.platform)),
-        (_, "copy") => format!("Sorted {} into {}", platforms::name_of(&d.platform), out.as_ref().unwrap().display()),
-        (_, "rename") => format!("Renamed {} where they are", platforms::name_of(&d.platform)),
-        _ => format!("Moved {} into {}", platforms::name_of(&d.platform), out.as_ref().unwrap().display()),
+    let pname = platforms::name_of(&d.platform);
+    let (label, title) = match (o.only_misnamed, mode.as_str()) {
+        (true, _) => (format!("Renamed the misnamed {pname} files"), format!("Rename the misnamed {pname} files")),
+        (_, "copy") => {
+            let to = shown(out.as_ref().unwrap());
+            (format!("Sorted {pname} into {to}"), format!("Sort {pname} into {to}"))
+        }
+        (_, "rename") => (format!("Renamed {pname} where they are"), format!("Rename {pname} where they are")),
+        _ => {
+            let to = shown(out.as_ref().unwrap());
+            (format!("Moved {pname} into {to}"), format!("Move {pname} into {to}"))
+        }
     };
     let mut p = Planner {
         plan: Plan {
-            id, created: now(), kind: "organise".into(), label,
+            id, created: now(), kind: "organise".into(), label, title,
             dat: json!({ "id": d.id, "name": d.name, "version": d.version }), platform: d.platform.clone(),
             mode: mode.clone(), format: format.clone(), out: out.as_ref().map(|o| o.display().to_string()),
             ops: vec![], games: 0, in_place: 0, conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root,
@@ -988,7 +1004,7 @@ pub fn plan_duplicates(ix: &Index, lib: &Library, dat_id: i64) -> Result<Plan> {
     let games = load_games(conn, &roots, dat_id)?;
     let mut plan = Plan {
         id: new_id(), created: now(), kind: "aside".into(),
-        label: format!("Set aside {} duplicates", platforms::name_of(&d.platform)),
+        label: format!("Set aside {} duplicates", platforms::name_of(&d.platform)), title: String::new(),
         dat: json!({ "id": d.id, "name": d.name, "version": d.version }), platform: d.platform.clone(),
         mode: "aside".into(), format: "keep".into(), out: None, ops: vec![], games: 0, in_place: 0,
         conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, present: vec![], export: None,
@@ -1076,6 +1092,15 @@ pub fn load_pending(data_dir: &Path, id: &str) -> Result<Plan> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 
+/// A path shown by its last `n` parts (the whole path is in a tooltip).
+pub fn tail(path: &str, n: usize) -> String {
+    let parts: Vec<&str> = path.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
+    if parts.len() <= n {
+        return path.to_string();
+    }
+    format!("…/{}", parts[parts.len() - n..].join("/"))
+}
+
 /// One page of a plan's operations for the preview, optionally only one kind.
 pub fn preview(plan: &Plan, what: &str, offset: usize, limit: usize) -> Value {
     let items: Vec<Value> = match what {
@@ -1107,8 +1132,15 @@ pub fn preview(plan: &Plan, what: &str, offset: usize, limit: usize) -> Value {
                     rel.to_string_lossy().replace('\\', "/")
                 } else if same_dir {
                     to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                } else if let Some(s) = o.from.iter().find(|s| Path::new(&s.path).parent() == to.parent()) {
+                    // beside what it's made from: by its place in that folder with games
+                    let name = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    match Path::new(&s.rel).parent().filter(|p| !p.as_os_str().is_empty()) {
+                        Some(dir) => format!("{}/{name}", dir.to_string_lossy().replace('\\', "/")),
+                        None => name,
+                    }
                 } else {
-                    o.to.clone()
+                    tail(&o.to, 3)
                 };
                 json!({ "op": o.op, "game": o.game, "to": to_shown, "to_full": o.to, "from": from, "from_full": o.from.iter().map(full).collect::<Vec<_>>(), "size": o.size, "note": o.note, "aside": o.aside.len() })
             })

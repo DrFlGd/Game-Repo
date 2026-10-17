@@ -49,6 +49,11 @@ function IndexSettings({ index }) {
         <span class="muted" id="settings-index-size">${size(index.size)}</span>
         <button type="button" class="ghost" id="index-check" disabled=${busy} onClick=${check}>Check</button></div>`}
     <small class="muted">The index holds what the app works out from your files (hashes, DAT matches, games), so it's kept on each computer rather than in the library, and made again when it's missing.</small>
+    ${index.tables ? html`<details class="index-details"><summary>What's in it</summary>
+      <dl class="about-versions">
+        <div><dt>Tables</dt><dd id="index-tables">${Object.entries(index.tables).map(([t, n]) => `${t} (${plural(n, "row", "rows")})`).join(", ")}</dd></div>
+        <div><dt>Schema</dt><dd id="index-version">step ${index.version} of ${index.schema_version}</dd></div>
+      </dl></details>` : null}
   </div>`;
 }
 
@@ -113,7 +118,7 @@ function DatsSection({ lib }) {
     ${byPlatform.length ? byPlatform.map((g) => html`<div class="dat-group" key=${g.platform}><h3>${g.name}</h3>
       <ul class="ls-list dat-list">${g.dats.map((d) => html`<li key=${d.id} data-dat=${d.id}>
         <span class="dat-name"><span>${d.name}</span> <span class="muted">${d.version} · ${plural(d.games, "game", "games")}${d.author ? ` · ${d.author}` : ""}</span>
-          ${d.current ? html`<span class="badge">In use</span>` : null}</span>
+          ${d.current && g.dats.filter((x) => x.name === d.name).length > 1 ? html`<span class="badge" title="The version the audit uses; the others are kept">Version used</span>` : null}</span>
         ${d.current ? null : html`<button type="button" class="ghost" data-action="use-dat" disabled=${off} onClick=${() => useDat(d)}>Use this version</button>`}
         ${isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label="Show in folder" onClick=${() => reveal(`${lib.path}/${d.path}`)}>${Icon.folder(14)}</button>` : null}
         <button type="button" class="ghost" data-action="remove-dat" disabled=${off} onClick=${() => confirmDialog({
@@ -209,18 +214,23 @@ function MetadataSection({ lib }) {
     try { setSizes(await api("meta_sizes")); } catch (e) { setSizes({ error: e.message || String(e) }); }
   };
   const names = Object.fromEntries((sizes?.names || []).map((n) => [n.id, n.name]));
+  // a column for each kind that takes any space, biggest first
+  const kindsShown = sizes?.kinds ? Object.entries(sizes.kinds).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k]) => k) : [];
   return html`<section class="ls-section" id="settings-metadata">
     <h2>Metadata</h2>
-    <p class="muted">Each source's answer is kept in the game's folder, and each detail is taken from the first source in the scrape's order that has it, unless you choose one here (or on a game's page).</p>
+    <p class="muted">Each source's answer is kept in the game's folder, and each detail is taken from the first source in the usual order (the Scrape dialog's) that has it, unless you choose one here or on a game's page.</p>
     ${c ? html`<div class="prefer-grid" id="details-from">${c.fields.map((f) => html`<label class="field-inline" key=${f.id}><span>${f.name}</span>
       <select class="compact" data-field=${f.id} value=${c.from[f.id] || ""} disabled=${off || busy} onChange=${(e) => choose(f.id, e.target.value)}>
-        <option value="">The scrape's order</option>
+        <option value="">Usual order</option>
         ${c.sources.map((x) => html`<option key=${x.id} value=${x.id}>${x.name}</option>`)}
       </select></label>`)}</div>` : null}
     <h3>Space taken</h3>
-    ${sizes && sizes !== "busy" && !sizes.error ? html`<p id="meta-size-total"><b>${size(sizes.total)}</b> in all${Object.keys(sizes.kinds).length ? `: ${Object.entries(sizes.kinds).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${names[k] || k} ${size(n)}`).join(", ")}` : ""}.</p>
-      ${sizes.systems.length ? html`<ul class="ls-list" id="meta-sizes">${sizes.systems.map((x) => html`<li key=${x.platform} data-platform=${x.platform}><span><b>${x.name}</b> <span class="muted">${plural(x.games, "game", "games")}</span></span>
-        <span class="muted">${size(x.total)}${Object.keys(x.kinds).length ? ` · ${Object.entries(x.kinds).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${names[k] || k} ${size(n)}`).join(", ")}` : ""}</span></li>`)}</ul>` : null}`
+    ${sizes && sizes !== "busy" && !sizes.error ? html`<p id="meta-size-total"><b>${size(sizes.total)}</b> in all.</p>
+      ${sizes.systems.length ? html`<div class="table-scroll"><table class="size-table" id="meta-sizes">
+        <thead><tr><th>System</th><th class="num">Games</th>${kindsShown.map((k) => html`<th class="num" key=${k}>${names[k] || k}</th>`)}<th class="num">In all</th></tr></thead>
+        <tbody>${sizes.systems.map((x) => html`<tr key=${x.platform} data-platform=${x.platform}><th scope="row">${x.name}</th><td class="num">${x.games}</td>
+          ${kindsShown.map((k) => html`<td class="num" key=${k}>${x.kinds[k] ? size(x.kinds[k]) : ""}</td>`)}<td class="num"><b>${size(x.total)}</b></td></tr>`)}</tbody>
+      </table></div>` : null}`
       : sizes?.error ? html`<p class="warn-note" role="alert">${sizes.error}</p>` : null}
     <div class="home-actions"><button type="button" class="ghost" id="meta-sizes-work" disabled=${sizes === "busy"} onClick=${work}>${sizes === "busy" ? "Working it out…" : sizes ? "Work it out again" : "Work it out"}</button></div>
     <small class="muted">Details, each kind of picture and video, scraped manuals and your own documents, for each system. Delete metadata… on the Metadata page or a game's page frees it.</small>
@@ -338,11 +348,38 @@ function LayoutsSection() {
   </section>`;
 }
 
+/** The sections down the side: each one's heading, a click away; the one in view marked. */
+function SectionIndex() {
+  const [list, setList] = useState([]);
+  const [here, setHere] = useState("");
+  useEffect(() => {
+    const root = document.getElementById("settings-sections");
+    if (!root) return;
+    const read = () => setList([...root.querySelectorAll(":scope > section.ls-section[id]")].map((x) => [x.id, x.querySelector("h2")?.textContent || x.id]));
+    read();
+    const mo = new MutationObserver(read);
+    mo.observe(root, { childList: true });
+    const pages = root.closest(".pages");
+    const onScroll = () => {
+      const top = pages.getBoundingClientRect().top + 40;
+      let cur = "";
+      for (const x of root.querySelectorAll(":scope > section.ls-section[id]")) if (x.getBoundingClientRect().top <= top) cur = x.id;
+      if (pages.scrollTop + pages.clientHeight >= pages.scrollHeight - 4) cur = root.querySelector(":scope > section.ls-section[id]:last-of-type")?.id || cur;
+      setHere(cur || root.querySelector(":scope > section.ls-section[id]")?.id || "");
+    };
+    onScroll();
+    pages.addEventListener("scroll", onScroll, { passive: true });
+    return () => { mo.disconnect(); pages.removeEventListener("scroll", onScroll); };
+  }, []);
+  return html`<nav class="settings-index" id="settings-index-nav" aria-label="Settings sections"><ul>${list.map(([id, name]) => html`<li key=${id}>
+    <a href=${`#/settings`} data-section=${id} aria-current=${here === id ? "true" : null} onClick=${(e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ block: "start" }); }}>${name}</a></li>`)}</ul></nav>`;
+}
+
 export function Settings() {
   const s = useStore(ui, (st) => ({ library: st.library, recent: st.recent, skin: st.skin, theme: st.theme, index: st.index }));
   const lib = s.library;
   const others = (s.recent || []).filter((p) => p !== lib?.path);
-  return html`<${CommandBar} id="settings-head" title="Settings" /><div class="pages"><div class="library-settings">
+  return html`<${CommandBar} id="settings-head" title="Settings" /><div class="pages settings-page"><div class="settings-layout"><${SectionIndex} /><div class="library-settings" id="settings-sections">
     <section class="ls-section" id="settings-library">
       <h2>Library</h2>
       ${lib ? html`
@@ -364,7 +401,7 @@ export function Settings() {
     <${SourcesSettings} />
     <${SteamSettings} />
     <${ToolsSection} />
-    <section class="ls-section">
+    <section class="ls-section" id="settings-appearance">
       <h2>Appearance</h2>
       <label class="field-block"><span>Skin</span>
         <select id="skin-select" class="compact" value=${s.skin} onChange=${(e) => setSkin(e.target.value)}>
@@ -376,10 +413,5 @@ export function Settings() {
           ${THEMES.map(([v, label]) => html`<option value=${v} key=${v}>${label}</option>`)}
         </select></label>
     </section>
-    <section class="ls-section" id="settings-about">
-      <h2>About</h2>
-      <p>Game Repo ${ctx.platform?.info?.version || ""}</p>
-      <p><a href="#/about" id="settings-about-link">Versions, what's changed, what's coming and licences</a></p>
-    </section>
-  </div></div>`;
+  </div></div></div>`;
 }

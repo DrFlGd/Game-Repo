@@ -9,7 +9,7 @@ import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
-import { api, toast, followJob, isDesktop, plural, size, libraryUrl } from "./library.js";
+import { api, toast, followJob, isDesktop, plural, size, libraryUrl, shortPath, baseName } from "./library.js";
 import { reveal } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
 import { Dialog, close } from "./dialogs.js";
@@ -84,15 +84,15 @@ export function IdentifyDialog({ title, query = "", year = null, platform = "pc"
       <input type="text" id="identify-year" class="year-box" inputmode="numeric" maxlength="4" placeholder="Year" aria-label="Year (optional)" value=${y} onInput=${(e) => setY(e.target.value)} />
     </div>
     ${r ? html`
-      ${r.errors?.map((e) => html`<p class="warn-note identify-error" key=${e.source} data-source=${e.source}>${e.name || e.source}: ${e.error}</p>`)}
-      ${r.needs?.map((e) => html`<p class="muted identify-needs" key=${e.source} data-source=${e.source}>${e.name}: ${e.text}</p>`)}
       ${!r.results.length ? html`<p class="muted" id="identify-none">Nothing found. Try fewer words, or the title as the store writes it.</p>` : null}
       <ul class="ls-list identify-list" id="identify-results">${r.results.map((x) => html`<li key=${`${x.source}-${x.id}`} data-source=${x.source} data-id=${x.id}>
         ${x.cover ? html`<img class="identify-cover" src=${x.cover} alt="" loading="lazy" />` : html`<span class="identify-cover pc-cover-none" aria-hidden="true">${x.title.slice(0, 1)}</span>`}
         <span class="identify-label"><span><b>${x.title}</b>${x.year ? ` (${x.year})` : ""}</span>
           <span class="muted">${x.source_name}${x.platform && x.platform !== "pc" ? ` · ${x.platform}` : ""} · ${x.id}${x.url ? html` · <a href=${x.url} target="_blank" rel="noreferrer">page</a>` : null}</span></span>
         <button type="button" class="ghost" data-action="pick" disabled=${busy} onClick=${() => pick(x)}>This one</button>
-      </li>`)}</ul>` : html`<p class="muted">The sources are asked in the order Settings › Sources gives. Picking one keeps its id and details with the game and gets its artwork.</p>`}
+      </li>`)}</ul>
+      ${r.errors?.map((e) => html`<p class="warn-note identify-error" key=${e.source} data-source=${e.source}>${e.name || e.source}: ${e.error}</p>`)}
+      ${r.needs?.length ? html`<p class="muted identify-needs" id="identify-needs" title=${r.needs.map((e) => `${e.name}: ${e.text}`).join("\n")}>${r.needs.length === 1 ? `${r.needs[0].name} isn't set up` : `${r.needs.length} sources aren't set up (${r.needs.map((e) => e.name).join(", ")})`}, so ${r.needs.length === 1 ? "it wasn't" : "they weren't"} asked. <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a></p>` : null}` : html`<p class="muted">The sources are asked in the order Settings › Sources gives. Picking one keeps its id and details with the game and gets its artwork.</p>`}
   <//>`;
 }
 
@@ -152,7 +152,7 @@ function ImportDialog({ paths, restore }) {
   };
   if (plan) {
     const nothing = !plan.ops;
-    return html`<${Dialog} title=${plan.label} id="pc-import-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan).then(again); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Import"}
+    return html`<${Dialog} title=${plan.title || plan.label} id="pc-import-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan).then(again); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Import"}
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
       <p class="muted">Each game gets its own folder in the PC games folder, with a game.json that says what it is. ${mode === "copy" ? "Your files stay where they are." : "The files are moved; Undo puts them back."} Artwork from the sources is fetched afterwards.</p>
@@ -255,9 +255,9 @@ function SteamDialog() {
       </select></label>
     ${!info.users.length ? html`<p class="warn-note">No Steam user has signed in on this computer yet.</p>` : null}
     ${pv ? html`<div id="steam-preview">
-      <p><b>${plural(pv.add.length, "shortcut", "shortcuts")}</b> to add${pv.update.length ? `, ${pv.update.length} there already (their artwork is refreshed)` : ""}${pv.remove.length ? `, ${pv.remove.length} to remove (games gone from the library)` : ""}. ${plural(pv.others, "shortcut of your own is", "shortcuts of your own are")} kept.</p>
+      <p>${pv.add.length ? html`<b>${plural(pv.add.length, "shortcut", "shortcuts")}</b> to add` : "Nothing new to add"}${pv.update.length ? `, ${pv.update.length} there already (their artwork is refreshed)` : ""}${pv.remove.length ? `, ${pv.remove.length} to remove (games gone from the library)` : ""}. ${pv.others ? `${plural(pv.others, "shortcut of your own is", "shortcuts of your own are")} kept.` : ""}</p>
       <ul class="ls-list" id="steam-list">${[...pv.add.map((x) => ["add", x]), ...pv.update.map((x) => ["same", x]), ...pv.remove.map((x) => ["remove", x])].map(([k, x]) => html`<li key=${`${k}-${x.appid}`} data-op=${k}>
-        <span class="identify-label"><span>${x.name}</span><span class="muted">${k === "remove" ? "removed" : `${x.exe}${x.art?.length ? ` · ${x.art.join(", ")}` : " · no artwork yet"}`}</span></span></li>`)}</ul>
+        <span class="identify-label"><span>${x.name}</span><span class="muted" title=${x.exe || ""}>${k === "remove" ? "removed" : `${baseName(x.exe || "")}${x.art?.length ? ` · ${x.art.join(", ")}` : " · no artwork yet"}`}</span></span></li>`)}</ul>
       ${pv.without_program.length ? html`<p class="muted" id="steam-without">Without a program to start, so left out: ${pv.without_program.join(", ")}. Set one in the game's panel.</p>` : null}
       ${last?.written ? html`<p class="muted">Last written ${last.written.slice(0, 16).replace("T", " ")}. <button type="button" class="linkish" id="steam-remove" disabled=${off} onClick=${() => write("steam_remove")}>Remove the app's shortcuts</button></p>` : null}
     </div>` : null}
@@ -310,7 +310,7 @@ function AddGameDialog({ platform: given, files: givenFiles }) {
       again();
       if (r?.added) ui.set({ dialog: { type: "add-results", added: r.added } });
     };
-    return html`<${Dialog} title=${plan.label} id="add-game-dialog" wide=${true} onSubmit=${run} busy=${plan.short || !plan.ops} submitLabel="Add" cancelLabel="Back" onCancel=${() => setPlan(null)}>
+    return html`<${Dialog} title=${plan.title || plan.label} id="add-game-dialog" wide=${true} onSubmit=${run} busy=${plan.short || !plan.ops} submitLabel="Add" cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
       <p class="muted">Once it's there the folder is scanned, and you'll see what its DAT says about it.</p>
     <//>`;
@@ -353,7 +353,7 @@ function AddResultsDialog({ added }) {
       return { type: "add-results", added: { ...added, files: files.map((o) => (o.path === f.path ? { ...o, identity } : o)) } };
     },
   });
-  return html`<${Dialog} title=${`Added to ${added.platform_name}`} id="add-results-dialog" onSubmit=${close} submitLabel="Done" cancelLabel="Close">
+  return html`<${Dialog} title=${`Added to ${added.platform_name}`} id="add-results-dialog" onSubmit=${close} submitLabel="Done" cancelLabel=${null}>
     <ul class="ls-list" id="add-results">${files.map((f) => html`<li key=${f.path} data-matched=${f.game ? "yes" : "no"} data-named=${f.named ? "yes" : "no"}>
       <span class="identify-label"><span><b>${f.file}</b></span>
         <span class="muted">${f.game ? (f.named ? `${f.game}, named as its DAT says.` : `${f.game} in its DAT. Organise… (Rename these, on the Audit page's Misnamed list) gives it the DAT's name.`)
@@ -463,7 +463,7 @@ function GamePanel({ id, off, onChange, version }) {
         <input type="text" id="pc-edit-year" class="compact year-box" inputmode="numeric" maxlength="4" aria-label="Year" placeholder="Year" value=${year} disabled=${off} onInput=${(e) => setYear(e.target.value)} />
         <button type="submit" class="ghost compact" disabled=${off || busy || (title.trim() === g.title && yearOf(year) === (g.year || null))}>Save</button>
       </form>
-      <small class="muted">Its folder is <code>${g.folder}</code>; a new title or year renames it.</small></section>
+      <small class="muted">Its folder is <code title=${g.dir || g.folder}>${baseName(g.folder)}</code>; a new title or year renames it.</small></section>
     <section class="pc-section"><h3>Program</h3>
       ${g.programs.length ? html`<form class="pc-program" id="pc-program-form" onSubmit=${(e) => { e.preventDefault(); save({ launch: program ? { program, args } : null }, "Saved the program."); }}>
         <select id="pc-program" class="compact" aria-label="The program that starts it" value=${program} disabled=${off} onChange=${(e) => setProgram(e.target.value)}>
@@ -473,7 +473,7 @@ function GamePanel({ id, off, onChange, version }) {
         <input type="text" id="pc-args" class="compact" placeholder="Options (optional)" aria-label="Options" value=${args} disabled=${off || !program} onInput=${(e) => setArgs(e.target.value)} />
         <button type="submit" class="ghost compact" disabled=${off || busy}>Save</button>
       </form>` : html`<p class="muted" id="pc-no-program">${g.extracted ? "No program found in its files." : "It isn't unpacked, so there's no program to start yet."}</p>`}
-      ${g.program ? html`<small class="muted" id="pc-program-path">${g.program}</small>` : null}
+      ${g.program ? html`<small class="muted" id="pc-program-path" title=${g.program}>${shortPath(g.program, 3)}</small>` : null}
     </section>
     ${installers.length && !g.extracted ? html`<section class="pc-section" id="pc-unpack-section"><h3>Unpack</h3>
       <p class="muted">Unpacks ${installers.length === 1 ? installers[0].path.split("/").pop() : "an installer or archive"} into the game's <code>extracted</code> folder, so it can be played without installing.${installers.some((f) => /\.exe$/i.test(f.path)) && !g.innoextract ? " GOG installers need innoextract (Settings › Tools)." : ""}</p>
@@ -675,8 +675,8 @@ export function SourcesSettings() {
     <p class="muted">Identify asks these, in this order, about a game nothing recognised; a scrape (the Metadata page) asks the ones that aren't for PC games alone. Accounts and keys are kept on this computer, never in the library, and none is built in.</p>
     ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
     ${list ? html`<ul class="ls-list change-list" id="sources">${list.map((x, i) => html`<li key=${x.id} data-source=${x.id} data-on=${x.on ? "yes" : "no"}>
-      <label class="check-row"><input type="checkbox" data-action="on" checked=${x.on} onChange=${(e) => save(list.map((o) => (o.id === x.id ? { ...o, on: e.target.checked } : o)))} /></label>
-      <span class="change-label"><span><b>${x.name}</b> <span class="muted">${x.pc_only ? "PC games" : "every system"}</span></span>
+      <span class="change-label"><label class="check-row source-name"><input type="checkbox" data-action="on" checked=${x.on} onChange=${(e) => save(list.map((o) => (o.id === x.id ? { ...o, on: e.target.checked } : o)))} />
+        <b>${x.name}</b> <span class="muted">${x.pc_only ? "PC games" : "every system"}</span></label>
         ${x.keys ? html`<span class="muted source-help">${SIGN_UP[x.id] || null}</span><${SourceKeys} x=${x} onSaved=${setList} />` : null}
         ${x.id === "launchbox" ? html`<span class="muted" id="launchbox-status">${x.database?.have ? `Its database is on this computer: ${(x.database.games || 0).toLocaleString()} games, from ${(x.database.fetched || "").slice(0, 10)}.` : "Its database (about 100 MB) is searched on this computer, so get it first."}</span>` : null}</span>
       ${x.id === "launchbox" ? html`<button type="button" class="ghost compact" id="launchbox-get" disabled=${busy} onClick=${getLaunchBox}>${x.database?.have ? "Get it again" : "Get LaunchBox's database"}</button>` : null}

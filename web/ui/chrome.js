@@ -68,7 +68,7 @@ export function StatusBar() {
   if (!s.ready) return null;
   const latest = s.jobs[s.jobs.length - 1];
   return html`<div class="statusbar-inner">
-    <span class="status-library" title=${s.library?.path || ""}>${s.library ? `${s.library.name} · ${s.library.path}` : "No library open"}</span>
+    <span class="status-library" title=${s.library?.path || ""}>${s.library ? s.library.name : "No library open"}</span>
     ${s.library?.read_only ? html`<span>Read-only</span>` : null}
     <span class="status-jobs">
       ${latest ? html`<button type="button" class="status-job" aria-expanded=${open ? "true" : "false"} title="Show what's running" onClick=${() => setOpen(!open)}>

@@ -555,6 +555,7 @@ pub fn rename_folders_plan(ix: &Index, lib: &Library) -> Result<crate::organise:
         created: now(),
         kind: "folders".into(),
         label: format!("Renamed {n} game{} folder{} to {} DAT name{}", if n == 1 { "'s" } else { "s'" }, if n == 1 { "" } else { "s" }, if n == 1 { "its" } else { "their" }, if n == 1 { "" } else { "s" }),
+        title: format!("Rename {n} game{} folder{} to {} DAT name{}", if n == 1 { "'s" } else { "s'" }, if n == 1 { "" } else { "s" }, if n == 1 { "its" } else { "their" }, if n == 1 { "" } else { "s" }),
         dat: Value::Null,
         platform: if platforms.len() == 1 { platforms[0].clone() } else { String::new() },
         mode: "rename".into(),

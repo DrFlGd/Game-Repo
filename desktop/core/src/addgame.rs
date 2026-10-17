@@ -127,6 +127,7 @@ pub fn plan(lib: &Library, files: &[PathBuf], platform: &str, into: &Path, mode:
         created: now(),
         kind: "add".into(),
         label: format!("Add {games} game{} to {name}", if games == 1 { "" } else { "s" }),
+        title: String::new(),
         dat: Value::Null,
         platform: platform.into(),
         mode: mode.into(),

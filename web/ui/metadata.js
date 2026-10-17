@@ -14,7 +14,7 @@ import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, libraryUrl } from "./library.js";
 import { reveal } from "./games.js";
-import { CommandBar, SearchNote } from "./layout.js";
+import { CommandBar, SearchNote, MoreButton } from "./layout.js";
 import { Dialog, close } from "./dialogs.js";
 import { identifyDialog } from "./pcgames.js";
 import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
@@ -72,9 +72,8 @@ function Ordered({ id, items, value, onChange, note }) {
   return html`<ul class="ls-list change-list" id=${id}>${order.map((v, i) => {
     const x = items.find((o) => o.id === v);
     return html`<li key=${v} data-source=${v} data-on=${on.has(v) ? "yes" : "no"}>
-      <label class="check-row"><input type="checkbox" aria-label=${`Ask ${x.name}`} checked=${on.has(v) && !x.needs} disabled=${!!x.needs} onChange=${(e) => { const t = new Set(on); e.target.checked ? t.add(v) : t.delete(v); set(order, t); }} /></label>
-      <span class="change-label"><span><b>${x.name}</b>${note ? html` <span class="muted">${note(x)}</span>` : null}</span>
-        ${x.needs ? html`<span class="muted scrape-needs">${x.needs}</span>` : null}</span>
+      <span class="change-label" title=${x.needs || null}><label class="check-row source-name"><input type="checkbox" aria-label=${`Ask ${x.name}`} checked=${on.has(v) && !x.needs} disabled=${!!x.needs} onChange=${(e) => { const t = new Set(on); e.target.checked ? t.add(v) : t.delete(v); set(order, t); }} />
+        <b>${x.name}</b>${note ? html` <span class="muted">${note(x)}</span>` : null}${x.needs ? html` <span class="muted scrape-needs">· not set up</span>` : null}</label></span>
       <button type="button" class="ghost compact" aria-label=${`Ask ${x.name} sooner`} disabled=${i === 0} onClick=${() => move(i, -1)}>↑</button>
       <button type="button" class="ghost compact" aria-label=${`Ask ${x.name} later`} disabled=${i === order.length - 1} onClick=${() => move(i, 1)}>↓</button>
     </li>`;
@@ -138,23 +137,25 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
     </div>`}
     <div class="field-block"><span class="field-label">Sources, in the order they're asked</span>
       <${Ordered} id="scrape-sources" items=${c.sources} value=${o.sources} onChange=${(sources) => set({ sources })} note=${(x) => (x.hashes ? "by the ROMs' hashes" : "by title")} />
+      ${ready.length && ready.length < c.sources.length ? html`<small class="muted" id="scrape-not-ready">${c.sources.filter((x) => x.needs).map((x) => x.name).join(", ")} ${c.sources.filter((x) => x.needs).length === 1 ? "needs" : "need"} setting up in <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a> first.</small>` : null}
       ${!ready.length ? html`<p class="warn-note" id="scrape-no-source">No source is ready: set their accounts or keys in <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a>, or get LaunchBox's database there.</p>` : null}
       <small class="muted">Each game is asked of the first source that knows it; a source asked by title is only believed when the title is the same.</small></div>
     <div class="field-block"><span class="field-label">Details</span>
       <${Ticks} id="scrape-fields" items=${c.fields} value=${o.fields} onChange=${(fields) => set({ fields })} /></div>
     <div class="field-block"><span class="field-label">Pictures, video and manual</span>
-      <${Ticks} id="scrape-media" items=${c.media} value=${o.media} onChange=${(media) => set({ media })} />
-      <small class="muted">Manuals are kept with the game's documents, so they can be searched and read on the Documents page.</small></div>
-    ${pictureKinds.some((m) => o.media.includes(m.id)) ? html`<div class="field-block"><span class="field-label">From every source that has one</span>
-      <${Ticks} id="scrape-variants" items=${pictureKinds.filter((m) => o.media.includes(m.id))} value=${(o.variants || []).filter((k) => o.media.includes(k))}
-        onChange=${(v) => set({ variants: [...v, ...(o.variants || []).filter((k) => !o.media.includes(k))] })} />
-      <small class="muted">One of each kind is chosen and shown; the other sources' are kept beside it, to choose from on the game's page. Exports take only the chosen one.</small></div>` : null}
-    ${pictureKinds.some((m) => o.media.includes(m.id)) ? html`<details class="field-block" id="scrape-prefer"><summary>A picture from a source of its own</summary>
-      <div class="prefer-grid">${pictureKinds.filter((m) => o.media.includes(m.id)).map((m) => html`<label class="field-inline" key=${m.id}><span>${m.name}</span>
-        <select class="compact" data-kind=${m.id} value=${o.prefer[m.id] || ""} onChange=${(e) => set({ prefer: { ...o.prefer, [m.id]: e.target.value || undefined } })}>
-          <option value="">The first that has one</option>
-          ${c.sources.map((x) => html`<option key=${x.id} value=${x.id}>${x.name}</option>`)}
-        </select></label>`)}</div></details>` : null}
+      <table class="kinds-table" id="scrape-media">
+        <thead><tr><th>Kind</th><th>Scrape it</th><th id="scrape-variants" title="One of each kind is chosen and shown; the other sources' are kept beside it, to choose from on the game's page. Exports take only the chosen one.">Keep every source's</th></tr></thead>
+        <tbody>${c.media.map((m) => {
+          const on = o.media.includes(m.id);
+          const every = (o.variants || []).includes(m.id);
+          return html`<tr key=${m.id} data-id=${m.id}><th scope="row">${m.name}</th>
+            <td><input type="checkbox" aria-label=${`Scrape ${m.name}`} checked=${on} onChange=${(e) => set({ media: e.target.checked ? [...o.media, m.id] : o.media.filter((k) => k !== m.id) })} /></td>
+            <td>${m.id === "manual" ? null : html`<input type="checkbox" data-variant=${m.id} aria-label=${`Keep every source's ${m.name}`} disabled=${!on} checked=${on && every}
+              onChange=${(e) => set({ variants: e.target.checked ? [...(o.variants || []), m.id] : (o.variants || []).filter((k) => k !== m.id) })} />`}</td></tr>`;
+        })}</tbody>
+      </table>
+      <small class="muted">One of each kind is shown and exported; with <i>Keep every source's</i>, the other sources' are kept beside it, to choose from on the game's page. Manuals go with the game's documents, to search and read on the Documents page.</small></div>
+    <details class="field-block scrape-more" id="scrape-more"><summary>Regions, language, and a source for a kind of picture</summary>
     <div class="field-block"><span class="field-label">Regions</span>
       <div class="tick-grid" id="scrape-regions">${regions.map((k) => html`<label class="check-row" key=${k} data-region=${k}><input type="checkbox" checked=${o.regions.includes(k)}
         onChange=${(e) => set({ regions: e.target.checked ? [...o.regions, k] : o.regions.filter((r) => r !== k) })} /> ${REGIONS.find(([v]) => v === k)?.[1] || k}</label>`)}</div>
@@ -163,6 +164,13 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
       <select id="scrape-language" class="compact" value=${o.language} onChange=${(e) => set({ language: e.target.value })}>
         ${[["en", "English"], ["fr", "French"], ["de", "German"], ["es", "Spanish"], ["it", "Italian"], ["pt", "Portuguese"], ["ja", "Japanese"]].map(([k, l]) => html`<option key=${k} value=${k}>${l}</option>`)}
       </select></label>
+    ${pictureKinds.some((m) => o.media.includes(m.id)) ? html`<div class="field-block" id="scrape-prefer"><span class="field-label">A kind of picture from a source of its own</span>
+      <div class="prefer-grid">${pictureKinds.filter((m) => o.media.includes(m.id)).map((m) => html`<label class="field-inline" key=${m.id}><span>${m.name}</span>
+        <select class="compact" data-kind=${m.id} value=${o.prefer[m.id] || ""} onChange=${(e) => set({ prefer: { ...o.prefer, [m.id]: e.target.value || undefined } })}>
+          <option value="">The first that has one</option>
+          ${c.sources.map((x) => html`<option key=${x.id} value=${x.id}>${x.name}</option>`)}
+        </select></label>`)}</div></div>` : null}
+    </details>
     <div class="field-block" role="radiogroup" aria-label="Games that have something already">
       <span class="field-label">Games that have something already</span>
       ${EXISTING.map(([k, l]) => html`<label class="check-row" key=${k}><input type="radio" name="scrape-existing" value=${k} checked=${o.existing === k} onChange=${() => set({ existing: k })} /> ${l}</label>`)}
@@ -279,16 +287,20 @@ function MetaPanel({ id, off, version, onChange }) {
     <div class="pc-panel-head">
       <${Picture} media=${g.media} title=${g.title} cls="meta-cover big" />
       <div><h2 id="meta-title">${g.title}${g.year ? html` <span class="muted">(${g.year})</span>` : null}</h2>
-        <p class="muted">${g.name}</p>
-        <p class="muted">${[g.platform_name, g.have ? "in the library" : "not in the library", Object.entries(g.ids || {}).map(([k, v]) => `${sourceName(k)} ${v}`).join(", ") || null].filter(Boolean).join(" · ")}</p></div>
+        <p class="muted">${[g.regions, g.platform_name, g.have ? "in the library" : "not in the library", Object.entries(g.ids || {}).map(([k, v]) => `${sourceName(k)} ${v}`).join(", ") || null].filter(Boolean).join(" · ")}</p></div>
     </div>
     ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
-    <div class="home-actions">
-      <a class="ghost compact button-link" id="meta-open" href=${`#/game/${encodeURIComponent(g.platform)}/${encodeURIComponent(g.name)}`}>${Icon.external(14)} Its page</a>
+    <div class="home-actions meta-actions">
+      <a class="primary compact button-link" id="meta-open" href=${`#/game/${encodeURIComponent(g.platform)}/${encodeURIComponent(g.name)}`}>Open its page</a>
       <button type="button" class="ghost compact" id="meta-scrape-one" disabled=${off || busy} onClick=${() => scrapeDialog({ platform: g.platform, platformName: g.platform_name, games: [g.id], gameName: g.title })}>${Icon.scrape(14)} Scrape…</button>
-      <button type="button" class="ghost compact" id="meta-identify" disabled=${off || busy} onClick=${identify}>${Icon.search(14)} Identify…</button>
-      <button type="button" class="ghost compact" id="meta-attach" disabled=${off || busy || !isDesktop()} title=${isDesktop() ? "Attach guides, manuals, maps or posters to this game" : "In the app"} onClick=${() => attachDocs({ game: g.id, gameName: g.title, platform: g.platform })}>${Icon.file(14)} Attach documents…</button>
-      ${g.folder_path && isDesktop() ? html`<button type="button" class="ghost compact" id="meta-reveal" onClick=${() => reveal(g.folder_path)}>${Icon.folder(14)} Show in folder</button>` : null}
+      <${MoreButton} id="meta-game-menu" title="Identify, attach documents, show its folder, scrape again, delete metadata" items=${() => [
+        { id: "meta-identify", label: "Identify…", icon: "search", disabled: off || busy, run: identify },
+        { id: "meta-attach", label: "Attach documents…", icon: "file", disabled: off || busy || !isDesktop(), run: () => attachDocs({ game: g.id, gameName: g.title, platform: g.platform }) },
+        ...(g.folder_path && isDesktop() ? [{ id: "meta-reveal", label: "Show in folder", icon: "folder", run: () => reveal(g.folder_path) }] : []),
+        ...(g.folder && !off ? [{ sep: true },
+          { id: "meta-again", label: "Scrape again…", icon: "scrape", run: () => scrapeDialog({ platform: g.platform, platformName: g.platform_name, games: [g.id], gameName: g.title, again: true }) },
+          { id: "meta-delete", label: "Delete metadata…", icon: "trash", run: () => deleteMetadata({ folder: g.folder, gameName: g.title, platformName: g.platform_name }) }] : []),
+      ]} />
     </div>
     ${g.review?.length ? html`<section class="pc-section" id="meta-review"><h3>Which game is it?</h3>
       <p class="muted">The scrape wasn't sure. Pick the right one and its details and pictures are taken.</p>
@@ -307,9 +319,6 @@ function MetaPanel({ id, off, version, onChange }) {
         <button type="button" class="linkish" onClick=${() => viewDoc(x.id)}>${x.title}</button><span class="muted">${x.kind_name}${x.source ? ` · ${sourceName(x.source)}` : ""}</span></li>`)}</ul>`
         : html`<p class="muted">None yet. Attach your own, or scrape its manual.</p>`}</section>
     ${!kinds.length && !Object.keys(d).length && !g.docs.length ? html`<p class="muted" id="meta-nothing">Nothing in the library for this game yet: Scrape… or Identify… fills it in.</p>` : null}
-    ${g.folder && (kinds.length || Object.keys(d).length || g.docs.length) && !off ? html`<p class="home-actions">
-      <button type="button" class="linkish" id="meta-again" onClick=${() => scrapeDialog({ platform: g.platform, platformName: g.platform_name, games: [g.id], gameName: g.title, again: true })}>Scrape again…</button>
-      <button type="button" class="linkish" id="meta-delete" onClick=${() => deleteMetadata({ folder: g.folder, gameName: g.title, platformName: g.platform_name })}>Delete metadata…</button></p>` : null}
   </aside>`;
 }
 

@@ -132,7 +132,7 @@ export function Audit() {
         onClick=${() => organiseDialog({ dat, platform: sum.dat.platform, platformName: pName })}>${Icon.stack(15)} Organise…</button>` : null}
       ${canConvert ? html`<button type="button" class="ghost compact" id="audit-convert" title="Convert this platform's games to another format (CHD, RVZ, CSO, ZIP), or extract them, with a preview and Undo"
         onClick=${() => convert(null)}>${Icon.convert(15)} Convert…</button>` : null}
-      <button type="button" class="primary compact" id="audit-scan" disabled=${!!ui.get().scanning} onClick=${() => scan()}>${Icon.refresh(15)} Scan</button></span>`}
+      <button type="button" class=${sum ? "primary compact" : "ghost compact"} id="audit-scan" disabled=${!!ui.get().scanning || !!s.library?.read_only} onClick=${() => scan()}>${Icon.refresh(15)} Scan</button></span>`}
     more=${{ id: "audit-menu", title: "Export fixdat, reports, make a DAT", items: menu }} />`;
 
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
@@ -149,9 +149,9 @@ export function Audit() {
           <li>Scan. Each file is read once; a second scan only reads what changed.</li>
         </ol>
         <div class="home-actions">
-          <button type="button" class="primary" id="audit-starter" onClick=${() => starterDats()}>Get starter DATs…</button>
-          ${isDesktop() ? html`<button type="button" class="ghost" id="audit-import" onClick=${() => importDats()}>Import DATs…</button>` : null}
-          <button type="button" class="ghost" onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a set…</button>
+          <button type="button" class="primary" id="audit-starter" disabled=${!!s.library?.read_only} onClick=${() => starterDats()}>Get starter DATs…</button>
+          ${isDesktop() ? html`<button type="button" class="ghost" id="audit-import" disabled=${!!s.library?.read_only} onClick=${() => importDats()}>Import DATs…</button>` : null}
+          <button type="button" class="ghost" disabled=${!!s.library?.read_only} onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a set…</button>
         </div>
       </section>
     </div></div>`;
@@ -182,7 +182,7 @@ export function Audit() {
       ${label} <span class="tab-count">${n(key)}</span></button>`)}</div>
     <div class="audit-tools">
       <input type="search" id="audit-search" class="compact" placeholder="Search this list" aria-label="Search this list" value=${q} onInput=${(e) => setQ(e.target.value)} />
-      <span class="muted">${HELP[tab]}</span>
+      <span class="muted audit-help">${HELP[tab]}</span>
       ${tab === "misnamed" && n("misnamed") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-rename" onClick=${() => renameMisnamed(dat, platformName)}>Rename these…</button>` : null}
       ${tab === "duplicates" && n("duplicates") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-aside" onClick=${() => setAsideDuplicates(dat, platformName)}>Set aside duplicates…</button>` : null}
     </div>

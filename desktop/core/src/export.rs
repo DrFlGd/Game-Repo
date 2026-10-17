@@ -263,10 +263,14 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     let w = collection::work_out(ix, lib, &c)?;
     let first = record.is_none();
     let export_id = o.export_id.clone().unwrap_or_else(organise::new_id);
-    let target_name = if l.id == "folder" { out.display().to_string() } else { format!("{} ({})", l.name, out.display()) };
-    let label = if first { format!("Exported {} to {target_name}", c.name) } else { format!("Updated the export of {} to {target_name}", c.name) };
+    let target_name = if l.id == "folder" { organise::shown(&out) } else { format!("{} ({})", l.name, organise::shown(&out)) };
+    let (label, title) = if first {
+        (format!("Exported {} to {target_name}", c.name), format!("Export {} to {target_name}", c.name))
+    } else {
+        (format!("Updated the export of {} to {target_name}", c.name), format!("Update the export of {} to {target_name}", c.name))
+    };
     let mut plan = Plan {
-        id: organise::new_id(), created: now(), kind: "export".into(), label,
+        id: organise::new_id(), created: now(), kind: "export".into(), label, title,
         dat: json!({ "id": null, "name": c.name, "version": "" }),
         platform: if w.systems.len() == 1 { w.systems[0].platform.clone() } else { String::new() },
         mode: "copy".into(), format: "keep".into(), out: Some(out.display().to_string()),

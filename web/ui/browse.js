@@ -251,7 +251,7 @@ function Tile({ g, i, on, onPick, onOpen, onMenu, px }) {
     onClick=${(e) => onPick(e, g, i)} onDblClick=${() => onOpen(g, i)} onContextMenu=${(e) => onMenu(e, g, i)}>
     <span class="lib-tile-art"><${Cover} g=${g} px=${px} /><span class="lib-badge" style=${`border-color:${systemColour(g.platform)}`}>${g.platform_name}</span></span>
     <span class="lib-tile-title">${g.title}</span>
-    <span class="lib-tile-meta muted">${[g.year, g.developer].filter(Boolean).join(" · ") || (g.have ? "" : "Not in the library")}</span>
+    <span class="lib-tile-meta muted">${[g.regions, g.year, g.developer].filter(Boolean).join(" · ") || (g.have ? "" : "Not in the library")}</span>
   </button>`;
 }
 
@@ -261,7 +261,7 @@ function Line({ g, i, on, onPick, onOpen, onMenu }) {
     onClick=${(e) => onPick(e, g, i)} onDblClick=${() => onOpen(g, i)} onContextMenu=${(e) => onMenu(e, g, i)}>
     <${Cover} g=${g} px=${128} cls="lib-cover small" />
     <span class="lib-line-main"><span class="lib-line-title">${g.title}${g.year ? html` <span class="muted">(${g.year})</span>` : null}</span>
-      <span class="muted">${[g.platform_name, g.developer, g.genres?.slice(0, 2).join(", "), g.have ? null : "not in the library"].filter(Boolean).join(" · ")}</span></span>
+      <span class="muted">${[g.platform_name, g.regions, g.developer, g.genres?.slice(0, 2).join(", "), g.have ? null : "not in the library"].filter(Boolean).join(" · ")}</span></span>
     ${g.rating != null ? html`<span class="lib-stars" title=${`${Math.round(g.rating * 100)}%`}>${stars(g.rating)}</span>` : null}
   </button>`;
 }
@@ -287,8 +287,9 @@ function Row({ g, i, on, onPick, onOpen, onMenu }) {
 }
 
 function TableHead({ q, set }) {
-  return html`<div class="lib-row lib-thead" role="row">${COLUMNS.map(([k, label, , sort]) => html`<span role="columnheader" key=${k} class=${`lib-cell lib-col-${k}`}
-    aria-sort=${sort && q.sort === sort ? (q.desc ? "descending" : "ascending") : null}>${sort ? html`<button type="button" class="linkish" data-sort=${sort} onClick=${() => set({ sort, desc: q.sort === sort ? !q.desc : false })}>${label}${q.sort === sort ? (q.desc ? " ▾" : " ▴") : ""}</button>` : label}</span>`)}</div>`;
+  // grouped by system, each group's heading says it: the column goes
+  return html`<div class=${`lib-row lib-thead${q.group === "system" ? " no-system" : ""}`} role="row">${COLUMNS.map(([k, label, , sort]) => html`<span role="columnheader" key=${k} class=${`lib-cell lib-col-${k}`}
+    aria-sort=${sort && q.sort === sort ? (q.desc ? "descending" : "ascending") : null}>${sort ? html`<button type="button" class="lib-sort" data-sort=${sort} onClick=${() => set({ sort, desc: q.sort === sort ? !q.desc : false })}>${label}${q.sort === sort ? (q.desc ? " ▾" : " ▴") : ""}</button>` : label}</span>`)}</div>`;
 }
 
 /** The grid, list or table, drawing only what's in view. */
