@@ -73,6 +73,9 @@ pub struct Collection {
     pub added: Vec<String>,
     #[serde(default)]
     pub removed: Vec<String>,
+    /// What it should fit in, in bytes (an SD card's size, say); none: no limit
+    #[serde(default)]
+    pub size_limit: Option<u64>,
     #[serde(default)]
     pub created: String,
     #[serde(default)]
@@ -122,6 +125,7 @@ pub fn save(lib: &Library, mut c: Collection) -> Result<Collection> {
     if list(lib).iter().any(|o| o.id != c.id && o.name.eq_ignore_ascii_case(&c.name)) {
         bail!("There's a collection called {} already.", c.name);
     }
+    c.size_limit = c.size_limit.filter(|&n| n > 0);
     if c.id.is_empty() {
         c.id = new_id(&c.name);
         c.created = now();
@@ -167,6 +171,10 @@ pub struct Game {
     pub status: String,
     /// Added by hand (not by the rules)
     pub manual: bool,
+    /// The bytes its files take on disk (its archives, images or files; 0 when there are none)
+    pub size: u64,
+    /// The bytes of its ROMs as the DAT lists them (unpacked)
+    pub dat_size: u64,
 }
 
 impl Game {
@@ -200,13 +208,19 @@ impl Worked {
     }
 
     pub fn summary(&self) -> Value {
+        // on disk: the files of the games there (all or in part); the rest by the DAT's sizes
+        let size = |g: &[Game]| g.iter().map(|g| g.size).sum::<u64>();
+        let wanting = |g: &[Game]| g.iter().filter(|g| g.status != "have").map(|g| g.dat_size.saturating_sub(g.size)).sum::<u64>();
         json!({
             "games": self.systems.iter().map(|s| s.games.len()).sum::<usize>(),
             "have": self.games().filter(|g| g.status == "have").count(),
             "removed": self.systems.iter().map(|s| s.removed.len()).sum::<usize>(),
+            "size": self.systems.iter().map(|s| size(&s.games)).sum::<u64>(),
+            "missing_size": self.systems.iter().map(|s| wanting(&s.games)).sum::<u64>(),
             "systems": self.systems.iter().map(|s| json!({
                 "platform": s.platform, "name": platforms::name_of(&s.platform), "dat": s.dat_id, "games": s.games.len(),
                 "have": s.games.iter().filter(|g| g.status == "have").count(), "removed": s.removed.len(),
+                "size": size(&s.games), "missing_size": wanting(&s.games),
             })).collect::<Vec<_>>(),
             "no_dat": self.no_dat.iter().map(|p| json!({ "platform": p, "name": platforms::name_of(p) })).collect::<Vec<_>>(),
             "missing_dats": self.missing_dats,
@@ -253,7 +267,8 @@ pub fn work_out(ix: &Index, lib: &Library, c: &Collection) -> Result<Arc<Worked>
     for p in &systems {
         dats.push((p.clone(), audit::primary_dat(conn, lib, p)?));
     }
-    let key = format!("{}|{}|{}|{dats:?}", ix.path().display(), serde_json::to_string(c)?, audit::generation(conn)?);
+    // (its name and size limit don't change its games)
+    let key = format!("{}|{}|{:?}|{:?}|{}|{dats:?}", ix.path().display(), serde_json::to_string(&c.rules)?, c.added, c.removed, audit::generation(conn)?);
     if let Some((k, w)) = LAST.lock().unwrap().as_ref() {
         if *k == key {
             return Ok(w.clone());
@@ -342,6 +357,7 @@ fn work_out_fresh(conn: &Connection, c: &Collection, dats: &[(String, Option<i64
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
+        let sizes = sizes(conn, dat_id)?;
         // a source DAT's games by their ROMs' hashes
         let by_hash: HashSet<i64> = match &src {
             Some(s) => {
@@ -390,8 +406,12 @@ fn work_out_fresh(conn: &Connection, c: &Collection, dats: &[(String, Option<i64
             picked = best.into_values().collect();
             picked.sort_by(|a, b| a.name.cmp(&b.name));
         }
-        let game = |g: &Row, manual: bool| Game {
-            id: g.id, platform: platform.clone(), name: g.name.clone(), title: g.title.clone(), regions: g.regions.clone(), status: g.status.clone(), manual,
+        let game = |g: &Row, manual: bool| {
+            let (size, dat_size) = sizes.get(&g.id).copied().unwrap_or_default();
+            Game {
+                id: g.id, platform: platform.clone(), name: g.name.clone(), title: g.title.clone(), regions: g.regions.clone(), status: g.status.clone(), manual,
+                size, dat_size,
+            }
         };
         let mut sys = System { platform: platform.clone(), dat_id, games: vec![], removed: vec![] };
         let mut inside: HashSet<i64> = HashSet::new();
@@ -413,21 +433,50 @@ fn work_out_fresh(conn: &Connection, c: &Collection, dats: &[(String, Option<i64
     Ok(w)
 }
 
-/// A page of a collection's games (or of those left out by hand), with a search.
-pub fn page(w: &Worked, platform: Option<&str>, removed: bool, search: &str, offset: usize, limit: usize) -> Value {
+/// Each game of a DAT with the bytes its files take on disk and the bytes of its ROMs as
+/// the DAT lists them. On disk, a ROM counts once, by one of the files found for it (the
+/// archive or image it's in, else the file itself), and each file counts once per game.
+fn sizes(conn: &Connection, dat_id: i64) -> Result<HashMap<i64, (u64, u64)>> {
+    let mut out: HashMap<i64, (u64, u64)> = HashMap::new();
+    let mut q = conn.prepare("SELECT game_id, SUM(COALESCE(size, 0)) FROM dat_roms WHERE dat_id = ?1 AND (status IS NULL OR status != 'nodump') GROUP BY game_id")?;
+    for r in q.query_map([dat_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))? {
+        let (g, z) = r?;
+        out.entry(g).or_default().1 = z.max(0) as u64;
+    }
+    let mut q = conn.prepare(
+        "WITH pick AS (SELECT r.game_id, MIN(COALESCE(f.parent_id, f.id)) AS file_id
+                       FROM dat_roms r JOIN matches m ON m.rom_id = r.id JOIN files f ON f.id = m.file_id
+                       WHERE r.dat_id = ?1 AND f.missing_since IS NULL GROUP BY r.id)
+         SELECT p.game_id, SUM(x.size) FROM (SELECT DISTINCT game_id, file_id FROM pick) p JOIN files x ON x.id = p.file_id GROUP BY p.game_id",
+    )?;
+    for r in q.query_map([dat_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))? {
+        let (g, z) = r?;
+        out.entry(g).or_default().0 = z.max(0) as u64;
+    }
+    Ok(out)
+}
+
+/// A page of a collection's games (or of those left out by hand), with a search, by
+/// name or (`by_size`) the biggest first.
+pub fn page(w: &Worked, platform: Option<&str>, removed: bool, search: &str, by_size: bool, offset: usize, limit: usize) -> Value {
     let s = search.trim().to_lowercase();
-    let items: Vec<&Game> = w
+    let mut items: Vec<&Game> = w
         .systems
         .iter()
         .filter(|x| platform.is_none_or(|p| p == x.platform))
         .flat_map(|x| if removed { x.removed.iter() } else { x.games.iter() })
         .filter(|g| s.is_empty() || g.name.to_lowercase().contains(&s))
         .collect();
+    if by_size {
+        // a game that isn't there by its DAT size
+        let bytes = |g: &Game| if g.size > 0 { g.size } else { g.dat_size };
+        items.sort_by(|a, b| bytes(b).cmp(&bytes(a)).then(a.name.cmp(&b.name)));
+    }
     json!({
         "total": items.len(),
         "items": items.iter().skip(offset).take(limit.clamp(1, 1000)).map(|g| {
             json!({ "key": g.key(), "platform": g.platform, "platform_name": platforms::name_of(&g.platform), "name": g.name, "title": g.title,
-                    "regions": g.regions, "status": g.status, "manual": g.manual })
+                    "regions": g.regions, "status": g.status, "manual": g.manual, "size": g.size, "dat_size": g.dat_size })
         }).collect::<Vec<_>>(),
     })
 }
@@ -585,7 +634,7 @@ pub(crate) mod tests {
     }
 
     fn with(f: impl FnOnce(&mut Rules)) -> Collection {
-        let mut c = Collection { id: String::new(), name: "Test".into(), rules: Rules::default(), added: vec![], removed: vec![], created: String::new(), modified: String::new() };
+        let mut c = Collection { id: String::new(), name: "Test".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, created: String::new(), modified: String::new() };
         c.rules.platforms = vec!["gb".into()];
         f(&mut c.rules);
         c
@@ -619,6 +668,28 @@ pub(crate) mod tests {
         assert_eq!(names(&w), ["Alpha (Europe)", "Beta (Europe) (Rev 1)", "Epsilon (Japan) (En,Ja)", "Gamma (USA) (Beta)"]);
         assert_eq!(w.systems[0].removed.len(), 1);
         assert!(w.games().find(|g| g.name.starts_with("Gamma")).unwrap().manual);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_collection_knows_its_size_on_disk_and_what_it_lacks() {
+        let (dir, lib, ix) = fixture("collection-size");
+        let w = work_out(&ix, &lib, &with(|_| {})).unwrap();
+        let sum = w.summary();
+        assert_eq!((sum["size"].as_u64(), sum["missing_size"].as_u64()), (Some(4 * 1024), Some(0)));
+        assert_eq!(sum["systems"][0]["size"].as_u64(), Some(4 * 1024));
+        // every game: Alpha (USA) and Zeta aren't there, so they count by the DAT's sizes
+        let w = work_out(&ix, &lib, &with(|r| r.include = "all".into())).unwrap();
+        let sum = w.summary();
+        assert_eq!((sum["size"].as_u64(), sum["missing_size"].as_u64()), (Some(3 * 1024), Some(2 * 1024)));
+        let p = page(&w, None, false, "", true, 0, 10);
+        assert!(p["items"].as_array().unwrap().iter().all(|g| g["size"].as_u64().unwrap() + g["dat_size"].as_u64().unwrap() >= 1024));
+        // a size limit is kept with the collection and doesn't change its games
+        let mut c = with(|_| {});
+        c.size_limit = Some(32_000_000_000);
+        let c = save(&lib, c).unwrap();
+        assert_eq!(load(&lib, &c.id).unwrap().size_limit, Some(32_000_000_000));
+        assert_eq!(work_out(&ix, &lib, &c).unwrap().games().count(), 4);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

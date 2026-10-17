@@ -917,12 +917,13 @@ impl App {
                 let platform = args["platform"].as_str().filter(|p| !p.is_empty()).map(String::from);
                 let removed = args["removed"].as_bool().unwrap_or(false);
                 let search = args["search"].as_str().unwrap_or("").to_string();
+                let by_size = args["sort"].as_str() == Some("size");
                 let (offset, limit) = (args["offset"].as_u64().unwrap_or(0) as usize, args["limit"].as_u64().unwrap_or(100) as usize);
                 j(self
                     .with_index(move |ix| {
                         let c = collection::load(&lib, &id)?;
                         let w = collection::work_out(ix, &lib, &c)?;
-                        Ok(collection::page(&w, platform.as_deref(), removed, &search, offset, limit))
+                        Ok(collection::page(&w, platform.as_deref(), removed, &search, by_size, offset, limit))
                     })
                     .await?)
             }

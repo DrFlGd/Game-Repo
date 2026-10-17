@@ -8,7 +8,7 @@ import { html, useState, useEffect, useRef } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
-import { api, toast, followJob, isDesktop, plural } from "./library.js";
+import { api, toast, followJob, isDesktop, plural, size } from "./library.js";
 import { reveal } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
 import { Dialog, close, confirmDialog } from "./dialogs.js";
@@ -16,6 +16,11 @@ import { Preview, runPlan } from "./organise.js";
 import { Icon } from "./icons.js";
 
 const PAGE = 200;
+
+/** Card sizes for a size limit, as their labels say them (64 GB: 64,000,000,000 bytes). */
+const CARDS = [4, 8, 16, 32, 64, 128, 256, 512, 1000];
+const GB = 1e9;
+const cardName = (n) => (n >= 1000 ? `${n / 1000} TB` : `${n} GB`);
 
 /** The flags a collection can leave out, as the DATs' names say them. */
 export const FLAGS = [
@@ -131,7 +136,7 @@ function SaveDatsDialog({ c }) {
 
 /** Export…: to ES-DE or a plain folder, then the preview; Run starts the change.
  *  Opened with `plan` (Update) it goes straight to the preview. */
-function ExportDialog({ c, plan: given }) {
+function ExportDialog({ c, sum, plan: given }) {
   const saved = prefs()?.get("gr-export", {}) || {};
   const [target, setTarget] = useState(saved.target || "esde");
   const [out, setOut] = useState(saved.out || "");
@@ -196,6 +201,7 @@ function ExportDialog({ c, plan: given }) {
         <div class="pick-row"><input type="text" id="export-folder" placeholder="A folder for the collection" value=${folder} onInput=${(e) => setFolder(e.target.value)} />
           ${isDesktop() ? html`<button type="button" class="ghost" id="export-folder-pick" onClick=${pick(setFolder, "The folder the collection goes to")}>Choose…</button>` : null}</div></div>`}
     <label class="check-row"><input type="checkbox" id="export-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> Always copy (no hardlinks)</label>
+    ${c.size_limit && sum && sum.size > c.size_limit ? html`<p class="warn-note" id="export-over">${c.name} is ${size(sum.size)}, ${size(sum.size - c.size_limit)} more than its size limit (${size(c.size_limit)}).</p>` : null}
     <p class="muted">Games are exported in the library's format (Convert… changes it first). Nothing changes until you've seen the preview and pressed Run.</p>
   <//>`;
 }
@@ -248,6 +254,56 @@ function RulesEditor({ c, onSave, off }) {
   </fieldset>`;
 }
 
+// ------------------------------------------------------------ properties
+
+/** How many games, systems and bytes, and whether it fits its size limit (a card). */
+function Properties({ c, sum, off, onSave, onPick }) {
+  const limit = c.size_limit || 0;
+  const preset = !limit ? "" : CARDS.find((n) => n * GB === limit) ? String(limit / GB) : "other";
+  const [other, setOther] = useState(preset === "other");
+  const choice = other ? "other" : preset;
+  const setLimit = (bytes) => onSave((x) => ({ ...x, size_limit: bytes > 0 ? Math.round(bytes) : null }));
+  const pick = (v) => {
+    setOther(v === "other");
+    if (v !== "other") setLimit(v ? Number(v) * GB : 0);
+  };
+  const over = limit && sum.size > limit;
+  const missing = sum.games - sum.have;
+  const share = (n) => `width:${Math.min(100, sum.size ? (100 * n) / sum.size : 0)}%`;
+  return html`<section class="ls-section" id="collection-properties">
+    <h2>Properties</h2>
+    <dl class="props" id="collection-props">
+      <div><dt>Games</dt><dd id="prop-games">${sum.games}${missing ? html` <span class="muted">(${sum.have} you have)</span>` : null}</dd></div>
+      <div><dt>Systems</dt><dd id="prop-systems">${sum.systems.length}</dd></div>
+      <div><dt>Size on disk</dt><dd id="prop-size" data-bytes=${sum.size}>${size(sum.size)}</dd></div>
+      ${missing ? html`<div><dt>Games you don't have</dt><dd id="prop-missing" data-bytes=${sum.missing_size}>${missing}, about ${size(sum.missing_size)} more <span class="muted">(unpacked, as their DATs list them)</span></dd></div>` : null}
+      ${sum.removed ? html`<div><dt>Left out by hand</dt><dd>${sum.removed}</dd></div>` : null}
+    </dl>
+    <div class="field-block"><span class="field-label">Size limit</span>
+      <div class="pick-row">
+        <select id="collection-limit" class="compact" disabled=${off} value=${choice} onChange=${(e) => pick(e.target.value)}>
+          <option value="">None</option>
+          ${CARDS.map((n) => html`<option key=${n} value=${String(n)}>${cardName(n)} card</option>`)}
+          <option value="other">Another size…</option>
+        </select>
+        ${choice === "other" ? html`<label class="field-inline"><input type="number" id="collection-limit-gb" class="compact" min="0.1" step="0.1" disabled=${off}
+          value=${limit ? +(limit / GB).toFixed(2) : ""} onChange=${(e) => setLimit(Number(e.target.value) * GB)} /> GB</label>` : null}
+      </div>
+      ${limit ? html`<div class="size-limit" id="collection-fit" data-over=${over ? "true" : "false"}>
+        <div class="audit-bar" role="img" aria-label=${`${size(sum.size)} of ${size(limit)}`}><span style=${`width:${Math.min(100, (100 * sum.size) / limit)}%`}></span></div>
+        <p>${over ? html`<b>Over by ${size(sum.size - limit)}</b>: ${size(sum.size)} of ${size(limit)}. Sort the games biggest first to see what to leave out, or narrow the systems.`
+          : html`<b>Fits</b>: ${size(sum.size)} of ${size(limit)}, ${size(limit - sum.size)} to spare.`}</p>
+        <small class="muted">${size(limit)} is as Windows counts it${preset && preset !== "other" ? ` (a ${cardName(limit / GB)} card)` : ""}; the card's own file system takes a little of it, and a handheld's firmware may share it.${missing ? " Games you don't have aren't counted." : ""}</small>
+      </div>` : null}
+    </div>
+    ${sum.systems.length > 1 ? html`<ul class="ls-list system-sizes" id="collection-system-sizes">${[...sum.systems].sort((a, b) => b.size - a.size).map((x) => html`<li key=${x.platform} data-platform=${x.platform}>
+      <button type="button" class="linkish" onClick=${() => onPick(x.platform)}>${x.name}</button>
+      <span class="muted">${plural(x.games, "game", "games")}</span>
+      <span class="audit-bar" role="img" aria-label=${`${size(x.size)} of ${size(sum.size)}`}><span style=${share(x.size)}></span></span>
+      <span class="sys-size">${size(x.size)}</span></li>`)}</ul>` : null}
+  </section>`;
+}
+
 // ------------------------------------------------------------ exports
 
 function Exports({ c, exports, off, onChange }) {
@@ -292,7 +348,7 @@ function Exports({ c, exports, off, onChange }) {
         <button type="button" class="ghost" data-action="forget" disabled=${off} onClick=${() => forget(e)}>Forget</button>
       </li>`;
     })}</ul>` : html`<p class="muted" id="exports-none">Not exported yet.</p>`}
-    <div class="home-actions"><button type="button" class="ghost" id="collection-export-2" disabled=${off} onClick=${() => ui.set({ dialog: { type: "export", c } })}>Export…</button></div>
+    <div class="home-actions"><button type="button" class="ghost" id="collection-export-2" disabled=${off} onClick=${() => ui.set({ dialog: { type: "export", c, sum } })}>Export…</button></div>
   </section>`;
 }
 
@@ -307,6 +363,7 @@ export function Collections() {
   const [tab, setTab] = useState("in");
   const [platform, setPlatform] = useState("");
   const [q, setQ] = useState("");
+  const [sort, setSort] = useState("name");
   const [games, setGames] = useState({ total: 0, items: [], loading: true });
   const [tick, setTick] = useState(0);
   const off = !!s.library?.read_only;
@@ -339,15 +396,15 @@ export function Collections() {
     let gone = false;
     setGames((g) => ({ ...g, loading: true }));
     const t = setTimeout(() => {
-      api("collection_games", { id: c.id, platform, removed: tab === "out", search: q, offset: 0, limit: PAGE })
+      api("collection_games", { id: c.id, platform, removed: tab === "out", search: q, sort, offset: 0, limit: PAGE })
         .then((r) => { if (!gone) setGames({ ...r, loading: false }); })
         .catch((e) => { if (!gone) setGames({ total: 0, items: [], loading: false, error: err(e) }); });
     }, q ? 200 : 0);
     return () => { gone = true; clearTimeout(t); };
-  }, [c?.id, c?.modified, sum, tab, platform, q]);
+  }, [c?.id, c?.modified, sum, tab, platform, q, sort]);
 
   const more = async () => {
-    const r = await api("collection_games", { id: c.id, platform, removed: tab === "out", search: q, offset: games.items.length, limit: PAGE });
+    const r = await api("collection_games", { id: c.id, platform, removed: tab === "out", search: q, sort, offset: games.items.length, limit: PAGE });
     setGames((g) => ({ ...g, items: [...g.items, ...r.items] }));
   };
   // changes are saved one after another, each made to the collection as the last left it
@@ -401,7 +458,7 @@ export function Collections() {
   const head = html`<${CommandBar} id="collections-head" title="Collections" count=${sum ? plural(sum.games, "game", "games") : null}
     primary=${html`<span class="cmd-buttons">
       ${c ? html`<button type="button" class="ghost compact" id="collection-dats" title="One DAT per system, for RomVault, clrmamepro or igir" onClick=${() => ui.set({ dialog: { type: "save-dats", c } })}>${Icon.download(15)} Save as DATs…</button>
-        <button type="button" class="ghost compact" id="collection-export" disabled=${off} title="To ES-DE or a plain folder, with a preview and Undo" onClick=${() => ui.set({ dialog: { type: "export", c } })}>${Icon.stack(15)} Export…</button>` : null}
+        <button type="button" class="ghost compact" id="collection-export" disabled=${off} title="To ES-DE or a plain folder, with a preview and Undo" onClick=${() => ui.set({ dialog: { type: "export", c, sum } })}>${Icon.stack(15)} Export…</button>` : null}
       <button type="button" class="primary compact" id="collection-new" disabled=${off} onClick=${create}>${Icon.plus(15)} New collection</button></span>`}
     more=${c ? { id: "collection-menu", title: "Rename, duplicate, save as DATs, delete", items: menu } : null} />`;
 
@@ -432,11 +489,12 @@ export function Collections() {
         <h2>Rules</h2>
         <${RulesEditor} key=${c.id} c=${c} off=${off} onSave=${quietly} />
       </section>
-      <section class="ls-section collection-result" id="collection-result">
+      <div class="collection-result">
+      <${Properties} c=${c} sum=${sum} off=${off} onSave=${quietly} onPick=${(p) => { setPlatform(p); setTab("in"); }} />
+      <section class="ls-section" id="collection-result">
         <h2>Games</h2>
         <div class="audit-totals" id="collection-totals">
           <p><b id="collection-games">${sum.games}</b> games, <b id="collection-have">${sum.have}</b> you have${sum.removed ? html`, ${sum.removed} left out by hand` : null}.</p>
-          ${sum.systems.length > 1 ? html`<p class="muted" id="collection-systems">${sum.systems.map((x) => `${x.name} ${x.games}`).join(" · ")}</p>` : null}
           ${sum.no_dat.map((x) => html`<p class="warn-note" key=${x.platform}>${x.name} has no DAT, so its games aren't known.</p>`)}
           ${sum.missing_dats.map((x) => html`<p class="warn-note" key=${x}>The DAT ${x} isn't in the library any more.</p>`)}
         </div>
@@ -445,6 +503,8 @@ export function Collections() {
           ${sum.systems.length > 1 ? html`<select id="collection-platform" class="compact" aria-label="System" value=${platform} onChange=${(e) => setPlatform(e.target.value)}>
             <option value="">Every system</option>${sum.systems.map((x) => html`<option key=${x.platform} value=${x.platform}>${x.name}</option>`)}</select>` : null}
           <input type="search" id="collection-search" class="compact" placeholder="Search the games" aria-label="Search the games" value=${q} onInput=${(e) => setQ(e.target.value)} />
+          <select id="collection-sort" class="compact" aria-label="Order" value=${sort} onChange=${(e) => setSort(e.target.value)}>
+            <option value="name">By name</option><option value="size">Biggest first</option></select>
           <button type="button" class="ghost compact" id="collection-add" disabled=${off} onClick=${() => ui.set({ dialog: { type: "add-games", c, systems: systemsOf(), onDone: again } })}>Add games…</button>
         </div>
         <${SearchNote} q=${q} found=${games.loading ? null : plural(games.total, "match", "matches")} onClear=${() => setQ("")} />
@@ -454,12 +514,14 @@ export function Collections() {
           ${games.items.map((g) => html`<li class="audit-row" key=${g.key} data-name=${g.name} data-status=${g.status}>
             <div class="audit-main"><span class="audit-name">${g.name}</span>
               <span class="muted audit-meta">${[sum.systems.length > 1 ? g.platform_name : null, g.regions, g.status === "have" ? null : g.status === "partial" ? "partly there" : "not in the library", g.manual ? "added by hand" : null].filter(Boolean).join(" · ")}</span></div>
+            <span class="muted game-size" data-bytes=${g.size || g.dat_size}>${g.size ? size(g.size) : g.dat_size ? `about ${size(g.dat_size)}` : ""}</span>
             ${tab === "in" ? html`<button type="button" class="ghost compact" data-action="leave-out" disabled=${off} onClick=${() => leaveOut(g)}>Leave out</button>`
               : html`<button type="button" class="ghost compact" data-action="put-back" disabled=${off} onClick=${() => putBack(g)}>Put back</button>`}
           </li>`)}
         </ul>
         ${games.items.length < games.total ? html`<div class="home-actions"><button type="button" class="ghost" id="collection-more" onClick=${more}>Show ${Math.min(PAGE, games.total - games.items.length)} more (${games.total - games.items.length} left)</button></div>` : null}
       </section>
+      </div>
       <${Exports} c=${c} exports=${exports} off=${off} onChange=${again} />
     </div>` : null}
   </div>`;

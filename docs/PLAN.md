@@ -1301,18 +1301,25 @@ this DAT for?" question offers the known systems (built-in and added ones) or a 
   (their contents no longer match a DAT) or as they should be. A job, with Stop.
 - An export folder inside a folder with games is refused: its copies would be counted
   as duplicates.
+- **Properties** (Jerred, 2026-10-17): a collection shows its games, systems and size on
+  disk, by system, and the games it lacks with their size as the DATs list them. It can
+  have a **size limit** (an SD card's: a "64 GB card" is 64,000,000,000 bytes, which
+  Windows shows as 59.6 GB), and says whether it fits or by how much it's over; the games
+  can be listed biggest first to choose what to leave out, and Export… warns when it's
+  over. On disk, a game counts the archive or image each ROM is in, else the file, once.
 
 **Not in Phase 3**: converting on export (the library's format is exported; Convert
 changes it first), `.m3u` files for multi-disc games, scraped details and media in the
 gamelist (Phase 5), RetroArch, Pegasus and the rest (Phase 8).
 
 **Tests**: Rust: systems added and found by DAT name, folder and extension; each rule and
-1G1R on the fixture set; DATs as sources; collections saved as DATs and imported again
+1G1R on the fixture set; a collection's size on disk and what it lacks, and its size
+limit; DATs as sources; collections saved as DATs and imported again
 (the same games); ES-DE and plain exports, with a cue/bin game in its folder, the gamelist
 merged, the custom collection, re-sync after a rule change and Undo; Check finding a
 changed file. Page: Settings › Systems; the DAT question with an existing and a new
-system; a collection made, changed by hand, saved as DATs, exported to ES-DE, updated and
-checked.
+system; a collection made, changed by hand, sized against a limit and listed biggest
+first, saved as DATs, exported to ES-DE (warned of the limit), updated and checked.
 
 **Decisions taken for Phase 3** (Jerred, 2026-10-17, from Claude's proposal)
 

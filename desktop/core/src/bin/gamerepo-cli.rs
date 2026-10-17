@@ -96,9 +96,10 @@ under <dir>/config and <dir>/data instead of the app's own folders.
   collections                the collections
   collection new --name <name> [--platform <id>]... [--all] [--no-1g1r]
         [--regions <USA,Europe,…>] [--only-regions] [--languages <En,Fr>]
-        [--search <text>] [--from-dat <DAT name>]...
-                             make a collection (collection edit <id> … changes one)
-  collection show <id>       its games, by system
+        [--search <text>] [--from-dat <DAT name>]... [--size-limit <64GB|none>]
+                             make a collection (collection edit <id> … changes one);
+                             a size limit in GB is a card's (64GB: 64,000,000,000 bytes)
+  collection show <id>       its games, by system, and its size on disk
   collection dats <id> [--out <dir>]
                              save it as DATs, one per system
   collection delete <id>
@@ -230,6 +231,32 @@ async fn follow(app: &Arc<App>, job: Value) -> Result<Value> {
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
+}
+
+/// A size as Windows shows it (1 GB = 1024 MB).
+fn bytes(n: u64) -> String {
+    let units = ["B", "KB", "MB", "GB", "TB"];
+    let (mut x, mut i) = (n as f64, 0);
+    while x >= 1024.0 && i < units.len() - 1 {
+        x /= 1024.0;
+        i += 1;
+    }
+    if i > 0 && x < 10.0 { format!("{x:.1} {}", units[i]) } else { format!("{} {}", x.round(), units[i]) }
+}
+
+/// "64GB" (as a card's label says: 64,000,000,000 bytes), "59.6GiB", "500MB" or bytes.
+fn parse_size(s: &str) -> Result<u64> {
+    let t = s.trim().to_ascii_uppercase().replace(' ', "");
+    let split = t.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(t.len());
+    let (num, unit) = t.split_at(split);
+    let n: f64 = num.parse().with_context(|| format!("{s} isn't a size (try 64GB)"))?;
+    let mult: f64 = match unit {
+        "" | "B" => 1.0,
+        "KB" => 1e3, "MB" => 1e6, "GB" => 1e9, "TB" => 1e12,
+        "KIB" => 1024.0, "MIB" => 1024f64.powi(2), "GIB" => 1024f64.powi(3), "TIB" => 1024f64.powi(4),
+        _ => bail!("{s} isn't a size (try 64GB)"),
+    };
+    Ok((n * mult).round() as u64)
 }
 
 fn print(v: &Value) -> Result<()> {
@@ -597,6 +624,9 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             while let Some(d) = a.flag("--from-dat") {
                 from.push(d);
             }
+            if let Some(x) = a.flag("--size-limit") {
+                c["size_limit"] = if x == "none" { Value::Null } else { json!(parse_size(&x)?) };
+            }
             let r = &mut c["rules"];
             if !platforms.is_empty() {
                 r["platforms"] = json!(platforms);
@@ -631,7 +661,7 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
                 return print(&saved);
             }
             let sum = &saved["summary"];
-            println!("{}  {}: {} games ({} you have)", saved["collection"]["id"].as_str().unwrap_or(""), saved["collection"]["name"].as_str().unwrap_or(""), sum["games"], sum["have"]);
+            println!("{}  {}: {} games ({} you have), {} on disk", saved["collection"]["id"].as_str().unwrap_or(""), saved["collection"]["name"].as_str().unwrap_or(""), sum["games"], sum["have"], bytes(sum["size"].as_u64().unwrap_or(0)));
             Ok(())
         }
         ("collection", "show") => {
@@ -641,8 +671,15 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             if json_out {
                 return print(&json!({ "collection": c["collection"], "summary": c["summary"], "games": games }));
             }
-            for s in c["summary"]["systems"].as_array().into_iter().flatten() {
-                println!("{}: {} games ({} you have)", s["name"].as_str().unwrap_or(""), s["games"], s["have"]);
+            let sum = &c["summary"];
+            let size = sum["size"].as_u64().unwrap_or(0);
+            println!("{} games ({} you have) on {} systems: {} on disk{}", sum["games"], sum["have"], sum["systems"].as_array().map_or(0, Vec::len), bytes(size),
+                match sum["missing_size"].as_u64() { Some(m) if m > 0 => format!(", about {} more for the games you don't have (unpacked)", bytes(m)), _ => String::new() });
+            if let Some(limit) = c["collection"]["size_limit"].as_u64() {
+                println!("Size limit {}: {}", bytes(limit), if size <= limit { format!("fits, {} to spare", bytes(limit - size)) } else { format!("over by {}", bytes(size - limit)) });
+            }
+            for s in sum["systems"].as_array().into_iter().flatten() {
+                println!("{}: {} games ({} you have), {}", s["name"].as_str().unwrap_or(""), s["games"], s["have"], bytes(s["size"].as_u64().unwrap_or(0)));
             }
             for g in games["items"].as_array().into_iter().flatten() {
                 println!("  {:<6} {}", g["status"].as_str().unwrap_or(""), g["key"].as_str().unwrap_or(""));

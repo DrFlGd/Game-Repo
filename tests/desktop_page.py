@@ -563,7 +563,7 @@ async def main():
             await pg.click("#collection-name-dialog button[type=submit]")
             await pg.wait_for_selector("#collection-rules")
             await pg.check('#rule-platforms input[value="gb"]')
-            await pg.wait_for_function("() => document.querySelector('#collection-systems') === null && document.querySelector('#collection-list')?.dataset.total > 0")
+            await pg.wait_for_function("() => document.querySelector('#collection-system-sizes') === null && document.querySelector('#collection-list')?.dataset.total > 0")
             await pg.wait_for_timeout(300)
             names = await pg.eval_on_selector_all("#collection-list .audit-row", "els => els.map(e => e.dataset.name)")
             games_now = lambda: pg.evaluate("() => +document.querySelector('#collection-games').textContent")
@@ -592,6 +592,28 @@ async def main():
             await pg.screenshot(path=str(out / "21-collection.png"), full_page=True)
             kept = names[1:]
 
+            # its properties: games, systems, size on disk; a size limit; the biggest games first
+            await pg.wait_for_function("(n) => document.querySelectorAll('#collection-list .audit-row').length === n", arg=len(kept))
+            disk = await pg.evaluate("() => +document.querySelector('#prop-size').dataset.bytes")
+            each = await pg.eval_on_selector_all("#collection-list .game-size", "els => els.map(e => +e.dataset.bytes)")
+            props = await pg.inner_text("#collection-props")
+            check("Properties shows the games, systems and size on disk (the sum of its games')",
+                  disk > 0 and disk == sum(each) and str(len(kept)) in props and "Systems" in props, (disk, each, props))
+            await pg.select_option("#collection-limit", "other")
+            await pg.fill("#collection-limit-gb", "0.0000001")
+            await pg.press("#collection-limit-gb", "Tab")
+            await pg.wait_for_selector('#collection-fit[data-over="true"]')
+            stored = json.loads(next((library / "_library/collections").glob("*.json")).read_text())
+            check("a size limit is kept with the collection, and one too small says by how much it's over",
+                  stored.get("size_limit") == 100 and "Over by" in await pg.inner_text("#collection-fit"), stored.get("size_limit"))
+            await pg.select_option("#collection-sort", "size")
+            await pg.wait_for_timeout(300)
+            by_size = await pg.eval_on_selector_all("#collection-list .game-size", "els => els.map(e => +e.dataset.bytes)")
+            check("the games can be listed biggest first", by_size == sorted(by_size, reverse=True) and len(by_size) == len(kept), by_size)
+            await pg.eval_on_selector("#collection-properties", "e => e.scrollIntoView()")
+            await pg.screenshot(path=str(out / "21b-collection-properties.png"))
+            await pg.select_option("#collection-sort", "name")
+
             await pg.click("#collection-dats")
             await pg.click("#save-dats-dialog button[type=submit]")
             await toast_text(pg, "Saved 1 DAT of Best Of")
@@ -606,6 +628,8 @@ async def main():
             await pg.wait_for_selector("#export-dialog")
             await pg.fill("#export-out", str(roms))
             await pg.fill("#export-esde", str(esde))
+            over = await pg.query_selector("#export-over")
+            check("Export says when the collection is over its size limit", over is not None and "more than its size limit" in await over.inner_text())
             await pg.click("#export-dialog button[type=submit]")
             await pg.wait_for_selector("#organise-totals")
             totals = await pg.inner_text("#organise-totals")
@@ -637,6 +661,11 @@ async def main():
             await pg.click('#exports li[data-target="esde"] [data-action="check"]')
             said = await toast_text(pg, "as they should be")
             check("Check reads the export back against the DATs", f"All {len(exported_after)} files are as they should be" in said, said)
+            await pg.select_option("#collection-limit", "32")
+            await pg.wait_for_selector('#collection-fit[data-over="false"]')
+            stored = json.loads(next((library / "_library/collections").glob("*.json")).read_text())
+            check("a card's size is its label's (32 GB card: 32,000,000,000 bytes), and the collection fits",
+                  stored.get("size_limit") == 32_000_000_000 and "to spare" in await pg.inner_text("#collection-fit"), stored.get("size_limit"))
             await pg.screenshot(path=str(out / "23-exports.png"), full_page=True)
             await pg.click('.sidebar a[href="#/settings"]')
             await pg.wait_for_selector("#theme-select")

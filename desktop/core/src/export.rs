@@ -526,7 +526,7 @@ mod tests {
     use crate::collection::{Collection, Rules};
 
     fn collection(lib: &Library, f: impl FnOnce(&mut Rules)) -> Collection {
-        let mut c = Collection { id: String::new(), name: "Best Of".into(), rules: Rules::default(), added: vec![], removed: vec![], created: String::new(), modified: String::new() };
+        let mut c = Collection { id: String::new(), name: "Best Of".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, created: String::new(), modified: String::new() };
         c.rules.platforms = vec!["gb".into()];
         f(&mut c.rules);
         collection::save(lib, c).unwrap()
@@ -657,7 +657,7 @@ mod tests {
         roots::add(&lib, &src, Some("psx")).unwrap();
         crate::scan::scan(&ix, &lib, &crate::scan::Options::default(), &AtomicBool::new(false), &mut |_| {}).unwrap();
         crate::dat::import(&ix, &lib, &dir.join("psx.dat"), &serde_json::Map::new()).unwrap();
-        let mut c = Collection { id: String::new(), name: "Discs".into(), rules: Rules::default(), added: vec![], removed: vec![], created: String::new(), modified: String::new() };
+        let mut c = Collection { id: String::new(), name: "Discs".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, created: String::new(), modified: String::new() };
         c.rules.platforms = vec!["psx".into()];
         let c = collection::save(&lib, c).unwrap();
         let roms = dir.join("ROMs");
