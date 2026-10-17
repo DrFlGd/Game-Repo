@@ -1467,8 +1467,8 @@ checked.
 
 - **D24 Add a game and Identify** (Jerred's suggestion, 2026-10-17): one game added on
   its own; one it isn't recognised is identified by searching online sources, brought in
-  by ease of integration (3.5). Proposed: Add a game… and Identify with Steam, GOG and
-  LaunchBox in Phase 4; ScreenScraper, IGDB and TheGamesDB in Phase 5 (IGDB and
+  by ease of integration (3.5). Taken 2026-10-17: Add a game… and Identify with Steam,
+  GOG and LaunchBox in Phase 4; ScreenScraper, IGDB and TheGamesDB in Phase 5 (IGDB and
   TheGamesDB moved up from Phase 8); MobyGames stays in Phase 8.
 
 New ones get a number here as they come up (next: D25).
