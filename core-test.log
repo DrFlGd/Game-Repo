@@ -1,0 +1,112 @@
+   Compiling gamerepo-core v0.5.4 (D:\a\Game-Repo\Game-Repo\desktop\core)
+    Finished `release` profile [optimized] target(s) in 2m 05s
+     Running unittests src\lib.rs (target\release\deps\gamerepo_core-b2068b81e4112591.exe)
+
+running 92 tests
+test api::tests::first_start_asks_where_the_library_goes ... ok
+test api::tests::library_files_stay_inside ... ok
+test api::tests::opens_renames_and_remembers_libraries ... ok
+test api::tests::prefs_are_kept_on_this_computer ... ok
+test addgame::tests::a_rom_is_added_scanned_and_found_in_its_dat_or_identified ... ok
+test archive::tests::a_7z_is_read_quick_and_full ... ok
+test archive::tests::a_rar_is_read_quick_and_full ... ok
+test api::tests::folders_scan_dats_and_the_audit ... ok
+test api::tests::the_index_follows_the_library_and_stays_on_this_computer ... ok
+test audit::tests::a_7z_in_the_audit_and_a_scan_of_only_what_changed ... ok
+test audit::tests::a_damaged_zip_and_a_stopped_scan ... ok
+test audit::tests::dat_versions_and_the_library_copy ... ok
+test audit::tests::timing_import_and_audit_of_a_50k_rom_dat ... ignored
+test audit::tests::timing_rescan_of_100k_unchanged_files ... ignored
+test bios::tests::libretros_system_dat_is_read_as_a_game_per_system ... ok
+test audit::tests::scan_import_and_audit ... ok
+test browse::tests::a_game_folder_is_renamed_to_its_new_dat_name_as_a_change_that_can_be_undone ... ok
+test browse::tests::details_edited_by_hand_are_searched_filtered_and_kept_over_a_scrape ... ok
+test browse::tests::the_library_lists_every_game_with_one_per_title_and_rebuilds_only_what_changed ... ok
+test browse::tests::timing_the_library_of_200k_games ... ignored
+test browse::tests::titles_sort_without_their_article_and_players_are_the_most_it_says ... ok
+test browse::tests::thumbnails_are_made_once_kept_on_this_computer_and_pruned ... ok
+test collection::tests::a_collection_is_saved_in_the_library_and_as_dats ... ok
+test collection::tests::a_collection_knows_its_size_on_disk_and_what_it_lacks ... ok
+test collection::tests::rules_and_1g1r_pick_the_games ... ok
+test audit::tests::discs_in_the_audit ... ok
+test cue::tests::reads_a_cue_and_renames_its_files ... ok
+test cue::tests::reads_a_gdi_and_renames_its_files ... ok
+test dat::tests::names_are_split_into_fields ... ok
+test dat::tests::reads_clrmamepro ... ok
+test dat::tests::reads_logiqx ... ok
+test docs::tests::a_folder_of_documents_is_paired_brought_in_found_and_undone ... ok
+test docs::tests::kinds_and_titles_are_guessed_from_names ... ok
+test convert::tests::an_iso_to_cso_zso_and_chd_and_a_bad_conversion_refused ... ok
+test convert::tests::cue_bin_to_chd_in_place_then_back_out_and_undo ... ok
+test export::tests::a_collection_goes_to_a_card_in_knullis_and_muoss_layouts_and_follows_a_changed_layout ... ok
+test export::tests::a_collection_is_exported_to_es_de_updated_undone_and_checked ... ok
+test api::tests::organise_undo_and_the_folder_watcher ... ok
+test export::tests::the_editors_preview_shows_a_stand_in_and_files_that_would_clash ... ok
+test hash::tests::headers_get_a_second_set_of_hashes ... ok
+test hash::tests::known_hashes ... ok
+test hash::tests::n64_byte_orders_hash_as_big_endian ... ok
+test hash::tests::stops_when_asked ... ok
+test export::tests::a_disc_game_of_several_files_is_a_folder_for_es_de_and_named_for_a_plain_folder ... ok
+test image::tests::a_cd_chd_made_by_chdman_reads_as_its_bins ... ok
+test image::tests::a_dvd_chd_and_a_cso_read_as_the_iso ... ok
+test export::tests::an_export_carries_details_smaller_pictures_and_the_manual_and_they_are_undone ... ok
+test export::tests::bios_files_are_audited_gathered_and_exported_with_the_games ... ok
+test image::tests::chds_written_here_pass_chdman_verify ... ok
+test image::tests::dolphin_tools_hashes_are_read ... ok
+test index::tests::an_index_from_a_newer_app_is_set_aside ... ok
+test index::tests::another_librarys_index_is_set_aside ... ok
+test image::tests::chd_cso_and_zso_written_here_read_back ... ok
+test image::tests::a_gd_rom_from_a_gdi_is_written_as_chdman_writes_it_and_read_back ... ok
+test launchbox::tests::the_database_is_read_and_searched ... ok
+test layout::tests::a_path_is_made_from_its_place_and_tokens ... ok
+test layout::tests::the_built_in_layouts_read_and_pass_their_check ... ok
+test layout::tests::the_check_says_what_is_wrong_and_where ... ok
+test library::tests::creates_a_library_and_keeps_its_id ... ok
+test library::tests::dates ... ok
+test library::tests::newer_format_is_read_only ... ok
+test layout::tests::a_built_in_layout_is_changed_by_saving_a_copy_and_a_newer_format_is_refused ... ok
+test library::tests::paths_stay_inside ... ok
+test library::tests::opening_a_folder_of_games_adds_only_the_apps_folder ... ok
+test index::tests::makes_an_index_with_every_step ... ok
+test identify::tests::steam_gog_and_launchbox_answer_a_search_and_give_details ... ok
+test makedat::tests::a_dat_made_from_a_set_audits_it_as_complete ... ok
+test organise::tests::copy_into_torrentzips_leaves_the_originals ... ok
+test organise::tests::names_are_safe_and_follow_the_template ... ok
+test organise::tests::duplicates_set_aside_emptied_and_an_interrupted_change ... ok
+test organise::tests::timing_plan_of_50k_files_and_renaming_10k ... ignored
+test organise::tests::move_into_the_library_loose_and_undo ... ok
+test organise::tests::rename_where_they_are_then_undo ... ok
+test pcgames::tests::names_say_what_they_can ... ok
+test platforms::tests::dats_find_their_platform ... ok
+test platforms::tests::disc_platforms_and_their_formats ... ok
+test platforms::tests::files_find_their_platform ... ok
+test platforms::tests::ids_are_unique ... ok
+test organise::tests::a_renamed_disc_set_and_its_cue_sheet ... ok
+test roots::tests::roots_are_kept_in_the_library ... ok
+test pcgames::tests::a_game_is_unpacked_with_its_program_and_changed_by_hand ... ok
+test sources::tests::a_folder_from_before_is_split_by_where_its_details_came_from ... ok
+test sources::tests::details_are_made_from_each_sources_answer_by_field ... ok
+test pcgames::tests::an_inbox_is_read_imported_undone_and_a_new_version_joins_its_game ... ok
+test steam::tests::a_vdf_file_reads_and_writes_back_the_same ... ok
+test starter::tests::starter_dats_are_downloaded_for_platforms_without_one ... ok
+test systems::tests::systems_added_by_hand_are_found_like_built_in_ones ... ok
+test sources::tests::variants_are_kept_chosen_and_deleted_with_undo ... ok
+test torrentzip::tests::the_same_bytes_as_torrentzip ... ok
+test scrape::tests::a_systems_games_are_scraped_by_hash_and_by_name_and_the_unsure_need_a_look ... ok
+test steam::tests::shortcuts_are_written_beside_the_others_backed_up_and_put_back ... ok
+test watch::tests::reports_settled_changes_once_and_skips_hidden_folders ... ok
+
+test result: ok. 88 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 12.99s
+
+     Running unittests src\bin\gamerepo-cli.rs (target\release\deps\gamerepo_cli-8c76fca915e4d0a2.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests gamerepo_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,0 +1,269 @@
+PASS the first start asks where the library goes and makes only _library/ there :: ('Where should your library go?', True, 'D:\\a\\_temp\\pagehome\\My Games')
+PASS the library's index is made on this computer, not in the library :: ('blobs (0 rows), dat_games (0 rows), dat_roms (0 rows), dats (0 rows), docs (0 rows), docs_text (0 rows), docs_text_config (1 row), docs_text_content (0 rows), docs_text_data (2 rows), docs_text_docsize (0 rows), docs_text_idx (0 rows), files (0 rows), index_meta (2 rows), library (0 rows), library_text (0 rows), library_text_config (1 row), library_text_content (0 rows), library_text_data (2 rows), library_text_docsize (0 rows), library_text_idx (0 rows), library_values (0 rows), matches (0 rows), meta_games (0 rows), meta_roms (0 rows), roots (0 rows), scans (0 rows)', ['lib-9641406b1fb914c7.sqlite', 'lib-9641406b1fb914c7.sqlite-shm', 'lib-9641406b1fb914c7.sqlite-wal'], [])
+PASS the menu's places open, with the pages still to come saying what they'll do :: (['Game Repo', 'Home', 'Library', 'Audit', 'BIOS files', 'Collections', 'Export layouts', 'PC games', 'Metadata', 'Documents', 'Settings', 'About', 'Theme: System'], 'Audit', 'Audit', ' Check your ROM sets against DAT files from No-Intro, Redump, TOSEC or your own.\n\nTo start\nAdd the folders your games ar')
+PASS checking the index runs and says it's sound :: The index is sound.
+PASS the library is renamed, and Undo puts the name back :: ('Retro', 'My Games')
+PASS Settings shows where the index is on this computer :: D:\a\_temp\pagehome\data\index\lib-9641406b1fb914c7.sqlite
+PASS opening a folder of games adds only the app's folder :: ['Nintendo - SNES', '_library']
+PASS a library opened before opens from the list, each with its own index :: ('Retro', 'D:\\a\\_temp\\pagehome\\data\\index\\lib-7a357f713e768f78.sqlite')
+PASS a folder with games is added and kept in the library :: [{'id': 'root-fce3e251f2', 'path': 'D:\\a\\_temp\\pagehome\\fx\\Roms'}]
+PASS Scan reads every file once, inside ZIPs too :: Scanned 7 files: 7 new; read 7 files (240 KB).
+PASS DATs are imported (a zipped one too) and copied into the library; an unknown one is asked about, its new system added and remembered :: (['gb/Nintendo - Game Boy (Parent-Clone) (20261001-000000).dat', 'nes/Nintendo - Nintendo Entertainment System (2026).dat', 'satellaview/Nintendo - Satellaview (1).dat'], {'Nintendo - Satellaview': 'satellaview'}, 'satellaview', {'satellaview': {'dat_names': ['Nintendo - Satellaview'], 'exts': [], 'folders': [], 'id': 'satellaview', 'media': 'cartridge', 'name': 'Satellaview'}})
+PASS Home shows each platform against its DAT, with 1G1R :: Game Boy
+3 of 6
+1G1R 3 of 5
+Nintendo - Game Boy (Parent-Clone)
+PASS the audit lists what you have, what's missing, misnamed, bad, unknown and duplicated :: 3 of 6 games · 1G1R 3 of 5 · 1 file matched by CRC
+PASS a list is searched, and a misnamed file shows the name the DAT gives it :: beta.gb
+Beta (Europe)
+→ Beta (Europe).gb
+D:\a\_temp\pagehome\fx\Roms\Game Boy\beta.gb
+PASS Export fixdat writes what's missing as a DAT, and the report is saved as CSV :: ('Wrote a fixdat of 3 games to _library/fixdats/Nintendo - Game Boy (Parent-Clone) (fixdat 2026-10-17).dat.\nShow', ['Nintendo - Game Boy (Parent-Clone) (fixdat 2026-10-17).dat'], 'list,game or file,path,expected\nhave,Alpha (USA),D:\\a\\_temp\\pagehome\\fx\\Roms\\Game Boy\\Alpha (USA).gb,\nhave,Beta (Europe),D:\\a\\_temp\\pagehome\\fx\\Roms\\Game Boy\\beta.gb,\nhave,Delta (World),D:\\a\\_temp\\pag')
+PASS a rescan reads only what changed, and the audit follows :: ('Scanned 6 files: 1 new, 2 gone; read 1 file (32 KB).', [], [])
+PASS a DAT is made from a scanned set (ZIPs read for SHA1s) and imported to audit against :: Wrote My GB set: 5 games, 5 ROMs, imported for Game Boy.
+Show
+PASS the DAT chosen for a platform is kept for it :: {'gb': 'My GB set'}
+PASS files added outside the app are read without a scan (the folder watcher) :: ('Read what changed in your folders: 2 new.', ['alpha again.gb', 'gamma.gb'])
+PASS Rename these shows a preview (a copy of a file named right is left alone), renames in place, and Undo in the message puts it back :: ('Rename\nGamma (Japan).gb\nfrom Game Boy/Extra/gamma.gb', 'Steps\n1\nLeft alone\n1', 'Renamed the misnamed Game Boy files: 1 of 1 step done.\nUndo\nHistory', 'Undone: Renamed the misnamed Game Boy files.', ['alpha again.gb'])
+PASS Set aside duplicates keeps the copy that's named right and moves the other out of the way :: ('Set aside Game Boy duplicates: 1 of 1 step done.\nUndo\nHistory', [WindowsPath('D:/a/_temp/pagehome/fx/Roms/.gamerepo-set-aside/20261017-224249-597/Game Boy/Extra/alpha again.gb')], [])
+PASS Organise copies a set into TorrentZips in another folder, after a preview, and leaves the originals :: ('4 games to change.\n\nWrite ZIP: 4 files\n160 KB\n\nInto …/_temp/pagehome/Sorted.', 'Sorted Game Boy into Sorted: 4 of 4 steps done.\nUndo\nHistory', ['Alpha (USA).zip', 'Beta (Europe).zip', 'Delta (World).zip', 'Gamma (Japan).zip'])
+PASS Settings › Naming shows how names come out and keeps the platform's template in the library :: {'gb': {'folder': False, 'template': '{title} ({region})'}}
+PASS Settings › History lists the changes; the newest is undone there, what was set aside is emptied, and watching can be turned off :: (['done', 'done', 'undone'], True, True, False)
+PASS Settings lists the DATs by platform and keeps the scan settings on this computer :: (['Game Boy', 'Nintendo Entertainment System', 'Satellaview'], {'full': True, 'readers': 2, 'watch': True})
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Nintendo%20-%20Family%20Computer%20Disk%20System.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Nintendo%20-%20Nintendo%2064.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Nintendo%20-%20Game%20Boy%20Color.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Nintendo%20-%20Game%20Boy%20Advance.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Nintendo%20-%20Nintendo%20DS.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Nintendo%20-%20Virtual%20Boy.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Nintendo%20-%20Pokemon%20Mini.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Sega%20-%20Mega%20Drive%20-%20Genesis.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Sega%20-%20Master%20System%20-%20Mark%20III.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Sega%20-%20Game%20Gear.dat HTTP/1.1" 200 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Sega%20-%2032X.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Sega%20-%20SG-1000.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Atari%20-%202600.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Atari%20-%20Atari%202600.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Atari%20-%205200.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Atari%20-%20Atari%205200.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Atari%20-%207800.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Atari%20-%20Atari%207800.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Atari%20-%20Lynx.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Atari%20-%20Atari%20Lynx.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Atari%20-%20Jaguar.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Atari%20-%20Atari%20Jaguar.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/NEC%20-%20PC%20Engine%20-%20TurboGrafx-16.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/NEC%20-%20PC%20Engine%20-%20TurboGrafx%2016.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/SNK%20-%20Neo%20Geo%20Pocket.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/SNK%20-%20NeoGeo%20Pocket.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/SNK%20-%20Neo%20Geo%20Pocket%20Color.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/SNK%20-%20NeoGeo%20Pocket%20Color.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Bandai%20-%20WonderSwan.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Bandai%20-%20WonderSwan%20Color.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Coleco%20-%20ColecoVision.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/Mattel%20-%20Intellivision.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /no-intro/GCE%20-%20Vectrex.dat HTTP/1.1" 200 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Sony%20-%20PlayStation.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Sony%20-%20PlayStation%202.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Sony%20-%20PlayStation%20Portable.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Sega%20-%20Saturn.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Sega%20-%20Mega%20CD%20%26%20Sega%20CD.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Sega%20-%20Mega-CD%20-%20Sega%20CD.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Sega%20-%20Dreamcast.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/NEC%20-%20PC%20Engine%20CD%20%26%20TurboGrafx%20CD.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/NEC%20-%20PC%20Engine%20CD%20-%20TurboGrafx-CD.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/SNK%20-%20Neo%20Geo%20CD.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Panasonic%20-%203DO%20Interactive%20Multiplayer.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/The%203DO%20Company%20-%203DO.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/NEC%20-%20PC-FX%20%26%20PC-FXGA.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/NEC%20-%20PC-FX.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Atari%20-%20Jaguar%20CD%20Interactive%20Multimedia%20System.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Atari%20-%20Jaguar%20CD.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Philips%20-%20CD-i.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Nintendo%20-%20GameCube.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Nintendo%20-%20Wii.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /redump/Microsoft%20-%20Xbox.dat HTTP/1.1" 404 -
+127.0.0.1 - - [17/Oct/2026 22:42:52] code 404, message File not found
+127.0.0.1 - - [17/Oct/2026 22:42:52] "GET /dat/System.dat HTTP/1.1" 404 -
+PASS Get starter DATs downloads the DATs of the systems that have none :: ('Imported starter DATs for 2 systems (2 already had one, 40 not available).', ['gamegear', 'vectrex'])
+PASS a cue/bin set is audited against its disc DAT, and Organise keeps disc images as they are :: ('Scanned 11 files: 4 new; read 5 files (379 KB).', 1, True)
+PASS Convert… turns a cue/bin set into a CHD where it is, sets the originals aside, and the game is still had :: ('chd', '1 game to change.\n\nConvert: 1 file\n175 KB\n\n3 files are set aside in .gamerepo-set-aside at the top of their folder, until you empty it (Settings › History).', 'Converted PlayStation to CHD where they are: 1 of 1 step done.\nUndo\nHistory', ['Disc Game (USA).chd'])
+PASS Extract writes a CHD back out as the cue/bin Redump lists, byte for byte :: ('Extracted PlayStation into Extracted: 3 of 3 steps done.\nUndo\nHistory', {'Disc Game (USA) (Track 1).bin': 'f80da677808bc14e543c1564dc3874a134f2c945', 'Disc Game (USA) (Track 2).bin': 'ba3fbcfc61db51f3e970b47675edf92000f937a6', 'Disc Game (USA).cue': 'ea406192c54308382380c44eb84470557b214474'})
+PASS Undo puts the extracted files and the CHD's originals back as they were :: (['Disc Game (USA) (Track 1).bin', 'Disc Game (USA) (Track 2).bin', 'Disc Game (USA).cue'], True)
+PASS Settings › Preferred formats keeps the platform's choice in the library, and Convert… offers it first :: ({'psp': 'zso'}, ['cso', 'zso', 'chd', 'extract'])
+PASS Settings › Tools keeps where dolphin-tool is on this computer, shows what it found, and clears it :: ({'dolphin-tool': 'D:\\a\\Game-Repo\\Game-Repo\\tests\\fixtures\\fake_dolphin_tool.py'}, 'D:\\a\\Game-Repo\\Game-Repo\\tests\\fixtures\\fake_dolphin_tool.py', True)
+PASS Settings › Systems adds a system to the library, beside the built-in ones :: ('Acme Gizmo acmegizmo\nDATs: Acme - Gizmo · .gzm\nChange…\nRemove', {'dat_names': ['Acme - Gizmo'], 'exts': ['gzm'], 'folders': [], 'id': 'acmegizmo', 'media': 'cd', 'name': 'Acme Gizmo'})
+PASS the DAT question offers every system, added ones too, or a new one :: (['wonderswancolor', 'xbox', '__new'], {'Homebrew - Widgets': 'acmegizmo', 'My GB set': 'gb', 'Nintendo - Satellaview': 'satellaview'})
+PASS a collection is made from rules (the games you have or every game, one per title unless unticked) and kept in the library :: (['Alpha (USA)', 'Beta (Europe)', 'Delta (World)', 'Gamma (Japan)'], 5, 6, [{'added': [], 'created': '2026-10-17T22:42:56Z', 'id': 'best-of-f85156cc', 'modified': '2026-10-17T22:42:56Z', 'name': 'Best Of', 'removed': [], 'rules': {'exclude': ['beta', 'proto', 'demo', 'sample', 'pirate', 'bios', 'program', 'kiosk', 'debug'], 'from_dats': [], 'include': 'all', 'languages': [], 'one_per_title': False, 'only_regions': False, 'platforms': ['gb'], 'regions': ['USA', 'World', 'Europe', 'Japan'], 'search': ''}, 'size_limit': None}])
+PASS a game is left out by hand, and listed with Put back (changes made quickly are all kept) :: (['gb/Alpha (USA)'], {'exclude': ['beta', 'proto', 'demo', 'sample', 'pirate', 'bios', 'program', 'kiosk', 'debug'], 'from_dats': [], 'include': 'have', 'languages': [], 'one_per_title': True, 'only_regions': False, 'platforms': ['gb'], 'regions': ['USA', 'World', 'Europe', 'Japan'], 'search': ''})
+PASS Properties shows the games, systems and size on disk (the sum of its games') :: (131222, [32768, 65686, 32768], 'Games\n3\nSystems\n1\nSize on disk\n128 KB\nLeft out by hand\n1')
+PASS a size limit is kept with the collection, and one too small says by how much it's over :: 100
+PASS the games can be listed biggest first :: [65686, 32768, 32768]
+PASS Save as DATs writes one Logiqx DAT per system with the collection's games :: <?xml version="1.0"?>
+<datafile>
+	<header>
+		<name>Best Of - Game Boy</name>
+		<description>Best Of (3 games of Game Boy, made by Game Repo)</description>
+		<version>2026-10-17</version>
+		<author>Game Repo</author>
+	</header>
+	<game name="Beta (Europe)">
+		<description>Beta (Europe)</description>
+	
+PASS Export says when the collection is over its size limit, and starts from the ES-DE layout :: esde
+PASS Export puts the collection in ES-DE's ROMs folder by system, with a gamelist and a custom collection, after a preview :: ('3 games to export.\n\nHardlink: 3 files\n128 KB\nWrite: 2 files\n397 B\n\nInto …/_temp/pagehome/ROMs.', 'Exported Best Of to ES-DE (ROMs): 5 of 5 steps done.\nUndo\nHistory', ['Beta (Europe).gb', 'Delta (World).zip', 'Gamma (Japan).gb'], '<?xml version="1.0"?>\n<gameList>\n\t<game>\n\t\t<path>./Beta (Europe).gb</path>\n\t\t<name>Beta</name>\n\t</game>\n\t<game>\n\t\t<path>./Delta (World).zip</path>\n\t\t<name>Delta</name>\n\t</game>\n\t<game>\n\t\t<path>./Gamma', 'D:/a/_temp/pagehome/ROMs/gb/Beta (Europe).gb\nD:/a/_temp/pagehome/ROMs/gb/Delta (World).zip\nD:/a/_temp/pagehome/ROMs/gb/Gamma (Japan).gb\n')
+PASS Update adds the game put back and leaves those there already :: ('4 games to export, 3 already in place.\n\nHardlink: 1 file\n32 KB\nWrite: 2 files\n510 B\n\nInto …/_temp/pagehome/ROMs.', 'Updated the export of Best Of to ES-DE (ROMs): 3 of 3 steps done.\nUndo\nHistory', ['Alpha (USA).gb', 'Beta (Europe).gb', 'Delta (World).zip', 'Gamma (Japan).gb'])
+PASS Check reads the export back against the DATs :: All 4 files are as they should be.
+PASS a card's size is its label's (32 GB card: 32,000,000,000 bytes), and the collection fits :: 32000000000
+PASS Settings keeps the PC games inbox and Steam's folder, and lists Identify's sources :: Sources
+
+Identify asks these, in this order, about a game nothing recognised; a scrape (the Metadata page) asks the ones that aren't for PC games alone. Accounts and keys are kept on this computer, never in the library, and none is built in.
+
+Steam
+PC games
+↑
+↓
+GOG
+PC games
+↑
+↓
+ScreenScraper
+every system
+Your ScreenScraper account (free, at screenscraper.fr), and a developer id and password for the app, which ScreenScraper gives on request (its forum); it's asked by the ROMs' hashes, so it knows games by their files.
+User name
+Password
+Developer id
+Developer password
+Save
+Check
+↑
+↓
+IGDB
+every system
+A Twitch developer application's client id and secret (free, at dev.twitch.tv); IGDB is asked by title.
+Client id
+Client secret
+Save
+Check
+↑
+↓
+TheGamesDB
+every system
+An API key (free, asked for on TheGamesDB's forum); it's asked by title.
+API key
+Save
+Check
+↑
+↓
+LaunchBox Games DB
+every system
+Its database (about 100 MB) is searched on this computer, so get it first.
+Get LaunchBox's database
+↑
+↓
+PASS Import… reads the inbox: one game found by its goggame file, the other by a search of the sources :: [['Alpha Strike', 'ready', 'New291 B · steam 4000 · found by a search of the sources'], ['Zeta Quest', 'ready', 'New182 B · gog 1207658930 · found by its goggame file']]
+PASS each PC game gets its own folder with a game.json, and the artwork the sources offered :: ('Import 2 PC games: 5 of 5 steps done. Artwork for 1 game.\nUndo\nHistory', ['Alpha Strike (2001)', 'Zeta Quest (1999)'], {'details': {'description': 'A game the test made up.', 'developer': 'Stand-in Soft', 'released': 'Mar 3, 2001'}, 'files': [{'added': '2026-10-17T22:42:59Z', 'crc32': '0f9a6425', 'kind': 'install', 'path': 'install/Alpha Strike.zip', 'sha1': 'e718227c801dccfd49d8d4f4a029a15c8e806fed', 'size': 291}], 'id': 'pc-20261017224259711', 'ids': {'steam': '4000'}, 'imported': '2026-10-17T22:42:59Z', 'installed': None, 'launch': None, 'modified': '2026-10-17T22:42:59Z', 'source': 'other', 'title': 'Alpha Strike', 'version': '', 'year': 2001}, [WindowsPath('D:/a/_temp/pagehome/My Games/_library/games/pc/pc-20261017224259711/media/cover.png')])
+PASS Unpack puts a game's archive in its extracted folder, and its program is chosen from what's there :: (['', 'extracted/Alpha Strike/alpha.exe'], {'args': '', 'dir': '', 'program': 'extracted/Alpha Strike/alpha.exe'})
+PASS Identify searches the sources in order; the pick keeps its id and details with the game and gets its artwork :: (['steam', 'gog'], {'description': 'Quest on .', 'gog_slug': 'zeta_quest', 'identified_by': 'gog', 'released': '1999-02-24'}, ['banner.png', 'cover.png', 'hero.png'])
+PASS Add to Steam writes the PC games as non-Steam shortcuts, tagged as the app's, with their artwork in Steam's grid :: ('2 shortcuts to add.\n\nAlpha Strike\nalpha.exe · banner, cover, hero, logo\nZeta Quest\nzeta.exe · banner, cover, hero', 'Wrote 2 shortcuts to Steam, with artwork for 7 games. Start Steam to see them.', ['3950859296.png', '3950859296_hero.png', '3950859296p.png', '4271602640.png', '4271602640_hero.png', '4271602640_logo.png', '4271602640p.png'])
+PASS Add a game… copies a ROM into a folder with games, scans it and says which DAT game it is :: alpha-eu.gb
+Alpha (Europe) in its DAT. Organise… (Rename these, on the Audit page's Misnamed list) gives it the DAT's name.
+PASS Settings › Sources keeps a source's key on this computer (never shown again, never in the library) and Check asks the source :: ('TheGamesDB answered.', 'Set (type to change)', {'thegamesdb': {'apikey': 'test-key-123'}})
+PASS Scrape… asks the ready sources for a system's games, by title, and keeps the details and pictures in each game's folder :: ('6 of 6 games in the library · 0 with details · 0 with pictures', 'Scraped 6 games: 3 found, 0 need a look, 3 not found; 6 pictures.', ['screenscraper', 'igdb', 'launchbox'], {'description': "Alpha's overview, from the stand-in.", 'developer': 'Stand-in Soft', 'genres': ['Action'], 'players': '1-2', 'released': '1990-04-21'}, ['cover.png', 'screenshot.png'])
+PASS a game sharing a ROM with another (Epsilon's second track is Beta) isn't taken for it :: Epsilon
+Epsilon (USA) · nothing yet
+PASS a game's panel shows its details, where they came from, and its pictures :: ("Alpha (1990)\n\nUSA · Game Boy · in the library · TheGamesDB 501\n\nOpen its page\nScrape…\n\nAlpha's overview, from the stand-in.\n\nReleased\n1990-04-21\nDeveloper\nStand-in Soft\nGenres\nAction\nPlayers\n1-2\n\nDetails from TheGamesDB.\n\nPictures\nBox · TheGamesDB\nScreenshot · TheGamesDB\nDocuments\n\nNone yet. Attach ", ['cover', 'screenshot'])
+PASS Import documents… pairs each file with its game by name, a pairing is changed by hand, and they're brought into the games' folders (the originals stay) :: ({'Alpha Manual.txt': 'sure', 'Unrelated Thing.txt': 'none', 'beta_strategy_guide.md': 'sure'}, 'Brought in 3 documents: 7 of 7 steps done.\nUndo\nHistory', {'files': {'Alpha Manual.txt': {'added': '2026-10-17T22:43:13Z', 'kind': 'manual', 'title': 'Alpha Manual'}}}, ['Unrelated Thing.txt', 'docs.json'])
+PASS Documents lists every document, searches their words with the words marked, and shows one (Markdown made into text); the command line searches them too :: (3, 'Alpha Manual\nManual · Alpha · Game Boy\nHow to play Alpha. Press the zebrafish button to jump.', 'How to play Alpha. Press the zebrafish button to jump.', 1)
+PASS an export to a folder carries the chosen pictures (made smaller) and the documents beside each game :: ('Exported Best Of to Flat: 9 of 9 steps done.\nUndo\nHistory', ['Nintendo - Game Boy/Alpha (USA).gb', 'Nintendo - Game Boy/Alpha (USA)/cover.png', 'Nintendo - Game Boy/Alpha (USA)/docs/Alpha Manual.txt', 'Nintendo - Game Boy/Beta (Europe).gb', 'Nintendo - Game Boy/Beta (Europe)/cover.png', 'Nintendo - Game Boy/Beta (Europe)/docs/beta_strategy_guide.md', 'Nintendo - Game Boy/Delta (World).zip', 'Nintendo - Game Boy/Delta (World)/docs/Unrelated Thing.txt', 'Nintendo - Game Boy/Gamma (Japan).gb'])
+127.0.0.1 - - [17/Oct/2026 22:43:15] "GET /dat/System.dat HTTP/1.1" 200 -
+PASS BIOS files: libretro's list is got from the BIOS page and each system audited, the ones you have games for first :: ('Imported starter DATs for 1 system.', [['Nintendo - Gameboy', 1, 1]], ['Nintendo - Gameboy', 'Sega - Dreamcast'], '0 of 1 systems you have games for have every BIOS file. Not every file is needed by every emulator: libretro lists every file any of its emulators can use.')
+PASS Gather copies the BIOS files the library has into its BIOS folder, a folder for each system :: Gathered the BIOS files into the library's BIOS folder: 1 of 1 step done.
+Undo
+History
+PASS the layout editor shows Knulli's layout as a tree, follows a change at once, catches a path that breaks it, and saves the change as a new layout :: ('Save as new…', True, {'atarijaguar': 'jaguar', 'atarijaguarcd': 'jaguarcd', 'atarilynx': 'lynx', 'cdimono1': 'cdi', 'gb': 'gameboy', 'gc': 'gamecube', 'genesis': 'megadrive', 'sg-1000': 'sg1000', 'wonderswan': 'wswan', 'wonderswancolor': 'wswanc'}, {'id': 'knulli', 'version': 1})
+PASS an export to a card in the new layout puts the games in its folders, with a gamelist, small pictures and the BIOS files :: ('Exported Best Of to Knulli (mine) (Card): 8 of 8 steps done.\nUndo\nHistory', ['bios/gb_bios.bin', 'roms/gameboy/Alpha (USA).gb', 'roms/gameboy/Beta (Europe).gb', 'roms/gameboy/Delta (World).zip', 'roms/gameboy/Gamma (Japan).gb', 'roms/gameboy/gamelist.xml', 'roms/gameboy/images/Alpha (USA)-thumb.png', 'roms/gameboy/images/Beta (Europe)-thumb.png'], '<?xml version="1.0"?>\n<gameList>\n\t<game>\n\t\t<path>./Alpha (USA).gb</path>\n\t\t<name>Alpha</name>\n\t\t<thumbnail>./images/Alpha (USA)-thumb.png</thumbnail>\n\t</game>\n\t<game>\n\t\t<path>./Beta (Europe).gb</path>\n\t\t<name>Beta</name>\n\t\t<thumbnail>./images/Beta (Europe)-thumb.png</thumbnail>\n\t</game>\n\t<game>\n\t\t<p', 'Knulli (mine) D:\\a\\_temp\\pagehome\\Card\n7 files · updated 2026-10-17\nUpdate…\nCheck\nForget')
+PASS the Library shows every game you have across the systems (PC games too), with thumbnails made on this computer :: (['gb/Alpha (USA)', 'gb/Alpha (Europe)', 'pc/pc-20261017224259711', 'gb/Beta (Europe)', 'gb/Delta (World)', 'psx/Disc Game (USA)', 'psp/Dvd Game (Europe)', 'nes/Echo (USA)', 'gb/Epsilon (USA)', 'gb/Gamma (Japan)', 'pc/pc-20261017224259712'], '11', '/library/~thumb/256/_library/games/gb/Alpha%20(USA)/media/cover.png%3Fv%3D3584553972851', 5, ['gb', 'pc', 'nes', 'psp', 'psx'])
+PASS a filter's values have counts, its chip shows above the games, it's kept in the address and Back takes it off :: ('3', ['gb/Alpha (USA)', 'gb/Alpha (Europe)', 'gb/Beta (Europe)'], '#/library?genre=Action', '3', 11)
+PASS the search finds games by their developer, description or title :: ['gb/Alpha (USA)', 'gb/Alpha (Europe)', 'pc/pc-20261017224259711', 'gb/Beta (Europe)']
+PASS picking a game shows it in the panel; Ctrl adds to the selection, Ctrl+A takes every game shown and Esc clears it :: ("Alpha (1990)\n\nGame Boy · Alpha (USA)\n\nOpen\nAdd to a collection…\nScrape…\nConvert…\nAttach documents…\nShow in folder\n\nAlpha's overview, from the stand-in.\n\nReleased\n1990-04-21\nDeveloper\nStand-in Soft\nGen", '2 selected')
+PASS the table sorts by a column, and the games can be grouped by system :: ['gb', 'nes', 'pc', 'psp', 'psx']
+PASS a game's page shows its pictures and details; a detail changed there is kept in game.json, marked as yours :: ({'description': "Alpha's overview, from the stand-in.", 'developer': 'My Own Studio', 'genres': ['Action'], 'players': '1-2', 'released': '1990-04-21'}, ['developer'], '1 of 11', ['cover', 'screenshot'])
+PASS a file dropped on a game's page is attached to it as a document :: Brought in 1 document: 2 of 2 steps done.
+Undo
+History
+PASS Next goes to the next game in the list it was opened from, and the Library follows the edit :: ('gb/Alpha (Europe)', "Alpha (1990)\n\nGame Boy · Alpha (USA)\n\nOpen\nAdd to a collection…\nScrape…\nConvert…\nAttach documents…\nShow in folder\n\nAlpha's overview, from the stand-in.\n\nReleased\n1990-04-21\nDeveloper\nMy Own Studio\nGen")
+PASS Save as a collection… makes the filters a collection's rules (by its games' details); the command line filters the same :: ({'details': {'decade': [], 'developer': [], 'genre': ['Action'], 'has': [], 'look': False, 'players': 0, 'publisher': [], 'rating': 0.0, 'search': ''}, 'exclude': [], 'from_dats': [], 'include': 'have', 'languages': [], 'one_per_title': False, 'only_regions': False, 'platforms': [], 'regions': ['USA', 'World', 'Europe', 'Japan'], 'search': ''}, 3)
+PASS a scrape keeps each source's answer apart, and a game's page shows each source's box to choose from (one each), the chosen one where exports look :: ({'details': {'description': "Alpha's overview, from the stand-in.", 'developer': 'Stand-in Soft', 'genres': ['Action'], 'players': '1-2', 'released': '1990-04-21'}, 'id': '501', 'source': 'thegamesdb', 'title': 'Alpha', 'when': '2026-10-17T22:43:06Z', 'year': 1990}, {'cover': 'igdb', 'screenshot': 'thegamesdb'}, '/library/_library/games/gb/Alpha%20(USA)/media/cover.png?v=igdb', ['cover', 'cover.png', 'screenshot.png', 'thegamesdb.png'])
+PASS a detail lists what the other sources said, and Use this takes it from one (kept over the source order) :: {'description': 'igdb'}
+PASS Scrape again… is the Scrape dialog set to replace and ask the sources afresh :: [True, True, 'Scrape Alpha again']
+PASS Delete metadata… sets a game's details from sources and pictures aside; what you wrote and your own documents stay :: ('Deleted the metadata of Alpha (USA): 4 of 4 steps done.\nUndo\nHistory', {'developer': 'My Own Studio'}, ['.gamerepo-set-aside', '20261017-224320-627', 'Alpha Manual.txt', 'Alpha Map.txt', 'docs', 'docs.json', 'docs.json', 'game.json', 'media'])
+PASS its Undo puts them back and the details are made again :: {'description': 'Alpha from IGDB.', 'developer': 'My Own Studio', 'genres': ['Action'], 'players': '1-2', 'released': '1990-04-21'}
+PASS Settings › Metadata shows what the metadata takes, by system and kind, and which source each detail comes from :: ("Metadata\n\nEach source's answer is kept in the game's folder, and each detail is taken from the first source in the usual order (the Scrape dialog's) that has it, unless you choose one here or on a game's page.\n\nTitle\nUsual order\nScreenScraper\nIGDB\nTheGamesDB\nLaunchBox Games DB\nYear\nUsual order\nScree", {'cover': 927, 'details': 4799, 'docs': 334, 'screenshot': 762})
+PASS the theme follows the setting and is kept :: ('night', {'skin': 'drafting', 'theme': 'night', 'navCollapsed': False})
+PASS the menu's theme button goes on to the next choice :: light
+PASS the skin is Drafting Sheet unless chosen; Classic changes the look and icons at once and is kept :: ('drafting', 'drafting', ['drafting', 'classic'], 'classic', 'classic', 'classic')
+PASS About shows the version, what's coming and how a library is laid out :: Game Repo: audit, organise and export large collections of video games, with each game's details kept in a library folder that makes sense without the app.
+
+Versions
+Game Repo
+0.5.4
+Running on
+Windows
+PASS a newer library opens read-only :: This library was made by a newer version of Game Repo (library format 99; this version reads up to 1). It's open read-only: update the app to change it.
+PASS the menu is a drawer in a narrow window :: (True, True)
+PASS the library opens the same after moving, with the same index :: ('Retro', 'Retro', 'D:\\a\\_temp\\pagehome\\data\\index\\lib-9641406b1fb914c7.sqlite', 'D:\\a\\_temp\\pagehome\\data\\index\\lib-9641406b1fb914c7.sqlite')
+85 of 85 checks passed
