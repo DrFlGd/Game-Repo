@@ -72,6 +72,8 @@ pub static PLATFORMS: &[Platform] = &[
     p!("gc", "Nintendo GameCube", ["Nintendo - GameCube"], ["GameCube", "GC", "NGC", "Nintendo GameCube"], ["iso", "gcm", "rvz", "gcz", "ciso"]),
     p!("wii", "Nintendo Wii", ["Nintendo - Wii"], ["Wii", "Nintendo Wii"], ["iso", "wbfs", "rvz", "wia", "gcz"]),
     p!("xbox", "Xbox", ["Microsoft - Xbox"], ["Xbox", "Microsoft Xbox"], ["iso", "xiso"]),
+    // not a system of games: each system's BIOS files, from a BIOS DAT (bios.rs, D40)
+    p!("bios", "BIOS files", ["System"], ["BIOS", "Firmware"], []),
 ];
 
 /// How a platform's games are stored, which decides what they can be converted to (D12).

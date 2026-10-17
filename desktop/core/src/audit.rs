@@ -533,7 +533,8 @@ pub fn save_report(ix: &Index, lib: &Library, dat_id: i64, format: &str) -> Resu
 /// What Home shows: a bar per platform with a DAT, the last scan, and what needs attention.
 pub fn home(ix: &Index, lib: &Library) -> Result<Value> {
     let conn = ix.conn();
-    let mut q = conn.prepare("SELECT DISTINCT platform FROM dats WHERE current = 1 ORDER BY platform")?;
+    // (BIOS files have a page of their own)
+    let mut q = conn.prepare("SELECT DISTINCT platform FROM dats WHERE current = 1 AND platform != 'bios' ORDER BY platform")?;
     let with_dats: Vec<String> = q.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     let mut bars = vec![];
     for p in &with_dats {

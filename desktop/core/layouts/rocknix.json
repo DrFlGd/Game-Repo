@@ -1,0 +1,66 @@
+{
+  "format": 1,
+  "id": "rocknix",
+  "version": 1,
+  "name": "ROCKNIX",
+  "about": "ROCKNIX's games card: a folder per system in roms/ (/storage/roms on the device), with its gamelist.xml and pictures beside the games. BIOS files go in roms/bios/.",
+  "places": [
+    {
+      "id": "card",
+      "label": "The SD card (its games partition)",
+      "example": "E:\\"
+    }
+  ],
+  "systems": {
+    "gc": "gamecube",
+    "neogeocd": "neocd"
+  },
+  "games": {
+    "path": "{card}/roms/{folder}/{file}",
+    "style": "frontend"
+  },
+  "gamelist": {
+    "kind": "es-xml",
+    "path": "{card}/roms/{folder}/gamelist.xml",
+    "fields": {
+      "description": "desc",
+      "developer": "developer",
+      "publisher": "publisher",
+      "released": "releasedate",
+      "genres": "genre",
+      "players": "players",
+      "rating": "rating"
+    }
+  },
+  "media": {
+    "cover": {
+      "path": "{card}/roms/{folder}/images/{stem}-thumb.{ext}",
+      "tag": "thumbnail"
+    },
+    "screenshot": {
+      "path": "{card}/roms/{folder}/images/{stem}-image.{ext}",
+      "tag": "image"
+    },
+    "marquee": {
+      "path": "{card}/roms/{folder}/images/{stem}-marquee.{ext}",
+      "tag": "marquee"
+    },
+    "video": {
+      "path": "{card}/roms/{folder}/videos/{stem}-video.{ext}",
+      "tag": "video"
+    },
+    "manual": {
+      "path": "{card}/roms/{folder}/manuals/{stem}-manual.pdf",
+      "tag": "manual"
+    }
+  },
+  "text": {},
+  "pictures": {
+    "max": 640,
+    "as": "keep"
+  },
+  "collection": null,
+  "bios": {
+    "path": "{card}/roms/bios/{bios_file}"
+  }
+}

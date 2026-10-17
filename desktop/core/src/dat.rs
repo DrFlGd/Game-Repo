@@ -463,6 +463,8 @@ pub fn import_bytes(ix: &Index, lib: &Library, bytes: &[u8], file: &str, answers
             None => return Ok(Imported::NeedsPlatform { name: dat.name, file: file.to_string() }),
         },
     };
+    // a BIOS DAT's games are the systems (libretro's System.dat names them in comments)
+    let dat = if platform == crate::bios::ID { crate::bios::by_system(&String::from_utf8_lossy(bytes), dat) } else { dat };
     let version = if dat.version.is_empty() { "undated".to_string() } else { dat.version.clone() };
     let dir = lib.root().join(APP_DIR).join("dats").join(&platform);
     let base = safe_name(&format!("{} ({})", dat.name, version));
@@ -628,6 +630,7 @@ pub fn sync_library(ix: &Index, lib: &Library) -> Result<()> {
         }
         let Ok(bytes) = std::fs::read(lib.resolve(rel)?) else { continue };
         let Ok(dat) = parse(&bytes) else { continue };
+        let dat = if platform == crate::bios::ID { crate::bios::by_system(&String::from_utf8_lossy(&bytes), dat) } else { dat };
         let id = load(conn, rel, platform, &dat)?;
         crate::audit::match_dat(conn, id)?;
         changed = true;

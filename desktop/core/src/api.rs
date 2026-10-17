@@ -88,6 +88,8 @@ pub struct App {
     watching: AtomicBool,
     /// the library.json the systems added by hand were last read from, and when it changed
     systems_read: Mutex<Option<(PathBuf, Option<std::time::SystemTime>)>>,
+    /// the layout editor's sample games (D39): (collection and what matched then, the sample)
+    layout_sample: Mutex<Option<(String, Value)>>,
 }
 
 /// What `library()` says before any library was ever opened (the page then asks where).
@@ -116,6 +118,7 @@ impl App {
             changed: Mutex::new(None),
             watching: AtomicBool::new(true),
             systems_read: Mutex::new(None),
+            layout_sample: Mutex::new(None),
         }))
     }
 
@@ -420,6 +423,9 @@ impl App {
         if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
             return self.collection_call(cmd, args).await;
         }
+        if ["layout", "bios"].iter().any(|p| cmd.starts_with(p)) {
+            return self.device_call(cmd, args).await;
+        }
         match cmd {
             "app_info" => {
                 let lib = self.library();
@@ -629,7 +635,7 @@ impl App {
                 j(self.with_index(move |ix| {
                     dat::sync_library(ix, &lib)?;
                     let conn = ix.conn();
-                    let mut q = conn.prepare("SELECT DISTINCT platform FROM dats WHERE current = 1")?;
+                    let mut q = conn.prepare("SELECT DISTINCT platform FROM dats WHERE current = 1 AND platform != 'bios'")?;
                     let mut with_dats: Vec<String> = q.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
                     with_dats.sort_by_key(|p| platforms::name_of(p));
                     let dat_id = match (dat_arg, platform_arg.as_deref().or(with_dats.first().map(String::as_str))) {
@@ -1307,6 +1313,119 @@ impl App {
         }
     }
 
+    /// Export layouts and their editor, and BIOS files (docs/PLAN.md, "Phase 5b design").
+    async fn device_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
+        let j = |v: Value| Ok(Reply::Json(v));
+        let data_dir = self.paths.data_dir.clone();
+        let blocking = |f: Box<dyn FnOnce() -> Result<Value> + Send>| async move { tokio::task::spawn_blocking(f).await.map_err(|e| e.to_string())?.map_err(e2s) };
+        let layout_of = |lib: &Library, args: &Value| -> Result<crate::layout::Layout> {
+            match &args["layout"] {
+                Value::Object(_) => crate::layout::parse(&args["layout"]),
+                Value::String(id) => crate::layout::get(Some(lib), id),
+                _ => crate::layout::get(Some(lib), args["id"].as_str().unwrap_or("")),
+            }
+        };
+        match cmd {
+            "layouts" => {
+                let lib = self.library().ok();
+                j(json!(crate::layout::list(lib.as_ref())))
+            }
+            "layout_get" => {
+                let lib = self.library()?;
+                let l = layout_of(&lib, &args).map_err(e2s)?;
+                j(json!({ "layout": crate::layout::to_json(&l), "summary": l.summary(), "problems": crate::layout::check(&l) }))
+            }
+            "layout_check" => {
+                let lib = self.library()?;
+                let l = layout_of(&lib, &args).map_err(e2s)?;
+                j(json!({ "problems": crate::layout::check(&l), "carries": l.carries() }))
+            }
+            "layout_save" => {
+                let lib = self.library()?;
+                let v = args["layout"].clone();
+                let as_new = args["as_new"].as_bool().unwrap_or(false);
+                j(blocking(Box::new(move || {
+                    let l = crate::layout::save(&lib, &v, as_new)?;
+                    Ok(json!({ "layout": crate::layout::to_json(&l), "summary": l.summary() }))
+                }))
+                .await?)
+            }
+            "layout_remove" => {
+                let lib = self.library()?;
+                crate::layout::remove(&lib, arg(&args, "id").map_err(e2s)?).map_err(e2s)?;
+                j(Value::Null)
+            }
+            "layout_import" => {
+                let lib = self.library()?;
+                let path = PathBuf::from(arg(&args, "path").map_err(e2s)?);
+                let l = crate::layout::import(&lib, &path).map_err(e2s)?;
+                j(l.summary())
+            }
+            "layout_write" => {
+                let lib = self.library()?;
+                let to = PathBuf::from(arg(&args, "to").map_err(e2s)?);
+                crate::layout::write_file(Some(&lib), arg(&args, "id").map_err(e2s)?, &to).map_err(e2s)?;
+                j(json!({ "path": to.display().to_string() }))
+            }
+            "layout_folder" => {
+                let lib = self.library()?;
+                let d = crate::layout::folder(&lib);
+                if lib.writable().is_ok() {
+                    std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+                }
+                j(json!({ "path": d.display().to_string() }))
+            }
+            "layout_preview" => {
+                let lib = self.library()?;
+                let l = layout_of(&lib, &args).map_err(e2s)?;
+                let collection = args["collection"].as_str().unwrap_or("").to_string();
+                let cached = self.layout_sample.lock().unwrap().clone();
+                let sample = self
+                    .with_index(move |ix| {
+                        let key = format!("{collection}\n{}", crate::audit::generation(ix.conn())?);
+                        if let Some((k, v)) = cached.filter(|(k, _)| *k == key) {
+                            return Ok((k, v));
+                        }
+                        crate::meta::sync(ix, &lib)?;
+                        Ok((key, export::sample(ix, &lib, Some(collection.as_str()))?))
+                    })
+                    .await?;
+                *self.layout_sample.lock().unwrap() = Some(sample.clone());
+                j(export::preview(&l, &sample.1))
+            }
+            "bios" => {
+                let lib = self.library()?;
+                j(self.with_index(move |ix| {
+                    dat::sync_library(ix, &lib)?;
+                    crate::bios::summary(ix, &lib)
+                })
+                .await?)
+            }
+            "bios_report" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                j(self.with_index(move |ix| {
+                    let text = crate::bios::report(ix, &lib)?;
+                    let path = lib.root().join(crate::library::APP_DIR).join("reports").join(format!("BIOS files missing ({}).txt", &crate::library::now()[..10]));
+                    crate::config::write_atomic(&path, text.as_bytes())?;
+                    Ok(json!({ "path": path.display().to_string(), "rel": lib.relative(&path), "text": text }))
+                })
+                .await?)
+            }
+            "bios_gather_plan" => {
+                let lib = self.library()?;
+                j(self
+                    .with_index(move |ix| {
+                        let plan = crate::bios::gather_plan(ix, &lib)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            other => Err(format!("unknown command {other}")),
+        }
+    }
+
     /// Systems added by hand, collections and exports (docs/PLAN.md, "Phase 3 design").
     async fn collection_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
         let j = |v: Value| Ok(Reply::Json(v));
@@ -1403,6 +1522,8 @@ impl App {
                     Some(id) => export::options_of(&lib, id).map_err(e2s)?,
                     None => export::Options {
                         collection: arg(&args, "collection").map_err(e2s)?.to_string(),
+                        layout: args["layout"].as_str().unwrap_or("").to_string(),
+                        places: args["places"].as_object().map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(str::trim).filter(|v| !v.is_empty()).map(|v| (k.clone(), PathBuf::from(v)))).collect()).unwrap_or_default(),
                         target: args["target"].as_str().unwrap_or("esde").to_string(),
                         out: PathBuf::from(args["out"].as_str().unwrap_or("").trim()),
                         esde: args["esde"].as_str().filter(|e| !e.trim().is_empty()).map(|e| PathBuf::from(e.trim())),

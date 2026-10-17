@@ -1,0 +1,194 @@
+{
+  "format": 1,
+  "id": "muos",
+  "version": 1,
+  "name": "muOS",
+  "about": "muOS's SD card: the games in ROMS/, a folder per system, and its catalogue of box art, previews and descriptions in MUOS/info/catalogue/, named after each game's file (pictures as PNG). The catalogue's system names are those of muOS's info/assign/<system>.ini (catalogue=). BIOS files go in MUOS/bios/.",
+  "places": [
+    {
+      "id": "card",
+      "label": "The SD card",
+      "example": "E:\\"
+    }
+  ],
+  "systems": {
+    "nes": {
+      "folder": "nes",
+      "name": "Nintendo NES-Famicom"
+    },
+    "fds": {
+      "folder": "fds",
+      "name": "Nintendo FDS"
+    },
+    "snes": {
+      "folder": "snes",
+      "name": "Nintendo SNES-SFC"
+    },
+    "n64": {
+      "folder": "n64",
+      "name": "Nintendo N64"
+    },
+    "gb": {
+      "folder": "gb",
+      "name": "Nintendo Game Boy"
+    },
+    "gbc": {
+      "folder": "gbc",
+      "name": "Nintendo Game Boy Color"
+    },
+    "gba": {
+      "folder": "gba",
+      "name": "Nintendo Game Boy Advance"
+    },
+    "nds": {
+      "folder": "nds",
+      "name": "Nintendo DS"
+    },
+    "virtualboy": {
+      "folder": "virtualboy",
+      "name": "Nintendo Virtual Boy"
+    },
+    "pokemini": {
+      "folder": "pokemini",
+      "name": "Nintendo Pokemon Mini"
+    },
+    "genesis": {
+      "folder": "genesis",
+      "name": "Sega Mega Drive - Genesis"
+    },
+    "mastersystem": {
+      "folder": "mastersystem",
+      "name": "Sega Master System"
+    },
+    "gamegear": {
+      "folder": "gamegear",
+      "name": "Sega Game Gear"
+    },
+    "sega32x": {
+      "folder": "sega32x",
+      "name": "Sega 32X"
+    },
+    "sg-1000": {
+      "folder": "sg-1000",
+      "name": "Sega SG-1000"
+    },
+    "segacd": {
+      "folder": "segacd",
+      "name": "Sega Mega CD - Sega CD"
+    },
+    "saturn": {
+      "folder": "saturn",
+      "name": "Sega Saturn"
+    },
+    "dreamcast": {
+      "folder": "dreamcast",
+      "name": "Sega Dreamcast"
+    },
+    "atari2600": {
+      "folder": "atari2600",
+      "name": "Atari 2600"
+    },
+    "atari5200": {
+      "folder": "atari5200",
+      "name": "Atari 5200"
+    },
+    "atari7800": {
+      "folder": "atari7800",
+      "name": "Atari 7800"
+    },
+    "atarilynx": {
+      "folder": "atarilynx",
+      "name": "Atari Lynx"
+    },
+    "atarijaguar": {
+      "folder": "atarijaguar",
+      "name": "Atari Jaguar"
+    },
+    "pcengine": {
+      "folder": "pcengine",
+      "name": "NEC PC Engine"
+    },
+    "pcenginecd": {
+      "folder": "pcenginecd",
+      "name": "NEC PC Engine CD"
+    },
+    "pcfx": {
+      "folder": "pcfx",
+      "name": "NEC PC-FX"
+    },
+    "ngp": {
+      "folder": "ngp",
+      "name": "SNK Neo Geo Pocket - Color"
+    },
+    "ngpc": {
+      "folder": "ngpc",
+      "name": "SNK Neo Geo Pocket - Color"
+    },
+    "neogeocd": {
+      "folder": "neogeocd",
+      "name": "SNK Neo Geo CD"
+    },
+    "wonderswan": {
+      "folder": "wonderswan",
+      "name": "Bandai WonderSwan-Color"
+    },
+    "wonderswancolor": {
+      "folder": "wonderswancolor",
+      "name": "Bandai WonderSwan-Color"
+    },
+    "colecovision": {
+      "folder": "colecovision",
+      "name": "ColecoVision"
+    },
+    "intellivision": {
+      "folder": "intellivision",
+      "name": "Mattel - Intellivision"
+    },
+    "vectrex": {
+      "folder": "vectrex",
+      "name": "GCE - Vectrex"
+    },
+    "psx": {
+      "folder": "psx",
+      "name": "Sony PlayStation"
+    },
+    "psp": {
+      "folder": "psp",
+      "name": "Sony PlayStation Portable"
+    },
+    "3do": {
+      "folder": "3do",
+      "name": "The 3DO Company - 3DO"
+    },
+    "cdimono1": {
+      "folder": "cdimono1",
+      "name": "Philips CDi"
+    }
+  },
+  "games": {
+    "path": "{card}/ROMS/{folder}/{file}",
+    "style": "frontend"
+  },
+  "gamelist": null,
+  "media": {
+    "cover": {
+      "path": "{card}/MUOS/info/catalogue/{system_name}/box/{stem}.png"
+    },
+    "screenshot": {
+      "path": "{card}/MUOS/info/catalogue/{system_name}/preview/{stem}.png"
+    }
+  },
+  "text": {
+    "description": {
+      "path": "{card}/MUOS/info/catalogue/{system_name}/text/{stem}.txt"
+    }
+  },
+  "pictures": {
+    "max": 640,
+    "as": "png"
+  },
+  "collection": null,
+  "bios": {
+    "path": "{card}/MUOS/bios/{bios_file}"
+  }
+}

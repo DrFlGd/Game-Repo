@@ -254,7 +254,7 @@ fn systems_of(conn: &Connection, c: &Collection) -> Result<Vec<String>> {
     if !c.rules.platforms.is_empty() {
         return Ok(c.rules.platforms.clone());
     }
-    let mut q = conn.prepare("SELECT DISTINCT platform FROM dats WHERE current = 1 ORDER BY platform")?;
+    let mut q = conn.prepare("SELECT DISTINCT platform FROM dats WHERE current = 1 AND platform != 'bios' ORDER BY platform")?;
     let v = q.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     Ok(v)
 }
