@@ -1103,7 +1103,7 @@ async def main():
             await pg.wait_for_selector("#about-versions")
             about = await pg.inner_text("#about-page")
             check("About shows the version, what's coming and how a library is laid out",
-                  "Game Repo" in about and "Phase 5" in about and "_library/" in about and "game.json" in about, about[:200])
+                  "Game Repo" in about and "Phase 7" in about and "_library/" in about and "game.json" in about, about[:200])
             await pg.screenshot(path=str(out / "04-about.png"), full_page=True)
 
             # 10. a library made by a newer app opens read-only
