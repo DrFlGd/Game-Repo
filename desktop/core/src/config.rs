@@ -34,6 +34,9 @@ pub struct AppConfig {
     /// Where starter DATs are downloaded from, when not libretro's copy (crate::starter::SOURCE).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dat_source: Option<String>,
+    /// Where each external tool is, when set in Settings › Tools (crate::tools)
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub tools: std::collections::BTreeMap<String, PathBuf>,
 }
 
 /// How scans read files on this computer (Settings › Folders with games).

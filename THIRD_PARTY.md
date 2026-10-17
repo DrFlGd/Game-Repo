@@ -10,6 +10,8 @@
 | [flate2](https://crates.io/crates/flate2) with [zlib](https://zlib.net) | Writing TorrentZips (zlib's deflate at level 9, so the bytes match other TorrentZip tools) | flate2: MIT or Apache-2.0; zlib: zlib licence |
 | [sevenz-rust2](https://crates.io/crates/sevenz-rust2) | Reading 7z archives | Apache-2.0 |
 | [unrar](https://crates.io/crates/unrar) and the UnRAR source by Alexander Roshal (in unrar_sys) | Reading RAR archives (it can't make them) | unrar: MIT or Apache-2.0; UnRAR: its own freeware licence, which allows reading and extracting RAR archives but not re-creating the RAR compression algorithm |
+| [chd](https://crates.io/crates/chd) (chd-rs), with [claxon](https://crates.io/crates/claxon), [flacenc](https://crates.io/crates/flacenc) and [lzma-rust2](https://crates.io/crates/lzma-rust2) | Reading CHD disc images and writing them (the same data, with the same SHA1, as MAME's chdman) | chd: BSD-3-Clause; claxon, flacenc, lzma-rust2: Apache-2.0 |
+| [lz4_flex](https://crates.io/crates/lz4_flex) | Reading and writing ZSO (PSP disc images compressed with LZ4) | MIT |
 | [notify](https://crates.io/crates/notify) | Noticing changes in the folders with games while the app is open | CC0-1.0, MIT or Apache-2.0 |
 | [fs4](https://crates.io/crates/fs4) and, on Windows, [windows-sys](https://crates.io/crates/windows-sys) | Free space on a drive before a change; telling network drives apart | MIT or Apache-2.0 |
 | [ureq](https://crates.io/crates/ureq) (with rustls and webpki-roots) | Downloading starter DATs when asked | MIT or Apache-2.0 (webpki-roots: CDLA-Permissive-2.0 / MPL-2.0 data) |

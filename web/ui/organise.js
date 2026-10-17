@@ -2,7 +2,8 @@
 // dialog (how, where and in what format), its preview from the index alone, then
 // the change as a job whose message has Undo. "Rename these" (Misnamed) and "Set
 // aside duplicates" (Duplicates) open the same preview. The history of changes is
-// in Settings (settings.js), from the commands here.
+// in Settings (settings.js), from the commands here. Convert… (2b) plans a change
+// the same way: a game, a selection or a platform to its preferred format, or back.
 import { html, useState, useEffect } from "../lib/html.js";
 import { ui } from "./state.js";
 import { ctx } from "./context.js";
@@ -24,10 +25,24 @@ export const FORMATS = [
   ["loose", "Loose files"],
 ];
 
-const OPS = { rename: "Rename", move: "Move", copy: "Copy", link: "Hardlink", zip: "Write ZIP", extract: "Unpack", aside: "Set aside" };
+const OPS = { rename: "Rename", move: "Move", copy: "Copy", link: "Hardlink", zip: "Write ZIP", extract: "Unpack", aside: "Set aside", convert: "Convert", sheet: "Write cue sheet", cue: "Rewrite cue sheet" };
+
+/** The formats a game can be converted to, and what each is for. */
+export const CONVERT_FORMATS = {
+  chd: ["CHD", "Compressed, with every track of the disc in one file. Read by RetroArch, DuckStation, PCSX2, Flycast and most other emulators."],
+  rvz: ["RVZ", "Dolphin's compressed format, for GameCube and Wii. Needs dolphin-tool (Settings › Tools)."],
+  cso: ["CSO", "A compressed ISO, read by PPSSPP and by PSPs with custom firmware."],
+  zso: ["ZSO", "Like CSO but quicker to read (LZ4), for PPSSPP and newer PSP firmware."],
+  zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
+};
+
+const verb = (kind) => ({ aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting" })[kind] || "Organising";
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
 export const organiseDialog = (opts) => ui.set({ dialog: { type: "organise", ...opts } });
+
+/** Open the Convert… dialog: `{ dat, platform, platformName, games? }` (games by name; all when left out). */
+export const convertDialog = (opts) => ui.set({ dialog: { type: "convert", ...opts } });
 
 /** Plan renaming only the misnamed files where they are, and show the preview. */
 export async function renameMisnamed(dat, platformName) {
@@ -88,7 +103,7 @@ export async function offerInterrupted() {
 async function runPlan(plan) {
   try {
     const { job } = await api("organise_run", { id: plan.id });
-    const done = await followJob(job, plan.kind === "aside" ? "Setting aside duplicates" : "Organising");
+    const done = await followJob(job, verb(plan.kind));
     await refreshGames();
     ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
     if (done.error) throw new Error(done.error);
@@ -146,7 +161,8 @@ function Preview({ plan }) {
 
 /** Organise…: the choices, then the preview; Run starts the change. Opened with a
  *  `plan` it goes straight to the preview (Rename these, Set aside duplicates). */
-export function OrganiseDialog({ dat, platformName, plan: given }) {
+export function OrganiseDialog({ dat, platform, platformName, plan: given }) {
+  const disc = !!ui.get().platforms?.find((p) => p.id === platform)?.disc;
   const saved = ctx.platform?.store?.prefs?.get("gr-organise", {}) || {};
   const [mode, setMode] = useState(saved.mode || "copy");
   const [out, setOut] = useState(saved.out || "");
@@ -165,7 +181,7 @@ export function OrganiseDialog({ dat, platformName, plan: given }) {
     setError("");
     try {
       ctx.platform?.store?.prefs?.set("gr-organise", { mode, format, out: mode === "copy" ? out : "" });
-      setPlan(await api("organise_plan", { dat, mode, out: out.trim() || null, format, partial, always_copy: alwaysCopy }));
+      setPlan(await api("organise_plan", { dat, mode, out: out.trim() || null, format: disc ? "keep" : format, partial, always_copy: alwaysCopy }));
     } catch (e) {
       setError(e.message || String(e));
     } finally {
@@ -191,13 +207,80 @@ export function OrganiseDialog({ dat, platformName, plan: given }) {
         <input type="text" id="organise-out" placeholder=${mode === "copy" ? "A folder for the sorted set" : `The library's ${platformName || "platform"} folder`} value=${out} onInput=${(e) => setOut(e.target.value)} />
         ${isDesktop() ? html`<button type="button" class="ghost" id="organise-pick" onClick=${pick}>Choose…</button>` : null}
       </div></div>` : null}
-    <label class="field-block"><span class="field-label">Format</span>
+    ${disc ? html`<p class="muted" id="organise-disc-note">Disc images are kept as they are (CHDs, ISOs and cue/bin sets, with their cue sheets rewritten to the new names). Convert… changes their format.</p>` : html`<label class="field-block"><span class="field-label">Format</span>
       <select id="organise-format" class="compact" value=${format} onChange=${(e) => setFormat(e.target.value)}>
         ${FORMATS.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}
       </select>
-      <small class="muted">ZIPs are written the TorrentZip way, so the same game gives the same bytes as other collectors' tools. Names follow Settings › Naming.</small></label>
+      <small class="muted">ZIPs are written the TorrentZip way, so the same game gives the same bytes as other collectors' tools. Names follow Settings › Naming.</small></label>`}
     <label class="check-row"><input type="checkbox" id="organise-partial" checked=${partial} onChange=${(e) => setPartial(e.target.checked)} /> Include partly-there games</label>
     ${mode === "copy" ? html`<label class="check-row"><input type="checkbox" id="organise-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> Always copy (no hardlinks)</label>` : null}
     <p class="muted">Nothing changes until you've seen the preview and pressed Run.</p>
+  <//>`;
+}
+
+/** Convert…: the format (the platform's preferred one first) or Extract, into a folder
+ *  or in place; then the same preview as Organise… */
+export function ConvertDialog({ dat, platform, platformName, games }) {
+  const info = ui.get().platforms?.find((p) => p.id === platform) || {};
+  const formats = info.formats || [];
+  const saved = ctx.platform?.store?.prefs?.get("gr-convert", {}) || {};
+  const [to, setTo] = useState(formats[0] || "extract");
+  const [place, setPlace] = useState(saved.place || "folder");
+  const [out, setOut] = useState(saved.out || "");
+  const [plan, setPlan] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let gone = false;
+    api("formats").then((all) => {
+      const p = all.find((x) => x.platform === platform)?.preferred;
+      if (!gone && p) setTo((t) => (t === formats[0] ? p : t));
+    }).catch(() => {});
+    return () => { gone = true; };
+  }, [platform]);
+  const what = games?.length === 1 ? games[0] : games?.length ? plural(games.length, "game", "games") : `${platformName || "this platform"}'s games`;
+  const pick = async () => {
+    const p = await ctx.platform.library.pickFolder("The folder the converted games go to");
+    if (p) setOut(p);
+  };
+  const preview = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      ctx.platform?.store?.prefs?.set("gr-convert", { place, out });
+      setPlan(await api("convert_plan", { dat, to, games: games?.length ? games : null, out: place === "folder" ? out.trim() : null }));
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (plan) {
+    const nothing = !plan.ops;
+    return html`<${Dialog} title=${plan.label} id="convert-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Run"}
+      cancelLabel="Back" onCancel=${() => setPlan(null)}>
+      <${Preview} plan=${plan} />
+      ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.in_place ? "everything is in that format already." : "no files of these games are here."}</p>` : html`<p class="muted">Each result is read back and compared with the files it came from before anything is replaced. The change can be undone from the message afterwards or from Settings › History.</p>`}
+    <//>`;
+  }
+  const disc = !!info.disc;
+  const extractHelp = disc ? "Back to the files Redump lists: cue/bin for CDs, an ISO for DVDs, GameCube, Wii and PSP." : "Unpacked from their ZIPs into loose files.";
+  return html`<${Dialog} title=${`Convert ${what}`} id="convert-dialog" onSubmit=${preview} busy=${busy || (place === "folder" && !out.trim())} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
+    <label class="field-block"><span class="field-label">To</span>
+      <select id="convert-to" class="compact" value=${to} onChange=${(e) => setTo(e.target.value)}>
+        ${formats.map((f) => html`<option key=${f} value=${f}>${CONVERT_FORMATS[f]?.[0] || f.toUpperCase()}</option>`)}
+        <option value="extract">${disc ? "Extract (cue/bin or ISO)" : "Loose files"}</option>
+      </select>
+      <small class="muted" id="convert-help">${to === "extract" ? extractHelp : CONVERT_FORMATS[to]?.[1]}</small></label>
+    <div class="field-block" role="radiogroup" aria-label="Where">
+      <label class="check-row"><input type="radio" name="convert-place" value="folder" checked=${place === "folder"} onChange=${() => setPlace("folder")} /> Into a folder (your files stay as they are)</label>
+      <label class="check-row"><input type="radio" name="convert-place" value="here" checked=${place === "here"} onChange=${() => setPlace("here")} /> Where they are (the originals are set aside, not deleted)</label>
+    </div>
+    ${place === "folder" ? html`<div class="field-block"><span class="field-label">Into</span>
+      <div class="pick-row">
+        <input type="text" id="convert-out" placeholder="A folder for the converted games" value=${out} onInput=${(e) => setOut(e.target.value)} />
+        ${isDesktop() ? html`<button type="button" class="ghost" id="convert-pick" onClick=${pick}>Choose…</button>` : null}
+      </div></div>` : null}
+    <p class="muted">Names follow Settings › Naming. Nothing changes until you've seen the preview and pressed Run.</p>
   <//>`;
 }

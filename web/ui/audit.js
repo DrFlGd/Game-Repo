@@ -9,7 +9,7 @@ import { ctx, routeHash } from "./context.js";
 import { api, toast, isDesktop, plural } from "./library.js";
 import { importDats, starterDats, reveal, scan } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
-import { organiseDialog, renameMisnamed, setAsideDuplicates } from "./organise.js";
+import { organiseDialog, convertDialog, renameMisnamed, setAsideDuplicates } from "./organise.js";
 import { Icon } from "./icons.js";
 
 const PAGE = 200;
@@ -39,7 +39,7 @@ const HELP = {
 
 const prefs = () => ctx.platform?.store?.prefs;
 
-function Row({ it, tab }) {
+function Row({ it, tab, onConvert }) {
   const games = tab === "have" || tab === "partial" || tab === "missing";
   const meta = games
     ? [it.regions, it.flags, it.clone_of ? `clone of ${it.clone_of}` : null, tab === "partial" ? `${it.have} of ${plural(it.roms, "ROM", "ROMs")}` : null].filter(Boolean).join(" · ")
@@ -51,6 +51,7 @@ function Row({ it, tab }) {
       ${tab === "misnamed" ? html`<span class="audit-expected">→ ${it.expected}</span>` : null}
       ${it.shown ? html`<span class="audit-path muted" title=${it.shown}>${it.shown}</span>` : null}
     </div>
+    ${onConvert && tab === "have" ? html`<button type="button" class="ghost compact audit-convert-one" title=${`Convert ${it.name} to another format, or extract it`} onClick=${() => onConvert(it.name)}>Convert…</button>` : null}
     ${it.path && isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label=${`Show ${it.name} in its folder`} onClick=${() => reveal(it.path)}>${Icon.folder(14)}</button>` : null}
   </li>`;
 }
@@ -121,9 +122,14 @@ export function Audit() {
     ...(isDesktop() ? [{ id: "import-dats", label: "Import DATs…", icon: "plus", run: () => importDats() }] : []),
   ];
 
+  const pName = sum && (sum.platform_name || data.platforms.find((p) => p.id === sum.dat.platform)?.name);
+  const canConvert = !!(sum && !s.library?.read_only && ui.get().platforms?.find((p) => p.id === sum.dat.platform)?.formats?.length);
+  const convert = (games) => convertDialog({ dat, platform: sum.dat.platform, platformName: pName, games });
   const head = html`<${CommandBar} id="audit-head" title="Audit" count=${sum ? `${sum.dat.name} (${sum.dat.version})` : null}
     primary=${html`<span class="cmd-buttons">${sum && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-organise" title="Sort this set by its DAT: copy, rename or move, with a preview and Undo"
-        onClick=${() => organiseDialog({ dat, platform: sum.dat.platform, platformName: sum.platform_name || data.platforms.find((p) => p.id === sum.dat.platform)?.name })}>${Icon.stack(15)} Organise…</button>` : null}
+        onClick=${() => organiseDialog({ dat, platform: sum.dat.platform, platformName: pName })}>${Icon.stack(15)} Organise…</button>` : null}
+      ${canConvert ? html`<button type="button" class="ghost compact" id="audit-convert" title="Convert this platform's games to another format (CHD, RVZ, CSO, ZIP), or extract them, with a preview and Undo"
+        onClick=${() => convert(null)}>${Icon.convert(15)} Convert…</button>` : null}
       <button type="button" class="primary compact" id="audit-scan" disabled=${!!ui.get().scanning} onClick=${() => scan()}>${Icon.refresh(15)} Scan</button></span>`}
     more=${{ id: "audit-menu", title: "Export fixdat, reports, make a DAT", items: menu }} />`;
 
@@ -168,6 +174,7 @@ export function Audit() {
       <p><b id="audit-have">${n("have")}</b> of <b id="audit-games">${n("games")}</b> games
         · 1G1R <b id="audit-1g1r">${n("groups_have")} of ${n("groups")}</b>
         ${n("by_crc") ? html` · <span class="muted" title="Files inside ZIPs matched by the CRC the ZIP records. Settings › Scan ZIPs › Unpack and hash checks them in full.">${plural(n("by_crc"), "file", "files")} matched by CRC</span>` : null}</p>
+      ${n("needs_tool") ? html`<p class="warn-note" id="audit-needs-tool">${plural(n("needs_tool"), "RVZ file waits", "RVZ files wait")} for dolphin-tool before ${n("needs_tool") === 1 ? "it" : "they"} can be checked. Set where it is in <a href=${routeHash("settings")}>Settings › Tools</a>, then scan.</p>` : null}
     </div>
     <div class="seg audit-tabs" role="tablist" id="audit-tabs">${TABS.map(([k, label, key]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${tab === k ? "true" : "false"} onClick=${() => chooseTab(k)}>
       ${label} <span class="tab-count">${n(key)}</span></button>`)}</div>
@@ -181,7 +188,7 @@ export function Audit() {
     ${list.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
     ${!list.loading && !list.items.length ? html`<p class="muted" id="audit-none">${q ? "Nothing here matches the search." : "Nothing in this list."}</p>` : null}
     <ul class="audit-list" id="audit-list" data-tab=${list.tab} data-total=${list.total} aria-busy=${list.loading ? "true" : "false"}>
-      ${list.items.map((it) => html`<${Row} key=${`${it.id}-${it.name}`} it=${it} tab=${list.tab} />`)}
+      ${list.items.map((it) => html`<${Row} key=${`${it.id}-${it.name}`} it=${it} tab=${list.tab} onConvert=${canConvert ? (g) => convert([g]) : null} />`)}
     </ul>
     ${list.items.length < list.total ? html`<div class="home-actions"><button type="button" class="ghost" id="audit-more" onClick=${more}>Show ${Math.min(PAGE, list.total - list.items.length)} more (${list.total - list.items.length} left)</button></div>` : null}
   </div>`;

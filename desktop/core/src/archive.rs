@@ -22,6 +22,11 @@ pub fn kind_of(name: &str) -> Option<&'static str> {
     KINDS.iter().copied().find(|k| *k == ext)
 }
 
+/// The kind of a file a scan looks inside: an archive or a disc image ([`crate::image`]).
+pub fn container_of(name: &str) -> Option<&'static str> {
+    kind_of(name).or_else(|| crate::image::kind_of(name))
+}
+
 /// A member of an archive, hashed in full or known by the CRC32 the archive records.
 pub struct Member {
     pub name: String,
@@ -59,15 +64,16 @@ fn member_name(name: &str) -> Option<String> {
 /// from its local headers, in full.
 pub fn read(path: &Path, kind: &str, full: bool, cancel: &AtomicBool) -> io::Result<Listing> {
     match kind {
+        "chd" | "cso" | "zso" | "rvz" => crate::image::read(path, kind, cancel),
         "7z" => read_7z(path, full, cancel),
         "rar" => read_rar(path, full, cancel),
         _ => read_zip(path, full, cancel),
     }
 }
 
-/// Every member of an archive, unpacked and hashed: (name, hashes).
+/// Every member of an archive (or disc image), unpacked and hashed: (name, hashes).
 pub fn members(path: &Path, cancel: &AtomicBool) -> io::Result<Vec<(String, Hashes)>> {
-    let kind = kind_of(&path.to_string_lossy()).unwrap_or("zip");
+    let kind = container_of(&path.to_string_lossy()).unwrap_or("zip");
     Ok(read(path, kind, true, cancel)?.members.into_iter().map(|m| (m.name, m.hashes)).collect())
 }
 
@@ -269,7 +275,21 @@ fn read_rar(path: &Path, full: bool, cancel: &AtomicBool) -> io::Result<Listing>
 
 /// Each member of an archive in turn, unpacked, with its bytes to read: `f(name, size, reader)`.
 pub fn each(path: &Path, cancel: &AtomicBool, f: &mut dyn FnMut(&str, u64, &mut dyn Read) -> io::Result<()>) -> io::Result<()> {
-    match kind_of(&path.to_string_lossy()).unwrap_or("zip") {
+    each_wanted(path, &|_| true, cancel, f)
+}
+
+/// The same, for the members `want` names (others are skipped, or read past in a ZIP, 7z or RAR).
+pub fn each_wanted(path: &Path, want: &dyn Fn(&str) -> bool, cancel: &AtomicBool, f: &mut dyn FnMut(&str, u64, &mut dyn Read) -> io::Result<()>) -> io::Result<()> {
+    let mut f = |name: &str, size: u64, r: &mut dyn Read| -> io::Result<()> {
+        if want(name) {
+            f(name, size, r)
+        } else {
+            io::copy(r, &mut io::sink()).map(|_| ())
+        }
+    };
+    let f = &mut f;
+    match container_of(&path.to_string_lossy()).unwrap_or("zip") {
+        kind @ ("chd" | "cso" | "zso" | "rvz") => crate::image::each_wanted(path, kind, want, cancel, f),
         "7z" => {
             let mut r = sevenz_rust2::ArchiveReader::open(path, sevenz_rust2::Password::empty()).map_err(seven_error)?;
             let mut failed: Option<io::Error> = None;

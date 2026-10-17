@@ -1444,6 +1444,7 @@ svg g[data-sk] { display: none; }
 .change-list li { flex-wrap: wrap; }
 .change-list .change-label { flex: 1 1 260px; display: grid; gap: 1px; }
 .change-list .badge { flex: none; }
+.tool-where { overflow-wrap: anywhere; }
 .naming-examples { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
 .naming-examples code { font-size: 12.5px; }
 .root-note { font-size: 12px; }

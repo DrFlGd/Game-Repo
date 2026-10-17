@@ -41,7 +41,9 @@ pub fn match_files(conn: &Connection) -> Result<usize> {
     tx.execute("DELETE FROM matches WHERE file_id IN (SELECT id FROM files WHERE matched = 0)", [])?;
     let scope = "f.matched = 0";
     let n = tx.execute(&match_sql("", scope), [])? + tx.execute(&match_sql("hl_", &format!("{scope} AND b.hl_crc32 IS NOT NULL")), [])?;
-    let touched = tx.execute("UPDATE files SET matched = 1 WHERE matched = 0 AND (blob_id IS NOT NULL OR kind IN ('zip', '7z', 'rar'))", [])?;
+    let sheets = unmatched_sheets(&tx, "f.matched = 0")?;
+    let touched = tx.execute("UPDATE files SET matched = 1 WHERE matched = 0 AND (blob_id IS NOT NULL OR kind IN ('zip', '7z', 'rar', 'chd', 'cso', 'zso', 'rvz'))", [])?;
+    let n = n + match_sheets(&tx, &sheets, None)?;
     if touched > 0 {
         changed(&tx)?;
     }
@@ -54,27 +56,93 @@ pub fn match_dat(conn: &Connection, dat_id: i64) -> Result<usize> {
     let tx = conn.unchecked_transaction()?;
     let scope = format!("r.dat_id = {dat_id}");
     let n = tx.execute(&match_sql("", &scope), [])? + tx.execute(&match_sql("hl_", &format!("{scope} AND b.hl_crc32 IS NOT NULL")), [])?;
+    let sheets = unmatched_sheets(&tx, "1")?;
+    let n = n + match_sheets(&tx, &sheets, Some(dat_id))?;
     changed(&tx)?;
     tx.commit()?;
     Ok(n)
 }
 
+/// A cue sheet or GDI with no match: (file id, root id, its path relative to the root, the root's path).
+type Sheet = (i64, String, String, String);
+
+fn unmatched_sheets(conn: &Connection, scope: &str) -> Result<Vec<Sheet>> {
+    let mut q = conn.prepare(&format!(
+        "SELECT f.id, f.root_id, f.rel_path, rt.path FROM files f JOIN roots rt ON rt.id = f.root_id
+         WHERE {scope} AND f.parent_id IS NULL AND f.kind = 'file' AND f.missing_since IS NULL
+           AND (lower(f.name) LIKE '%.cue' OR lower(f.name) LIKE '%.gdi')
+           AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.file_id = f.id)"
+    ))?;
+    let rows = q.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
+/// *Cue differs*: a cue sheet (or GDI) that isn't the DAT's own but whose files are
+/// beside it and all matched to one game is matched with that game's cue (method
+/// `cue`), so the game is still had (docs/PLAN.md, "2b", Disc sets and the DAT).
+fn match_sheets(conn: &Connection, sheets: &[Sheet], dat_id: Option<i64>) -> Result<usize> {
+    let mut made = 0;
+    let mut games_of = conn.prepare_cached(
+        "SELECT DISTINCT r.game_id FROM files f JOIN matches m ON m.file_id = f.id JOIN dat_roms r ON r.id = m.rom_id
+         WHERE f.root_id = ?1 AND f.rel_path = ?2 AND f.parent_id IS NULL AND (?3 IS NULL OR r.dat_id = ?3)",
+    )?;
+    let mut ins = conn.prepare_cached(
+        "INSERT OR IGNORE INTO matches (file_id, rom_id, method)
+         SELECT ?1, r.id, 'cue' FROM dat_roms r WHERE r.game_id = ?2 AND lower(r.name) LIKE ?3",
+    )?;
+    for (id, root, rel, root_path) in sheets {
+        let path = rel.split('/').fold(PathBuf::from(root_path), |p, part| p.join(part));
+        let gdi = platforms::ext_of(rel) == "gdi";
+        let Ok(bytes) = std::fs::read(&path) else { continue };
+        if bytes.len() > 1 << 20 {
+            continue;
+        }
+        let names = crate::cue::file_names(&String::from_utf8_lossy(&bytes), gdi);
+        if names.is_empty() {
+            continue;
+        }
+        let dir = rel.rsplit_once('/').map(|(d, _)| format!("{d}/")).unwrap_or_default();
+        let mut common: Option<Vec<i64>> = None;
+        for n in &names {
+            let games: Vec<i64> = games_of
+                .query_map(params![root, format!("{dir}{}", n.replace('\\', "/")), dat_id], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            common = Some(match common {
+                None => games,
+                Some(c) => c.into_iter().filter(|g| games.contains(g)).collect(),
+            });
+        }
+        for g in common.unwrap_or_default() {
+            made += ins.execute(params![id, g, if gdi { "%.gdi" } else { "%.cue" }])?;
+        }
+    }
+    Ok(made)
+}
+
 // ------------------------------------------------------------ the audit
 
 /// Each game of the DAT with how many of its ROMs (nodumps aside) are matched.
+/// A disc's cue sheet (or GDI) counts as had when the game's tracks are in a CHD,
+/// which keeps no cue (docs/PLAN.md, "2b", Compressed images).
 const GAMES: &str = "
-  rs AS (SELECT r.game_id, r.id, EXISTS (SELECT 1 FROM matches m WHERE m.rom_id = r.id) AS have
+  rs AS (SELECT r.game_id, r.id,
+                EXISTS (SELECT 1 FROM matches m WHERE m.rom_id = r.id)
+                OR ((lower(r.name) LIKE '%.cue' OR lower(r.name) LIKE '%.gdi')
+                    AND EXISTS (SELECT 1 FROM dat_roms o JOIN matches m ON m.rom_id = o.id JOIN files f ON f.id = m.file_id
+                                JOIN files p ON p.id = f.parent_id WHERE o.game_id = r.game_id AND p.kind = 'chd')) AS have
          FROM dat_roms r WHERE r.dat_id = ?1 AND (r.status IS NULL OR r.status != 'nodump')),
   gs AS (SELECT g.id, g.name, g.title, g.regions, g.flags, g.parent_id, COUNT(rs.id) AS roms, SUM(rs.have) AS have,
                 CASE WHEN SUM(rs.have) = COUNT(rs.id) THEN 'have' WHEN SUM(rs.have) > 0 THEN 'partial' ELSE 'missing' END AS status
          FROM dat_games g JOIN rs ON rs.game_id = g.id WHERE g.dat_id = ?1 GROUP BY g.id)";
 
 /// Each file matched with one of the DAT's ROMs, whether it's named as the DAT says
-/// (a ZIP member: the ZIP named for the game, the member for the ROM), and the ROM it's
-/// listed under (one it's named for, if any).
+/// (a ZIP member: the ZIP named for the game, the member for the ROM; a track in a disc
+/// image: the image named for the game, as its tracks have no names of their own), and
+/// the ROM it's listed under (one it's named for, if any).
 const MATCHED: &str = "
   fm AS (SELECT f.id AS file_id,
-                MAX(CASE WHEN f.name = r.name AND (f.parent_id IS NULL OR p.name = g.name || '.' || p.kind) THEN 1 ELSE 0 END) AS named,
+                MAX(CASE WHEN (f.name = r.name OR p.kind IN ('chd', 'cso', 'zso', 'rvz'))
+                               AND (f.parent_id IS NULL OR p.name = g.name || '.' || p.kind) THEN 1 ELSE 0 END) AS named,
                 COALESCE(MIN(CASE WHEN f.name = r.name AND (f.parent_id IS NULL OR p.name = g.name || '.' || p.kind) THEN r.id END), MIN(r.id)) AS rom_id
          FROM matches m JOIN dat_roms r ON r.id = m.rom_id AND r.dat_id = ?1 JOIN dat_games g ON g.id = r.game_id
          JOIN files f ON f.id = m.file_id LEFT JOIN files p ON p.id = f.parent_id
@@ -85,7 +153,7 @@ const MATCHED: &str = "
 const UNMATCHED: &str = "
   um AS (SELECT f.id AS file_id, EXISTS (SELECT 1 FROM dat_roms r WHERE r.dat_id = ?1 AND r.name = f.name) AS bad
          FROM files f
-         WHERE f.platform = ?2 AND f.kind NOT IN ('zip', '7z', 'rar') AND f.hashed > 0
+         WHERE f.platform = ?2 AND f.kind NOT IN ('zip', '7z', 'rar', 'chd', 'cso', 'zso', 'rvz') AND f.hashed > 0
            AND NOT EXISTS (SELECT 1 FROM matches m JOIN dat_roms r ON r.id = m.rom_id
                            WHERE m.file_id = f.id AND (r.dat_id = ?1 OR r.dat_id IN (SELECT id FROM dats WHERE platform != ?2))))";
 
@@ -168,6 +236,7 @@ pub fn summary(conn: &Connection, dat_id: i64) -> Result<Value> {
         [dat_id],
         |r| r.get(0),
     )?;
+    let needs_tool: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE platform = ?1 AND locked = 2 AND missing_since IS NULL", [&d.platform], |r| r.get(0))?;
     let by_crc: i64 = conn.query_row(
         "SELECT COUNT(DISTINCT m.file_id) FROM matches m JOIN dat_roms r ON r.id = m.rom_id AND r.dat_id = ?1 WHERE m.method LIKE 'crc%'",
         [dat_id],
@@ -178,6 +247,7 @@ pub fn summary(conn: &Connection, dat_id: i64) -> Result<Value> {
         "games": have + partial + missing, "have": have, "partial": partial, "missing": missing,
         "groups": groups, "groups_have": groups_have,
         "matched": matched, "misnamed": misnamed, "baddump": bad, "unknown": unknown, "duplicates": duplicates, "by_crc": by_crc,
+        "needs_tool": needs_tool,
     });
     conn.execute(
         "INSERT INTO index_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -338,7 +408,8 @@ pub fn fixdat_xml(conn: &Connection, dat_id: i64) -> Result<(String, String, usi
          SELECT gs.id, gs.name, g.description, pg.name, r.name, r.size, r.crc32, r.md5, r.sha1
          FROM gs JOIN dat_games g ON g.id = gs.id LEFT JOIN dat_games pg ON pg.id = gs.parent_id
          JOIN dat_roms r ON r.game_id = gs.id AND (r.status IS NULL OR r.status != 'nodump')
-         WHERE gs.status != 'have' AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.rom_id = r.id)
+         JOIN rs ON rs.id = r.id
+         WHERE gs.status != 'have' AND NOT rs.have
          ORDER BY gs.name, r.name"
     ))?;
     let mut rows = q.query([dat_id])?;
@@ -467,7 +538,7 @@ pub fn home(ix: &Index, lib: &Library) -> Result<Value> {
     bars.sort_by(|a, b| a["platform_name"].as_str().cmp(&b["platform_name"].as_str()));
     // files of platforms without a DAT, and files without a platform
     let mut q = conn.prepare(
-        "SELECT COALESCE(platform, ''), COUNT(*) FROM files f WHERE kind NOT IN ('zip', '7z', 'rar')
+        "SELECT COALESCE(platform, ''), COUNT(*) FROM files f WHERE kind NOT IN ('zip', '7z', 'rar', 'chd', 'cso', 'zso', 'rvz')
            AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.file_id = f.id)
            AND (platform IS NULL OR platform NOT IN (SELECT platform FROM dats))
          GROUP BY platform ORDER BY platform",
@@ -479,11 +550,13 @@ pub fn home(ix: &Index, lib: &Library) -> Result<Value> {
         })?
         .collect::<rusqlite::Result<_>>()?;
     let roots: Vec<Value> = roots::list(lib).iter().map(|r| r.to_json()).collect();
-    let files: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE kind NOT IN ('zip', '7z', 'rar')", [], |r| r.get(0))?;
-    let unhashed: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE hashed = 0", [], |r| r.get(0))?;
+    let files: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE kind NOT IN ('zip', '7z', 'rar', 'chd', 'cso', 'zso', 'rvz')", [], |r| r.get(0))?;
+    let unhashed: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE hashed = 0 AND locked != 2", [], |r| r.get(0))?;
+    // RVZ files wait for dolphin-tool (scan.rs)
+    let needs_tool: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE locked = 2 AND missing_since IS NULL", [], |r| r.get(0))?;
     let dats: i64 = conn.query_row("SELECT COUNT(*) FROM dats", [], |r| r.get(0))?;
     Ok(json!({
-        "platforms": bars, "loose": loose, "roots": roots, "files": files, "unhashed": unhashed, "dats": dats,
+        "platforms": bars, "loose": loose, "roots": roots, "files": files, "unhashed": unhashed, "dats": dats, "needs_tool": needs_tool,
         "last_scan": crate::scan::last(ix)?,
     }))
 }
@@ -743,6 +816,74 @@ pub mod tests {
             "SELECT m.name, m.hashed FROM files z JOIN files m ON m.parent_id = z.id WHERE z.name = 'Cut.zip'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert_eq!(cut, ("Delta (World).gb".to_string(), 2));
         let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    #[test]
+    fn discs_in_the_audit() {
+        let f = fixture("discs");
+        let src = crate::image::tests::sources("discs-src");
+        let read = |n: &str| std::fs::read(src.join(n)).unwrap();
+        let (cue, t1, t2, iso) = (read("Disc Game (USA).cue"), read("Disc Game (USA) (Track 1).bin"), read("Disc Game (USA) (Track 2).bin"), read("Dvd Game (Europe).iso"));
+        let psx = f.dir.join("Roms/PSX");
+        // the game as a CHD, and again as cue/bin renamed (its cue no longer Redump's)
+        std::fs::create_dir_all(&psx).unwrap();
+        std::fs::copy(crate::image::tests::fixtures().join("Disc Game (USA).chd"), psx.join("Disc Game (USA).chd")).unwrap();
+        write(&psx.join("Mine/t1.bin"), &t1);
+        write(&psx.join("Mine/t2.bin"), &t2);
+        write(&psx.join("Mine/mine.cue"), b"FILE \"t1.bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\nFILE \"t2.bin\" BINARY\n  TRACK 02 AUDIO\n    INDEX 00 00:00:00\n    INDEX 01 00:00:10\n");
+        std::fs::create_dir_all(f.dir.join("Roms/PSP")).unwrap();
+        std::fs::copy(crate::image::tests::fixtures().join("Dvd Game (Europe).cso"), f.dir.join("Roms/PSP/Dvd Game (Europe).cso")).unwrap();
+        let cube = rom(77, 8192);
+        let mut rvz = b"RVZ\x01".to_vec();
+        rvz.resize(36, 0);
+        rvz.extend_from_slice(&(cube.len() as u64).to_be_bytes());
+        rvz.resize(100, 7);
+        write(&f.dir.join("Roms/GameCube/Cube (USA).rvz"), &rvz);
+        let psx_dat = dat_xml("Sony - PlayStation", "2026.10.07", &[(
+            "Disc Game (USA)", None,
+            rom_xml("Disc Game (USA).cue", &cue) + &rom_xml("Disc Game (USA) (Track 1).bin", &t1) + &rom_xml("Disc Game (USA) (Track 2).bin", &t2),
+        )]);
+        write(&f.dir.join("dats/psx.dat"), psx_dat.as_bytes());
+        write(&f.dir.join("dats/psp.dat"), dat_xml("Sony - PlayStation Portable", "2026", &[("Dvd Game (Europe)", None, rom_xml("Dvd Game (Europe).iso", &iso))]).as_bytes());
+        write(&f.dir.join("dats/gc.dat"), dat_xml("Nintendo - GameCube", "2026", &[("Cube (USA)", None, rom_xml("Cube (USA).iso", &cube))]).as_bytes());
+        let _turn = crate::tools::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::tools::configure(&Default::default());
+        run_scan(&f, false);
+        let psx_id = import(&f, "psx.dat")[0]["id"].as_i64().unwrap();
+        let psp_id = import(&f, "psp.dat")[0]["id"].as_i64().unwrap();
+        let gc_id = import(&f, "gc.dat")[0]["id"].as_i64().unwrap();
+        // the CHD's tracks are the game's bins; its cue isn't needed
+        let s = summary(f.ix.conn(), psx_id).unwrap();
+        assert_eq!((s["have"].as_i64(), s["unknown"].as_i64()), (Some(1), Some(0)), "{s}");
+        assert_eq!(names(&f, psx_id, "matched"), ["Track 01.bin", "Track 02.bin"]);
+        // the renamed set: its cue matched by the files it names (cue differs), all three misnamed
+        assert_eq!(names(&f, psx_id, "misnamed"), ["mine.cue", "t1.bin", "t2.bin"]);
+        let method: String = f.ix.conn().query_row("SELECT m.method FROM matches m JOIN files f ON f.id = m.file_id WHERE f.name = 'mine.cue'", [], |r| r.get(0)).unwrap();
+        assert_eq!(method, "cue");
+        assert_eq!(s["duplicates"].as_i64(), Some(4), "{s}");
+        // the CSO holds the ISO
+        let s = summary(f.ix.conn(), psp_id).unwrap();
+        assert_eq!((s["have"].as_i64(), s["matched"].as_i64()), (Some(1), Some(1)), "{s}");
+        // the RVZ waits for dolphin-tool
+        let s = summary(f.ix.conn(), gc_id).unwrap();
+        assert_eq!((s["have"].as_i64(), s["needs_tool"].as_i64()), (Some(0), Some(1)), "{s}");
+        assert_eq!(home(&f.ix, &f.lib).unwrap()["needs_tool"], 1);
+        #[cfg(unix)]
+        {
+            // a stand-in for dolphin-tool, printing what verify does
+            use std::os::unix::fs::PermissionsExt;
+            let h = hash_reader(&mut &cube[..], cube.len() as u64, "x", &AtomicBool::new(false)).unwrap();
+            let tool = f.dir.join("tools/dolphin-tool");
+            write(&tool, format!("#!/bin/sh\necho 'Problems Found: No'\necho 'CRC32: {}'\necho 'SHA1: {}'\n", h.crc32, h.sha1.unwrap()).as_bytes());
+            std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::tools::configure(&[("dolphin-tool".to_string(), tool)].into());
+            run_scan(&f, false);
+            crate::tools::configure(&Default::default());
+            let s = summary(f.ix.conn(), gc_id).unwrap();
+            assert_eq!((s["have"].as_i64(), s["matched"].as_i64(), s["needs_tool"].as_i64()), (Some(1), Some(1), Some(0)), "{s}");
+        }
+        let _ = std::fs::remove_dir_all(&f.dir);
+        let _ = std::fs::remove_dir_all(&src);
     }
 
     #[test]

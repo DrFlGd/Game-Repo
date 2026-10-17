@@ -34,9 +34,9 @@ const DONE = [
   ["Phase 0", "The app, its library folder, the index on this computer and settings"],
   ["Phase 1", "Scanning and hashing your ROMs, importing DAT files, auditing cartridge systems, reports, fixdats and DATs made from your sets"],
   ["Phase 2a", "Organising sets by their DATs (copy, rename or move) with a preview and Undo, TorrentZips, 7z and RAR, and noticing changes in your folders"],
+  ["Phase 2b", "Disc systems audited against Redump's DATs, CHD, CSO, ZSO and RVZ read as the games they hold, and converting to and from them"],
 ];
 const NEXT = [
-  ["Phase 2b", "Disc systems, and converting to and from CHD, RVZ and CSO"],
   ["Phase 3", "Collections from rules, one game per title, and export to ES-DE"],
   ["Phase 4", "Importing PC games and installers into one layout, and Steam shortcuts"],
   ["Phase 5", "Details, pictures, videos and manuals from online sources, and your own documents for each game"],

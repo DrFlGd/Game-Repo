@@ -15,7 +15,10 @@ rename and a deletion, a DAT made from a set, the scan settings, and starter
 DATs (from a local stand-in for libretro's copy); (Phase 2a) a file added outside
 the app is read by the folder watcher, Rename these with its preview and Undo, Set
 aside duplicates, Organise into TorrentZips in another folder, Naming, and the
-History with Undo and emptying what was set aside;
+History with Undo and emptying what was set aside; (Phase 2b) a cue/bin set and an
+ISO audited against disc DATs, Organise keeping disc images whole, Convert… to CHD
+in place, Extract to cue/bin into a folder, Undo of both, Preferred formats, and
+Settings › Tools with a stand-in for dolphin-tool;
 renaming the library, with Undo; opening a folder that already holds games
 leaves them as they were, and switching back from the recent list; the theme
 and skin follow the settings and are kept; a library from a newer app opens
@@ -40,6 +43,7 @@ from playwright.async_api import async_playwright
 
 sys.path.insert(0, str(Path(__file__).with_name("fixtures")))
 import make_fixtures  # noqa: E402
+import make_discs  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--cli", required=True)
@@ -402,6 +406,120 @@ async def main():
             starters = sorted(x.parent.name for x in (library / "_library/dats").rglob("*.dat") if x.parent.name in ("gamegear", "vectrex"))
             check("Get starter DATs downloads the DATs of the systems that have none", "2 systems" in said and "2 already had one" in said and starters == ["gamegear", "vectrex"], (said, starters))
 
+            # Phase 2b. disc systems: a cue/bin set and an ISO, converted, extracted and put back
+            await pg.uncheck("#scan-watch")
+            await pg.wait_for_timeout(300)
+            made = make_discs.write(home / "disc-src")
+            src = home / "disc-src"
+            (fx / "Roms/PlayStation").mkdir()
+            (fx / "Roms/PSP").mkdir()
+            for f in ("Disc Game (USA).cue", "Disc Game (USA) (Track 1).bin", "Disc Game (USA) (Track 2).bin"):
+                shutil.copy(src / f, fx / "Roms/PlayStation" / f)
+            shutil.copy(src / "Dvd Game (Europe).iso", fx / "Roms/PSP/Dvd Game (Europe).iso")
+            ddir = home / "disc-dats"
+            ddir.mkdir()
+            cd_roms = [make_fixtures.rom_xml(f, (src / f).read_bytes()) for f in ("Disc Game (USA).cue", "Disc Game (USA) (Track 1).bin", "Disc Game (USA) (Track 2).bin")]
+            (ddir / "psx.dat").write_text(make_fixtures.logiqx("Sony - PlayStation", "20261001", [("Disc Game (USA)", None, cd_roms)]))
+            (ddir / "psp.dat").write_text(make_fixtures.logiqx("Sony - PlayStation Portable", "20261001",
+                                                                [("Dvd Game (Europe)", None, [make_fixtures.rom_xml("Dvd Game (Europe).iso", (src / "Dvd Game (Europe).iso").read_bytes())])]))
+            for f in ("psx.dat", "psp.dat"):
+                pick(ddir / f)
+            await pg.click("#import-dats")
+            await toast_text(pg, "Imported")
+            await pg.goto(B + "#/")
+            await pg.click("#home-scan-button")
+            said = await toast_text(pg, "Scanned")
+            await pg.click('.sidebar a[href="#/audit"]')
+            await pg.wait_for_selector("#audit-page")
+            await pg.select_option("#audit-platform", "psx")
+            await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '1' && document.querySelector('#audit-games')?.textContent === '1'")
+            await pg.click("#audit-organise")
+            await pg.wait_for_selector("#organise-dialog")
+            disc_note = await pg.locator("#organise-disc-note").count()
+            no_format = await pg.locator("#organise-format").count() == 0
+            await pg.keyboard.press("Escape")
+            check("a cue/bin set is audited against its disc DAT, and Organise keeps disc images as they are", disc_note == 1 and no_format, (said, disc_note, no_format))
+
+            await pg.click("#audit-convert")
+            await pg.wait_for_selector("#convert-dialog")
+            to = await pg.input_value("#convert-to")
+            await pg.check('input[name="convert-place"][value="here"]')
+            await pg.screenshot(path=str(out / "17-convert.png"))
+            await pg.click("#convert-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-totals")
+            totals = await pg.inner_text("#organise-totals")
+            await pg.screenshot(path=str(out / "18-convert-preview.png"))
+            await pg.click("#convert-dialog button[type=submit]")
+            said = await toast_text(pg, "Converted PlayStation to CHD")
+            psx = fx / "Roms/PlayStation"
+            chd = psx / "Disc Game (USA).chd"
+            left = sorted(x.name for x in psx.iterdir() if x.is_file())
+            await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '1'")
+            check("Convert… turns a cue/bin set into a CHD where it is, sets the originals aside, and the game is still had",
+                  to == "chd" and "Convert: 1 file" in totals and chd.is_file() and chd.read_bytes()[:8] == b"MComprHD" and left == ["Disc Game (USA).chd"],
+                  (to, totals, said, left))
+
+            extracted = home / "Extracted"
+            pick(extracted)
+            await pg.click('#audit-tabs [data-tab="have"]')
+            await pg.click('#audit-list .audit-row[data-name="Disc Game (USA)"] .audit-convert-one')
+            await pg.wait_for_selector("#convert-dialog")
+            await pg.select_option("#convert-to", "extract")
+            await pg.check('input[name="convert-place"][value="folder"]')
+            await pg.click("#convert-pick")
+            await pg.wait_for_function("(p) => document.querySelector('#convert-out')?.value === p", arg=str(extracted))
+            await pg.click("#convert-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-totals")
+            await pg.click("#convert-dialog button[type=submit]")
+            said = await toast_text(pg, "Extracted PlayStation into")
+            out_files = {x.name: make_discs.hashes(x.read_bytes())["sha1"] for x in extracted.rglob("*") if x.is_file()} if extracted.is_dir() else {}
+            want = {k: v["sha1"] for k, v in made.items() if k.startswith("Disc Game")}
+            check("Extract writes a CHD back out as the cue/bin Redump lists, byte for byte", out_files == want, (said, out_files))
+
+            await pg.click('.sidebar a[href="#/settings"]')
+            await pg.wait_for_selector("#history li")
+            await pg.click('#history li:first-child [data-action="undo"]')
+            await toast_text(pg, "Undone")
+            await pg.wait_for_selector('#history li:first-child[data-state="undone"]')
+            await pg.click('#history li[data-state="done"] [data-action="undo"]')
+            await toast_text(pg, "Undone")
+            back = sorted(x.name for x in psx.iterdir() if x.is_file())
+            gone = not extracted.exists() or not any(x.is_file() for x in extracted.rglob("*"))
+            check("Undo puts the extracted files and the CHD's originals back as they were",
+                  back == ["Disc Game (USA) (Track 1).bin", "Disc Game (USA) (Track 2).bin", "Disc Game (USA).cue"] and gone, (back, gone))
+
+            await pg.wait_for_selector('#formats li[data-platform="psp"] select')
+            await pg.select_option('#formats li[data-platform="psp"] select', "zso")
+            said = await toast_text(pg, "PlayStation Portable games convert to ZSO")
+            fmts = json.loads((library / "_library/library.json").read_text()).get("formats", {})
+            await pg.click('.sidebar a[href="#/audit"]')
+            await pg.wait_for_selector("#audit-page")
+            await pg.select_option("#audit-platform", "psp")
+            await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '1'")
+            await pg.click("#audit-convert")
+            await pg.wait_for_selector("#convert-dialog")
+            await pg.wait_for_function("() => document.querySelector('#convert-to')?.value === 'zso'", timeout=5000)
+            offered = await pg.eval_on_selector_all("#convert-to option", "els => els.map(e => e.value)")
+            await pg.keyboard.press("Escape")
+            check("Settings › Preferred formats keeps the platform's choice in the library, and Convert… offers it first",
+                  fmts.get("psp") == "zso" and offered == ["cso", "zso", "chd", "extract"], (fmts, offered))
+
+            fake = Path(__file__).with_name("fixtures") / "fake_dolphin_tool.py"
+            await pg.click('.sidebar a[href="#/settings"]')
+            await pg.wait_for_selector('#tools li[data-tool="dolphin-tool"]')
+            pick(fake.resolve())
+            await pg.click('#tools li[data-tool="dolphin-tool"] [data-action="choose"]')
+            await pg.wait_for_selector('#tools li[data-tool="dolphin-tool"][data-found="yes"]')
+            where = await pg.inner_text('#tools li[data-tool="dolphin-tool"] .tool-where')
+            kept = json.loads((home / "config/config.json").read_text()).get("tools", {})
+            await pg.screenshot(path=str(out / "19-tools.png"), full_page=True)
+            await pg.click('#tools li[data-tool="dolphin-tool"] [data-action="clear"]')
+            await pg.wait_for_selector('#tools li[data-tool="dolphin-tool"] [data-action="clear"]', state="detached")
+            cleared = "dolphin-tool" not in json.loads((home / "config/config.json").read_text()).get("tools", {})
+            check("Settings › Tools keeps where dolphin-tool is on this computer, shows what it found, and clears it",
+                  Path(kept.get("dolphin-tool", "")) == fake.resolve() and str(fake.name) in where and cleared, (kept, where, cleared))
+            await pg.check("#scan-watch")
+
             # 7. the theme
             await pg.select_option("#theme-select", "night")
             theme = await pg.evaluate("() => document.documentElement.dataset.theme")
@@ -434,7 +552,7 @@ async def main():
             await pg.wait_for_selector("#about-versions")
             about = await pg.inner_text("#about-page")
             check("About shows the version, what's coming and how a library is laid out",
-                  "Game Repo" in about and "Phase 2" in about and "_library/" in about and "game.json" in about, about[:200])
+                  "Game Repo" in about and "Phase 3" in about and "_library/" in about and "game.json" in about, about[:200])
             await pg.screenshot(path=str(out / "04-about.png"), full_page=True)
 
             # 10. a library made by a newer app opens read-only

@@ -13,10 +13,12 @@ path = "src/bin/gamerepo-cli.rs"
 
 [dependencies]
 anyhow = "1"
+chd = { version = "0.4", features = ["encode"] }
 crc32fast = "1"
 flate2 = { version = "1", default-features = false, features = ["zlib"] }
 fs4 = "1"
 hex = "0.4"
+lz4_flex = "0.14"
 md-5 = "0.10"
 notify = { version = "8", default-features = false }
 quick-xml = "0.42"

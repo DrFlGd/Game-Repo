@@ -77,7 +77,7 @@ impl Rom {
 /// Read a DAT of either format.
 pub fn parse(bytes: &[u8]) -> Result<Dat> {
     let start = bytes.iter().position(|b| !b.is_ascii_whitespace() && *b != 0xEF && *b != 0xBB && *b != 0xBF);
-    let dat = match start.map(|i| bytes[i]) {
+    let mut dat = match start.map(|i| bytes[i]) {
         Some(b'<') => parse_logiqx(bytes)?,
         Some(_) => parse_clrmamepro(&String::from_utf8_lossy(bytes))?,
         None => bail!("the file is empty"),
@@ -85,6 +85,16 @@ pub fn parse(bytes: &[u8]) -> Result<Dat> {
     if dat.name.is_empty() {
         bail!("this DAT has no name in its header");
     }
+    // a game listed again with the same files (libretro's Redump copies list a disc once
+    // per serial) is the same game
+    let mut seen: HashMap<String, Vec<Rom>> = HashMap::new();
+    dat.games.retain(|g| match seen.get(&g.name) {
+        Some(roms) if *roms == g.roms => false,
+        _ => {
+            seen.insert(g.name.clone(), g.roms.clone());
+            true
+        }
+    });
     Ok(dat)
 }
 
@@ -708,6 +718,12 @@ game (
 game (
 	name "Tetris (World)"
 	rom ( name "Tetris (World).gb" size 32768 crc 63f9407d )
+)
+
+game (
+	name "Tetris (World)"
+	serial "DMG-TRA"
+	rom ( name "Tetris (World).gb" size 32768 crc 63f9407d serial "DMG-TRA" )
 )
 "#;
         let d = parse(s.as_bytes()).unwrap();

@@ -170,8 +170,8 @@ export async function importDats(paths, answers = {}) {
  *  the platforms that have no DAT yet, after asking. */
 export function starterDats() {
   ui.set({ dialog: { type: "ask", title: "Get starter DATs?",
-    text: ["The No-Intro DATs for the cartridge systems the app knows are downloaded from libretro's public copy on GitHub and imported, for each system that has no DAT yet.",
-      "They can be a little behind No-Intro's newest. A newer DAT you import yourself becomes the version in use."],
+    text: ["No-Intro's DATs for the cartridge systems and Redump's for the disc systems are downloaded from libretro's public copies on GitHub and imported, for each system that has no DAT yet.",
+      "They can be a little behind the newest, and libretro's copies of Redump's DATs list only one track of each disc. A DAT you import yourself becomes the version in use."],
     button: "Download them", run: runStarter } });
 }
 
@@ -185,6 +185,7 @@ async function runStarter() {
     const extra = [r.skipped?.length ? `${r.skipped.length} already had one` : null, r.missing?.length ? `${r.missing.length} not available` : null, r.failed?.length ? `${r.failed.length} failed` : null].filter(Boolean).join(", ");
     toast(`${n ? `Imported starter DATs for ${plural(n, "system", "systems")}` : "No starter DATs were needed"}${extra ? ` (${extra})` : ""}.`, 8000);
     for (const f of (r.failed || []).slice(0, 2)) toast(`Couldn't get the ${f.platform} DAT: ${f.error}`, 8000);
+    if (r.note) toast(r.note, 12000);
     await refreshGames();
     return r;
   } catch (e) {
