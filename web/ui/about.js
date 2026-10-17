@@ -14,6 +14,8 @@ const RELEASES = "https://github.com/DrFlGd/Game-Repo/releases";
 export const TREE = `_library/                       the app's own files
   library.json                  the library's name and settings
   games/<platform>/<Game>/      one folder per game with more than its ROM
+  games/<platform>/<SHA1>/      what Identify found for a file no DAT knows
+  games/pc/<id>/media/          a PC game's artwork
     game.json                   its id, DAT match, ROM hashes and details
     media/                      scraped covers, screenshots, videos, manuals
     docs/                       your guides, manuals, posters and maps
@@ -28,7 +30,7 @@ Sony - PlayStation/
     … (Disc 1).chd
 PC/
   <Title> (<Year>)/             imported PC games
-    install/  extracted/  patches/  extras/  game.json`;
+    install/  extracted/  patches/  extras/  dlc/  game.json`;
 
 const DONE = [
   ["Phase 0", "The app, its library folder, the index on this computer and settings"],
@@ -36,10 +38,10 @@ const DONE = [
   ["Phase 2a", "Organising sets by their DATs (copy, rename or move) with a preview and Undo, TorrentZips, 7z and RAR, and noticing changes in your folders"],
   ["Phase 2b", "Disc systems audited against Redump's DATs, CHD, CSO, ZSO and RVZ read as the games they hold, and converting to and from them"],
   ["Phase 3", "Collections from rules with one game per title, saved as DATs and exported to ES-DE or a folder and kept in step, and systems of your own"],
+  ["Phase 4", "PC games and installers imported into one layout, identified from Steam, GOG and LaunchBox, unpacked and added to Steam; Add a game… for any system"],
 ];
 const NEXT = [
-  ["Phase 4", "Importing PC games and installers into one layout, and Steam shortcuts"],
-  ["Phase 5", "Details, pictures, videos and manuals from online sources, and your own documents for each game"],
+  ["Phase 5", "Details, pictures, videos and manuals from ScreenScraper, IGDB and TheGamesDB, and your own documents for each game"],
   ["Phase 6", "The library page: covers, search and filters"],
   ["Phase 7", "Arcade sets (MAME and FBNeo)"],
   ["Phase 8", "More frontends (RetroArch, Pegasus, Playnite, LaunchBox) and more metadata sources"],

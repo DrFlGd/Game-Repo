@@ -1,8 +1,8 @@
 // Settings: the open library (name, folder, other libraries), its index on this
 // computer, the folders with games and how they're scanned and watched, the DAT
 // files, the systems (built-in and added), how games are named, the history of changes (Undo, set-aside files), the
-// look, and the app's version with a link to About. Storage formats, external
-// tools and metadata sources come with the phases that use them (docs/PLAN.md, 3.7).
+// look, and the app's version with a link to About. Storage formats and external tools
+// (Phase 2b), PC games, Identify's sources and Steam (Phase 4) have sections of their own.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui, THEMES, SKINS, setTheme, setSkin } from "./state.js";
@@ -13,6 +13,7 @@ import { addRoot, updateRoot, repointRoot, removeRoot, scanSettings, setScanSett
 import { confirmDialog } from "./dialogs.js";
 import { SystemsSection } from "./systems.js";
 import { CommandBar } from "./layout.js";
+import { PcSettings, SourcesSettings, SteamSettings } from "./pcgames.js";
 import { Icon } from "./icons.js";
 
 function RenameForm({ lib }) {
@@ -265,7 +266,7 @@ function ToolsSection() {
   };
   return html`<section class="ls-section" id="settings-tools">
     <h2>Tools</h2>
-    <p class="muted">Game Repo reads and writes CHD, CSO and ZSO itself. For RVZ it uses Dolphin's own tool, found in the app's <code>tools</code> folder${r?.app_dir ? html` (<code>${r.app_dir}</code>)` : null}, on the PATH, or where you set it here. Nothing is downloaded.</p>
+    <p class="muted">Game Repo reads and writes CHD, CSO and ZSO itself. For RVZ it uses Dolphin's own tool, and for GOG installers innoextract, found in the app's <code>tools</code> folder${r?.app_dir ? html` (<code>${r.app_dir}</code>)` : null}, on the PATH, or where you set it here. Nothing is downloaded.</p>
     ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
     ${r ? html`<ul class="ls-list change-list" id="tools">${r.tools.map((t) => html`<li key=${t.id} data-tool=${t.id} data-found=${t.path ? "yes" : "no"}>
       <span class="change-label"><span><b>${t.id}</b> <span class="muted">${t.what}</span></span>
@@ -302,7 +303,9 @@ export function Settings() {
         <ul class="ls-list" id="recent-libraries">${others.map((p) => html`<li key=${p}><span>${p}</span>
           <button type="button" class="ghost" onClick=${() => openLibrary(p)}>Open</button></li>`)}</ul>` : null}
     </section>
-    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} /><${SystemsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${HistorySection} lib=${lib} />` : null}
+    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} /><${SystemsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${HistorySection} lib=${lib} />` : null}
+    <${SourcesSettings} />
+    <${SteamSettings} />
     <${ToolsSection} />
     <section class="ls-section">
       <h2>Appearance</h2>
@@ -318,7 +321,7 @@ export function Settings() {
     </section>
     <section class="ls-section" id="settings-coming">
       <h2>Still to come</h2>
-      <p class="muted">Accounts for metadata sources (ScreenScraper and others) and the tools for PC installers arrive with the phases that use them.</p>
+      <p class="muted">Accounts for the metadata sources that need one (ScreenScraper, IGDB, TheGamesDB) arrive in Phase 5.</p>
     </section>
     <section class="ls-section" id="settings-about">
       <h2>About</h2>

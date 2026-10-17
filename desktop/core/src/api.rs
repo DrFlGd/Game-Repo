@@ -411,6 +411,9 @@ impl App {
         if ["organise_", "change_", "naming", "convert_", "tools", "format"].iter().any(|p| cmd.starts_with(p)) {
             return self.organise_call(cmd, args).await;
         }
+        if ["pc_", "identify_", "sources", "launchbox_", "steam_", "add_"].iter().any(|p| cmd.starts_with(p)) {
+            return self.pc_call(cmd, args).await;
+        }
         if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
             return self.collection_call(cmd, args).await;
         }
@@ -814,14 +817,33 @@ impl App {
                     "convert" => "Converting",
                     "extract" => "Extracting",
                     "export" => "Exporting",
+                    "import" => "Importing",
+                    "add" => "Adding",
                     _ => "Organising",
                 };
                 let running = self.begin_change(&plan.id)?;
                 j(self.spawn_job(label, move |app, jid, cancel| {
                     let _running = running;
                     let ix = Self::job_index(&data_dir, &lib)?;
-                    let r = organise::run(&ix, &lib, &plan, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    let mut r = organise::run(&ix, &lib, &plan, &cancel, &mut |p| app.job_progress(&jid, p))?;
                     let _ = std::fs::remove_file(organise::pending_path(&data_dir, &plan.id));
+                    match plan.kind.as_str() {
+                        // the artwork the sources offered for the new games
+                        "import" => {
+                            app.job_progress(&jid, json!({ "text": "Getting artwork" }));
+                            r["art"] = json!(crate::pcgames::fetch_found_art(&lib, &|dir, art| crate::identify::fetch_art(dir, art, false), &cancel));
+                        }
+                        // what the added files are, once scanned
+                        "add" => {
+                            let only: Vec<PathBuf> = plan.ops.iter().map(|o| PathBuf::from(&o.to)).filter(|p| p.exists()).collect();
+                            if !only.is_empty() {
+                                let opts = scan::Options { only: Some(only), ..Default::default() };
+                                scan::scan(&ix, &lib, &opts, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                            }
+                            r["added"] = crate::addgame::results(&ix, &lib, &plan)?;
+                        }
+                        _ => {}
+                    }
                     Ok(r)
                 }))
             }
@@ -874,6 +896,235 @@ impl App {
                 let template = args["template"].as_str().unwrap_or(organise::DEFAULT_TEMPLATE);
                 organise::set_naming(&lib, platform, template, args["folder"].as_bool().unwrap_or(false)).map_err(e2s)?;
                 j(Value::Null)
+            }
+            other => Err(format!("unknown command {other}")),
+        }
+    }
+
+    /// PC games, Identify and its sources, Steam and Add a game… (docs/PLAN.md, "Phase 4 design").
+    async fn pc_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
+        use crate::{addgame, identify, launchbox, pcgames, steam};
+        let j = |v: Value| Ok(Reply::Json(v));
+        let data_dir = self.paths.data_dir.clone();
+        let cfg = self.config();
+        let blocking = |f: Box<dyn FnOnce() -> Result<Value> + Send>| async move { tokio::task::spawn_blocking(f).await.map_err(|e| e.to_string())?.map_err(e2s) };
+        let path_arg = |k: &str| args[k].as_str().map(str::trim).filter(|p| !p.is_empty()).map(PathBuf::from);
+        match cmd {
+            "pc_games" => {
+                let lib = self.library()?;
+                let inbox = cfg.pc_inbox.clone();
+                j(blocking(Box::new(move || {
+                    let games: Vec<Value> = pcgames::list(&lib).iter().map(|e| e.to_json(&lib)).collect();
+                    let waiting = inbox.as_ref().and_then(|d| pcgames::inbox_paths(d).ok()).map(|v| v.len());
+                    Ok(json!({ "folder": pcgames::folder(&lib).display().to_string(), "inbox": inbox, "inbox_waiting": waiting, "games": games }))
+                }))
+                .await?)
+            }
+            "pc_get" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || {
+                    let e = pcgames::get(&lib, &id)?;
+                    let mut v = e.to_json(&lib);
+                    v["programs"] = json!(pcgames::programs(&lib, &id).unwrap_or_default());
+                    v["innoextract"] = json!(crate::tools::find("innoextract").is_some());
+                    Ok(v)
+                }))
+                .await?)
+            }
+            "pc_update" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let patch = args["patch"].clone();
+                j(blocking(Box::new(move || Ok(pcgames::update(&lib, &id, &patch)?.to_json(&lib)))).await?)
+            }
+            "pc_folder_set" => {
+                let lib = self.library()?;
+                let p = path_arg("path");
+                j(json!(pcgames::set_folder(&lib, p.as_deref()).map_err(e2s)?.display().to_string()))
+            }
+            "pc_inbox_set" => {
+                let mut cfg = cfg;
+                let p = path_arg("path");
+                if let Some(d) = &p {
+                    if !d.is_dir() {
+                        return Err(format!("There's no folder at {}.", d.display()));
+                    }
+                }
+                cfg.pc_inbox = p;
+                cfg.save(&self.config_path()).map_err(e2s)?;
+                j(json!(cfg.pc_inbox))
+            }
+            "pc_read" => {
+                let lib = self.library()?;
+                let paths: Vec<PathBuf> = match &args["paths"] {
+                    Value::Array(a) if !a.is_empty() => a.iter().filter_map(Value::as_str).map(PathBuf::from).collect(),
+                    _ => {
+                        let d = cfg.pc_inbox.clone().ok_or("Choose an inbox folder in Settings › PC games first, or pick what to import.")?;
+                        pcgames::inbox_paths(&d).map_err(e2s)?
+                    }
+                };
+                let look = args["search"].as_bool().unwrap_or(true);
+                self.not_running("Reading the inbox")?;
+                j(self.spawn_job("Reading the inbox", move |app, jid, cancel| {
+                    let search = |title: &str, year: Option<i32>| if look { identify::best(&cfg, &data_dir, title, year) } else { None };
+                    let items = pcgames::read_items(&lib, &paths, &search, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    Ok(json!({ "items": items }))
+                }))
+            }
+            "pc_item_match" => {
+                // a source's answer put into an inbox item (Identify on the review list)
+                let mut it: pcgames::Item = serde_json::from_value(args["item"].clone()).map_err(|e| e.to_string())?;
+                let (source, id) = (arg(&args, "source").map_err(e2s)?.to_string(), arg(&args, "id").map_err(e2s)?.to_string());
+                j(blocking(Box::new(move || {
+                    let m = identify::details(&cfg, &data_dir, &source, &id)?;
+                    pcgames::apply_match(&mut it, &m);
+                    it.found = "you".into();
+                    if it.status == "look" {
+                        it.status = "ready".into();
+                    }
+                    it.include = true;
+                    Ok(json!(it))
+                }))
+                .await?)
+            }
+            "pc_import_plan" => {
+                let lib = self.library()?;
+                let items: Vec<pcgames::Item> = serde_json::from_value(args["items"].clone()).map_err(|e| e.to_string())?;
+                let mode = args["mode"].as_str().unwrap_or("copy").to_string();
+                let always_copy = args["always_copy"].as_bool().unwrap_or(false);
+                j(blocking(Box::new(move || {
+                    let plan = pcgames::plan_import(&lib, &items, &mode, always_copy)?;
+                    organise::save_pending(&data_dir, &plan)?;
+                    Ok(plan.summary())
+                }))
+                .await?)
+            }
+            "pc_programs" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || Ok(json!(pcgames::programs(&lib, &id)?)))).await?)
+            }
+            "pc_unpack" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let file = args["file"].as_str().map(String::from);
+                self.not_running("Unpacking")?;
+                j(self.spawn_job("Unpacking", move |app, jid, cancel| pcgames::unpack(&lib, &id, file.as_deref(), &cancel, &mut |p| app.job_progress(&jid, p))))
+            }
+            "pc_unpack_remove" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || {
+                    pcgames::remove_unpacked(&lib, &id)?;
+                    Ok(pcgames::get(&lib, &id)?.to_json(&lib))
+                }))
+                .await?)
+            }
+            "identify_search" => {
+                let query = arg(&args, "query").map_err(e2s)?.to_string();
+                let platform = args["platform"].as_str().unwrap_or("pc").to_string();
+                let year = args["year"].as_i64().map(|y| y as i32);
+                j(blocking(Box::new(move || Ok(identify::search(&cfg, &data_dir, &query, &platform, year)))).await?)
+            }
+            "identify_details" => {
+                let (source, id) = (arg(&args, "source").map_err(e2s)?.to_string(), arg(&args, "id").map_err(e2s)?.to_string());
+                j(blocking(Box::new(move || Ok(identify::match_json(&identify::details(&cfg, &data_dir, &source, &id)?)))).await?)
+            }
+            "identify_pick" => {
+                // a PC game (`game`) or a file no DAT knows (`platform` and `file`, from Add's results)
+                let lib = self.library()?;
+                let (source, id) = (arg(&args, "source").map_err(e2s)?.to_string(), arg(&args, "id").map_err(e2s)?.to_string());
+                let retitle = args["retitle"].as_bool().unwrap_or(true);
+                let (game, platform, file) = (args["game"].as_str().map(String::from), args["platform"].as_str().map(String::from), args["file"].clone());
+                j(blocking(Box::new(move || {
+                    let m = identify::details(&cfg, &data_dir, &source, &id)?;
+                    match (game, platform) {
+                        (Some(g), _) => Ok(identify::apply_to_pc_game(&lib, &g, &m, retitle)?.to_json(&lib)),
+                        (None, Some(p)) => addgame::identify_rom(&lib, &p, &file, &m),
+                        _ => bail!("missing game"),
+                    }
+                }))
+                .await?)
+            }
+            "sources" => j(identify::sources(&cfg, &data_dir)),
+            "sources_set" => {
+                let mut cfg = cfg;
+                cfg.sources = args["sources"]
+                    .as_array()
+                    .ok_or("missing sources")?
+                    .iter()
+                    .filter_map(|s| Some(crate::config::SourceSetting { id: s["id"].as_str()?.to_string(), on: s["on"].as_bool().unwrap_or(true) }))
+                    .collect();
+                cfg.save(&self.config_path()).map_err(e2s)?;
+                j(identify::sources(&cfg, &data_dir))
+            }
+            "launchbox_fetch" => {
+                let label = "Getting LaunchBox's database";
+                self.not_running(label)?;
+                let url = identify::url(&cfg, "launchbox_zip");
+                j(self.spawn_job(label, move |app, jid, cancel| launchbox::fetch(&data_dir, &url, &cancel, &mut |p| app.job_progress(&jid, p))))
+            }
+            "steam_info" => {
+                let set = cfg.steam_dir.clone();
+                j(blocking(Box::new(move || {
+                    let found = steam::find(set.as_deref());
+                    let users: Vec<Value> = found
+                        .as_ref()
+                        .map(|s| steam::users(s))
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|mut u| {
+                            u["last_written"] = steam::last_written(&data_dir, u["id"].as_str().unwrap_or(""));
+                            u
+                        })
+                        .collect();
+                    Ok(json!({ "steam": found, "set": set, "running": steam::running(), "users": users }))
+                }))
+                .await?)
+            }
+            "steam_dir_set" => {
+                let mut cfg = cfg;
+                let p = path_arg("path");
+                if let Some(d) = &p {
+                    if steam::find(Some(d)).as_deref() != Some(d.as_path()) {
+                        return Err(format!("{} doesn't look like Steam's folder (it has no userdata folder).", d.display()));
+                    }
+                }
+                cfg.steam_dir = p;
+                cfg.save(&self.config_path()).map_err(e2s)?;
+                j(json!(cfg.steam_dir))
+            }
+            "steam_preview" | "steam_write" | "steam_remove" => {
+                let lib = self.library()?;
+                let user = arg(&args, "user").map_err(e2s)?.to_string();
+                let steam_dir = steam::find(cfg.steam_dir.as_deref()).ok_or("Steam isn't on this computer (or choose its folder in Settings › Steam).")?;
+                let cmd = cmd.to_string();
+                j(blocking(Box::new(move || match cmd.as_str() {
+                    "steam_preview" => steam::preview(&lib, &steam_dir, &user),
+                    "steam_write" => steam::write_shortcuts(&lib, &data_dir, &steam_dir, &user, steam::running()),
+                    _ => steam::remove_shortcuts(&data_dir, &steam_dir, &user, steam::running()),
+                }))
+                .await?)
+            }
+            "add_places" => {
+                let lib = self.library()?;
+                j(json!(addgame::places(&lib, arg(&args, "platform").map_err(e2s)?)))
+            }
+            "add_plan" => {
+                let lib = self.library()?;
+                let files: Vec<PathBuf> = args["files"].as_array().ok_or("missing files")?.iter().filter_map(Value::as_str).map(PathBuf::from).collect();
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let into = path_arg("into").ok_or("missing into")?;
+                let mode = args["mode"].as_str().unwrap_or("copy").to_string();
+                let always_copy = args["always_copy"].as_bool().unwrap_or(false);
+                j(blocking(Box::new(move || {
+                    let plan = addgame::plan(&lib, &files, &platform, &into, &mode, always_copy, &AtomicBool::new(false))?;
+                    organise::save_pending(&data_dir, &plan)?;
+                    Ok(plan.summary())
+                }))
+                .await?)
             }
             other => Err(format!("unknown command {other}")),
         }

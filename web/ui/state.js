@@ -5,7 +5,7 @@ import { createStore } from "../lib/store.js";
 
 export const ui = createStore({
   ready: false,
-  route: "home",           // home | audit | collections | import | scraper | settings | about
+  route: "home",           // home | audit | collections | pc | scraper | settings | about
   library: null,           // the open library's info (path, id, name, format, read_only)
   libraryError: null,
   recent: [],              // libraries opened before (paths), newest first

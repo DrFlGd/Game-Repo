@@ -8,6 +8,7 @@
 //!   gamerepo-cli roots add|list|remove …, scan, dat import|list, audit, make-dat
 //!   gamerepo-cli organise, duplicates, convert, extract, history, undo, finish, set-aside empty, tools
 //!   gamerepo-cli systems, collections, collection, export, exports
+//!   gamerepo-cli pc, identify, sources, launchbox, steam, add
 //!
 //! `serve` runs the app's commands behind a local web server, so the page can be
 //! tested in an ordinary browser (with tests/tauri_shim.js standing in for Tauri's
@@ -113,6 +114,31 @@ under <dir>/config and <dir>/data instead of the app's own folders.
                              export it again: new games added, those gone set aside
   export check <export id>   read the export's files back against the DATs
   export forget <export id>  forget an export (its files stay)
+
+  pc [list]                  the PC games
+  pc show <id>               a PC game: its files, program and details
+  pc import [<path>...] [--move] [--always-copy] [--no-search] [--dry-run]
+                             import PC games (the inbox in Settings when no paths are
+                             given): installers, archives, discs or folders, each into
+                             its own folder in the PC games folder
+  pc set <id> [--title <t>] [--year <y>] [--program <path>] [--args <a>]
+                             change a PC game (a new title or year renames its folder)
+  pc unpack <id> [--file <installer or archive>]
+                             unpack a game into its extracted/ folder (GOG installers
+                             need innoextract)
+  pc folder [<dir>|--clear]  where PC games go (default: PC in the library)
+  pc inbox [<dir>|--clear]   the inbox folder Import reads
+  identify <title> [--platform <id>] [--year <y>]
+                             search the sources for a game
+  sources                    the sources Identify asks, in order
+  launchbox get              download LaunchBox Games DB's data (for Identify)
+  steam users                the Steam users on this computer
+  steam preview|write|remove --user <id>
+                             the PC games as Steam shortcuts (non-Steam games) with
+                             their artwork; Steam must be closed to write or remove
+  add <file>... --platform <id> [--into <dir>] [--move] [--dry-run]
+                             add a game for a system (not PC): copied (or moved) into
+                             a folder with games, scanned, and checked against its DAT
 ";
 
 struct Args {
@@ -174,7 +200,8 @@ async fn run() -> Result<()> {
         }
         "serve" => serve(a).await,
         "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" | "organise" | "duplicates" | "history" | "undo" | "finish"
-        | "set-aside" | "convert" | "extract" | "formats" | "tools" | "systems" | "collections" | "collection" | "export" | "exports" => library_command(&cmd, a).await,
+        | "set-aside" | "convert" | "extract" | "formats" | "tools" | "systems" | "collections" | "collection" | "export" | "exports" | "pc" | "identify"
+        | "sources" | "launchbox" | "steam" | "add" => library_command(&cmd, a).await,
         other => bail!("unknown command {other} (gamerepo-cli --help lists them)"),
     }
 }
@@ -282,7 +309,7 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
     }
     let json_out = a.rest.iter().any(|x| x == "--json");
     a.rest.retain(|x| x != "--json");
-    let sub = if matches!(cmd, "roots" | "dat" | "set-aside" | "systems" | "collection" | "export") && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
+    let sub = if matches!(cmd, "roots" | "dat" | "set-aside" | "systems" | "collection" | "export" | "pc" | "launchbox" | "steam") && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
     match (cmd, sub.as_str()) {
         ("platforms", _) => print(&invoke(&app, "platforms", json!({})).await?),
         ("roots", "list") | ("roots", "") => {
@@ -735,6 +762,124 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             };
             show_and_run(&app, plan, dry, json_out).await
         }
+        ("pc", "") | ("pc", "list") => {
+            let v = invoke(&app, "pc_games", json!({})).await?;
+            if json_out {
+                return print(&v);
+            }
+            println!("PC games in {}", v["folder"].as_str().unwrap_or(""));
+            for g in v["games"].as_array().into_iter().flatten() {
+                let year = g["year"].as_i64().map(|y| format!(" ({y})")).unwrap_or_default();
+                let ids: Vec<String> = g["ids"].as_object().into_iter().flatten().map(|(k, v)| format!("{k} {}", v.as_str().unwrap_or(""))).collect();
+                println!("  {}  {}{year}  {}  {}", g["id"].as_str().unwrap_or(""), g["title"].as_str().unwrap_or(""), bytes(g["size"].as_u64().unwrap_or(0)), ids.join(", "));
+            }
+            Ok(())
+        }
+        ("pc", "show") => {
+            let id = a.rest.first().cloned().context("pc show needs a game's id (pc list lists them)")?;
+            print(&invoke(&app, "pc_get", json!({ "id": id })).await?)
+        }
+        ("pc", "set") => {
+            let id = a.rest.first().cloned().context("pc set needs a game's id")?;
+            let mut patch = json!({});
+            if let Some(t) = a.flag("--title") {
+                patch["title"] = json!(t);
+            }
+            if let Some(y) = a.flag("--year") {
+                patch["year"] = json!(y.parse::<i32>().context("--year is a year")?);
+            }
+            if let Some(p) = a.flag("--program") {
+                patch["launch"] = json!({ "program": p, "args": a.flag("--args").unwrap_or_default() });
+            }
+            print(&invoke(&app, "pc_update", json!({ "id": id, "patch": patch })).await?)
+        }
+        ("pc", "unpack") => {
+            let id = a.rest.first().cloned().context("pc unpack needs a game's id")?;
+            let file = a.flag("--file");
+            print(&follow(&app, invoke(&app, "pc_unpack", json!({ "id": id, "file": file })).await?).await?)
+        }
+        ("pc", "folder") | ("pc", "inbox") => {
+            let clear = a.rest.iter().any(|x| x == "--clear");
+            let path = a.rest.iter().find(|x| !x.starts_with("--")).map(|p| std::path::absolute(p).map(|p| p.display().to_string()).unwrap_or(p.clone()));
+            let cmd = if sub == "folder" { "pc_folder_set" } else { "pc_inbox_set" };
+            if path.is_none() && !clear {
+                let v = invoke(&app, "pc_games", json!({})).await?;
+                println!("{}", v[sub.as_str()].as_str().unwrap_or("(none)"));
+                return Ok(());
+            }
+            print(&invoke(&app, cmd, json!({ "path": path })).await?)
+        }
+        ("pc", "import") => {
+            let has = |f: &str| a.rest.iter().any(|x| x == f);
+            let (mv, always_copy, no_search, dry) = (has("--move"), has("--always-copy"), has("--no-search"), has("--dry-run"));
+            let paths: Vec<String> = a.rest.iter().filter(|x| !x.starts_with("--")).map(|p| std::path::absolute(p).map(|p| p.display().to_string()).unwrap_or(p.clone())).collect();
+            let r = follow(&app, invoke(&app, "pc_read", json!({ "paths": paths, "search": !no_search })).await?).await?;
+            let items = r["items"].as_array().cloned().unwrap_or_default();
+            if !json_out {
+                for it in &items {
+                    let year = it["year"].as_i64().map(|y| format!(" ({y})")).unwrap_or_default();
+                    let what = match it["status"].as_str().unwrap_or("") {
+                        "have" => format!("in the library already ({})", it["game_title"].as_str().unwrap_or("")),
+                        "update" => format!("goes into {}", it["game_title"].as_str().unwrap_or("")),
+                        "look" => "needs a look (imported under the name)".into(),
+                        _ => format!("found by {}", it["found"].as_str().unwrap_or("")),
+                    };
+                    println!("  {} → {}{year}: {what}", it["name"].as_str().unwrap_or(""), it["title"].as_str().unwrap_or(""));
+                }
+            }
+            if items.iter().all(|i| i["include"] != true) {
+                println!("Nothing to import.");
+                return Ok(());
+            }
+            let plan = invoke(&app, "pc_import_plan", json!({ "items": items, "mode": if mv { "move" } else { "copy" }, "always_copy": always_copy })).await?;
+            show_and_run(&app, plan, dry, json_out).await
+        }
+        ("identify", _) => {
+            let platform = a.flag("--platform").unwrap_or_else(|| "pc".into());
+            let year = a.flag("--year").map(|y| y.parse::<i64>()).transpose()?;
+            let query = a.rest.iter().filter(|x| !x.starts_with("--")).cloned().collect::<Vec<_>>().join(" ");
+            if query.is_empty() {
+                bail!("identify needs a title to search for");
+            }
+            let v = invoke(&app, "identify_search", json!({ "query": query, "platform": platform, "year": year })).await?;
+            if json_out {
+                return print(&v);
+            }
+            for r in v["results"].as_array().into_iter().flatten() {
+                let year = r["year"].as_i64().map(|y| format!(" ({y})")).unwrap_or_default();
+                println!("  {:<10} {:<12} {}{year}  {}", r["source_name"].as_str().unwrap_or(""), r["id"].as_str().unwrap_or(""), r["title"].as_str().unwrap_or(""), r["platform"].as_str().unwrap_or(""));
+            }
+            for e in v["errors"].as_array().into_iter().flatten() {
+                eprintln!("  {}: {}", e["source"].as_str().unwrap_or(""), e["error"].as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
+        ("sources", _) => print(&invoke(&app, "sources", json!({})).await?),
+        ("launchbox", "get") => print(&follow(&app, invoke(&app, "launchbox_fetch", json!({})).await?).await?),
+        ("steam", "users") | ("steam", "") => print(&invoke(&app, "steam_info", json!({})).await?),
+        ("steam", what @ ("preview" | "write" | "remove")) => {
+            let user = a.need("--user")?;
+            print(&invoke(&app, &format!("steam_{what}"), json!({ "user": user })).await?)
+        }
+        ("add", _) => {
+            let platform = a.need("--platform")?;
+            let abs = |o: &str| std::path::absolute(o).map(|p| p.display().to_string()).unwrap_or(o.to_string());
+            let into = match a.flag("--into") {
+                Some(d) => abs(&d),
+                None => {
+                    let places = invoke(&app, "add_places", json!({ "platform": platform })).await?;
+                    places[0]["dir"].as_str().map(String::from).context("there's no folder with games for that system: add one (roots add) or give --into")?
+                }
+            };
+            let has = |f: &str| a.rest.iter().any(|x| x == f);
+            let (mv, dry) = (has("--move"), has("--dry-run"));
+            let files: Vec<String> = a.rest.iter().filter(|x| !x.starts_with("--")).map(|p| abs(p)).collect();
+            if files.is_empty() {
+                bail!("add needs a file");
+            }
+            let plan = invoke(&app, "add_plan", json!({ "files": files, "platform": platform, "into": into, "mode": if mv { "move" } else { "copy" } })).await?;
+            show_and_run(&app, plan, dry, json_out).await
+        }
         (c, s) => bail!("unknown command {c} {s} (gamerepo-cli --help lists them)"),
     }
 }
@@ -777,6 +922,17 @@ async fn show_and_run(app: &Arc<App>, plan: Value, dry: bool, json_out: bool) ->
     println!("{} of {} steps done{}; change {} (undo {} puts it back)", r["done"], r["ops"], if r["stopped"] == true { " (stopped)" } else { "" }, r["id"].as_str().unwrap_or(""), r["id"].as_str().unwrap_or(""));
     for f in r["failed"].as_array().into_iter().flatten().take(20) {
         eprintln!("  {}", f["error"].as_str().or(f.as_str()).unwrap_or(""));
+    }
+    for f in r["added"]["files"].as_array().into_iter().flatten() {
+        let what = match (f["game"].as_str(), f["named"] == true) {
+            (Some(g), true) => format!("{g} (named as its DAT says)"),
+            (Some(g), false) => format!("{g} (organise renames it to its DAT's name)"),
+            (None, _) => "no DAT knows it (identify finds what it is)".into(),
+        };
+        println!("  {}: {what}", f["file"].as_str().unwrap_or(""));
+    }
+    if let Some(art) = r["art"].as_array().filter(|a| !a.is_empty()) {
+        println!("  artwork for {} games", art.len());
     }
     Ok(())
 }
