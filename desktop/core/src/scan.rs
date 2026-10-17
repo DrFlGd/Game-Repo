@@ -212,13 +212,15 @@ struct Work {
     name: String,
     size: u64,
     mtime: i64,
-    /// the archive kind ("zip", "7z", "rar") when it's one
+    /// the archive or image kind ("zip", "7z", "rar", "chd", "cso", "zso", "rvz") when it's one
     archive: Option<&'static str>,
 }
 
 enum Outcome {
     File(Hashes),
     Archive(&'static str, archive::Listing),
+    /// An RVZ when dolphin-tool isn't found: checked by a scan once it is
+    NeedsTool(&'static str),
     Failed(String),
     Stopped,
 }
@@ -233,6 +235,8 @@ fn work_on(w: &Work, full: bool, cancel: &AtomicBool) -> Outcome {
         archive::read(&w.path, kind, full, cancel).map(|l| Outcome::Archive(kind, l)).or_else(|e| {
             if e.kind() == std::io::ErrorKind::Interrupted {
                 Err(e)
+            } else if kind == "rvz" && e.kind() == std::io::ErrorKind::NotFound {
+                Ok(Outcome::NeedsTool(kind))
             } else {
                 // not an archive after all: an ordinary file
                 hash_file(w, cancel).map(Outcome::File)
@@ -282,7 +286,7 @@ fn record(conn: &Connection, w: &Work, root: &Root, scan_id: i64, outcome: Outco
         Outcome::File(h) => {
             let blob = blob_id(conn, &h)?;
             conn.prepare_cached("DELETE FROM files WHERE parent_id = ?1")?.execute([w.file_id])?;
-            conn.prepare_cached("UPDATE files SET kind = 'file', blob_id = ?2, hashed = 2, matched = 0 WHERE id = ?1")?
+            conn.prepare_cached("UPDATE files SET kind = 'file', blob_id = ?2, hashed = 2, matched = 0, locked = 0 WHERE id = ?1")?
                 .execute(params![w.file_id, blob])?;
         }
         Outcome::Archive(kind, listing) => {
@@ -297,11 +301,18 @@ fn record(conn: &Connection, w: &Work, root: &Root, scan_id: i64, outcome: Outco
                 let blob = blob_id(conn, &m.hashes)?;
                 ins.execute(params![
                     root.id, w.file_id, format!("{}/{}", w.rel, m.name), m.name, m.hashes.size as i64, w.mtime, blob,
-                    if m.full { 2 } else { 1 }, guess_platform(root, &w.rel, Some(&m.name)), scan_id
+                    if m.full { 2 } else { 1 },
+                    // a disc image's tracks have the image's platform
+                    guess_platform(root, &w.rel, (!crate::image::KINDS.contains(&kind)).then_some(m.name.as_str())), scan_id
                 ])?;
             }
             conn.prepare_cached("UPDATE files SET kind = ?3, blob_id = NULL, hashed = ?2, matched = 1, locked = ?4 WHERE id = ?1")?
                 .execute(params![w.file_id, if all_full { 2 } else { 1 }, kind, listing.locked as i64])?;
+        }
+        Outcome::NeedsTool(kind) => {
+            conn.prepare_cached("DELETE FROM files WHERE parent_id = ?1")?.execute([w.file_id])?;
+            conn.prepare_cached("UPDATE files SET kind = ?2, blob_id = NULL, hashed = 0, matched = 1, locked = 2 WHERE id = ?1")?
+                .execute(params![w.file_id, kind])?;
         }
         Outcome::Failed(_) | Outcome::Stopped => {}
     }
@@ -393,7 +404,7 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
     let tx = conn.unchecked_transaction()?;
     let work = |id: i64, w: &Walked| Work {
         file_id: id, root: w.root, path: roots[w.root].dir.join(&w.rel), rel: w.rel.clone(), name: w.name.clone(),
-        size: w.size, mtime: w.mtime, archive: archive::kind_of(&w.name),
+        size: w.size, mtime: w.mtime, archive: archive::container_of(&w.name),
     };
     for w in walked {
         let key = (roots[w.root].id.clone(), w.rel.clone());
@@ -450,7 +461,7 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
         }
         tx.execute(
             "INSERT INTO files (root_id, rel_path, name, kind, size, mtime, platform, seen) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![root.id, w.rel, w.name, archive::kind_of(&w.name).unwrap_or("file"), w.size as i64, w.mtime, platform, scan_id],
+            params![root.id, w.rel, w.name, archive::container_of(&w.name).unwrap_or("file"), w.size as i64, w.mtime, platform, scan_id],
         )?;
         added += 1;
         queue.push(work(tx.last_insert_rowid(), &w));

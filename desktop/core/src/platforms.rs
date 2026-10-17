@@ -22,7 +22,8 @@ macro_rules! p {
     };
 }
 
-/// The cartridge systems of Phase 1 (disc systems join in Phase 2, arcade in Phase 7).
+/// The cartridge systems of Phase 1, then the disc systems of Phase 2 (Redump's DAT
+/// names first, then libretro's copies'); arcade joins in Phase 7.
 pub static PLATFORMS: &[Platform] = &[
     p!("nes", "Nintendo Entertainment System", ["Nintendo - Nintendo Entertainment System"], ["NES", "Famicom", "FC", "Nintendo Entertainment System"], ["nes", "unf", "unif"]),
     p!("fds", "Famicom Disk System", ["Nintendo - Family Computer Disk System"], ["FDS", "Famicom Disk System", "Family Computer Disk System"], ["fds"]),
@@ -52,7 +53,61 @@ pub static PLATFORMS: &[Platform] = &[
     p!("colecovision", "ColecoVision", ["Coleco - ColecoVision"], ["ColecoVision", "Coleco"], ["col"]),
     p!("intellivision", "Intellivision", ["Mattel - Intellivision"], ["Intellivision"], ["int"]),
     p!("vectrex", "Vectrex", ["GCE - Vectrex"], ["Vectrex"], ["vec"]),
+    p!("psx", "PlayStation", ["Sony - PlayStation"], ["PSX", "PS1", "PlayStation", "PlayStation 1", "Sony PlayStation"], ["cue", "bin", "img", "chd", "m3u"]),
+    p!("ps2", "PlayStation 2", ["Sony - PlayStation 2"], ["PS2", "PlayStation 2", "Sony PlayStation 2"], ["iso", "cue", "bin", "chd"]),
+    p!("psp", "PlayStation Portable", ["Sony - PlayStation Portable"], ["PSP", "PlayStation Portable", "Sony PlayStation Portable"], ["iso", "cso", "zso", "chd"]),
+    p!("saturn", "Sega Saturn", ["Sega - Saturn"], ["Saturn", "Sega Saturn"], ["cue", "bin", "iso", "chd"]),
+    p!("segacd", "Sega CD / Mega-CD", ["Sega - Mega CD & Sega CD", "Sega - Mega-CD - Sega CD"], ["Sega CD", "Mega CD", "Mega-CD", "SegaCD", "MegaCD"], ["cue", "bin", "iso", "chd"]),
+    p!("dreamcast", "Sega Dreamcast", ["Sega - Dreamcast"], ["Dreamcast", "DC", "Sega Dreamcast"], ["gdi", "cdi", "cue", "bin", "chd"]),
+    p!("pcenginecd", "PC Engine CD / TurboGrafx-CD", ["NEC - PC Engine CD & TurboGrafx CD", "NEC - PC Engine CD - TurboGrafx-CD"], ["PC Engine CD", "TurboGrafx-CD", "TurboGrafx CD", "PCE-CD", "TG-CD"], ["cue", "bin", "chd"]),
+    p!("neogeocd", "Neo Geo CD", ["SNK - Neo Geo CD"], ["Neo Geo CD", "NeoGeo CD", "NGCD"], ["cue", "bin", "chd"]),
+    p!("3do", "3DO", ["Panasonic - 3DO Interactive Multiplayer", "The 3DO Company - 3DO"], ["3DO", "Panasonic 3DO"], ["cue", "bin", "iso", "chd"]),
+    p!("pcfx", "PC-FX", ["NEC - PC-FX & PC-FXGA", "NEC - PC-FX"], ["PC-FX", "PCFX"], ["cue", "bin", "chd"]),
+    p!("atarijaguarcd", "Atari Jaguar CD", ["Atari - Jaguar CD Interactive Multimedia System", "Atari - Jaguar CD"], ["Jaguar CD", "Atari Jaguar CD"], ["cue", "bin", "chd"]),
+    p!("cdimono1", "Philips CD-i", ["Philips - CD-i"], ["CD-i", "CDi", "Philips CD-i"], ["cue", "bin", "iso", "chd"]),
+    p!("gc", "Nintendo GameCube", ["Nintendo - GameCube"], ["GameCube", "GC", "NGC", "Nintendo GameCube"], ["iso", "gcm", "rvz", "gcz", "ciso"]),
+    p!("wii", "Nintendo Wii", ["Nintendo - Wii"], ["Wii", "Nintendo Wii"], ["iso", "wbfs", "rvz", "wia", "gcz"]),
+    p!("xbox", "Xbox", ["Microsoft - Xbox"], ["Xbox", "Microsoft Xbox"], ["iso", "xiso"]),
 ];
+
+/// How a platform's games are stored, which decides what they can be converted to (D12).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Media {
+    Cartridge,
+    /// CD systems (and PS2, which has CDs and DVDs): CHD
+    Cd,
+    /// GameCube and Wii: RVZ
+    Nintendo,
+    /// PSP: CSO (or ZSO, or CHD)
+    Umd,
+    /// Audited, not converted
+    AuditOnly,
+}
+
+pub fn media(id: &str) -> Media {
+    match id {
+        "psx" | "ps2" | "saturn" | "segacd" | "dreamcast" | "pcenginecd" | "neogeocd" | "3do" | "pcfx" | "atarijaguarcd" | "cdimono1" => Media::Cd,
+        "gc" | "wii" => Media::Nintendo,
+        "psp" => Media::Umd,
+        "xbox" => Media::AuditOnly,
+        _ => Media::Cartridge,
+    }
+}
+
+pub fn is_disc(id: &str) -> bool {
+    media(id) != Media::Cartridge
+}
+
+/// The formats a platform's games can be converted to, its preferred one (D12) first.
+pub fn formats(id: &str) -> &'static [&'static str] {
+    match media(id) {
+        Media::Cartridge => &["zip"],
+        Media::Cd => &["chd"],
+        Media::Nintendo => &["rvz"],
+        Media::Umd => &["cso", "zso", "chd"],
+        Media::AuditOnly => &[],
+    }
+}
 
 /// Bracketed words at the end of a DAT's name that say how it was made, not what it's for.
 const DAT_SUFFIXES: &[&str] = &[
@@ -152,7 +207,7 @@ pub fn guess(hint: Option<&str>, dirs: &[&str], name: &str) -> Option<String> {
 pub fn list() -> Value {
     json!(PLATFORMS
         .iter()
-        .map(|p| json!({ "id": p.id, "name": p.name, "dat": p.dat_names[0], "exts": p.exts }))
+        .map(|p| json!({ "id": p.id, "name": p.name, "dat": p.dat_names[0], "exts": p.exts, "disc": is_disc(p.id), "formats": formats(p.id) }))
         .collect::<Vec<_>>())
 }
 
@@ -170,6 +225,24 @@ mod tests {
         assert_eq!(id("Sega - Mega Drive - Genesis"), Some("genesis"));
         assert_eq!(id("Nintendo - Satellaview"), None);
         assert_eq!(dat_base_name("Nintendo - Game Boy (Parent-Clone) (2026-10-01)"), "Nintendo - Game Boy");
+        // Redump's names and libretro's copies'
+        assert_eq!(id("Sony - PlayStation"), Some("psx"));
+        assert_eq!(id("Sega - Mega CD & Sega CD"), Some("segacd"));
+        assert_eq!(id("Sega - Mega-CD - Sega CD"), Some("segacd"));
+        assert_eq!(id("The 3DO Company - 3DO"), Some("3do"));
+        assert_eq!(id("Nintendo - GameCube"), Some("gc"));
+    }
+
+    #[test]
+    fn disc_platforms_and_their_formats() {
+        assert_eq!(from_ext("gdi").unwrap().id, "dreamcast");
+        assert_eq!(from_ext("cso").unwrap().id, "psp");
+        assert!(from_ext("chd").is_none() && from_ext("rvz").is_none());
+        assert_eq!(from_folder("PS1").unwrap().id, "psx");
+        assert_eq!(from_folder("Mega-CD").unwrap().id, "segacd");
+        assert_eq!(formats("gc"), ["rvz"]);
+        assert_eq!(formats("snes"), ["zip"]);
+        assert!(formats("xbox").is_empty() && is_disc("xbox") && !is_disc("gb"));
     }
 
     #[test]

@@ -1,8 +1,11 @@
-//! Starter DATs (D17): the No-Intro cartridge DATs as libretro keeps them in its
-//! public database, downloaded and imported when asked (*Get starter DATs*). They can
-//! be a little behind No-Intro's own; a newer DAT imported by hand becomes the
-//! version in use. The address is a setting on this computer (`dat_source`), in case
-//! libretro moves them.
+//! Starter DATs (D17): the No-Intro cartridge DATs and the Redump disc DATs as
+//! libretro keeps them in its public database, downloaded and imported when asked
+//! (*Get starter DATs*). They can be a little behind No-Intro's and Redump's own, and
+//! libretro's Redump copies list only one track of each disc (the one it identifies
+//! games by), so a disc's other tracks and its cue show as unknown until Redump's own
+//! DAT is imported; a newer DAT imported by hand becomes the version in use. The
+//! address is a setting on this computer (`dat_source`), in case libretro moves them;
+//! the Redump copies are looked for in `redump/` beside its `no-intro/`.
 
 use crate::index::Index;
 use crate::library::Library;
@@ -15,8 +18,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Where libretro keeps its copies of the No-Intro DATs, one `<DAT name>.dat` each.
 pub const SOURCE: &str = "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro/";
 
-/// DATs are read up to this size (the largest cartridge DATs are a few MB).
+/// DATs are read up to this size (the largest cartridge DATs are a few MB, disc DATs tens).
 const LIMIT: u64 = 200 << 20;
+
+/// What the page says after disc DATs came from libretro.
+pub const DISC_NOTE: &str = "libretro's copies of Redump's DATs list one track of each disc, so a disc's other tracks and its cue sheet show as unknown files. Import Redump's own DAT (redump.org, Downloads) for the full check.";
 
 /// "Nintendo - Game Boy" -> "Nintendo%20-%20Game%20Boy" (a path segment).
 fn encode(s: &str) -> String {
@@ -47,6 +53,8 @@ pub fn get(ix: &Index, lib: &Library, source: &str, only: &[String], again: bool
     lib.writable()?;
     crate::dat::sync_library(ix, lib)?;
     let base = if source.ends_with('/') { source.to_string() } else { format!("{source}/") };
+    let redump = base.strip_suffix("no-intro/").map(|b| format!("{b}redump/")).unwrap_or_else(|| base.clone());
+    let mut discs = false;
     let have: Vec<String> = ix.conn().prepare("SELECT DISTINCT platform FROM dats")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     let wanted: Vec<_> = PLATFORMS.iter().filter(|p| only.is_empty() || only.iter().any(|o| o == p.id)).collect();
     let (mut imported, mut skipped, mut missing, mut failed) = (vec![], vec![], vec![], vec![]);
@@ -61,8 +69,9 @@ pub fn get(ix: &Index, lib: &Library, source: &str, only: &[String], again: bool
         }
         // the DAT's name has changed over the years: try each
         let mut found = false;
+        let from = if platforms::is_disc(p.id) { &redump } else { &base };
         for name in p.dat_names {
-            let url = format!("{base}{}.dat", encode(name));
+            let url = format!("{from}{}.dat", encode(name));
             match fetch(&url) {
                 Ok(Some(bytes)) => {
                     let mut answers = Map::new();
@@ -72,7 +81,10 @@ pub fn get(ix: &Index, lib: &Library, source: &str, only: &[String], again: bool
                         }
                     }
                     match crate::dat::import_bytes(ix, lib, &bytes, &format!("{name}.dat"), &answers) {
-                        Ok(crate::dat::Imported::Loaded(v)) => imported.push(v),
+                        Ok(crate::dat::Imported::Loaded(v)) => {
+                            discs |= platforms::is_disc(p.id);
+                            imported.push(v)
+                        }
                         Ok(_) => failed.push(json!({ "platform": p.id, "error": "its platform couldn't be worked out" })),
                         Err(e) => failed.push(json!({ "platform": p.id, "error": format!("{e:#}") })),
                     }
@@ -97,6 +109,7 @@ pub fn get(ix: &Index, lib: &Library, source: &str, only: &[String], again: bool
     Ok(json!({
         "imported": imported, "skipped": skipped, "missing": missing, "failed": failed,
         "stopped": cancel.load(Ordering::Relaxed), "source": base,
+        "note": discs.then_some(DISC_NOTE),
     }))
 }
 
@@ -137,15 +150,17 @@ mod tests {
         let base = serve(vec![
             ("/no-intro/Nintendo%20-%20Game%20Boy.dat".into(), gb),
             ("/no-intro/Atari%20-%202600.dat".into(), a26),
+            ("/redump/The%203DO%20Company%20-%203DO.dat".into(), dat_xml("The 3DO Company - 3DO", "2026.10.07", &[("C (USA)", None, rom_xml("C (USA).bin", &rom(3, 64)))])),
         ]);
-        let only = vec!["gb".to_string(), "atari2600".to_string(), "vectrex".to_string()];
+        let only = vec!["gb".to_string(), "atari2600".to_string(), "vectrex".to_string(), "3do".to_string()];
         let r = get(&ix, &lib, &base, &only, false, &AtomicBool::new(false), &mut |_| {}).unwrap();
-        assert_eq!(r["imported"].as_array().unwrap().len(), 2, "{r}");
+        assert_eq!(r["imported"].as_array().unwrap().len(), 3, "{r}");
         assert_eq!(r["missing"], json!(["vectrex"]));
+        assert_eq!(r["note"], json!(DISC_NOTE), "disc DATs come from redump/ beside no-intro/");
         assert!(lib.root().join("_library/dats/gb/Nintendo - Game Boy (20261001).dat").is_file());
         // a platform that has a DAT is left alone unless asked again
         let again = get(&ix, &lib, &base, &only, false, &AtomicBool::new(false), &mut |_| {}).unwrap();
-        assert_eq!(again["skipped"].as_array().unwrap().len(), 2);
+        assert_eq!(again["skipped"].as_array().unwrap().len(), 3);
         assert!(lib.meta()["dat_platforms"].is_null(), "nothing needed remembering");
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -1,0 +1,22 @@
+{
+  "Disc Game (USA).cue": {
+    "size": 200,
+    "crc32": "9512ac5a",
+    "sha1": "ea406192c54308382380c44eb84470557b214474"
+  },
+  "Disc Game (USA) (Track 1).bin": {
+    "size": 105840,
+    "crc32": "31ec9bbd",
+    "sha1": "f80da677808bc14e543c1564dc3874a134f2c945"
+  },
+  "Disc Game (USA) (Track 2).bin": {
+    "size": 72912,
+    "crc32": "bfd78a26",
+    "sha1": "ba3fbcfc61db51f3e970b47675edf92000f937a6"
+  },
+  "Dvd Game (Europe).iso": {
+    "size": 143360,
+    "crc32": "ddfc1acf",
+    "sha1": "f62e50c90d9217a4b0285c153ec5e90c265a1be5"
+  }
+}

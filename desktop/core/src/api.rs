@@ -706,6 +706,7 @@ impl App {
                     partial: args["partial"].as_bool().unwrap_or(false),
                     always_copy: args["always_copy"].as_bool().unwrap_or(false),
                     only_misnamed: args["only_misnamed"].as_bool().unwrap_or(false),
+                    games: None,
                 };
                 j(self
                     .with_index(move |ix| {

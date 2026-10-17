@@ -9,11 +9,15 @@
 //! - [`platforms`]: the platforms the app knows, and how DATs and files find theirs
 //! - [`hash`]: hashing a file in one read (and without its header)
 //! - [`archive`]: the archives a scan looks inside (ZIP, 7z, RAR)
+//! - [`image`]: disc images read as what they hold (CHD, CSO/ZSO, RVZ), and written
+//! - [`cue`]: cue sheets and GDI files
+//! - [`tools`]: the external tools some conversions use (dolphin-tool, chdman)
 //! - [`scan`]: scanning the folders with games into the index
 //! - [`dat`]: reading and importing DAT files
 //! - [`audit`]: matching files with DATs, and what an audit shows
 //! - [`makedat`]: making a DAT from a scanned set
 //! - [`organise`]: organising a set by its DAT (copy, rename or move), the journal and Undo
+//! - [`convert`]: converting games to CHD, RVZ, CSO/ZSO or ZIP and extracting them, verified
 //! - [`starter`]: starter DATs downloaded from libretro's copy of No-Intro's
 //! - [`torrentzip`]: writing ZIPs that are the same bytes every time
 //! - [`watch`]: noticing changes in the folders with games while the app is open
@@ -25,8 +29,11 @@ pub mod api;
 pub mod archive;
 pub mod audit;
 pub mod config;
+pub mod convert;
+pub mod cue;
 pub mod dat;
 pub mod hash;
+pub mod image;
 pub mod index;
 pub mod library;
 pub mod makedat;
@@ -35,6 +42,7 @@ pub mod platforms;
 pub mod roots;
 pub mod scan;
 pub mod starter;
+pub mod tools;
 pub mod torrentzip;
 pub mod watch;
 

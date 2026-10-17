@@ -68,6 +68,13 @@ Phase 1 is released (v0.1.0); what's left of it is Jerred's check on a real No-I
 
 ## Unreleased
 
+- **Disc systems**: PlayStation, PlayStation 2, PSP, Saturn, Sega CD, Dreamcast, PC Engine CD, Neo Geo CD, 3DO, PC-FX, Jaguar CD, CD-i, GameCube, Wii and Xbox, audited against Redump's DATs from cue/bin, gdi and iso sets. A cue sheet that isn't Redump's but names the right tracks counts (*cue differs*), and renaming the set rewrites it to name the new files.
+- **CHD, CSO, ZSO and RVZ** are audited as the games they hold: a CHD's tracks as the bins Redump lists, a CSO's or ZSO's ISO, and an RVZ's disc through dolphin-tool (until it's found, RVZ files wait to be checked).
+- **Convert…** a game, a selection or a whole platform to its preferred format (CHD for CD and DVD systems, RVZ for GameCube and Wii, CSO or ZSO for PSP, ZIP for cartridges), into a folder or in place, and **Extract** back to cue/bin or ISO. Every result is read back and compared with the files it came from before anything is replaced, and Undo puts it all back. CHDs are written by the app itself, the same data chdman writes, so no tool is needed for them.
+- **Get starter DATs** now also fetches libretro's copies of Redump's DATs for the disc systems. They list one track of each disc, so import Redump's own DATs for a full check.
+
+## 0.2.0 (2026-10-16)
+
 - **Plans**: Phase 2 is designed: organising sets by their DAT names with a preview and Undo, then disc systems and converting to CHD, RVZ and CSO.
 - **Organise…** (Audit): sort a platform's set by its DAT in one of three ways: copy it to another folder (hardlinked on the same drive, so it takes no space), rename the files where they are, or move them into a folder for the platform in the library. Choose to keep files as they are, make a ZIP for each game, or unpack them; a preview shows every step, what's in the way and whether there's space, and nothing changes until you press Run. Every file written is read back and checked.
 - **Undo**: the message after a change has Undo, and *Settings › History* lists the changes, undoes the newest, and finishes or puts back one that was interrupted (say, by a power cut). Files a change replaces are never deleted: they're set aside in a hidden `.gamerepo-set-aside` folder until you empty it there.

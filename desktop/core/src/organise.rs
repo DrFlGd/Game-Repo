@@ -11,6 +11,7 @@
 
 use crate::archive;
 use crate::audit;
+use crate::cue;
 use crate::hash::{self, Hashes};
 use crate::index::Index;
 use crate::library::{now, Library, APP_DIR};
@@ -29,7 +30,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The folder originals are set aside in, at the top of each folder with games.
 pub const SET_ASIDE: &str = ".gamerepo-set-aside";
 /// Where files are put together before they're moved into place.
-const STAGING: &str = ".gamerepo-tmp";
+pub(crate) const STAGING: &str = ".gamerepo-tmp";
 /// Finished changes kept in the history (those still holding set-aside files are kept until emptied).
 const KEEP: usize = 20;
 
@@ -134,6 +135,8 @@ pub struct Options {
     pub always_copy: bool,
     /// Only the misnamed files (rename mode, as they are)
     pub only_misnamed: bool,
+    /// Only these games (by name), not the whole platform
+    pub games: Option<Vec<String>>,
 }
 
 // ------------------------------------------------------------ names
@@ -158,7 +161,7 @@ pub fn safe_name(name: &str) -> String {
 }
 
 /// A ROM's name from a DAT as a relative path (some DATs put ROMs in folders), each part made safe.
-fn safe_rel(name: &str) -> PathBuf {
+pub(crate) fn safe_rel(name: &str) -> PathBuf {
     name.split(['/', '\\']).filter(|p| !p.is_empty() && *p != "." && *p != "..").map(safe_name).collect()
 }
 
@@ -210,8 +213,8 @@ fn check_template(t: &str) -> Result<()> {
     Ok(())
 }
 
-struct GameFields {
-    name: String,
+pub(crate) struct GameFields {
+    pub(crate) name: String,
     title: Option<String>,
     regions: Option<String>,
     languages: Option<String>,
@@ -219,7 +222,7 @@ struct GameFields {
 }
 
 /// A game's name by the template; empty fields drop the brackets around them.
-fn render(template: &str, g: &GameFields) -> String {
+pub(crate) fn render(template: &str, g: &GameFields) -> String {
     if template == DEFAULT_TEMPLATE {
         return g.name.clone();
     }
@@ -272,7 +275,7 @@ fn ext_of_name(name: &str) -> String {
 
 // ------------------------------------------------------------ files and drives
 
-fn key(p: &Path) -> String {
+pub(crate) fn key(p: &Path) -> String {
     let s = p.to_string_lossy().replace('\\', "/");
     if cfg!(windows) {
         s.to_lowercase()
@@ -282,7 +285,7 @@ fn key(p: &Path) -> String {
 }
 
 /// The nearest folder above `p` that exists (for free space and the drive it's on).
-fn existing(p: &Path) -> PathBuf {
+pub(crate) fn existing(p: &Path) -> PathBuf {
     let mut at = p.to_path_buf();
     while !at.exists() {
         match at.parent() {
@@ -311,7 +314,7 @@ pub fn same_drive(a: &Path, b: &Path) -> bool {
 }
 
 /// The drive a path is on, as the preview names it.
-fn drive_name(p: &Path) -> String {
+pub(crate) fn drive_name(p: &Path) -> String {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -336,7 +339,7 @@ fn is_cross_device(e: &io::Error) -> bool {
 }
 
 /// The folder with games a path is in, and its path there with `/`.
-fn in_root<'a>(roots: &'a [Root], p: &Path) -> Option<(&'a Root, String)> {
+pub(crate) fn in_root<'a>(roots: &'a [Root], p: &Path) -> Option<(&'a Root, String)> {
     let k = key(p);
     roots.iter().filter(|r| r.found()).find_map(|r| {
         let base = key(&r.dir);
@@ -349,7 +352,7 @@ fn in_root<'a>(roots: &'a [Root], p: &Path) -> Option<(&'a Root, String)> {
     })
 }
 
-fn root_path(roots: &[Root], root: &str, rel: &str) -> Option<PathBuf> {
+pub(crate) fn root_path(roots: &[Root], root: &str, rel: &str) -> Option<PathBuf> {
     roots.iter().find(|r| r.id == root).map(|r| rel.split('/').fold(r.dir.clone(), |p, part| p.join(part)))
 }
 
@@ -357,25 +360,34 @@ fn root_path(roots: &[Root], root: &str, rel: &str) -> Option<PathBuf> {
 
 /// A matched file that could stand for a ROM.
 #[derive(Clone, Debug)]
-struct Cand {
-    src: Src,
-    /// For a member: its archive's kind, name and how many members it has
-    archive: Option<(String, String, i64)>,
-    named: bool,
+pub(crate) struct Cand {
+    pub(crate) src: Src,
+    /// For a member: its archive's (or disc image's) kind, name and how many members it has
+    pub(crate) archive: Option<(String, String, i64)>,
+    pub(crate) named: bool,
+    /// How it matched (`cue`: a cue sheet matched by the files it names)
+    pub(crate) method: String,
 }
 
-struct RomRow {
-    name: String,
-    cands: Vec<Cand>,
+impl Cand {
+    /// A track (or the ISO) in a disc image, which is only ever placed whole.
+    pub(crate) fn in_image(&self) -> bool {
+        self.archive.as_ref().is_some_and(|a| crate::image::KINDS.contains(&a.0.as_str()))
+    }
 }
 
-struct GameRow {
-    fields: GameFields,
-    roms: Vec<RomRow>,
+pub(crate) struct RomRow {
+    pub(crate) name: String,
+    pub(crate) cands: Vec<Cand>,
+}
+
+pub(crate) struct GameRow {
+    pub(crate) fields: GameFields,
+    pub(crate) roms: Vec<RomRow>,
 }
 
 /// An id for a change, ordered by time to the millisecond (the newest sorts last).
-fn new_id() -> String {
+pub(crate) fn new_id() -> String {
     use std::sync::atomic::AtomicU64;
     static LAST: AtomicU64 = AtomicU64::new(0);
     let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
@@ -392,12 +404,12 @@ fn new_id() -> String {
 }
 
 /// The games of the DAT with their ROMs and every file found for each.
-fn load_games(conn: &Connection, roots: &[Root], dat_id: i64) -> Result<Vec<GameRow>> {
+pub(crate) fn load_games(conn: &Connection, roots: &[Root], dat_id: i64) -> Result<Vec<GameRow>> {
     let found: HashSet<&str> = roots.iter().filter(|r| r.found()).map(|r| r.id.as_str()).collect();
     let mut q = conn.prepare(
         "SELECT g.id, g.name, g.title, g.regions, g.languages, g.revision, r.id, r.name,
                 f.id, f.root_id, f.rel_path, f.name, f.size, b.crc32, b.sha1, f.missing_since,
-                p.id, p.root_id, p.rel_path, p.name, p.kind, (SELECT COUNT(*) FROM files x WHERE x.parent_id = p.id)
+                p.id, p.root_id, p.rel_path, p.name, p.kind, (SELECT COUNT(*) FROM files x WHERE x.parent_id = p.id), m.method
          FROM dat_games g JOIN dat_roms r ON r.game_id = g.id
          LEFT JOIN matches m ON m.rom_id = r.id
          LEFT JOIN files f ON f.id = m.file_id
@@ -431,6 +443,7 @@ fn load_games(conn: &Connection, roots: &[Root], dat_id: i64) -> Result<Vec<Game
         let (frel, fname, fsize): (String, String, i64) = (r.get(10)?, r.get(11)?, r.get(12)?);
         let (crc32, sha1): (Option<String>, Option<String>) = (r.get(13)?, r.get(14)?);
         let parent: Option<i64> = r.get(16)?;
+        let method: String = r.get(22)?;
         let rom_name = g.roms.last().unwrap().name.clone();
         let cand = match parent {
             None => Cand {
@@ -440,12 +453,16 @@ fn load_games(conn: &Connection, roots: &[Root], dat_id: i64) -> Result<Vec<Game
                 },
                 archive: None,
                 named: fname == rom_name,
+                method,
             },
             Some(pid) => {
                 let (proot, prel, pname, pkind, count): (String, String, String, String, i64) = (r.get(17)?, r.get(18)?, r.get(19)?, r.get(20)?, r.get(21)?);
                 let member = frel.strip_prefix(&format!("{prel}/")).unwrap_or(&fname).to_string();
+                // a disc image's tracks have no names of their own: the image is named for the game
+                let image = crate::image::KINDS.contains(&pkind.as_str());
                 Cand {
-                    named: member == rom_name && pname == format!("{}.{pkind}", g.fields.name),
+                    named: (member == rom_name || image) && pname == format!("{}.{pkind}", g.fields.name),
+                    method,
                     src: Src {
                         file_id: pid, path: root_path(roots, &proot, &prel).unwrap_or_default().display().to_string(), root: proot, rel: prel,
                         member: Some(member), size: fsize as u64, crc32: crc32.unwrap_or_default(), sha1,
@@ -472,6 +489,35 @@ fn pick<'a>(cands: &'a [Cand], format: &str, out: Option<&Path>) -> Option<&'a C
         let on_drive = out.is_none_or(|o| same_drive(Path::new(&c.src.path), o));
         (!c.named, !in_format, !on_drive, c.src.root.clone(), c.src.rel.clone(), c.src.member.clone())
     })
+}
+
+/// The files a game is organised from (one per ROM, or an archive or disc image used
+/// whole, whose id is returned too), the others being duplicates.
+pub(crate) fn choose<'a>(g: &'a GameRow, format: &str, out: Option<&Path>) -> (Vec<(&'a RomRow, &'a Cand)>, Option<i64>) {
+    let mut chosen: Vec<(&RomRow, &Cand)> = g.roms.iter().filter_map(|r| pick(&r.cands, format, out).map(|c| (r, c))).collect();
+    // a disc image holding the game's tracks is used whole, and its cue sheet isn't needed
+    if let Some(img) = chosen.iter().find(|(_, c)| c.in_image()).map(|(_, c)| c.src.file_id) {
+        let chosen = g.roms.iter()
+            .filter(|r| !cue::is_sheet(&r.name))
+            .filter_map(|r| r.cands.iter().find(|c| c.src.file_id == img && c.in_image()).map(|c| (r, c)))
+            .collect();
+        return (chosen, Some(img));
+    }
+    // one archive holding every ROM of the game is used whole, if there is one
+    let have = g.roms.iter().filter(|r| !r.cands.is_empty()).count();
+    let mut whole: Option<i64> = None;
+    let archives: HashSet<i64> = chosen.iter().filter(|(_, c)| c.archive.is_some()).map(|(_, c)| c.src.file_id).collect();
+    for a in g.roms.iter().flat_map(|r| r.cands.iter()).filter(|c| c.archive.is_some() && !c.in_image()).map(|c| c.src.file_id).collect::<HashSet<_>>() {
+        let all = g.roms.iter().filter(|r| !r.cands.is_empty()).all(|r| r.cands.iter().any(|c| c.src.file_id == a && c.archive.is_some()));
+        let count = g.roms.iter().flat_map(|r| r.cands.iter()).find(|c| c.src.file_id == a).and_then(|c| c.archive.as_ref()).map(|x| x.2).unwrap_or(0);
+        if all && count as usize == have && (whole.is_none() || archives.contains(&a)) {
+            whole = Some(a);
+        }
+    }
+    if let Some(a) = whole {
+        chosen = g.roms.iter().filter_map(|r| r.cands.iter().find(|c| c.src.file_id == a && c.archive.is_some()).map(|c| (r, c))).collect();
+    }
+    (chosen, whole)
 }
 
 struct Planner<'a> {
@@ -579,8 +625,15 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     }
     let naming = naming(lib, &d.platform);
     let format = if o.only_misnamed { "keep".to_string() } else { o.format.clone() };
+    if platforms::is_disc(&d.platform) && format != "keep" {
+        bail!("Disc games keep their format when they're organised: Convert changes it.");
+    }
     let mode = if o.only_misnamed { "rename".to_string() } else { o.mode.clone() };
-    let games = load_games(conn, &roots, o.dat_id)?;
+    let mut games = load_games(conn, &roots, o.dat_id)?;
+    if let Some(only) = &o.games {
+        let only: HashSet<&str> = only.iter().map(String::as_str).collect();
+        games.retain(|g| only.contains(g.fields.name.as_str()));
+    }
     let id = new_id();
     let label = match (o.only_misnamed, mode.as_str()) {
         (true, _) => format!("Renamed the misnamed {} files", platforms::name_of(&d.platform)),
@@ -604,7 +657,9 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         counts: games.iter().flat_map(|g| g.roms.iter()).flat_map(|r| r.cands.iter()).filter_map(|c| c.archive.as_ref().map(|a| (c.src.file_id, a.2))).collect(),
     };
     for g in &games {
-        let have = g.roms.iter().filter(|r| !r.cands.is_empty()).count();
+        // a game in a disc image has its cue sheet (the image needs none)
+        let in_image = g.roms.iter().any(|r| r.cands.iter().any(Cand::in_image));
+        let have = g.roms.iter().filter(|r| !r.cands.is_empty() || (in_image && cue::is_sheet(&r.name))).count();
         if have == 0 || (have < g.roms.len() && !o.partial) {
             continue;
         }
@@ -619,20 +674,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             }
             continue;
         }
-        let mut chosen: Vec<(&RomRow, &Cand)> = g.roms.iter().filter_map(|r| pick(&r.cands, &format, out.as_deref()).map(|c| (r, c))).collect();
-        // one archive holding every ROM of the game is used whole, if there is one
-        let mut whole: Option<i64> = None;
-        let archives: HashSet<i64> = chosen.iter().filter(|(_, c)| c.archive.is_some()).map(|(_, c)| c.src.file_id).collect();
-        for a in g.roms.iter().flat_map(|r| r.cands.iter()).filter(|c| c.archive.is_some()).map(|c| c.src.file_id).collect::<HashSet<_>>() {
-            let all = g.roms.iter().filter(|r| !r.cands.is_empty()).all(|r| r.cands.iter().any(|c| c.src.file_id == a && c.archive.is_some()));
-            let count = g.roms.iter().flat_map(|r| r.cands.iter()).find(|c| c.src.file_id == a).and_then(|c| c.archive.as_ref()).map(|x| x.2).unwrap_or(0);
-            if all && count as usize == have && (whole.is_none() || archives.contains(&a)) {
-                whole = Some(a);
-            }
-        }
-        if let Some(a) = whole {
-            chosen = g.roms.iter().filter_map(|r| r.cands.iter().find(|c| c.src.file_id == a && c.archive.is_some()).map(|c| (r, c))).collect();
-        }
+        let (chosen, whole) = choose(g, &format, out.as_deref());
         for r in &g.roms {
             for c in &r.cands {
                 if !chosen.iter().any(|(_, k)| std::ptr::eq(*k, c)) {
@@ -669,7 +711,8 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             "archive" => {
                 let c = first;
                 let (kind, _, _) = c.archive.clone().unwrap();
-                let names_right = chosen.iter().all(|(r, c)| c.src.member.as_deref() == Some(r.name.as_str()));
+                // (a disc image's tracks need no names)
+                let names_right = c.in_image() || chosen.iter().all(|(r, c)| c.src.member.as_deref() == Some(r.name.as_str()));
                 let dir = dest(naming.folder);
                 if names_right {
                     let to = p.claim(&dir, &format!("{base}.{kind}"));
@@ -713,6 +756,9 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             }
             _ => {
                 let folder = naming.folder || multi;
+                // a cue sheet that isn't the DAT's own names the tracks as they were: it's rewritten
+                let mut renames: Vec<String> = vec![];
+                let mut sheets: Vec<usize> = vec![];
                 for (r, c) in &chosen {
                     let (dir, name) = match &out {
                         None => (src_dir(c), if multi { r.name.clone() } else { format!("{base}{}", ext_of_name(&r.name)) }),
@@ -721,6 +767,21 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                     };
                     let rel = safe_rel(&name);
                     let to = p.claim(&dir.join(rel.parent().unwrap_or(Path::new(""))), &rel.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+                    if c.archive.is_none() && c.method == "cue" {
+                        let src = p.redirect(&c.src);
+                        let in_place = key(Path::new(&src.path)) == key(&to);
+                        let aside = if mode != "copy" && !in_place { vec![src.clone()] } else { vec![] };
+                        sheets.push(p.plan.ops.len());
+                        p.plan.ops.push(Op {
+                            op: "cue".into(), game: g.fields.name.clone(), to: to.display().to_string(), from: vec![src],
+                            names: vec![], aside, size: c.src.size, note: Some("Its FILE lines are rewritten for the tracks' new names.".into()),
+                        });
+                        continue;
+                    }
+                    if c.archive.is_none() && !cue::is_sheet(&r.name) {
+                        let old = Path::new(&c.src.path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        renames.extend([old, to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()]);
+                    }
                     if c.archive.is_some() {
                         p.plan.ops.push(Op {
                             op: "extract".into(), game: g.fields.name.clone(), to: to.display().to_string(), from: vec![p.redirect(&c.src)],
@@ -729,6 +790,9 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                     } else if let Some(op) = p.place(&g.fields.name, &c.src, to) {
                         p.plan.ops.push(op);
                     }
+                }
+                for i in sheets {
+                    p.plan.ops[i].names = renames.clone();
                 }
             }
         }
@@ -885,19 +949,13 @@ pub fn plan_duplicates(ix: &Index, lib: &Library, dat_id: i64) -> Result<Plan> {
     let mut kept: HashSet<(i64, Option<String>)> = HashSet::new();
     let mut extra: Vec<&Cand> = vec![];
     for g in &games {
-        for r in &g.roms {
-            if r.cands.len() < 2 {
-                if let Some(c) = r.cands.first() {
-                    kept.insert((c.src.file_id, c.src.member.clone()));
-                }
-                continue;
-            }
-            let keep = pick(&r.cands, "keep", None).unwrap();
-            kept.insert((keep.src.file_id, keep.src.member.clone()));
-            for c in &r.cands {
-                if !std::ptr::eq(c, keep) {
-                    extra.push(c);
-                }
+        let (chosen, _) = choose(g, "keep", None);
+        for (_, c) in &chosen {
+            kept.insert((c.src.file_id, c.src.member.clone()));
+        }
+        for c in g.roms.iter().flat_map(|r| r.cands.iter()) {
+            if !chosen.iter().any(|(_, k)| std::ptr::eq(*k, c)) {
+                extra.push(c);
             }
         }
     }
@@ -1173,7 +1231,7 @@ fn check_file(path: &Path, want: &Src, cancel: &AtomicBool) -> Result<Hashes> {
     Ok(h)
 }
 
-fn check_hashes(h: &Hashes, want: &Src) -> Result<()> {
+pub(crate) fn check_hashes(h: &Hashes, want: &Src) -> Result<()> {
     let ok = h.size == want.size
         && match &want.sha1 {
             Some(s) => h.sha1.as_deref() == Some(s.as_str()),
@@ -1196,7 +1254,7 @@ fn stage(op: &Op, at: &Path, cancel: &AtomicBool) -> Result<HashMap<(String, Str
     }
     let mut n = 0;
     for (archive_path, members) in wanted {
-        archive::each(Path::new(&archive_path), cancel, &mut |name, _, r| {
+        archive::each_wanted(Path::new(&archive_path), &|name| members.contains(name), cancel, &mut |name, _, r| {
             if members.contains(name) {
                 n += 1;
                 let p = at.join(format!("{n}"));
@@ -1235,7 +1293,7 @@ fn set_aside(lib: &Library, roots: &[Root], id: &str, src: &Src) -> Result<Strin
     Ok(to.display().to_string())
 }
 
-fn make_parent(p: &Path) -> Result<()> {
+pub(crate) fn make_parent(p: &Path) -> Result<()> {
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("couldn't make the folder {}", dir.display()))?;
     }
@@ -1284,7 +1342,17 @@ fn check_archive_copy(from: &Path, copy: &Path, want: &Src, cancel: &AtomicBool)
     if size != want.size {
         bail!("the copy of {} is {size} bytes, not {}", from.display(), want.size);
     }
-    let kind = archive::kind_of(&from.to_string_lossy()).unwrap_or("zip");
+    let kind = archive::container_of(&from.to_string_lossy()).unwrap_or("zip");
+    if crate::image::KINDS.contains(&kind) {
+        // a disc image: the same bytes
+        let hash = |p: &Path| -> Result<Option<String>> {
+            Ok(hash::hash_reader(&mut std::fs::File::open(p)?, size, "", cancel)?.sha1)
+        };
+        if hash(from)? != hash(copy)? {
+            bail!("the copy of {} isn't the same", from.display());
+        }
+        return Ok(());
+    }
     let orig = archive::read(from, kind, false, cancel)?;
     let back = archive::read(copy, kind, true, cancel).with_context(|| format!("the copy of {} doesn't read back", from.display()))?;
     let set = |l: &archive::Listing| -> Vec<(String, u64, String)> {
@@ -1298,10 +1366,12 @@ fn check_archive_copy(from: &Path, copy: &Path, want: &Src, cancel: &AtomicBool)
     Ok(())
 }
 
-/// Hashes of a member written out, for the index.
-struct Written {
-    members: Vec<(String, Hashes)>,
-    file: Option<Hashes>,
+/// What a step wrote, for the index: a file's hashes, or an archive's (or disc
+/// image's) kind and its members' hashes.
+pub(crate) struct Written {
+    pub(crate) members: Vec<(String, Hashes)>,
+    pub(crate) file: Option<Hashes>,
+    pub(crate) kind: &'static str,
 }
 
 /// Do one step. Returns what it wrote (for the index) and whether a move had to copy.
@@ -1350,7 +1420,7 @@ fn perform(op: &Op, cancel: &AtomicBool) -> Result<(Option<Written>, bool)> {
                     let p = path_of(src);
                     let h = check_file(&p, src, cancel)?;
                     std::fs::rename(&p, to).or_else(|_| std::fs::copy(&p, to).map(|_| ()))?;
-                    return Ok((Some(Written { members: vec![], file: Some(h) }), true));
+                    return Ok((Some(Written { members: vec![], file: Some(h), kind: "file" }), true));
                 }
                 let entries: Vec<torrentzip::Entry> = op
                     .from
@@ -1378,20 +1448,46 @@ fn perform(op: &Op, cancel: &AtomicBool) -> Result<(Option<Written>, bool)> {
                     bail!("{} is there already", to.display());
                 }
                 std::fs::rename(&tmp, to)?;
-                Ok((Some(Written { members: written, file: None }), true))
+                Ok((Some(Written { members: written, file: None, kind: "zip" }), true))
             })();
             let _ = std::fs::remove_dir_all(&staging);
             let _ = std::fs::remove_dir(to.parent().unwrap_or(Path::new(".")).join(STAGING));
             r
+        }
+        "cue" => {
+            make_parent(to)?;
+            let src = &op.from[0];
+            let h = write_sheet(Path::new(&src.path), to, &op.names, cancel)?;
+            Ok((Some(Written { members: vec![], file: Some(h), kind: "file" }), true))
+        }
+        "convert" | "sheet" => {
+            make_parent(to)?;
+            Ok((Some(crate::convert::perform(op, cancel)?), true))
         }
         "aside" => Ok((None, false)),
         other => bail!("unknown step {other}"),
     }
 }
 
+/// Write the cue sheet (or GDI) at `from` to `to` with the files it names renamed
+/// (`names`: old, new, old, new…), through a temporary file.
+fn write_sheet(from: &Path, to: &Path, names: &[String], cancel: &AtomicBool) -> Result<Hashes> {
+    let text = std::fs::read(from).with_context(|| format!("couldn't read {}", from.display()))?;
+    let renames: HashMap<String, String> = names.chunks_exact(2).map(|p| (p[0].clone(), p[1].clone())).collect();
+    let out = cue::rewrite(&String::from_utf8_lossy(&text), &renames, platforms::ext_of(&to.to_string_lossy()) == "gdi");
+    let tmp = to.with_file_name(format!("{}.gamerepo-tmp", to.file_name().unwrap_or_default().to_string_lossy()));
+    std::fs::write(&tmp, out.as_bytes())?;
+    if to.exists() {
+        let _ = std::fs::remove_file(&tmp);
+        bail!("{} is there already", to.display());
+    }
+    std::fs::rename(&tmp, to)?;
+    Ok(hash::hash_reader(&mut out.as_bytes(), out.len() as u64, &to.to_string_lossy(), cancel)?)
+}
+
 /// An archive as a whole file: its own hashes aren't known (only its members'), so a
 /// copy of it is checked by reading every member back.
-fn whole_archive(member: &Src) -> Src {
+pub(crate) fn whole_archive(member: &Src) -> Src {
     let mut s = member.clone();
     s.member = None;
     s.sha1 = None;
@@ -1443,7 +1539,7 @@ fn update_index(conn: &Connection, roots: &[Root], op: &Op, written: Option<&Wri
                 )?;
             }
         }
-        "zip" | "extract" => {
+        "zip" | "extract" | "cue" | "convert" | "sheet" => {
             if let (Some((root, rel)), Some(w)) = (&placed, written) {
                 let platform: Option<String> = conn
                     .query_row("SELECT platform FROM files WHERE id = ?1", [op.from[0].file_id], |r| r.get(0))
@@ -1459,8 +1555,8 @@ fn update_index(conn: &Connection, roots: &[Root], op: &Op, written: Option<&Wri
                 } else {
                     conn.execute(
                         "INSERT OR REPLACE INTO files (root_id, rel_path, name, kind, size, mtime, hashed, matched, platform)
-                         VALUES (?1, ?2, ?3, 'zip', ?4, ?5, 2, 1, ?6)",
-                        params![root.id, rel, name, size, mtime, platform],
+                         VALUES (?1, ?2, ?3, ?7, ?4, ?5, 2, 1, ?6)",
+                        params![root.id, rel, name, size, mtime, platform, w.kind],
                     )?;
                     let zid = conn.last_insert_rowid();
                     for (n, h) in &w.members {
@@ -1530,13 +1626,28 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
         if !op.game.is_empty() && failed_games.contains(&op.game) {
             continue;
         }
-        let result = perform(op, cancel).and_then(|(written, copied)| {
+        // a cue sheet rewritten under its own name is set aside first, and read from there
+        let mut early = vec![];
+        let mut step = op.clone();
+        if op.op == "cue" && key(Path::new(&op.from[0].path)) == key(Path::new(&op.to)) && Path::new(&op.to).exists() {
+            match set_aside(lib, &roots, &id, &op.from[0]) {
+                Ok(held) => {
+                    early.push(json!([op.from[0].path, held]));
+                    step.from[0].path = held;
+                }
+                Err(e) => {
+                    failed.push(json!({ "game": op.game, "to": op.to, "error": format!("{e:#}") }));
+                    continue;
+                }
+            }
+        }
+        let result = perform(&step, cancel).and_then(|(written, copied)| {
             // originals go only once what replaced them is checked
             let mut aside: Vec<Src> = op.aside.clone();
             if (op.op == "move" && copied) || op.op == "aside" {
                 aside.push(op.from[0].clone());
             }
-            let mut went = vec![];
+            let mut went = early.clone();
             for s in &aside {
                 if Path::new(&s.path).exists() {
                     went.push(json!([s.path, set_aside(lib, &roots, &id, s)?]));
@@ -1548,6 +1659,12 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
             let important = copied || !went.is_empty();
             journal.write(&json!({ "op": i, "copied": copied, "aside": went }), important)
         });
+        if result.is_err() {
+            // the sheet set aside early goes back
+            for pair in &early {
+                let _ = std::fs::rename(pair[1].as_str().unwrap_or(""), pair[0].as_str().unwrap_or(""));
+            }
+        }
         match result {
             Ok(()) => done += 1,
             Err(e) if cancel.load(Ordering::Relaxed) && format!("{e:#}").contains("stopped") => {
@@ -1754,7 +1871,7 @@ mod tests {
     }
 
     fn opts(dat: i64, mode: &str, format: &str) -> Options {
-        Options { dat_id: dat, mode: mode.into(), out: None, format: format.into(), partial: false, always_copy: false, only_misnamed: false }
+        Options { dat_id: dat, mode: mode.into(), out: None, format: format.into(), partial: false, always_copy: false, only_misnamed: false, games: None }
     }
 
     fn go(f: &Fixture, plan: &Plan) -> Value {
@@ -1812,6 +1929,81 @@ mod tests {
         let h = history(&f.lib, &[]).unwrap();
         assert_eq!(h[0]["state"], "undone");
         assert_eq!(h[0]["can_undo"], false);
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    /// The made-up CD as a renamed cue/bin set, and as a CHD named wrong, with a DAT for it.
+    fn disc_setup(name: &str) -> (Fixture, i64, PathBuf) {
+        let f = fixture(name);
+        let src = crate::image::tests::sources(&format!("{name}-src"));
+        let read = |n: &str| std::fs::read(src.join(n)).unwrap();
+        let (cue_bytes, t1, t2) = (read("Disc Game (USA).cue"), read("Disc Game (USA) (Track 1).bin"), read("Disc Game (USA) (Track 2).bin"));
+        let psx = f.dir.join("Roms/PSX");
+        crate::audit::tests::write(&psx.join("Mine/t1.bin"), &t1);
+        crate::audit::tests::write(&psx.join("Mine/t2.bin"), &t2);
+        crate::audit::tests::write(&psx.join("Mine/mine.cue"), b"FILE \"t1.bin\" BINARY\r\n  TRACK 01 MODE1/2352\r\n    INDEX 01 00:00:00\r\nFILE \"t2.bin\" BINARY\r\n  TRACK 02 AUDIO\r\n    INDEX 00 00:00:00\r\n    INDEX 01 00:00:10\r\n");
+        let x = crate::audit::tests::rom_xml;
+        let dat = crate::audit::tests::dat_xml("Sony - PlayStation", "2026", &[
+            ("Disc Game (USA)", None, x("Disc Game (USA).cue", &cue_bytes) + &x("Disc Game (USA) (Track 1).bin", &t1) + &x("Disc Game (USA) (Track 2).bin", &t2)),
+        ]);
+        crate::audit::tests::write(&f.dir.join("dats/psx.dat"), dat.as_bytes());
+        run_scan(&f, false);
+        let id = import(&f, "psx.dat")[0]["id"].as_i64().unwrap();
+        let _ = std::fs::remove_dir_all(&src);
+        (f, id, psx)
+    }
+
+    #[test]
+    fn a_renamed_disc_set_and_its_cue_sheet() {
+        let (f, dat, psx) = disc_setup("organise-disc");
+        let before = tree(&f.dir.join("Roms"));
+        assert!(plan(&f.ix, &f.lib, &opts(dat, "rename", "zip")).is_err(), "discs keep their format");
+        let p = plan(&f.ix, &f.lib, &opts(dat, "rename", "keep")).unwrap();
+        let mut ops: Vec<(&str, String)> = p.ops.iter().map(|o| (o.op.as_str(), Path::new(&o.to).file_name().unwrap().to_string_lossy().into_owned())).collect();
+        ops.sort();
+        assert_eq!(ops, [("cue", "Disc Game (USA).cue".into()), ("rename", "Disc Game (USA) (Track 1).bin".into()), ("rename", "Disc Game (USA) (Track 2).bin".into())]);
+        let r = go(&f, &p);
+        assert_eq!(r["done"], 3, "{r}");
+        // the sheet names the tracks' new names, and is now Redump's own (an exact match)
+        let made = std::fs::read_to_string(psx.join("Mine/Disc Game (USA).cue")).unwrap();
+        assert!(made.contains("FILE \"Disc Game (USA) (Track 2).bin\" BINARY\r\n"), "{made}");
+        assert!(!psx.join("Mine/mine.cue").exists());
+        assert_eq!(names(&f, dat, "misnamed"), Vec::<String>::new());
+        assert_eq!(names(&f, dat, "matched").len(), 3);
+        let method: String = f.ix.conn().query_row("SELECT m.method FROM matches m JOIN files x ON x.id = m.file_id WHERE x.name = 'Disc Game (USA).cue'", [], |r| r.get(0)).unwrap();
+        assert!(method.starts_with("sha1"), "{method}");
+        // the same in place: a sheet named right whose FILE lines aren't
+        back(&f, &p.id);
+        assert_eq!(tree(&f.dir.join("Roms")), before);
+        std::fs::rename(psx.join("Mine/mine.cue"), psx.join("Mine/Disc Game (USA).cue")).unwrap();
+        run_scan(&f, false);
+        let p = plan(&f.ix, &f.lib, &opts(dat, "rename", "keep")).unwrap();
+        assert_eq!(p.ops.iter().filter(|o| o.op == "cue").count(), 1);
+        let r = go(&f, &p);
+        assert_eq!(r["done"], 3, "{r}");
+        assert!(std::fs::read_to_string(psx.join("Mine/Disc Game (USA).cue")).unwrap().contains("Disc Game (USA) (Track 1).bin"));
+        let u = back(&f, &p.id);
+        assert_eq!(u["undone"], 3, "{u}");
+        assert!(std::fs::read_to_string(psx.join("Mine/Disc Game (USA).cue")).unwrap().contains("\"t1.bin\""));
+        // as a CHD named wrong: renamed whole, with no cue (the CHD needs none)
+        std::fs::remove_dir_all(psx.join("Mine")).unwrap();
+        std::fs::copy(crate::image::tests::fixtures().join("Disc Game (USA).chd"), psx.join("disc.chd")).unwrap();
+        run_scan(&f, false);
+        assert_eq!(names(&f, dat, "misnamed"), ["Track 01.bin", "Track 02.bin"]);
+        let p = plan(&f.ix, &f.lib, &opts(dat, "rename", "keep")).unwrap();
+        assert_eq!(p.ops.len(), 1, "{:#?}", p.ops);
+        assert_eq!((p.ops[0].op.as_str(), Path::new(&p.ops[0].to).file_name().unwrap().to_str()), ("rename", Some("Disc Game (USA).chd")));
+        go(&f, &p);
+        assert_eq!(names(&f, dat, "matched"), ["Track 01.bin", "Track 02.bin"]);
+        let s = audit::summary(f.ix.conn(), dat).unwrap();
+        assert_eq!(s["have"], 1, "{s}");
+        // and copied into a sorted folder
+        let mut o = opts(dat, "copy", "keep");
+        o.out = Some(f.dir.join("Sorted"));
+        o.always_copy = true;
+        let p = plan(&f.ix, &f.lib, &o).unwrap();
+        go(&f, &p);
+        assert!(f.dir.join("Sorted/Disc Game (USA).chd").is_file());
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 
@@ -1954,7 +2146,7 @@ mod tests {
         let r = crate::dat::import(&ix, &lib, &dir.join("big.dat"), &serde_json::Map::new()).unwrap();
         let crate::dat::Imported::Loaded(v) = &r[0] else { panic!() };
         let dat_id = v["id"].as_i64().unwrap();
-        let o = Options { dat_id, mode: "rename".into(), out: None, format: "keep".into(), partial: false, always_copy: false, only_misnamed: false };
+        let o = Options { dat_id, mode: "rename".into(), out: None, format: "keep".into(), partial: false, always_copy: false, only_misnamed: false, games: None };
         let t = std::time::Instant::now();
         let mut plan = plan(&ix, &lib, &o).unwrap();
         let planned = t.elapsed();
