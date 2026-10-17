@@ -17,8 +17,11 @@ export const TREE = `_library/                       the app's own files
   games/<platform>/<SHA1>/      what Identify found for a file no DAT knows
   games/pc/<id>/media/          a PC game's artwork
     game.json                   its id, DAT match, ROM hashes and details
-    media/                      scraped covers, screenshots, videos, manuals
-    docs/                       your guides, manuals, posters and maps
+    media/                      scraped pictures and video: cover.png, screenshot.jpg…
+    docs/                       its guides, manuals, maps and scans (docs.json: their
+                                kinds and titles), scraped manuals among them
+  docs/<platform>/  docs/General/
+                                documents that go with no one game
   dats/<platform>/              the DAT files you imported, every version
   fixdats/  reports/            what's missing as DATs, and saved audit reports
   made-dats/                    DATs you made from your own sets
@@ -39,12 +42,13 @@ const DONE = [
   ["Phase 2b", "Disc systems audited against Redump's DATs, CHD, CSO, ZSO and RVZ read as the games they hold, and converting to and from them"],
   ["Phase 3", "Collections from rules with one game per title, saved as DATs and exported to ES-DE or a folder and kept in step, and systems of your own"],
   ["Phase 4", "PC games and installers imported into one layout, identified from Steam, GOG and LaunchBox, unpacked and added to Steam; Add a game… for any system"],
+  ["Phase 5", "Details, pictures, video and manuals scraped from ScreenScraper, IGDB, TheGamesDB and LaunchBox for a system's games or its whole DAT; your documents imported, paired with their games and searched by their words; exports that carry what you choose"],
 ];
-const NEXT = [
-  ["Phase 5", "Details, pictures, videos and manuals from ScreenScraper, IGDB and TheGamesDB, and your own documents for each game"],
+export const NEXT = [
+  ["Phase 5b", "Profiles for your handhelds' SD cards: muOS, Knulli, ROCKNIX, and ES-DE on Android or Linux"],
   ["Phase 6", "The library page: covers, search and filters"],
   ["Phase 7", "Arcade sets (MAME and FBNeo)"],
-  ["Phase 8", "More frontends (RetroArch, Pegasus, Playnite, LaunchBox) and more metadata sources"],
+  ["Phase 8", "More frontends (RetroArch, Pegasus, Playnite, LaunchBox), MobyGames, and a collection of magazines"],
   ["Phase 9", "Serving games to your other devices: Android, Linux and handhelds on your home network"],
 ];
 

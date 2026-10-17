@@ -18,8 +18,11 @@ crc32fast = "1"
 flate2 = { version = "1", default-features = false, features = ["zlib"] }
 fs4 = "1"
 hex = "0.4"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
+lopdf = { version = "0.38", default-features = false }
 lz4_flex = "0.14"
 md-5 = "0.10"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 notify = { version = "8", default-features = false }
 quick-xml = "0.42"
 rusqlite = { version = "0.40", features = ["bundled"] }

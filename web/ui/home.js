@@ -9,7 +9,7 @@ import { ctx, routeHash } from "./context.js";
 import { isDesktop, openLibrary, showLibraryFolder, checkIndex, size, plural } from "./library.js";
 import { refreshGames, scan, importDats, starterDats, repointRoot, addRoot } from "./games.js";
 import { CommandBar } from "./layout.js";
-import { COMING } from "./coming.js";
+import { NEXT } from "./about.js";
 import { Icon } from "./icons.js";
 
 /** The Library ⋯ menu: what's done to the whole library. */
@@ -83,8 +83,8 @@ function AttentionCard({ home }) {
 function Coming() {
   return html`<section class="home-card" id="home-coming">
     <h2>Coming next</h2>
-    <p>Game Repo is being built in phases; the pages in the menu say what each phase brings.</p>
-    <ul class="ls-list">${Object.entries(COMING).map(([route, p]) => html`<li key=${route}><span class="home-cat">${Icon[p.icon](15)}<a href=${routeHash(route)}>${p.title}</a></span><span class="muted">Phase ${p.phase}</span></li>`)}</ul>
+    <p>Game Repo is being built in phases; <a href=${routeHash("about")}>About</a> has the whole plan.</p>
+    <ul class="ls-list">${NEXT.slice(0, 3).map(([phase, what]) => html`<li key=${phase}><span>${what}</span><span class="muted">${phase}</span></li>`)}</ul>
   </section>`;
 }
 

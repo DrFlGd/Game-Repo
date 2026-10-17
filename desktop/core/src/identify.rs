@@ -18,7 +18,19 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// The sources, in their default order: id, name, the systems they know (None: all).
-pub const SOURCES: &[(&str, &str, bool)] = &[("steam", "Steam", true), ("gog", "GOG", true), ("launchbox", "LaunchBox Games DB", false)];
+pub const SOURCES: &[(&str, &str, bool)] = &[
+    ("steam", "Steam", true),
+    ("gog", "GOG", true),
+    ("screenscraper", "ScreenScraper", false),
+    ("igdb", "IGDB", false),
+    ("thegamesdb", "TheGamesDB", false),
+    ("launchbox", "LaunchBox Games DB", false),
+];
+
+/// A source's name, as the page shows it.
+pub fn source_name(id: &str) -> &'static str {
+    SOURCES.iter().find(|s| s.0 == id).map(|s| s.1).unwrap_or("")
+}
 
 /// The default addresses (config.json `source_urls` overrides each).
 pub const URLS: &[(&str, &str)] = &[
@@ -27,6 +39,11 @@ pub const URLS: &[(&str, &str)] = &[
     ("steam_cdn", "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps"),
     ("gog_catalog", "https://catalog.gog.com"),
     ("gog_api", "https://api.gog.com"),
+    ("screenscraper", "https://api.screenscraper.fr/api2"),
+    ("igdb", "https://api.igdb.com/v4"),
+    ("igdb_images", "https://images.igdb.com/igdb/image/upload"),
+    ("twitch", "https://id.twitch.tv"),
+    ("thegamesdb", "https://api.thegamesdb.net/v1"),
     ("launchbox_zip", launchbox::ZIP_URL),
     ("launchbox_images", launchbox::IMAGES),
 ];
@@ -48,7 +65,7 @@ pub fn sources(cfg: &AppConfig, data_dir: &Path) -> Value {
         .into_iter()
         .map(|(id, on)| {
             let (_, name, pc) = SOURCES.iter().find(|(x, _, _)| *x == id).copied().unwrap_or(("", "", false));
-            let mut v = json!({ "id": id, "name": name, "on": on, "pc_only": pc, "needs": Value::Null });
+            let mut v = json!({ "id": id, "name": name, "on": on, "pc_only": pc, "needs": crate::scrapers::needs(cfg, &id), "keys": crate::scrapers::keys_json(cfg, &id) });
             if id == "launchbox" {
                 v["database"] = launchbox::status(data_dir);
             }
@@ -336,10 +353,15 @@ pub fn search(cfg: &AppConfig, data_dir: &Path, query: &str, platform: &str, yea
             needs.push(json!({ "source": id, "name": name, "text": "Get its database in Settings › Sources to search it." }));
             continue;
         }
+        if let Some(n) = crate::scrapers::needs(cfg, &id) {
+            needs.push(json!({ "source": id, "name": name, "text": n }));
+            continue;
+        }
         let r = match id.as_str() {
             "steam" => steam_search(cfg, query),
             "gog" => gog_search(cfg, query),
             "launchbox" => launchbox_search(data_dir, query, Some(platform).filter(|p| !p.is_empty())),
+            "screenscraper" | "igdb" | "thegamesdb" => crate::scrapers::search(cfg, data_dir, &id, query, platform),
             _ => continue,
         };
         match r {
@@ -363,6 +385,7 @@ pub fn details(cfg: &AppConfig, data_dir: &Path, source: &str, id: &str) -> Resu
         "steam" => steam_details(cfg, id),
         "gog" => gog_details(cfg, id),
         "launchbox" => launchbox_details(cfg, data_dir, id),
+        "screenscraper" | "igdb" | "thegamesdb" => crate::scrapers::details(cfg, data_dir, source, id, &["us".into(), "wor".into(), "eu".into(), "jp".into()]),
         other => bail!("There's no source {other}."),
     }
 }

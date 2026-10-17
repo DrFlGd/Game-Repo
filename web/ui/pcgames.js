@@ -587,7 +587,55 @@ export function PcSettings({ lib }) {
   </section>`;
 }
 
-/** Settings › Sources: the order Identify asks them in, which are on, and LaunchBox's data. */
+/** A source's account or key: the fields it needs (secrets only said to be set), saved on
+ *  this computer, and Check, which asks the source with them. */
+function SourceKeys({ x, onSaved }) {
+  const [typed, setTyped] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState(null);
+  const save = async (clear = false) => {
+    setBusy(true);
+    setSaid(null);
+    try {
+      onSaved(await api("sources_keys_set", { source: x.id, keys: typed, clear }));
+      setTyped({});
+      if (!clear) {
+        const r = await api("sources_check", { source: x.id }).then((t) => ({ ok: true, text: t }), (e) => ({ ok: false, text: err(e) }));
+        setSaid(r);
+      }
+    } catch (e) {
+      setSaid({ ok: false, text: err(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const check = async () => {
+    setBusy(true);
+    setSaid(await api("sources_check", { source: x.id }).then((t) => ({ ok: true, text: t }), (e) => ({ ok: false, text: err(e) })));
+    setBusy(false);
+  };
+  const anySet = x.keys.some((k) => k.set);
+  return html`<form class="source-keys" data-source=${x.id} onSubmit=${(e) => { e.preventDefault(); save(); }}>
+    ${x.keys.map((k) => html`<label class="field-inline" key=${k.field}><span>${k.label}</span>
+      <input type=${k.secret ? "password" : "text"} class="compact" name=${k.field} autocomplete="off" aria-label=${`${x.name}: ${k.label}`}
+        placeholder=${k.set ? (k.secret ? "Set (type to change)" : k.value) : "Not set"} value=${typed[k.field] ?? ""} onInput=${(e) => setTyped({ ...typed, [k.field]: e.target.value })} /></label>`)}
+    <span class="pick-row">
+      <button type="submit" class="ghost compact" data-action="save-keys" disabled=${busy || !Object.values(typed).some((v) => v.trim())}>Save</button>
+      <button type="button" class="ghost compact" data-action="check" disabled=${busy || !anySet} onClick=${check}>Check</button>
+      ${anySet ? html`<button type="button" class="linkish" data-action="clear-keys" disabled=${busy} onClick=${() => save(true)}>Forget them</button>` : null}
+    </span>
+    ${said ? html`<span class=${said.ok ? "muted source-said" : "warn-note source-said"} role="status">${said.text}</span>` : null}
+  </form>`;
+}
+
+const SIGN_UP = {
+  screenscraper: html`Your ScreenScraper account (free, at <a href="https://www.screenscraper.fr" target="_blank" rel="noreferrer">screenscraper.fr</a>), and a developer id and password for the app, which ScreenScraper gives on request (its forum); it's asked by the ROMs' hashes, so it knows games by their files.`,
+  igdb: html`A Twitch developer application's client id and secret (free, at <a href="https://dev.twitch.tv/console/apps" target="_blank" rel="noreferrer">dev.twitch.tv</a>); IGDB is asked by title.`,
+  thegamesdb: html`An API key (free, asked for on <a href="https://forums.thegamesdb.net" target="_blank" rel="noreferrer">TheGamesDB's forum</a>); it's asked by title.`,
+};
+
+/** Settings › Sources: the order Identify and Scrape ask them in, which are on, their
+ *  accounts and keys, and LaunchBox's data. */
 export function SourcesSettings() {
   const [list, setList] = useState(null);
   const [error, setError] = useState("");
@@ -624,11 +672,12 @@ export function SourcesSettings() {
   };
   return html`<section class="ls-section" id="settings-sources">
     <h2>Sources</h2>
-    <p class="muted">Identify asks these, in this order, about a game nothing recognised. None needs an account. More (ScreenScraper, IGDB, TheGamesDB) come in Phase 5.</p>
+    <p class="muted">Identify asks these, in this order, about a game nothing recognised; a scrape (the Metadata page) asks the ones that aren't for PC games alone. Accounts and keys are kept on this computer, never in the library, and none is built in.</p>
     ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
     ${list ? html`<ul class="ls-list change-list" id="sources">${list.map((x, i) => html`<li key=${x.id} data-source=${x.id} data-on=${x.on ? "yes" : "no"}>
       <label class="check-row"><input type="checkbox" data-action="on" checked=${x.on} onChange=${(e) => save(list.map((o) => (o.id === x.id ? { ...o, on: e.target.checked } : o)))} /></label>
       <span class="change-label"><span><b>${x.name}</b> <span class="muted">${x.pc_only ? "PC games" : "every system"}</span></span>
+        ${x.keys ? html`<span class="muted source-help">${SIGN_UP[x.id] || null}</span><${SourceKeys} x=${x} onSaved=${setList} />` : null}
         ${x.id === "launchbox" ? html`<span class="muted" id="launchbox-status">${x.database?.have ? `Its database is on this computer: ${(x.database.games || 0).toLocaleString()} games, from ${(x.database.fetched || "").slice(0, 10)}.` : "Its database (about 100 MB) is searched on this computer, so get it first."}</span>` : null}</span>
       ${x.id === "launchbox" ? html`<button type="button" class="ghost compact" id="launchbox-get" disabled=${busy} onClick=${getLaunchBox}>${x.database?.have ? "Get it again" : "Get LaunchBox's database"}</button>` : null}
       <button type="button" class="ghost compact" data-action="up" aria-label=${`Ask ${x.name} sooner`} disabled=${i === 0} onClick=${() => move(i, -1)}>↑</button>

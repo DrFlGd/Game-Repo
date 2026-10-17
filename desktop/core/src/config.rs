@@ -43,6 +43,10 @@ pub struct AppConfig {
     /// A source's address, when not its own (crate::identify::URLS)
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub source_urls: std::collections::BTreeMap<String, String>,
+    /// The accounts and keys of the sources that need them (Settings › Sources; D33):
+    /// source → { field → value }. Kept on this computer, never in the library.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub source_keys: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
     /// The PC games inbox (Import… reads it; Downloads when not set)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pc_inbox: Option<PathBuf>,

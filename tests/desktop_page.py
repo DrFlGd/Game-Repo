@@ -21,6 +21,9 @@ in place, Extract to cue/bin into a folder, Undo of both, Preferred formats, and
 Settings › Tools with a stand-in for dolphin-tool; (Phase 3) collections, their
 properties, DATs and exports; (Phase 4) PC games imported from an inbox and identified
 from stand-ins for Steam and GOG, unpacked, added to a stand-in Steam, and Add a game…;
+(Phase 5) a source's key, a scrape from a stand-in for TheGamesDB, a game's panel,
+documents imported from a folder with a pairing changed, searched and read, and an
+export carrying pictures and documents;
 renaming the library, with Undo; opening a folder that already holds games
 leaves them as they were, and switching back from the recent list; the theme
 and skin follow the settings and are kept; a library from a newer app opens
@@ -99,6 +102,10 @@ def png(w, h, rgb):
 COVER, WIDE = png(60, 90, (40, 90, 160)), png(184, 69, (200, 140, 40))
 
 
+TGDB = [{"id": 501, "game_title": "Alpha", "release_date": "1990-04-21", "overview": "Alpha's overview, from the stand-in.", "players": 2, "developers": [7], "genres": [1]},
+        {"id": 502, "game_title": "Beta", "release_date": "1991-06-01", "overview": "Beta's overview.", "players": 1, "developers": [7], "genres": [1]}]
+
+
 def sources_stand_in():
     """Local stand-ins for Steam's store and GOG's catalogue (Identify's sources), with artwork."""
     steam_games = [{"type": "app", "name": "Alpha Strike", "id": 4000}, {"type": "app", "name": "Zeta Quest", "id": 4001}]
@@ -108,6 +115,15 @@ def sources_stand_in():
             "short_description": "A game the test made up.", "release_date": {"date": "Mar 3, 2001" if q["appids"] == "4000" else "Feb 24, 1999"}}}},
         "/v1/catalog": lambda q: {"products": [{"id": "1207658930", "slug": "zeta_quest", "title": "Zeta Quest", "releaseDate": "1999.02.24", "coverVertical": f"{base}/img/zeta.jpg"}]
             if "zeta" in q.get("query", "").lower() else []},
+        # TheGamesDB (Phase 5's scrape): Alpha and Beta are known, by name for Game Boy
+        "/tgdb/Games/ByGameName": lambda q: {"data": {"games": [g for g in TGDB if g["game_title"].lower() == q.get("name", "").lower() and q.get("filter[platform]") == "4"]},
+            "include": {"boxart": {"base_url": {"large": f"{base}/tgdb-img/"}, "data": {str(g["id"]): [{"type": "boxart", "side": "front", "filename": f"front/{g['id']}.png"}] for g in TGDB}}}},
+        "/tgdb/Games/ByGameID": lambda q: {"data": {"games": [g for g in TGDB if str(g["id"]) == q.get("id")]}},
+        "/tgdb/Games/Images": lambda q: {"data": {"base_url": {"large": f"{base}/tgdb-img/"}, "images": {q["games_id"]: [{"type": "boxart", "side": "front", "filename": f"front/{q['games_id']}.png"},
+            {"type": "screenshot", "filename": f"shot/{q['games_id']}.png"}]}}},
+        "/tgdb/Genres": lambda q: {"data": {"genres": {"1": {"id": 1, "name": "Action"}}}},
+        "/tgdb/Developers": lambda q: {"data": {"developers": {"7": {"id": 7, "name": "Stand-in Soft"}}}},
+        "/tgdb/Publishers": lambda q: {"data": {"publishers": {}}},
         "/products/1207658930": lambda q: {"id": 1207658930, "title": "Zeta Quest", "slug": "zeta_quest", "release_date": "1999-02-24T00:00:00+0200",
             "images": {"background": f"{base}/img/zeta-bg.jpg", "logo": f"{base}/img/zeta-logo.png"}, "description": {"lead": "<p>Quest <b>on</b>.</p>"}},
     }
@@ -139,7 +155,7 @@ def sources_stand_in():
     base = f"http://127.0.0.1:{srv.server_port}"
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return {"steam_store": base, "steam_api": base, "steam_cdn": f"{base}/cdn", "gog_catalog": base, "gog_api": base,
-            "launchbox_zip": f"{base}/Metadata.zip", "launchbox_images": f"{base}/lb"}
+            "launchbox_zip": f"{base}/Metadata.zip", "launchbox_images": f"{base}/lb", "thegamesdb": f"{base}/tgdb"}
 
 
 def start_server():
@@ -204,7 +220,7 @@ async def main():
             made = (library / "_library/library.json").is_file() and sorted(x.name for x in library.iterdir()) == ["_library"]
             status = await pg.inner_text(".statusbar")
             check("the first start asks where the library goes and makes only _library/ there",
-                  "Where" in asked and coming_off == 1 and made and str(library) in status, (asked, made, status))
+                  "Where" in asked and coming_off == 0 and made and str(library) in status, (asked, made, status))
 
             # 2. the index: made on this computer, under the data folder, not in the library
             await pg.wait_for_selector("#home-index #index-tables")
@@ -224,7 +240,7 @@ async def main():
             active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
             lead = await pg.inner_text("#audit-empty")
             check("the menu's places open, with the pages still to come saying what they'll do",
-                  labels == ["Game Repo", "Home", "Audit", "Collections", "PC games", "Metadata", "Settings", "About", "Theme: System"]
+                  labels == ["Game Repo", "Home", "Audit", "Collections", "PC games", "Metadata", "Documents", "Settings", "About", "Theme: System"]
                   and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
             await pg.screenshot(path=str(out / "01-coming.png"))
 
@@ -265,7 +281,7 @@ async def main():
             kept = rom.read_bytes() == b"\x00rom data\xff"
             top = sorted(x.name for x in other.iterdir())
             check("opening a folder of games adds only the app's folder", kept and top == ["Nintendo - SNES", "_library"], top)
-            await pg.wait_for_function("() => document.querySelector('#index-path')?.textContent.includes('.sqlite')")
+            await pg.wait_for_function("(p) => { const t = document.querySelector('#index-path')?.textContent; return t && t.includes('.sqlite') && t !== p; }", arg=index_path)
             other_index = await pg.inner_text("#index-path")
             await pg.click("#recent-libraries button")
             await pg.wait_for_function("() => document.querySelector('#library-path')?.textContent.endsWith('My Games')")
@@ -757,7 +773,7 @@ async def main():
             await pg.click("#steam-choose")
             await pg.wait_for_function("(p) => document.querySelector('#steam-path')?.textContent === p", arg=str(steam))
             check("Settings keeps the PC games inbox and Steam's folder, and lists Identify's sources",
-                  await pg.locator("#sources li").count() == 3 and str(library / "PC") in await pg.inner_text("#pc-folder-path"), await pg.inner_text("#settings-sources"))
+                  await pg.eval_on_selector_all("#sources > li", "els => els.map(e => e.dataset.source)") == ["steam", "gog", "screenscraper", "igdb", "thegamesdb", "launchbox"] and str(library / "PC") in await pg.inner_text("#pc-folder-path"), await pg.inner_text("#settings-sources"))
             await pg.click("#nav-pc")
             await pg.click("#pc-first")
             await pg.wait_for_selector("#pc-items li", timeout=30000)
@@ -839,6 +855,122 @@ async def main():
                   "Alpha (Europe)" in row and (fx / "Roms/alpha-eu.gb").is_file() and (downloads / "alpha-eu.gb").is_file(), row)
             await pg.screenshot(path=str(out / "27-add-game.png"))
             await pg.click("#add-results-dialog button[type=submit]")
+
+            # Phase 5: a source's key (Settings › Sources, kept on this computer), a scrape of a
+            # system's games by title (TheGamesDB's stand-in), a game's panel, documents imported
+            # from a folder with their pairings changed, searched by their words and read, and an
+            # export that carries the pictures and documents
+            await pg.click('.sidebar a[href="#/settings"]')
+            await pg.wait_for_selector('#sources li[data-source="thegamesdb"] .source-keys')
+            await pg.fill('#sources li[data-source="thegamesdb"] input[name="apikey"]', "test-key-123")
+            await pg.click('#sources li[data-source="thegamesdb"] [data-action="save-keys"]')
+            await pg.wait_for_selector('#sources li[data-source="thegamesdb"] .source-said')
+            said = await pg.inner_text('#sources li[data-source="thegamesdb"] .source-said')
+            shown = await pg.get_attribute('#sources li[data-source="thegamesdb"] input[name="apikey"]', "placeholder")
+            cfg = json.loads((home / "config/config.json").read_text())
+            in_library = "test-key-123" in (library / "_library/library.json").read_text()
+            check("Settings › Sources keeps a source's key on this computer (never shown again, never in the library) and Check asks the source",
+                  cfg.get("source_keys", {}).get("thegamesdb", {}).get("apikey") == "test-key-123" and "answered" in said and "test-key" not in (shown or "") and not in_library,
+                  (said, shown, cfg.get("source_keys")))
+            await pg.screenshot(path=str(out / "30-sources.png"))
+            await pg.click('.sidebar a[href="#/metadata"]')
+            await pg.wait_for_selector("#meta-page #meta-platform")
+            await pg.select_option("#meta-platform", "gb")
+            await pg.wait_for_selector('#meta-list .pc-row[data-name="Alpha (USA)"]')
+            counts = await pg.inner_text("#meta-counts")
+            await pg.click("#meta-scrape")
+            await pg.wait_for_selector("#scrape-dialog #scrape-sources")
+            off = await pg.eval_on_selector_all("#scrape-sources li", "els => els.filter(e => e.querySelector('input').disabled).map(e => e.dataset.source)")
+            await pg.screenshot(path=str(out / "31-scrape.png"))
+            await pg.click("#scrape-dialog button[type=submit]")
+            said = await toast_text(pg, "Scraped", timeout=60000)
+            alpha = library / "_library/games/gb/Alpha (USA)"
+            alpha_json = json.loads((alpha / "game.json").read_text()) if (alpha / "game.json").is_file() else {}
+            alpha_media = sorted(x.name for x in (alpha / "media").iterdir()) if (alpha / "media").is_dir() else []
+            check("Scrape… asks the ready sources for a system's games, by title, and keeps the details and pictures in each game's folder",
+                  "found" in said and sorted(off) == ["igdb", "launchbox", "screenscraper"] and alpha_json.get("details", {}).get("developer") == "Stand-in Soft"
+                  and alpha_json.get("ids", {}).get("thegamesdb") == "501" and "cover.png" in alpha_media and "screenshot.png" in alpha_media,
+                  (counts, said, off, alpha_json.get("details"), alpha_media))
+            row = '#meta-list .pc-row[data-name="Epsilon (USA)"]'
+            await pg.wait_for_function("(r) => document.querySelector(r)?.textContent.includes('nothing yet')", arg=row, timeout=10000)
+            epsilon = await pg.inner_text(row)
+            check("a game sharing a ROM with another (Epsilon's second track is Beta) isn't taken for it", "Beta" not in epsilon and "Epsilon (USA)" in epsilon, epsilon)
+            await pg.click('#meta-list .pc-row[data-name="Alpha (USA)"]')
+            await pg.wait_for_selector("#meta-panel #meta-description")
+            panel = await pg.inner_text("#meta-panel")
+            pics = await pg.eval_on_selector_all("#meta-media figure", "els => els.map(e => e.dataset.kind)")
+            check("a game's panel shows its details, where they came from, and its pictures",
+                  "Alpha's overview" in panel and "Stand-in Soft" in panel and "1990" in panel and sorted(pics) == ["cover", "screenshot"], (panel[:300], pics))
+            await pg.screenshot(path=str(out / "32-metadata.png"))
+
+            guides = home / "Guides" / "Game Boy"
+            guides.mkdir(parents=True)
+            (guides / "Alpha Manual.txt").write_text("How to play Alpha. Press the zebrafish button to jump.")
+            (guides / "beta_strategy_guide.md").write_text("# Beta strategy\n\nAlways go **left** at the second fork.")
+            (guides / "Unrelated Thing.txt").write_text("Delta's secret level is behind the waterfall.")
+            pick(guides)
+            await pg.click("#meta-menu")
+            await pg.click('#context-menu [data-action="meta-import-docs"]')
+            await pg.wait_for_selector("#doc-items li", timeout=30000)
+            pairings = await pg.eval_on_selector_all("#doc-items li", "els => Object.fromEntries(els.map(e => [e.dataset.name, e.dataset.pairing]))")
+            row = '#doc-items li[data-name="Unrelated Thing.txt"]'
+            await pg.click(f'{row} [data-action="change-game"]')
+            await pg.fill(f"{row} .game-pick-search", "delta")
+            await pg.wait_for_selector(f'{row} .game-pick-list [data-action="pick-game"]')
+            await pg.click(f'{row} .game-pick-list [data-action="pick-game"]')
+            await pg.wait_for_selector(f'{row}[data-pairing="you"]')
+            await pg.select_option(f"{row} .doc-item-kind", "guide")
+            await pg.screenshot(path=str(out / "33-docs-import.png"))
+            await pg.click("#docs-import-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-totals")
+            await pg.click("#docs-import-dialog button[type=submit]")
+            said = await toast_text(pg, "Brought in 3 documents")
+            alpha_docs = json.loads((alpha / "docs/docs.json").read_text()) if (alpha / "docs/docs.json").is_file() else {}
+            delta_docs = sorted(x.name for x in (library / "_library/games/gb/Delta (World)/docs").iterdir()) if (library / "_library/games/gb/Delta (World)/docs").is_dir() else []
+            check("Import documents… pairs each file with its game by name, a pairing is changed by hand, and they're brought into the games' folders (the originals stay)",
+                  pairings.get("Alpha Manual.txt") == "sure" and pairings.get("beta_strategy_guide.md") in ("sure", "likely") and pairings.get("Unrelated Thing.txt") == "none"
+                  and alpha_docs.get("files", {}).get("Alpha Manual.txt", {}).get("kind") == "manual" and "Unrelated Thing.txt" in delta_docs and (guides / "Alpha Manual.txt").is_file(),
+                  (pairings, said, alpha_docs, delta_docs))
+            await pg.click('.sidebar a[href="#/documents"]')
+            await pg.wait_for_selector("#docs-page #docs-list .pc-row")
+            listed = await pg.eval_on_selector_all("#docs-list .pc-row", "els => els.length")
+            await pg.fill("#docs-search", "zebrafish")
+            await pg.wait_for_function("() => document.querySelectorAll('#docs-list .pc-row').length === 1 && document.querySelector('#docs-list mark')")
+            hit = await pg.inner_text("#docs-list .pc-row")
+            await pg.click("#docs-list .pc-row")
+            await pg.wait_for_selector("#doc-view #doc-text")
+            text = await pg.inner_text("#doc-view #doc-text")
+            await pg.screenshot(path=str(out / "34-documents.png"))
+            await pg.fill("#docs-search", "")
+            await pg.select_option("#docs-kind", "guide")
+            await pg.wait_for_function("() => document.querySelectorAll('#docs-list .pc-row').length === 2")
+            await pg.click('#docs-list .pc-row:has-text("Beta")')
+            await pg.wait_for_selector("#doc-view #doc-text strong")
+            await pg.select_option("#docs-kind", "")
+            cli = cli_json("docs", "--home", str(home), "--search", "waterfall", "--json")
+            check("Documents lists every document, searches their words with the words marked, and shows one (Markdown made into text); the command line searches them too",
+                  listed == 3 and "Alpha Manual" in hit and "zebrafish" in hit.lower() and "zebrafish button" in text and cli.get("total") == 1 and cli["items"][0]["kind"] == "guide",
+                  (listed, hit, text[:100], cli.get("total")))
+
+            # the export carries the pictures and the documents (a plain folder)
+            flat = home / "Flat"
+            await pg.click('.sidebar a[href="#/collections"]')
+            await pg.wait_for_selector("#collection-export:not([disabled])")
+            await pg.click("#collection-export")
+            await pg.wait_for_selector("#export-dialog")
+            await pg.check('input[name="export-target"][value="folder"]')
+            await pg.fill("#export-folder", str(flat))
+            await pg.click("#export-carry summary")
+            await pg.check('#carry-media [data-id="cover"] input')
+            await pg.check("#carry-docs")
+            await pg.select_option("#carry-size", "320")
+            await pg.click("#export-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-totals")
+            await pg.click("#export-dialog button[type=submit]")
+            said = await toast_text(pg, "Exported Best Of")
+            carried = sorted(str(x.relative_to(flat)).replace("\\", "/") for x in flat.rglob("*") if x.is_file() and ".gamerepo" not in str(x))
+            check("an export to a folder carries the chosen pictures (made smaller) and the documents beside each game",
+                  any(c.endswith("/cover.png") for c in carried) and any(c.endswith("docs/Alpha Manual.txt") for c in carried), (said, carried))
             await pg.click('.sidebar a[href="#/settings"]')
             await pg.wait_for_selector("#theme-select")
 

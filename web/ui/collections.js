@@ -14,6 +14,7 @@ import { CommandBar, SearchNote } from "./layout.js";
 import { Dialog, close, confirmDialog } from "./dialogs.js";
 import { Preview, runPlan } from "./organise.js";
 import { Icon } from "./icons.js";
+import { CarryChoices, NO_CARRY } from "./metadata.js";
 
 const PAGE = 200;
 
@@ -144,6 +145,7 @@ function ExportDialog({ c, sum, plan: given }) {
   const [esde, setEsde] = useState(saved.esde || "");
   const [alwaysCopy, setAlwaysCopy] = useState(false);
   const [shortNames, setShortNames] = useState(true);
+  const [carry, setCarry] = useState({ ...NO_CARRY, ...(saved.carry || {}) });
   const [plan, setPlan] = useState(given || null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -163,8 +165,9 @@ function ExportDialog({ c, sum, plan: given }) {
     setBusy(true);
     setError("");
     try {
-      prefs()?.set("gr-export", { target, out, folder, esde });
-      setPlan(await api("export_plan", { collection: c.id, target, out: where.trim(), esde: target === "esde" ? esde.trim() || null : null, always_copy: alwaysCopy, short_names: shortNames }));
+      prefs()?.set("gr-export", { target, out, folder, esde, carry });
+      const carried = target === "esde" ? { ...carry, docs: false } : { ...carry, fields: [] };
+      setPlan(await api("export_plan", { collection: c.id, target, out: where.trim(), esde: target === "esde" ? esde.trim() || null : null, always_copy: alwaysCopy, short_names: shortNames, carry: carried }));
     } catch (e) {
       setError(err(e));
     } finally {
@@ -200,6 +203,7 @@ function ExportDialog({ c, sum, plan: given }) {
       <div class="field-block"><span class="field-label">Into</span>
         <div class="pick-row"><input type="text" id="export-folder" placeholder="A folder for the collection" value=${folder} onInput=${(e) => setFolder(e.target.value)} />
           ${isDesktop() ? html`<button type="button" class="ghost" id="export-folder-pick" onClick=${pick(setFolder, "The folder the collection goes to")}>Choose…</button>` : null}</div></div>`}
+    <${CarryChoices} value=${carry} onChange=${setCarry} target=${target} />
     <label class="check-row"><input type="checkbox" id="export-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> Always copy (no hardlinks)</label>
     ${c.size_limit && sum && sum.size > c.size_limit ? html`<p class="warn-note" id="export-over">${c.name} is ${size(sum.size)}, ${size(sum.size - c.size_limit)} more than its size limit (${size(c.size_limit)}).</p>` : null}
     <p class="muted">Games are exported in the library's format (Convert… changes it first). Nothing changes until you've seen the preview and pressed Run.</p>

@@ -18,6 +18,7 @@ use crate::platforms;
 use crate::roots;
 use anyhow::{anyhow, bail, Result};
 use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -38,6 +39,30 @@ pub struct Options {
     pub short_names: bool,
     /// The export updated (none: a new one)
     pub export_id: Option<String>,
+    /// What it carries besides the games (D30, D34)
+    pub carry: Carry,
+}
+
+/// What an export carries besides the games' files: the details in ES-DE's gamelist,
+/// the pictures (and video), manuals and other documents, and how big pictures may be.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Carry {
+    /// meta::FIELDS
+    pub fields: Vec<String>,
+    /// meta::MEDIA
+    pub media: Vec<String>,
+    pub manuals: bool,
+    /// Every document (a plain folder only)
+    pub docs: bool,
+    /// The longest side of a picture, in pixels (0: as they are)
+    pub image_size: u32,
+}
+
+impl Carry {
+    fn any(&self) -> bool {
+        !self.fields.is_empty() || !self.media.is_empty() || self.manuals || self.docs
+    }
 }
 
 fn dir(lib: &Library) -> PathBuf {
@@ -69,6 +94,7 @@ pub fn options_of(lib: &Library, id: &str) -> Result<Options> {
         always_copy: e["always_copy"].as_bool().unwrap_or(false),
         short_names: e["short_names"].as_bool().unwrap_or(true),
         export_id: Some(id.into()),
+        carry: serde_json::from_value(e["carry"].clone()).unwrap_or_default(),
     })
 }
 
@@ -208,6 +234,9 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     let mut wanted: Vec<Value> = vec![];
     // ES-DE's entries for each system: (the file or folder in the system's folder, game, title)
     let mut entries: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
+    // each system's folder, and its games' DAT ids by name
+    let mut folders: BTreeMap<String, PathBuf> = BTreeMap::new();
+    let mut ids: HashMap<(String, String), i64> = HashMap::new();
     for s in &w.systems {
         if s.games.is_empty() {
             continue;
@@ -219,6 +248,10 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             out.join(safe_name(group))
         };
         let names: Vec<String> = s.games.iter().map(|g| g.name.clone()).collect();
+        folders.insert(s.platform.clone(), folder.clone());
+        for g in &s.games {
+            ids.insert((s.platform.clone(), g.name.clone()), g.id);
+        }
         let sub = organise::plan(ix, lib, &organise::Options {
             dat_id: s.dat_id, mode: "copy".into(), out: Some(folder.clone()), format: "keep".into(),
             always_copy: o.always_copy, games: Some(names), esde: o.target == "esde", known: known.clone(),
@@ -263,15 +296,106 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     for p in &w.no_dat {
         plan.left.push(json!({ "path": platforms::name_of(p), "why": "This system has no DAT, so its games aren't known." }));
     }
+    // what it carries: each game's pictures, manual and documents, and its details for the gamelist
+    let media_root = esde.as_ref().map(|e| media_dir(e));
+    let mut details: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    if o.carry.any() {
+        for (system, list) in &entries {
+            let Some(folder) = folders.get(system) else { continue };
+            for (entry, game, _) in list {
+                let Some(id) = ids.get(&(system.clone(), game.clone())) else { continue };
+                let g = crate::meta::dat_game(conn, *id)?;
+                let Some(dir) = crate::meta::folder_of(conn, &g)?.and_then(|f| lib.resolve(&f).ok()) else { continue };
+                let is_dir = folder.join(entry).is_dir() || plan.ops.iter().any(|op| rel_to(folder, Path::new(&op.to)).is_some_and(|r| r.starts_with(&format!("{entry}/"))));
+                // ES-DE names a game's pictures after its file without the extension (a folder keeps its whole name)
+                let stem = if is_dir { entry.clone() } else { Path::new(entry).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| entry.clone()) };
+                let gj = crate::meta::read_game(&dir);
+                if o.target == "esde" && !o.carry.fields.is_empty() {
+                    details.insert(entry.to_lowercase(), gamelist_fields(&gj["details"], &o.carry.fields));
+                }
+                let mut files: Vec<(PathBuf, PathBuf, &str)> = vec![];
+                for kind in &o.carry.media {
+                    let Some(src) = media_file(&dir.join("media"), kind) else { continue };
+                    let ext = platforms::ext_of(&src.to_string_lossy());
+                    // made smaller, a picture is written as JPEG or PNG
+                    let ext = if o.carry.image_size > 0 && ["webp", "gif", "bmp"].contains(&ext.as_str()) { "png".to_string() } else { ext };
+                    let to_dir = match (&media_root, o.target.as_str()) {
+                        (Some(m), "esde") => m.join(system).join(crate::meta::MEDIA.iter().find(|x| x.0 == kind).map(|x| x.2).unwrap_or("custom")),
+                        (None, "esde") => continue,
+                        _ => folder.join(&stem),
+                    };
+                    let name = if o.target == "esde" { stem.clone() } else { kind.clone() };
+                    files.push((src, to_dir.join(format!("{name}.{ext}")), "media"));
+                }
+                if o.carry.manuals {
+                    if let Some(src) = manual_of(conn, lib, &dir) {
+                        let to = match (&media_root, o.target.as_str()) {
+                            (Some(m), "esde") => m.join(system).join("manuals").join(format!("{stem}.pdf")),
+                            (None, "esde") => PathBuf::new(),
+                            _ => folder.join(&stem).join(src.file_name().unwrap_or_default()),
+                        };
+                        if !to.as_os_str().is_empty() {
+                            files.push((src, to, "manual"));
+                        }
+                    }
+                }
+                if o.carry.docs && o.target == "folder" {
+                    let rel = lib.relative(&dir).unwrap_or_default();
+                    for d in crate::docs::of_folder(conn, &rel)? {
+                        let Ok(src) = lib.resolve(d["path"].as_str().unwrap_or("")) else { continue };
+                        let to = folder.join(&stem).join("docs").join(src.file_name().unwrap_or_default());
+                        if !files.iter().any(|(_, t, _)| key(t) == key(&to)) && !files.iter().any(|(s2, _, _)| key(s2) == key(&src)) {
+                            files.push((src, to, "doc"));
+                        }
+                    }
+                }
+                for (src, to, what) in files {
+                    let top = if o.target == "esde" && rel_to(out, &to).is_none() { es_top(&esde, &to).unwrap_or_else(|| out.clone()) } else { out.clone() };
+                    let size = std::fs::metadata(&src).map(|m| m.len()).unwrap_or(0);
+                    let src_stamp = organise::file_stamp(&src);
+                    wanted.push(json!({ "path": to.display().to_string(), "game": game, "system": system, "dat": Value::Null, "carried": what,
+                                        "from": src.display().to_string(), "from_mtime": src_stamp.map(|s| s.1) }));
+                    if to.exists() {
+                        // there already: the same unless the library's copy changed since it was placed
+                        let was = recorded.iter().find(|f| f["path"].as_str().is_some_and(|p| key(Path::new(p)) == key(&to)));
+                        let same = match was {
+                            Some(f) => f["from_mtime"].as_i64() == src_stamp.map(|s| s.1) && known.get(&key(&to)) == organise::file_stamp(&to).as_ref(),
+                            None => true,
+                        };
+                        if same {
+                            continue;
+                        }
+                        let old = outside(&top, &to);
+                        plan.ops.push(Op { op: "aside".into(), game: game.clone(), to: old.path.clone(), size: 0, from: vec![old], names: vec![], aside: vec![], note: None });
+                    }
+                    let mut from = outside(&top, &src);
+                    from.root = format!("dir:{}", src.parent().unwrap_or(Path::new(".")).display());
+                    from.rel = src.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                    let image = what == "media" && o.carry.image_size > 0 && ["png", "jpg", "jpeg", "webp", "gif", "bmp"].contains(&platforms::ext_of(&src.to_string_lossy()).as_str());
+                    let op = if image {
+                        "image"
+                    } else if !o.always_copy && organise::same_drive(&src, &to) {
+                        "link"
+                    } else {
+                        "copy"
+                    };
+                    let names = if image { vec![o.carry.image_size.to_string()] } else { vec![] };
+                    plan.ops.push(Op { op: op.into(), game: game.clone(), to: to.display().to_string(), from: vec![from], names, aside: vec![], size, note: Some(what.into()) });
+                }
+            }
+        }
+    }
     // files placed before that the collection no longer has are set aside (at the top of the export folder)
     let wanted_keys: HashSet<String> = wanted.iter().filter_map(|f| f["path"].as_str()).map(|p| key(Path::new(p))).collect();
     let mut drop = vec![];
     for f in &recorded {
         let Some(p) = f["path"].as_str().map(PathBuf::from) else { continue };
-        if wanted_keys.contains(&key(&p)) || !p.is_file() || rel_to(out, &p).is_none() {
+        let top = if rel_to(out, &p).is_some() { Some(out.clone()) } else { es_top(&esde, &p) };
+        let Some(top) = top else { continue };
+        if wanted_keys.contains(&key(&p)) || !p.is_file() {
             continue;
         }
-        let src = outside(out, &p);
+        let src = outside(&top, &p);
         plan.ops.push(Op { op: "aside".into(), game: f["game"].as_str().unwrap_or("").into(), to: src.path.clone(), size: 0, from: vec![src], names: vec![], aside: vec![], note: None });
         drop.push(f.clone());
     }
@@ -280,8 +404,8 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         for (system, list) in &entries {
             let at = es.join("gamelists").join(system).join("gamelist.xml");
             let old = std::fs::read_to_string(&at).ok();
-            if let Some(text) = merge_gamelist(old.as_deref(), list) {
-                plan.ops.push(text_op("", &at, es, text, "ES-DE's list of the system's games: entries are added for the games exported; those there already are kept."));
+            if let Some(text) = merge_gamelist(old.as_deref(), list, &details) {
+                plan.ops.push(text_op("", &at, es, text, "ES-DE's list of the system's games: entries are added for the games exported, with the details chosen; the rest of it is kept."));
             }
         }
         let roms = rom_dir(es);
@@ -301,38 +425,182 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     plan.space = organise::space_needed(&plan.ops);
     plan.export = Some(json!({
         "id": export_id, "collection": c.id, "name": c.name, "target": o.target, "out": out.display().to_string(),
-        "esde": esde.as_ref().map(|e| e.display().to_string()), "always_copy": o.always_copy, "short_names": o.short_names,
+        "esde": esde.as_ref().map(|e| e.display().to_string()), "always_copy": o.always_copy, "short_names": o.short_names, "carry": o.carry,
         "first": first, "files": wanted, "drop": drop,
     }));
     let _ = conn;
     Ok(plan)
 }
 
-/// A gamelist with an entry for each game exported that has none (None: nothing to add).
-fn merge_gamelist(old: Option<&str>, list: &[(String, String, String)]) -> Option<String> {
-    let have: HashSet<String> = old
-        .unwrap_or("")
-        .split("<path>")
-        .skip(1)
-        .filter_map(|s| s.split("</path>").next())
-        .map(|p| xml_unescape(p.trim()).replace('\\', "/").trim_start_matches("./").to_lowercase())
-        .collect();
+/// A gamelist with an entry for each game exported that has none, and the details
+/// chosen set in each exported game's entry (its other fields, and other games' entries,
+/// are kept). None: nothing changes.
+fn merge_gamelist(old: Option<&str>, list: &[(String, String, String)], details: &HashMap<String, Vec<(String, String)>>) -> Option<String> {
+    let norm = |p: &str| xml_unescape(p.trim()).replace('\\', "/").trim_start_matches("./").to_lowercase();
+    let text = old.unwrap_or("").to_string();
+    // the entries there already, with their details set
+    let mut have: HashSet<String> = HashSet::new();
+    let mut out = String::new();
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find("<game>").or_else(|| rest.find("<game ")) {
+        let Some(end) = rest[at..].find("</game>").map(|e| at + e + "</game>".len()) else { break };
+        out.push_str(&rest[..at]);
+        let mut block = rest[at..end].to_string();
+        let path = block.split("<path>").nth(1).and_then(|s| s.split("</path>").next()).map(norm).unwrap_or_default();
+        if !path.is_empty() {
+            if let Some(fields) = details.get(&path) {
+                for (tag, value) in fields {
+                    block = set_tag(&block, tag, value);
+                }
+            }
+            have.insert(path);
+        }
+        out.push_str(&block);
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
     let add: String = list
         .iter()
         .filter(|(entry, _, _)| !have.contains(&entry.to_lowercase()))
-        .map(|(entry, _, title)| format!("\t<game>\n\t\t<path>./{}</path>\n\t\t<name>{}</name>\n\t</game>\n", xml_escape(entry), xml_escape(title)))
+        .map(|(entry, _, title)| {
+            let mut g = format!("\t<game>\n\t\t<path>./{}</path>\n\t\t<name>{}</name>\n", xml_escape(entry), xml_escape(title));
+            for (tag, value) in details.get(&entry.to_lowercase()).into_iter().flatten() {
+                g.push_str(&format!("\t\t<{tag}>{}</{tag}>\n", xml_escape(value)));
+            }
+            g + "\t</game>\n"
+        })
         .collect();
-    if add.is_empty() {
-        return None;
-    }
-    match old {
-        Some(text) if text.contains("</gameList>") => {
-            let at = text.rfind("</gameList>").unwrap();
-            Some(format!("{}{add}{}", &text[..at], &text[at..]))
+    let merged = if add.is_empty() {
+        out
+    } else if out.contains("</gameList>") {
+        let at = out.rfind("</gameList>").unwrap();
+        format!("{}{add}{}", &out[..at], &out[at..])
+    } else if out.contains("<gameList/>") {
+        out.replacen("<gameList/>", &format!("<gameList>\n{add}</gameList>"), 1)
+    } else {
+        format!("<?xml version=\"1.0\"?>\n<gameList>\n{add}</gameList>\n")
+    };
+    (old != Some(merged.as_str())).then_some(merged)
+}
+
+/// A `<game>` block with `<tag>` set to `value` (replaced if it's there, else added before `</game>`).
+fn set_tag(block: &str, tag: &str, value: &str) -> String {
+    let (open, close, empty) = (format!("<{tag}>"), format!("</{tag}>"), format!("<{tag}/>"));
+    let new = format!("{open}{}{close}", xml_escape(value));
+    if let Some(a) = block.find(&open) {
+        if let Some(b) = block[a..].find(&close) {
+            return format!("{}{new}{}", &block[..a], &block[a + b + close.len()..]);
         }
-        Some(text) if text.contains("<gameList/>") => Some(text.replacen("<gameList/>", &format!("<gameList>\n{add}</gameList>"), 1)),
-        _ => Some(format!("<?xml version=\"1.0\"?>\n<gameList>\n{add}</gameList>\n")),
     }
+    if let Some(a) = block.find(&empty) {
+        return format!("{}{new}{}", &block[..a], &block[a + empty.len()..]);
+    }
+    let at = block.rfind("</game>").unwrap_or(block.len());
+    format!("{}\t{new}\n\t{}", block[..at].trim_end_matches(['\t', ' ']), &block[at..])
+}
+
+/// ES-DE's gamelist fields from a game's details: (tag, value), for those chosen.
+fn gamelist_fields(d: &Value, chosen: &[String]) -> Vec<(String, String)> {
+    let mut v = vec![];
+    let want = |k: &str| chosen.iter().any(|c| c == k);
+    let s = |k: &str| d[k].as_str().map(str::trim).filter(|x| !x.is_empty()).map(String::from);
+    if want("description") {
+        if let Some(x) = s("description") {
+            v.push(("desc".into(), x));
+        }
+    }
+    if want("rating") {
+        if let Some(r) = d["rating"].as_f64().filter(|r| *r > 0.0) {
+            v.push(("rating".into(), format!("{:.2}", r.min(1.0))));
+        }
+    }
+    if want("released") {
+        if let Some(x) = s("released").and_then(|r| esde_date(&r)) {
+            v.push(("releasedate".into(), x));
+        }
+    }
+    for (k, tag) in [("developer", "developer"), ("publisher", "publisher"), ("players", "players")] {
+        if want(k) {
+            if let Some(x) = s(k).or_else(|| d[k].as_u64().map(|n| n.to_string())) {
+                v.push((tag.into(), x));
+            }
+        }
+    }
+    if want("genres") {
+        let g = match &d["genres"] {
+            Value::Array(a) => a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "),
+            Value::String(x) => x.clone(),
+            _ => String::new(),
+        };
+        if !g.is_empty() {
+            v.push(("genre".into(), g));
+        }
+    }
+    v
+}
+
+/// A release date as ES-DE writes it (`YYYYMMDDT000000`), from "1994-03-19", "1994" or "24 Feb, 1994".
+fn esde_date(s: &str) -> Option<String> {
+    let digits: Vec<&str> = s.split(|c: char| !c.is_ascii_digit()).filter(|t| !t.is_empty()).collect();
+    if digits.len() >= 3 && digits[0].len() == 4 {
+        let (m, d): (u32, u32) = (digits[1].parse().ok()?, digits[2].parse().ok()?);
+        if (1..=12).contains(&m) && (1..=31).contains(&d) {
+            return Some(format!("{}{m:02}{d:02}T000000", digits[0]));
+        }
+    }
+    crate::identify::year_of(s).map(|y| format!("{y}0101T000000"))
+}
+
+/// ES-DE's media folder: its setting (`MediaDirectory`), else `<ES-DE>/downloaded_media`.
+fn media_dir(es: &Path) -> PathBuf {
+    let text = std::fs::read_to_string(es.join("settings").join("es_settings.xml")).unwrap_or_default();
+    let set = text.lines().find(|l| l.contains("name=\"MediaDirectory\"")).and_then(|l| l.split("value=\"").nth(1)).and_then(|v| v.split('"').next()).map(xml_unescape).unwrap_or_default();
+    match set.trim() {
+        "" => es.join("downloaded_media"),
+        s if s.starts_with('~') => config::home_dir().join(s.trim_start_matches('~').trim_start_matches(['/', '\\'])),
+        s if s.starts_with("%ESPATH%") => es.join(s.trim_start_matches("%ESPATH%").trim_start_matches(['/', '\\'])),
+        s => PathBuf::from(s),
+    }
+}
+
+/// The top folder a file outside the export folder is under: ES-DE's own folder, or its media folder.
+fn es_top(esde: &Option<PathBuf>, p: &Path) -> Option<PathBuf> {
+    let es = esde.as_ref()?;
+    if rel_to(es, p).is_some() {
+        return Some(es.clone());
+    }
+    let m = media_dir(es);
+    rel_to(&m, p).is_some().then_some(m)
+}
+
+/// A game's picture of a kind, if it has one.
+fn media_file(dir: &Path, kind: &str) -> Option<PathBuf> {
+    std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| p.file_name().and_then(|n| n.to_str()).and_then(|n| n.split_once('.')).is_some_and(|(k, _)| k == kind))
+}
+
+/// A game's manual to export: the user's PDF manual first, else a scraped one.
+fn manual_of(conn: &Connection, lib: &Library, dir: &Path) -> Option<PathBuf> {
+    let rel = lib.relative(dir)?;
+    let docs = crate::docs::of_folder(conn, &rel).ok()?;
+    let pdf = |d: &&Value| d["kind"] == "manual" && d["name"].as_str().is_some_and(|n| n.to_lowercase().ends_with(".pdf"));
+    let pick = docs.iter().filter(pdf).find(|d| d["source"].is_null()).or_else(|| docs.iter().find(pdf))?;
+    lib.resolve(pick["path"].as_str()?).ok()
+}
+
+/// A picture made smaller (its longest side at most `max` pixels), as the bytes of the
+/// format `to`'s extension names (PNG for anything but JPEG).
+pub fn shrink(src: &Path, max: u32, to: &Path) -> Result<Vec<u8>> {
+    let img = ::image::ImageReader::open(src)?.with_guessed_format()?.decode().map_err(|e| anyhow!("couldn't read the picture {}: {e}", src.display()))?;
+    let img = if max > 0 && img.width().max(img.height()) > max { img.resize(max, max, ::image::imageops::FilterType::Lanczos3) } else { img };
+    let mut out = std::io::Cursor::new(Vec::new());
+    let ext = platforms::ext_of(&to.to_string_lossy());
+    if ext == "jpg" || ext == "jpeg" {
+        let enc = ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 88);
+        img.to_rgb8().write_with_encoder(enc)?;
+    } else {
+        img.write_to(&mut out, ::image::ImageFormat::Png)?;
+    }
+    Ok(out.into_inner())
 }
 
 /// Remember what an export placed, once its change has run (or been undone).
@@ -383,7 +651,7 @@ pub fn record(lib: &Library, plan: &Plan, undone: bool) -> Result<()> {
     }
     let mut v = json!({
         "id": id, "collection": e["collection"], "name": e["name"], "target": e["target"], "out": e["out"], "esde": e["esde"],
-        "always_copy": e["always_copy"], "short_names": e["short_names"],
+        "always_copy": e["always_copy"], "short_names": e["short_names"], "carry": e["carry"],
         "created": old["created"].as_str().map(String::from).unwrap_or_else(now), "updated": now(), "change": plan.id,
         "files": files.into_values().collect::<Vec<_>>(),
     });
@@ -467,6 +735,11 @@ pub fn check(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress:
         let shown = json!({ "path": p.display().to_string(), "game": game, "system": system, "system_name": platforms::name_of(system) });
         if !p.is_file() {
             missing.push(shown);
+            continue;
+        }
+        if f["carried"].is_string() {
+            // a picture, manual or document: checked by being there
+            ok += 1;
             continue;
         }
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -669,6 +942,54 @@ mod tests {
         let e = list(&lib).into_iter().find(|e| e["target"] == "esde").unwrap();
         let r = check(&ix, &lib, e["id"].as_str().unwrap(), &AtomicBool::new(false), &mut |_| {}).unwrap();
         assert_eq!(r["ok"], 3, "{r}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn an_export_carries_details_smaller_pictures_and_the_manual_and_they_are_undone() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-carry");
+        let c = collection(&lib, |_| {});
+        // Alpha's folder in the library: its details, a big cover and a PDF manual of the user's
+        let g = crate::meta::dat_game_named(ix.conn(), &lib, "gb", "Alpha (Europe)").unwrap().unwrap();
+        let gdir = crate::meta::ensure_folder(&ix, &lib, &g).unwrap();
+        let mut gj = crate::meta::read_game(&gdir);
+        gj["details"] = json!({ "description": "A & B", "developer": "Dev Co", "released": "1990-04-21", "rating": 0.8 });
+        crate::meta::write_game(&ix, &lib, &gdir, &gj).unwrap();
+        std::fs::create_dir_all(gdir.join("media")).unwrap();
+        std::fs::write(gdir.join("media").join("cover.png"), crate::scrape::tests::png(800, 600)).unwrap();
+        std::fs::create_dir_all(gdir.join("docs")).unwrap();
+        std::fs::write(gdir.join("docs").join("Alpha Manual.pdf"), b"%PDF-1.4\n%%EOF\n").unwrap();
+        crate::meta::sync(&ix, &lib).unwrap();
+        let es = dir.join("ES-DE");
+        let roms = dir.join("ES-ROMs");
+        std::fs::create_dir_all(es.join("settings")).unwrap();
+        std::fs::write(es.join("settings").join("es_settings.xml"), format!("<?xml version=\"1.0\"?>\n<string name=\"ROMDirectory\" value=\"{}\" />\n", roms.display())).unwrap();
+        let carry = Carry { fields: vec!["description".into(), "developer".into(), "released".into(), "rating".into()], media: vec!["cover".into(), "screenshot".into()], manuals: true, docs: false, image_size: 320 };
+        let o = Options { collection: c.id.clone(), target: "esde".into(), out: roms.clone(), esde: Some(es.clone()), carry, ..Default::default() };
+        let p = run(&ix, &lib, &o);
+        let gl = std::fs::read_to_string(es.join("gamelists/gb/gamelist.xml")).unwrap();
+        assert!(gl.contains("<desc>A &amp; B</desc>") && gl.contains("<developer>Dev Co</developer>") && gl.contains("<releasedate>19900421T000000</releasedate>") && gl.contains("<rating>0.80</rating>"), "{gl}");
+        let media = es.join("downloaded_media").join("gb");
+        assert_eq!(tree(&media), ["covers/Alpha (Europe).png", "manuals/Alpha (Europe).pdf"]);
+        let cover = ::image::open(media.join("covers/Alpha (Europe).png")).unwrap();
+        assert_eq!((cover.width(), cover.height()), (320, 240));
+        // nothing changed: nothing to do
+        let eid = list(&lib)[0]["id"].as_str().unwrap().to_string();
+        let again = plan(&ix, &lib, &options_of(&lib, &eid).unwrap()).unwrap();
+        assert!(again.ops.iter().all(|op| op.op == "text"), "{:?}", again.ops.iter().map(|o| (&o.op, &o.to)).collect::<Vec<_>>());
+        let r = check(&ix, &lib, &eid, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        assert_eq!(r["missing"], json!([]), "{r}");
+        // Undo takes the pictures and the manual away too
+        organise::undo(&ix, &lib, &p.id, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        assert!(tree(&media).is_empty());
+        assert!(gdir.join("media").join("cover.png").is_file(), "the library's own are kept");
+        // a plain folder: the pictures and every document beside the game, as they are
+        let flat = dir.join("Flat");
+        let carry = Carry { media: vec!["cover".into()], docs: true, ..Default::default() };
+        run(&ix, &lib, &Options { collection: c.id.clone(), target: "folder".into(), out: flat.clone(), carry, ..Default::default() });
+        let t = tree(&flat);
+        assert!(t.iter().any(|p| p.ends_with("/Alpha (Europe)/cover.png")) && t.iter().any(|p| p.ends_with("/Alpha (Europe)/docs/Alpha Manual.pdf")), "{t:?}");
+        assert_eq!(::image::open(flat.join(t.iter().find(|p| p.ends_with("cover.png")).unwrap())).unwrap().width(), 800);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
