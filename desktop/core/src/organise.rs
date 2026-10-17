@@ -1388,16 +1388,16 @@ fn copy_checked(from: &Path, to: &Path, want: &Src, cancel: &AtomicBool) -> Resu
     r
 }
 
-/// A copy of an archive: the same size, and every member reads back (unpacked, so
+/// A copy of a file with no hashes recorded: the same size, and for an archive every member reads back (unpacked, so
 /// each one's CRC32 is checked) as the original records it.
 fn check_archive_copy(from: &Path, copy: &Path, want: &Src, cancel: &AtomicBool) -> Result<()> {
     let size = std::fs::metadata(copy)?.len();
     if size != want.size {
         bail!("the copy of {} is {size} bytes, not {}", from.display(), want.size);
     }
-    let kind = archive::container_of(&from.to_string_lossy()).unwrap_or("zip");
-    if crate::image::KINDS.contains(&kind) {
-        // a disc image: the same bytes
+    let kind = archive::container_of(&from.to_string_lossy());
+    let Some(kind) = kind.filter(|k| !crate::image::KINDS.contains(k)) else {
+        // a disc image, or a plain file (a document, a picture): the same bytes
         let hash = |p: &Path| -> Result<Option<String>> {
             Ok(hash::hash_reader(&mut std::fs::File::open(p)?, size, "", cancel)?.sha1)
         };
@@ -1405,7 +1405,7 @@ fn check_archive_copy(from: &Path, copy: &Path, want: &Src, cancel: &AtomicBool)
             bail!("the copy of {} isn't the same", from.display());
         }
         return Ok(());
-    }
+    };
     let orig = archive::read(from, kind, false, cancel)?;
     let back = archive::read(copy, kind, true, cancel).with_context(|| format!("the copy of {} doesn't read back", from.display()))?;
     let set = |l: &archive::Listing| -> Vec<(String, u64, String)> {
@@ -1529,6 +1529,21 @@ fn perform(op: &Op, cancel: &AtomicBool) -> Result<(Option<Written>, bool)> {
             }
             std::fs::rename(&tmp, to)?;
             let h = hash::hash_reader(&mut text.as_bytes(), text.len() as u64, &to.to_string_lossy(), cancel)?;
+            Ok((Some(Written { members: vec![], file: Some(h), kind: "file" }), true))
+        }
+        "image" => {
+            // a picture made smaller (an export's, D35)
+            make_parent(to)?;
+            let max: u32 = op.names.first().and_then(|s| s.parse().ok()).unwrap_or(0);
+            let bytes = crate::export::shrink(Path::new(&op.from[0].path), max, to)?;
+            let tmp = to.with_file_name(format!("{}.gamerepo-tmp", to.file_name().unwrap_or_default().to_string_lossy()));
+            std::fs::write(&tmp, &bytes)?;
+            if to.exists() {
+                let _ = std::fs::remove_file(&tmp);
+                bail!("{} is there already", to.display());
+            }
+            std::fs::rename(&tmp, to)?;
+            let h = hash::hash_reader(&mut bytes.as_slice(), bytes.len() as u64, &to.to_string_lossy(), cancel)?;
             Ok((Some(Written { members: vec![], file: Some(h), kind: "file" }), true))
         }
         "aside" => Ok((None, false)),

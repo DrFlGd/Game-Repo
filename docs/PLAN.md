@@ -1723,6 +1723,52 @@ from scanned PDFs (only PDFs with text are searched inside).
 - **D35** An export keeps what it carries with it; the app makes pictures smaller itself
   (no external tool).
 
+### Phase 5 notes (built 2026-10-17)
+
+- **Core**: `meta.rs` (D32: a DAT game's folder and its `game.json`; the index's
+  `meta_games` and `meta_roms`, read from each `game.json` by size and modified time;
+  the Metadata list, a game's panel, Clear), `scrapers.rs` (ScreenScraper's `jeuInfos`
+  by hash and `jeuRecherche`, IGDB's Apicalypse queries with a Twitch token renewed on
+  401, TheGamesDB's `ByGameName`, `ByGameID`, `Images` and its genre, developer and
+  publisher names; each source paced, its answers kept a week in
+  `<data dir>/scrape-cache/`, its errors said in plain words (ScreenScraper's are French
+  text and status codes); `KEYS`, `needs`, `check`), `scrape.rs` (the scrape's
+  `Options`, `ask` for each game in the sources' order, `apply`, `pick`), `docs.rs`
+  (D34: the documents, `docs.json`, the index's `docs` and its FTS5 table `docs_text`,
+  text from PDFs read with lopdf (capped at a megabyte a document), `search` with
+  snippets, `to_html` with pulldown-cmark, the import's `read_items` and `plan`), and in
+  `export.rs` (D35) `Carry`, the gamelist's details merged into the entries already
+  there, pictures and manuals into ES-DE's media folder (its `MediaDirectory` setting
+  when set) or beside each game, and the `image` step that makes pictures smaller with
+  the image crate. `identify.rs` searches ScreenScraper, IGDB and TheGamesDB too, when
+  their keys are set. New index migration: "the games' folders and their documents".
+- **Checked against the sources' real shapes** by reading ES-DE's, Skyscraper's and
+  RomM's clients and TheGamesDB's server code (the live services aren't reachable from
+  the build session): ScreenScraper sends numbers as strings, its rating out of 20, and
+  only media whose `parent` is `jeu` are the game's; its media region order is
+  `wor, us, eu, jp` after the user's. The tests serve stand-ins for all three.
+- **The page**: Metadata (system picker, the counts as tabs: in the library, every game,
+  needs a look, nothing yet; a game's panel with its candidates, Scrape…, Identify…,
+  Attach documents…, Clear), the Scrape… dialog, Documents (search, kind, system and
+  source filters, the viewer with Model Library's PDF frame), Import documents… with its
+  review list and game picker, the Export dialog's *What it carries*, Settings › Sources'
+  keys and Check. Metadata and Documents replace the last of the pages still to come.
+- **Not as designed**: a game's folder is found by holding exactly its ROMs (CRC32 and
+  size), else by its DAT name on the same system, rather than by any one ROM's hash: a
+  ROM two games share (Epsilon's track that is Beta's ROM, in the tests) mustn't decide
+  it. The page's Scrape… offers a system's games or its whole DAT; a collection's games
+  (and chosen ones) are scraped from the command line or a game's panel. The picture
+  sizes offered are 320, 480, 640, 800 and 1080 pixels (handheld screens), not 1920 and
+  1280. Files dropped on a game's panel aren't attached yet; Attach documents… picks
+  them. The index reads the game folders when the Metadata or Documents page opens and
+  after every change, rather than when the library opens.
+- **To check on a real set** (Jerred): set a TheGamesDB key or an IGDB application in
+  Settings › Sources and press Check; scrape a small system (Game Boy, say) and look at a
+  few games' panels; import a folder of guides and look at the pairings before bringing
+  them in; search the Documents page for a word inside one; export a collection to ES-DE
+  with pictures and details ticked and open ES-DE. ScreenScraper needs a developer id
+  and password for Game Repo, which ScreenScraper gives on request (its forum).
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -1860,4 +1906,6 @@ New ones get a number here as they come up (next: D36).
    released as v0.2.0; 2b built ("Phase 2b notes").
 6. Phase 3: design written ("Phase 3 design", D21–D23) and built ("Phase 3 notes").
 7. Phase 4: design written ("Phase 4 design", D25–D28) and built ("Phase 4 notes"); 2b, 3
-   and 4 merged and released together, as Jerred asked (2026-10-17). Next: Phase 5.
+   and 4 merged and released together, as Jerred asked (2026-10-17) as v0.4.0.
+8. Phase 5: design written ("Phase 5 design", D32–D35) and built ("Phase 5 notes"). Next:
+   Phase 5b, device profiles for SD cards (D18, D29).

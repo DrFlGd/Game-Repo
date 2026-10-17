@@ -2,7 +2,8 @@
 // computer, the folders with games and how they're scanned and watched, the DAT
 // files, the systems (built-in and added), how games are named, the history of changes (Undo, set-aside files), the
 // look, and the app's version with a link to About. Storage formats and external tools
-// (Phase 2b), PC games, Identify's sources and Steam (Phase 4) have sections of their own.
+// (Phase 2b), PC games, Identify's sources and Steam (Phase 4), and the sources' accounts and keys
+// (Phase 5) have sections of their own.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui, THEMES, SKINS, setTheme, setSkin } from "./state.js";
@@ -318,10 +319,6 @@ export function Settings() {
         <select id="theme-select" class="compact" value=${s.theme} onChange=${(e) => setTheme(e.target.value)}>
           ${THEMES.map(([v, label]) => html`<option value=${v} key=${v}>${label}</option>`)}
         </select></label>
-    </section>
-    <section class="ls-section" id="settings-coming">
-      <h2>Still to come</h2>
-      <p class="muted">Accounts for the metadata sources that need one (ScreenScraper, IGDB, TheGamesDB) arrive in Phase 5.</p>
     </section>
     <section class="ls-section" id="settings-about">
       <h2>About</h2>

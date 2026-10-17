@@ -105,6 +105,31 @@ const MIGRATIONS: &[(&str, &str)] = &[
         // Phase 2: kind gains '7z' and 'rar'; locked: an archive with members that need a password
         "ALTER TABLE files ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;",
     ),
+    (
+        "the games' folders and their documents",
+        // Phase 5: each `_library/games/<system>/<game>/game.json` (folder: library-relative)
+        // with the ROMs it records, for joins with the DATs by CRC32 and size; the documents
+        // in the library, their text for search (docs_text's rowid is the document's id)
+        "CREATE TABLE meta_games (
+            folder TEXT PRIMARY KEY, platform TEXT NOT NULL, id TEXT, name TEXT, title TEXT, year INTEGER,
+            details INTEGER NOT NULL DEFAULT 0, media TEXT NOT NULL DEFAULT '', review INTEGER NOT NULL DEFAULT 0,
+            size INTEGER NOT NULL, mtime INTEGER NOT NULL
+         ) STRICT;
+         CREATE INDEX meta_games_platform ON meta_games (platform, name);
+         CREATE TABLE meta_roms (
+            folder TEXT NOT NULL REFERENCES meta_games (folder) ON DELETE CASCADE, sha1 TEXT, crc32 TEXT, size INTEGER
+         ) STRICT;
+         CREATE INDEX meta_roms_folder ON meta_roms (folder);
+         CREATE INDEX meta_roms_crc ON meta_roms (crc32, size);
+         CREATE INDEX meta_roms_sha1 ON meta_roms (sha1);
+         CREATE TABLE docs (
+            id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, folder TEXT, platform TEXT, name TEXT NOT NULL, title TEXT NOT NULL,
+            kind TEXT NOT NULL, source TEXT, size INTEGER NOT NULL, mtime INTEGER NOT NULL, text_read INTEGER NOT NULL DEFAULT 0
+         ) STRICT;
+         CREATE INDEX docs_folder ON docs (folder);
+         CREATE INDEX docs_kind ON docs (kind);
+         CREATE VIRTUAL TABLE docs_text USING fts5 (title, name, body, tokenize = 'unicode61 remove_diacritics 2');",
+    ),
 ];
 
 /// How many schema steps this build knows.

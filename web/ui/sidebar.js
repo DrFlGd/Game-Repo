@@ -1,4 +1,4 @@
-// The menu on the left: Home, Audit, Collections, PC games, the pages each phase still brings, and Settings. In a
+// The menu on the left: Home, Audit, Collections, PC games, Metadata, Documents, the pages each phase still brings, and Settings. In a
 // narrow window it's a drawer; on a wide one it folds to its icons.
 import { html } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
@@ -30,11 +30,13 @@ export function Sidebar() {
         <${NavLink} route="audit" label="Audit" icon="audit" current=${s.route} />
         <${NavLink} route="collections" label="Collections" icon="collection" current=${s.route} />
         <${NavLink} route="pc" label="PC games" icon="monitor" current=${s.route} />
+        <${NavLink} route="metadata" label="Metadata" icon="scrape" current=${s.route} />
+        <${NavLink} route="documents" label="Documents" icon="book" current=${s.route} />
       </ul>
-      <p class="nav-head">Coming</p>
+      ${Object.keys(COMING).length ? html`<p class="nav-head">Coming</p>
       <ul class="nav-list" id="coming-pages">
         ${Object.entries(COMING).map(([route, p]) => html`<${NavLink} key=${route} route=${route} label=${p.title} icon=${p.icon} current=${s.route} note=${`coming in Phase ${p.phase}`} />`)}
-      </ul>
+      </ul>` : null}
       <ul class="nav-list nav-foot">
         <${NavLink} route="settings" label="Settings" icon="cog" current=${s.route} />
         <${NavLink} route="about" label="About" icon="info" current=${s.route} />

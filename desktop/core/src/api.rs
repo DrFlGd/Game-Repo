@@ -414,6 +414,9 @@ impl App {
         if ["pc_", "identify_", "sources", "launchbox_", "steam_", "add_"].iter().any(|p| cmd.starts_with(p)) {
             return self.pc_call(cmd, args).await;
         }
+        if ["meta_", "scrape_", "docs_"].iter().any(|p| cmd.starts_with(p)) {
+            return self.meta_call(cmd, args).await;
+        }
         if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
             return self.collection_call(cmd, args).await;
         }
@@ -819,6 +822,7 @@ impl App {
                     "export" => "Exporting",
                     "import" => "Importing",
                     "add" => "Adding",
+                    "docs" => "Bringing in documents",
                     _ => "Organising",
                 };
                 let running = self.begin_change(&plan.id)?;
@@ -842,6 +846,12 @@ impl App {
                             }
                             r["added"] = crate::addgame::results(&ix, &lib, &plan)?;
                         }
+                        // the documents brought in, listed and their text read for search
+                        "docs" => {
+                            crate::meta::sync(&ix, &lib)?;
+                            app.job_progress(&jid, json!({ "text": "Reading the documents" }));
+                            crate::docs::read_texts(&ix, &lib, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                        }
                         _ => {}
                     }
                     Ok(r)
@@ -862,11 +872,10 @@ impl App {
                     let _running = running;
                     let ix = Self::job_index(&data_dir, &lib)?;
                     let progress = &mut |p| app.job_progress(&jid, p);
-                    if undo {
-                        organise::undo(&ix, &lib, &id, &cancel, progress)
-                    } else {
-                        organise::finish(&ix, &lib, &id, &cancel, progress)
-                    }
+                    let r = if undo { organise::undo(&ix, &lib, &id, &cancel, progress) } else { organise::finish(&ix, &lib, &id, &cancel, progress) };
+                    // a change may have brought in documents or a game's folder
+                    crate::meta::sync(&ix, &lib)?;
+                    r
                 }))
             }
             "change_empty" => {
@@ -902,6 +911,150 @@ impl App {
     }
 
     /// PC games, Identify and its sources, Steam and Add a game… (docs/PLAN.md, "Phase 4 design").
+    /// The Metadata page, the scrape and documents (Phase 5).
+    async fn meta_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
+        use crate::{docs, meta, scrape};
+        let j = |v: Value| Ok(Reply::Json(v));
+        let data_dir = self.paths.data_dir.clone();
+        let cfg = self.config();
+        let id_arg = |k: &str| args[k].as_i64().ok_or_else(|| format!("missing {k}"));
+        match cmd {
+            "meta_list" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let show = args["show"].as_str().unwrap_or("have").to_string();
+                let search = args["search"].as_str().unwrap_or("").to_string();
+                let (offset, limit) = (args["offset"].as_i64().unwrap_or(0), args["limit"].as_i64().unwrap_or(100));
+                j(self
+                    .with_index(move |ix| {
+                        if offset == 0 {
+                            meta::sync(ix, &lib)?;
+                        }
+                        meta::list(ix, &lib, &platform, &show, &search, offset, limit)
+                    })
+                    .await?)
+            }
+            "meta_game" => {
+                let lib = self.library()?;
+                let id = id_arg("id")?;
+                j(self.with_index(move |ix| meta::game(ix, &lib, id)).await?)
+            }
+            "meta_clear" => {
+                let lib = self.library()?;
+                let id = id_arg("id")?;
+                j(self.with_index(move |ix| meta::clear(ix, &lib, id)).await?)
+            }
+            "meta_pick" => {
+                let lib = self.library()?;
+                let game = id_arg("game")?;
+                let (source, id) = (arg(&args, "source").map_err(e2s)?.to_string(), arg(&args, "id").map_err(e2s)?.to_string());
+                j(self.with_index(move |ix| scrape::pick(ix, &lib, &cfg, &data_dir, game, &source, &id)).await?)
+            }
+            "meta_games" => {
+                // DAT games by name, to pair a document with by hand
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let q = args["query"].as_str().unwrap_or("").to_string();
+                j(self.with_index(move |ix| meta::find_games(ix, &lib, &platform, &q, 30)).await?)
+            }
+            "scrape_choices" => {
+                let lib = self.library()?;
+                j(scrape::choices(&cfg, &data_dir, &lib))
+            }
+            "scrape_run" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let o: scrape::Options = serde_json::from_value(args["options"].clone()).map_err(|e| e.to_string())?;
+                let label = "Scraping";
+                self.not_running(label)?;
+                j(self.spawn_job(label, move |app, jid, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    let r = scrape::run(&ix, &lib, &cfg, &data_dir, &o, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    // the manuals it kept, read for searching
+                    docs::read_texts(&ix, &lib, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    Ok(r)
+                }))
+            }
+            "docs_list" => {
+                let q = args["query"].as_str().unwrap_or("").to_string();
+                let (kind, platform, source) = (args["kind"].as_str().unwrap_or("").to_string(), args["platform"].as_str().unwrap_or("").to_string(), args["source"].as_str().unwrap_or("").to_string());
+                let (offset, limit) = (args["offset"].as_i64().unwrap_or(0), args["limit"].as_i64().unwrap_or(100));
+                let lib = self.library()?;
+                j(self
+                    .with_index(move |ix| {
+                        if offset == 0 {
+                            meta::sync(ix, &lib)?;
+                        }
+                        docs::search(ix, &q, &kind, &platform, &source, offset, limit)
+                    })
+                    .await?)
+            }
+            "docs_read" => {
+                let lib = self.library()?;
+                let label = "Reading documents";
+                self.not_running(label)?;
+                j(self.spawn_job(label, move |app, jid, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    let n = docs::read_texts(&ix, &lib, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    Ok(json!({ "read": n }))
+                }))
+            }
+            "docs_get" => {
+                let lib = self.library()?;
+                let id = id_arg("id")?;
+                j(self
+                    .with_index(move |ix| {
+                        let mut d = docs::get(ix, id)?;
+                        let p = lib.resolve(d["path"].as_str().unwrap_or(""))?;
+                        if matches!(d["view"].as_str(), Some("text" | "markdown")) {
+                            d["html"] = json!(docs::to_html(d["name"].as_str().unwrap_or(""), &std::fs::read(&p)?));
+                        }
+                        d["full"] = json!(p.display().to_string());
+                        Ok(d)
+                    })
+                    .await?)
+            }
+            "docs_set" => {
+                let lib = self.library()?;
+                let id = id_arg("id")?;
+                let (kind, title) = (args["kind"].as_str().map(String::from), args["title"].as_str().map(String::from));
+                j(self.with_index(move |ix| docs::set(ix, &lib, id, kind.as_deref(), title.as_deref())).await?)
+            }
+            "docs_items" => {
+                // the files to attach or import, each paired with a game (a job: a folder can be big)
+                let lib = self.library()?;
+                let paths: Vec<PathBuf> = args["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).map(PathBuf::from).collect();
+                if paths.is_empty() {
+                    return Err("Choose the documents or a folder of them.".into());
+                }
+                let platform = args["platform"].as_str().filter(|p| !p.is_empty()).map(String::from);
+                let game = args["game"].as_i64();
+                let label = "Reading the documents";
+                self.not_running(label)?;
+                j(self.spawn_job(label, move |app, jid, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    meta::sync(&ix, &lib)?;
+                    let items = docs::read_items(&ix, &lib, &paths, platform.as_deref(), game, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    Ok(json!({ "items": items, "kinds": docs::KINDS.iter().map(|(id, name, _)| json!({ "id": id, "name": name })).collect::<Vec<_>>() }))
+                }))
+            }
+            "docs_plan" => {
+                let lib = self.library()?;
+                let items: Vec<docs::Item> = serde_json::from_value(args["items"].clone()).map_err(|e| e.to_string())?;
+                let mode = args["mode"].as_str().unwrap_or("copy").to_string();
+                let always_copy = args["always_copy"].as_bool().unwrap_or(false);
+                j(self
+                    .with_index(move |ix| {
+                        let plan = docs::plan(ix, &lib, &items, &mode, always_copy)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            _ => Err(format!("unknown command {cmd}")),
+        }
+    }
+
     async fn pc_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
         use crate::{addgame, identify, launchbox, pcgames, steam};
         let j = |v: Value| Ok(Reply::Json(v));
@@ -1059,6 +1212,30 @@ impl App {
                     .collect();
                 cfg.save(&self.config_path()).map_err(e2s)?;
                 j(identify::sources(&cfg, &data_dir))
+            }
+            "sources_keys_set" => {
+                // a source's account or key (blank fields keep what's set; `clear` forgets them)
+                let source = arg(&args, "source").map_err(e2s)?.to_string();
+                let Some((_, fields)) = crate::scrapers::KEYS.iter().find(|(s, _)| *s == source) else { return Err(format!("{source} needs no key.")) };
+                let mut cfg = cfg;
+                let keys = cfg.source_keys.entry(source.clone()).or_default();
+                if args["clear"] == true {
+                    keys.clear();
+                }
+                for (f, _, _) in fields.iter() {
+                    if let Some(v) = args["keys"][*f].as_str().map(str::trim).filter(|v| !v.is_empty()) {
+                        keys.insert(f.to_string(), v.to_string());
+                    }
+                }
+                if keys.is_empty() {
+                    cfg.source_keys.remove(&source);
+                }
+                cfg.save(&self.config_path()).map_err(e2s)?;
+                j(identify::sources(&cfg, &data_dir))
+            }
+            "sources_check" => {
+                let source = arg(&args, "source").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || Ok(json!(crate::scrapers::check(&cfg, &data_dir, &source)?)))).await?)
             }
             "launchbox_fetch" => {
                 let label = "Getting LaunchBox's database";
@@ -1222,7 +1399,7 @@ impl App {
             "export_plan" => {
                 let lib = self.library()?;
                 lib.writable().map_err(e2s)?;
-                let o = match args["export"].as_str() {
+                let mut o = match args["export"].as_str() {
                     Some(id) => export::options_of(&lib, id).map_err(e2s)?,
                     None => export::Options {
                         collection: arg(&args, "collection").map_err(e2s)?.to_string(),
@@ -1232,10 +1409,15 @@ impl App {
                         always_copy: args["always_copy"].as_bool().unwrap_or(false),
                         short_names: args["short_names"].as_bool().unwrap_or(true),
                         export_id: None,
+                        carry: Default::default(),
                     },
                 };
+                if args["carry"].is_object() {
+                    o.carry = serde_json::from_value(args["carry"].clone()).map_err(|e| e.to_string())?;
+                }
                 j(self
                     .with_index(move |ix| {
+                        crate::meta::sync(ix, &lib)?;
                         let plan = export::plan(ix, &lib, &o)?;
                         organise::save_pending(&data_dir, &plan)?;
                         let mut v = plan.summary();

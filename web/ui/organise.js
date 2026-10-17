@@ -25,7 +25,7 @@ export const FORMATS = [
   ["loose", "Loose files"],
 ];
 
-const OPS = { text: "Write", rename: "Rename", move: "Move", copy: "Copy", link: "Hardlink", zip: "Write ZIP", extract: "Unpack", aside: "Set aside", convert: "Convert", sheet: "Write cue sheet", cue: "Rewrite cue sheet" };
+const OPS = { text: "Write", image: "Write smaller picture", rename: "Rename", move: "Move", copy: "Copy", link: "Hardlink", zip: "Write ZIP", extract: "Unpack", aside: "Set aside", convert: "Convert", sheet: "Write cue sheet", cue: "Rewrite cue sheet" };
 
 /** The formats a game can be converted to, and what each is for. */
 export const CONVERT_FORMATS = {
@@ -36,7 +36,7 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting", import: "Importing", add: "Adding" })[kind] || "Organising";
+const verb = (kind) => ({ aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting", import: "Importing", add: "Adding", docs: "Bringing in documents" })[kind] || "Organising";
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
 export const organiseDialog = (opts) => ui.set({ dialog: { type: "organise", ...opts } });

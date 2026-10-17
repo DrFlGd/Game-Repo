@@ -9,6 +9,7 @@
 //!   gamerepo-cli organise, duplicates, convert, extract, history, undo, finish, set-aside empty, tools
 //!   gamerepo-cli systems, collections, collection, export, exports
 //!   gamerepo-cli pc, identify, sources, launchbox, steam, add
+//!   gamerepo-cli games, game, scrape, docs
 //!
 //! `serve` runs the app's commands behind a local web server, so the page can be
 //! tested in an ordinary browser (with tests/tauri_shim.js standing in for Tauri's
@@ -105,10 +106,14 @@ under <dir>/config and <dir>/data instead of the app's own folders.
                              save it as DATs, one per system
   collection delete <id>
   export <collection id> --out <dir> [--to esde|folder] [--esde <ES-DE folder>]
-        [--always-copy] [--full-names] [--dry-run]
+        [--always-copy] [--full-names] [--dry-run] [--fields <a,b>|all]
+        [--media <a,b>|all] [--manuals] [--docs] [--image-size <pixels>]
                              export a collection to ES-DE's ROMs folder (with its
                              gamelists and a custom collection when --esde is given)
-                             or to a folder, hardlinked where it can be, checked
+                             or to a folder, hardlinked where it can be, checked;
+                             --fields, --media, --manuals and --docs (a folder only)
+                             carry the games' details, pictures and documents,
+                             --image-size makes the pictures smaller
   exports                    the exports made
   export update <export id> [--dry-run]
                              export it again: new games added, those gone set aside
@@ -130,7 +135,10 @@ under <dir>/config and <dir>/data instead of the app's own folders.
   pc inbox [<dir>|--clear]   the inbox folder Import reads
   identify <title> [--platform <id>] [--year <y>]
                              search the sources for a game
-  sources                    the sources Identify asks, in order
+  sources                    the sources Identify and Scrape ask, in order
+  sources key <source> --<field> <value>... [--clear]
+                             set a source's account or key (sources lists the fields)
+  sources check <source>     try a source's account or key
   launchbox get              download LaunchBox Games DB's data (for Identify)
   steam users                the Steam users on this computer
   steam preview|write|remove --user <id>
@@ -139,6 +147,27 @@ under <dir>/config and <dir>/data instead of the app's own folders.
   add <file>... --platform <id> [--into <dir>] [--move] [--dry-run]
                              add a game for a system (not PC): copied (or moved) into
                              a folder with games, scanned, and checked against its DAT
+
+  games <platform> [--show have|all|look|none] [--search <text>]
+                             a system's games in its DAT, with what the library has
+                             for each (details, pictures, documents); look: those a
+                             scrape wasn't sure about
+  game <id> [--clear] [--pick <source> <id>]
+                             a game's details, pictures and documents; --clear forgets
+                             what was scraped, --pick takes a source's game for it
+  scrape <platform> [--all] [--game <id>]... [--collection <id>] [--sources <a,b>]
+        [--fields <a,b>] [--media <a,b>] [--regions <us,eu,…>] [--language <en>]
+        [--existing fill|replace|skip]
+                             scrape a system's games in the library (--all: every
+                             game in its DAT) for their details, pictures and manual;
+                             the choices left out are the last scrape's
+  docs [--search <text>] [--kind <kind>] [--platform <id>] [--yours]
+                             the documents (guides, manuals, …), searched by their text
+  docs read                  read the documents' text for searching
+  docs import <file or folder>... [--platform <id>] [--game <id>] [--move]
+        [--always-copy] [--dry-run]
+                             bring documents into the library, each with the game it's
+                             paired with (shown first)
 ";
 
 struct Args {
@@ -201,7 +230,7 @@ async fn run() -> Result<()> {
         "serve" => serve(a).await,
         "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" | "organise" | "duplicates" | "history" | "undo" | "finish"
         | "set-aside" | "convert" | "extract" | "formats" | "tools" | "systems" | "collections" | "collection" | "export" | "exports" | "pc" | "identify"
-        | "sources" | "launchbox" | "steam" | "add" => library_command(&cmd, a).await,
+        | "sources" | "launchbox" | "steam" | "add" | "games" | "game" | "scrape" | "docs" => library_command(&cmd, a).await,
         other => bail!("unknown command {other} (gamerepo-cli --help lists them)"),
     }
 }
@@ -309,7 +338,12 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
     }
     let json_out = a.rest.iter().any(|x| x == "--json");
     a.rest.retain(|x| x != "--json");
-    let sub = if matches!(cmd, "roots" | "dat" | "set-aside" | "systems" | "collection" | "export" | "pc" | "launchbox" | "steam") && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
+    let subs = matches!(cmd, "roots" | "dat" | "set-aside" | "systems" | "collection" | "export" | "pc" | "launchbox" | "steam")
+        || (matches!(cmd, "sources" | "docs") && a.rest.first().is_some_and(|x| matches!(x.as_str(), "key" | "check" | "read" | "import")));
+    let sub = if subs && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
+    let list_of = |v: Option<String>, all: &[&str]| -> Option<Vec<String>> {
+        v.map(|v| if v == "all" { all.iter().map(|s| s.to_string()).collect() } else { v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect() })
+    };
     match (cmd, sub.as_str()) {
         ("platforms", _) => print(&invoke(&app, "platforms", json!({})).await?),
         ("roots", "list") | ("roots", "") => {
@@ -758,7 +792,14 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
                 let esde = a.flag("--esde").map(abs);
                 let always_copy = a.rest.iter().any(|x| x == "--always-copy");
                 let short_names = !a.rest.iter().any(|x| x == "--full-names");
-                invoke(&app, "export_plan", json!({ "collection": what, "target": target, "out": out, "esde": esde, "always_copy": always_copy, "short_names": short_names })).await?
+                let fields: Vec<&str> = gamerepo_core::meta::FIELDS.iter().map(|(k, _)| *k).collect();
+                let media: Vec<&str> = gamerepo_core::meta::MEDIA.iter().map(|(k, _, _)| *k).collect();
+                let carry = json!({
+                    "fields": list_of(a.flag("--fields"), &fields).unwrap_or_default(), "media": list_of(a.flag("--media"), &media).unwrap_or_default(),
+                    "manuals": a.rest.iter().any(|x| x == "--manuals"), "docs": a.rest.iter().any(|x| x == "--docs"),
+                    "image_size": a.flag("--image-size").map(|n| n.parse::<u32>()).transpose().context("--image-size is a number of pixels")?.unwrap_or(0),
+                });
+                invoke(&app, "export_plan", json!({ "collection": what, "target": target, "out": out, "esde": esde, "always_copy": always_copy, "short_names": short_names, "carry": carry })).await?
             };
             show_and_run(&app, plan, dry, json_out).await
         }
@@ -854,7 +895,164 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             }
             Ok(())
         }
+        ("sources", "key") => {
+            let source = a.rest.first().filter(|x| !x.starts_with("--")).cloned().context("sources key needs a source (sources lists them)")?;
+            a.rest.remove(0);
+            let clear = a.rest.iter().any(|x| x == "--clear");
+            a.rest.retain(|x| x != "--clear");
+            let mut keys = json!({});
+            while let Some(f) = a.rest.first().cloned() {
+                let field = f.strip_prefix("--").with_context(|| format!("{f}: give each field as --<field> <value>"))?.to_string();
+                let v = a.flag(&f).with_context(|| format!("{f} needs a value"))?;
+                keys[field] = json!(v);
+            }
+            let v = invoke(&app, "sources_keys_set", json!({ "source": source, "keys": keys, "clear": clear })).await?;
+            if json_out {
+                return print(&v);
+            }
+            Ok(())
+        }
+        ("sources", "check") => {
+            let source = a.rest.first().cloned().context("sources check needs a source")?;
+            let v = invoke(&app, "sources_check", json!({ "source": source })).await?;
+            if json_out {
+                return print(&v);
+            }
+            println!("{}", v.as_str().map(String::from).unwrap_or_else(|| v.to_string()));
+            Ok(())
+        }
         ("sources", _) => print(&invoke(&app, "sources", json!({})).await?),
+        ("games", _) => {
+            let platform = a.rest.iter().find(|x| !x.starts_with("--")).cloned().context("games needs a system (platforms lists them)")?;
+            let show = a.flag("--show").unwrap_or_else(|| "have".into());
+            let search = a.flag("--search").unwrap_or_default();
+            let v = invoke(&app, "meta_list", json!({ "platform": platform, "show": show, "search": search, "limit": 1000 })).await?;
+            if json_out {
+                return print(&v);
+            }
+            let c = &v["counts"];
+            println!("{} games: {} in the library, {} with details, {} with pictures, {} need a look", c["all"], c["have"], c["details"], c["media"], c["look"]);
+            for g in v["items"].as_array().into_iter().flatten() {
+                let mut has = vec![];
+                if g["details"] == true {
+                    has.push("details".to_string());
+                }
+                let media: Vec<&str> = g["media"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+                if !media.is_empty() {
+                    has.push(media.join(" "));
+                }
+                if g["docs"].as_i64().unwrap_or(0) > 0 {
+                    has.push(format!("{} documents", g["docs"]));
+                }
+                if g["review"] == true {
+                    has.push("needs a look".into());
+                }
+                println!("  {:>7}  {}  [{}]", g["id"], g["name"].as_str().unwrap_or(""), has.join(", "));
+            }
+            Ok(())
+        }
+        ("game", _) => {
+            let id: i64 = a.rest.iter().find(|x| !x.starts_with("--")).context("game needs a game's id (games lists them)")?.parse().context("a game's id is a number")?;
+            if let Some(i) = a.rest.iter().position(|x| x == "--pick") {
+                let (source, sid) = (a.rest.get(i + 1).cloned().context("--pick <source> <id>")?, a.rest.get(i + 2).cloned().context("--pick <source> <id>")?);
+                return print(&invoke(&app, "meta_pick", json!({ "game": id, "source": source, "id": sid })).await?);
+            }
+            if a.rest.iter().any(|x| x == "--clear") {
+                return print(&invoke(&app, "meta_clear", json!({ "id": id })).await?);
+            }
+            print(&invoke(&app, "meta_game", json!({ "id": id })).await?)
+        }
+        ("scrape", _) => {
+            let platform = a.rest.iter().find(|x| !x.starts_with("--")).cloned().context("scrape needs a system (platforms lists them)")?;
+            let choices = invoke(&app, "scrape_choices", json!({})).await?;
+            let mut o = choices["options"].clone();
+            o["platform"] = json!(platform);
+            o["scope"] = json!(if a.rest.iter().any(|x| x == "--all") { "all" } else { "have" });
+            let mut games = vec![];
+            while let Some(g) = a.flag("--game") {
+                games.push(g.parse::<i64>().context("--game takes a game's id (games lists them)")?);
+            }
+            if !games.is_empty() {
+                o["scope"] = json!("games");
+                o["games"] = json!(games);
+            }
+            if let Some(c) = a.flag("--collection") {
+                o["scope"] = json!("collection");
+                o["collection"] = json!(c);
+            }
+            let ids = |k: &str| -> Vec<String> { choices[k].as_array().into_iter().flatten().filter_map(|x| x["id"].as_str().map(String::from)).collect() };
+            let (sources, fields, media) = (ids("sources"), ids("fields"), ids("media"));
+            fn refs(v: &[String]) -> Vec<&str> {
+                v.iter().map(String::as_str).collect()
+            }
+            for (flag, key, all) in [("--sources", "sources", &sources), ("--fields", "fields", &fields), ("--media", "media", &media)] {
+                if let Some(v) = list_of(a.flag(flag), &refs(all)) {
+                    o[key] = json!(v);
+                }
+            }
+            if let Some(v) = list_of(a.flag("--regions"), &[]) {
+                o["regions"] = json!(v);
+            }
+            for (flag, key) in [("--language", "language"), ("--existing", "existing")] {
+                if let Some(v) = a.flag(flag) {
+                    o[key] = json!(v);
+                }
+            }
+            let r = follow(&app, invoke(&app, "scrape_run", json!({ "options": o })).await?).await?;
+            if json_out {
+                return print(&r);
+            }
+            println!("{} games: {} found, {} need a look, {} not found, {} skipped, {} pictures", r["games"], r["found"], r["look"], r["none"], r["skipped"], r["pictures"]);
+            for e in r["errors"].as_array().into_iter().flatten() {
+                eprintln!("  {}: {}", e["name"].as_str().unwrap_or(""), e["error"].as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
+        ("docs", "read") => print(&follow(&app, invoke(&app, "docs_read", json!({})).await?).await?),
+        ("docs", "import") => {
+            let abs = |o: &String| std::path::absolute(o).map(|p| p.display().to_string()).unwrap_or(o.clone());
+            let platform = a.flag("--platform");
+            let game = a.flag("--game").map(|g| g.parse::<i64>()).transpose().context("--game takes a game's id")?;
+            let has = |f: &str| a.rest.iter().any(|x| x == f);
+            let (mv, always_copy, dry) = (has("--move"), has("--always-copy"), has("--dry-run"));
+            let paths: Vec<String> = a.rest.iter().filter(|x| !x.starts_with("--")).map(abs).collect();
+            let r = follow(&app, invoke(&app, "docs_items", json!({ "paths": paths, "platform": platform, "game": game })).await?).await?;
+            let items = r["items"].as_array().cloned().unwrap_or_default();
+            if !json_out {
+                for it in &items {
+                    let with = match it["game_name"].as_str() {
+                        Some(g) => format!("{g} ({})", it["pairing"].as_str().unwrap_or("")),
+                        None => "no game".into(),
+                    };
+                    println!("  {} → {} [{}]: {with}", it["name"].as_str().unwrap_or(""), it["title"].as_str().unwrap_or(""), it["kind"].as_str().unwrap_or(""));
+                }
+            }
+            if items.iter().all(|i| i["include"] != true) {
+                println!("No documents to bring in.");
+                return Ok(());
+            }
+            let plan = invoke(&app, "docs_plan", json!({ "items": items, "mode": if mv { "move" } else { "copy" }, "always_copy": always_copy })).await?;
+            show_and_run(&app, plan, dry, json_out).await
+        }
+        ("docs", _) => {
+            let q = a.flag("--search").unwrap_or_default();
+            let kind = a.flag("--kind").unwrap_or_default();
+            let platform = a.flag("--platform").unwrap_or_default();
+            let source = if a.rest.iter().any(|x| x == "--yours") { "yours" } else { "" };
+            let v = invoke(&app, "docs_list", json!({ "query": q, "kind": kind, "platform": platform, "source": source, "limit": 1000 })).await?;
+            if json_out {
+                return print(&v);
+            }
+            println!("{} documents", v["total"]);
+            for d in v["items"].as_array().into_iter().flatten() {
+                let game = d["game"].as_str().map(|g| format!("  ({g})")).unwrap_or_default();
+                println!("  {:>6}  {:<9} {}{game}", d["id"], d["kind"].as_str().unwrap_or(""), d["title"].as_str().unwrap_or(""));
+                if let Some(sn) = d["snippet"].as_str().filter(|s| !s.is_empty()) {
+                    println!("          {}", sn.replace('\n', " "));
+                }
+            }
+            Ok(())
+        }
         ("launchbox", "get") => print(&follow(&app, invoke(&app, "launchbox_fetch", json!({})).await?).await?),
         ("steam", "users") | ("steam", "") => print(&invoke(&app, "steam_info", json!({})).await?),
         ("steam", what @ ("preview" | "write" | "remove")) => {
