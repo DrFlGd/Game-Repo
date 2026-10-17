@@ -101,7 +101,13 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
     )?;
     let mut val = conn.prepare_cached("INSERT INTO library_values (game, field, value) VALUES (?1, ?2, ?3)")?;
     let mut fts = conn.prepare_cached("INSERT INTO library_text (rowid, title, name, body) VALUES (?1, ?2, ?3, ?4)")?;
+    // a key met twice (a PC game's folder copied with its game.json, so the same id) is
+    // listed once, not a reason for the whole Library to fail
+    let mut keys: HashSet<&str> = HashSet::new();
     for r in rows {
+        if !keys.insert(&r.key) {
+            continue;
+        }
         let f = &r.facts;
         let developer = text(&f.get("developer").cloned().unwrap_or_default());
         let publisher = text(&f.get("publisher").cloned().unwrap_or_default());
@@ -231,6 +237,19 @@ fn rebuild_system(conn: &Connection, platform: &str, dat: Option<i64>) -> Result
             for (i, r) in rows.iter_mut().enumerate() {
                 if have_only { r.best_have = chosen.contains(&i) } else { r.best_all = chosen.contains(&i) }
             }
+        }
+    }
+    // a DAT can list two different games under one name (`dat::parse` keeps both when
+    // their files differ, as libretro's copies do): the later ones by the DAT's order get
+    // `~2`, `~3`… after the name, so each has a key of its own
+    let mut order: Vec<usize> = (0..rows.len()).collect();
+    order.sort_by_key(|&i| rows[i].dat_game);
+    let mut keys: HashSet<String> = HashSet::new();
+    for i in order {
+        let mut n = 1;
+        while !keys.insert(rows[i].key.clone()) {
+            n += 1;
+            rows[i].key = format!("{platform}/{}~{n}", rows[i].name);
         }
     }
     // games no DAT knows (Add a game…): their folder is named by the file's SHA1
@@ -1099,6 +1118,25 @@ mod tests {
         let g = edit(&ix, &lib, key, "developer", None).unwrap();
         assert_eq!(g["edited"], json!(["genres", "year", "players", "rating"]));
         assert_eq!((g["details"]["developer"].as_str(), g["scraped"]["developer"].as_str()), (Some("Other"), Some("igdb")), "{g}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn two_games_a_dat_lists_under_one_name_each_get_a_key() {
+        use crate::audit::tests::{dat_xml, rom, rom_xml};
+        let (dir, lib, ix) = fixture("browse-same-name");
+        // libretro's copies list some discs twice under one name with different files
+        let games = vec![("Twin (USA)", None, rom_xml("Twin (USA).gb", &rom(71, 512))), ("Twin (USA)", None, rom_xml("Twin (USA).gb", &rom(72, 512))), ("Solo (USA)", None, rom_xml("Solo (USA).gb", &rom(73, 512)))];
+        std::fs::write(dir.join("twins.dat"), dat_xml("Nintendo - Game Boy", "20261201", &games)).unwrap();
+        crate::dat::import(&ix, &lib, &dir.join("twins.dat"), &Map::new()).unwrap();
+        let gb: i64 = ix.conn().query_row("SELECT id FROM dats WHERE version = '20261201'", [], |r| r.get(0)).unwrap();
+        audit::choose_dat(ix.conn(), &lib, gb).unwrap();
+        meta::sync(&ix, &lib).unwrap();
+        refresh(&ix, &lib).unwrap();
+        let mut keys: Vec<String> = ask(&ix, &lib, |q| q.all = true)["items"].as_array().unwrap().iter().map(|g| g["key"].as_str().unwrap().to_string()).collect();
+        keys.sort();
+        assert_eq!(keys, ["gb/Solo (USA)", "gb/Twin (USA)", "gb/Twin (USA)~2"]);
+        assert_eq!(game(&ix, &lib, "gb/Twin (USA)~2").unwrap()["name"], "Twin (USA)");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
