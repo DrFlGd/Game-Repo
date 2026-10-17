@@ -357,8 +357,18 @@ take games from it, without copying an SD card by hand.
      the collection it carries, how much space it has) and a sync job that brings the
      device to match, sending only what changed and verifying what was written. This is
      the export of 3.4 aimed at a device instead of a folder.
-- **Device profiles** know each firmware's ROM and media folder names (muOS, Knulli,
-  ROCKNIX, ArkOS, Batocera, ES-DE on Android), as the ES-DE export knows ES-DE's.
+- **Device profiles** know each firmware's ROM and media folder names, as the ES-DE
+  export knows ES-DE's. The ones Jerred uses come first (D18): **ES-DE on Android or
+  Linux** (the Phase 3 ES-DE export's layout, with the device's ROM folder as the
+  target), **Knulli** and **ROCKNIX** (a folder per system with its own `gamelist.xml`
+  and media beside it), and **muOS** (its ROM folders plus its own catalogue of box art,
+  previews and descriptions). ArkOS and Batocera follow if asked for. Each profile's
+  folder names and media layout are checked against that firmware's documentation when
+  it is built.
+- **SD cards first, then the network.** A device profile is first an export target: a
+  collection exported to an SD card in that firmware's layout, within the card's size
+  limit (Phase 3's *Size limit*). Serving and syncing over the network reuse the same
+  profiles.
 - **Safety on the network**: off until switched on, listening on the home network only,
   paired with a code shown in the app, and never exposed to the internet by the app.
 - A dedicated client app on the device is not planned; existing frontends and file
@@ -1614,12 +1624,12 @@ IGDB, TheGamesDB: Phase 5), scraped media for ES-DE (Phase 5).
   cartridge DATs and imported for platforms without one; newer DATs imported by hand
   (not shipped in the installer: each group publishes its DATs on its own terms).
 
-## 11. Open decisions
+- **D18 Devices (taken 2026-10-17):** the devices are muOS, Knulli and ROCKNIX
+  handhelds, and Android or Linux running ES-DE. Their device profiles come first
+  (3.10); none of them needs a client app of its own (browser, WebDAV and sync cover
+  them). When the SD-card profiles are built is D29.
 
-- **D18 Serving to devices (3.10, Phase 9):** which devices and firmwares come first
-  (proposed: Android with ES-DE, then the handheld firmware Jerred uses), and whether
-  any of them needs a client app of its own (proposed: no; browser, WebDAV and sync
-  cover them). Settled before Phase 9 starts.
+## 11. Open decisions
 
 - **D19, D20** (Phase 2 design): Phase 2 in two halves; originals and duplicates set aside
   on the same drive until emptied. Proposed defaults, followed unless Jerred changes them.
@@ -1637,7 +1647,11 @@ IGDB, TheGamesDB: Phase 5), scraped media for ES-DE (Phase 5).
   Phase 4's sources, Steam's shortcuts. Proposed defaults, followed in the build
   ("Phase 4 notes"); Jerred asked for Phase 4 to be built and released on 2026-10-17.
 
-New ones get a number here as they come up (next: D29).
+- **D29 When device profiles come** (from D18): proposed right after Phase 5, as export
+  targets for SD cards, since what they carry is Phase 5's metadata and media; serving
+  and syncing over the network stay in Phase 9. Asked 2026-10-17.
+
+New ones get a number here as they come up (next: D30).
 
 ---
 
