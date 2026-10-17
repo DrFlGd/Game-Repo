@@ -89,6 +89,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 - Export… carries the systems' BIOS files when ticked, into the layout's BIOS folder (`bios/` on Knulli, `roms/bios/` on ROCKNIX, `MUOS/bios/` on muOS, `BIOS/` beside ES-DE's ROMs on a card).
 - **Command line**: `layouts`, `layout show|check|import|write|remove`, `bios`, `bios report`, `bios gather [--dry-run]`, and `export … --layout <id> --place card=E:/ --bios`.
 - Plan: Phase 5b's design and notes in `docs/PLAN.md` (D36–D41).
+- The page test reads the About page's roadmap by what's still to come, since what's done is folded away.
 
 ## 0.5.0 (2026-10-17)
 
