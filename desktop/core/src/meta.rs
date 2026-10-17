@@ -263,7 +263,8 @@ pub fn sync(ix: &Index, lib: &Library) -> Result<()> {
     let mut seen = HashSet::new();
     let tx = conn.unchecked_transaction()?;
     for sys in std::fs::read_dir(games_root(lib)).into_iter().flatten().flatten() {
-        if !sys.path().is_dir() {
+        // not the set-aside folder (metadata deleted, D48)
+        if !sys.path().is_dir() || sys.file_name().to_string_lossy().starts_with('.') {
             continue;
         }
         for g in std::fs::read_dir(sys.path()).into_iter().flatten().flatten() {
@@ -364,16 +365,22 @@ pub fn game(ix: &Index, lib: &Library, dat_game_id: i64) -> Result<Value> {
         "id": g.id, "platform": g.platform, "platform_name": platforms::name_of(&g.platform), "dat": g.dat, "name": g.name,
         "title": g.title, "regions": g.regions, "have": have, "folder": folder,
         "roms": g.roms.iter().map(Rom::to_json).collect::<Vec<_>>(),
-        "details": {}, "media": {}, "docs": [], "ids": {}, "review": [], "scraped": {}, "edited": [],
+        "details": {}, "media": {}, "docs": [], "ids": {}, "review": [], "scraped": {}, "edited": [], "pinned": {}, "sources": [], "variants": {},
     });
     if let Some(f) = &folder {
         let dir = lib.resolve(f)?;
         let j = read_game(&dir);
-        for k in ["details", "ids", "review", "scraped", "edited"] {
+        for k in ["details", "ids", "review", "scraped", "edited", "pinned"] {
             if !j[k].is_null() {
                 v[k] = j[k].clone();
             }
         }
+        // what each source said, and each kind's pictures from each (D46, D47)
+        v["sources"] = json!(crate::sources::answers(&dir).into_iter().map(|(s, mut a)| {
+            a["name"] = json!(crate::sources::source_name(&s));
+            a
+        }).collect::<Vec<_>>());
+        v["variants"] = json!(crate::sources::variants(lib, &dir, &j));
         if let Some(t) = j["title"].as_str().filter(|s| !s.is_empty()) {
             v["title"] = json!(t);
         }
@@ -393,10 +400,11 @@ pub fn clear(ix: &Index, lib: &Library, dat_game_id: i64) -> Result<Value> {
     if let Some(f) = folder_of(ix.conn(), &g)? {
         let dir = lib.resolve(&f)?;
         let _ = std::fs::remove_dir_all(dir.join("media"));
+        let _ = std::fs::remove_dir_all(dir.join(crate::sources::DIR));
         crate::docs::remove_scraped(ix, lib, &dir)?;
         let mut v = read_game(&dir);
         if let Some(o) = v.as_object_mut() {
-            for k in ["details", "review", "scraped", "year", "ids"] {
+            for k in ["details", "review", "scraped", "year", "ids", "chosen", "pinned", "pinned_media"] {
                 o.remove(k);
             }
             o.insert("title".into(), json!(g.title));
@@ -407,8 +415,8 @@ pub fn clear(ix: &Index, lib: &Library, dat_game_id: i64) -> Result<Value> {
 }
 
 /// Change one of a game's details by hand (D44): `title`, `year` or one of FIELDS. It's
-/// marked as edited, so later scrapes leave it; `None` takes the mark off (the value stays
-/// until a scrape replaces it).
+/// marked as edited, so later scrapes leave it; `None` takes the mark off (the sources'
+/// value comes back, D46).
 pub fn edit(ix: &Index, lib: &Library, dat_game_id: i64, field: &str, value: Option<&Value>) -> Result<Value> {
     lib.writable()?;
     edit_value(field, &Value::Null)?;
@@ -451,6 +459,11 @@ pub fn edit_value(field: &str, x: &Value) -> Result<Value> {
 pub fn edit_dir(ix: &Index, lib: &Library, dir: &Path, field: &str, value: Option<&Value>) -> Result<()> {
     lib.writable()?;
     let mut v = read_game(dir);
+    let by_source = v["platform"] != "pc";
+    if by_source {
+        // a folder from before is split while its edits are still marked
+        crate::sources::prepare(dir, &v)?;
+    }
     let mut edited: Vec<Value> = v["edited"].as_array().cloned().unwrap_or_default();
     edited.retain(|e| e != field);
     if let Some(x) = value {
@@ -471,6 +484,10 @@ pub fn edit_dir(ix: &Index, lib: &Library, dir: &Path, field: &str, value: Optio
         edited.push(json!(field));
     }
     v["edited"] = json!(edited);
+    // the mark taken off: the sources' value again (D46)
+    if value.is_none() && by_source {
+        crate::sources::make(&mut v, dir, &crate::sources::Rules::of(lib));
+    }
     write_game(ix, lib, dir, &v)
 }
 

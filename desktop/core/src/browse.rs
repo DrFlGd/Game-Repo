@@ -1088,10 +1088,12 @@ mod tests {
         assert_eq!(names(&c), ["Delta (World)", "Epsilon (Japan) (En,Ja)"]);
         let saved = collection::save(&lib, c).unwrap();
         assert_eq!(collection::load(&lib, &saved.id).unwrap().rules.details.genre, ["Puzzle"]);
-        // the mark taken off: the next scrape may replace it
+        // the mark taken off: the source's value comes back (D46)
+        let m = crate::pcgames::Match { source: "igdb".into(), id: "1".into(), details: found.clone(), ..Default::default() };
+        crate::sources::keep(&dir_of, &m, &["developer".into()], false).unwrap();
         let g = edit(&ix, &lib, key, "developer", None).unwrap();
         assert_eq!(g["edited"], json!(["genres", "year", "players", "rating"]));
-        assert_eq!(g["details"]["developer"], "Acme Soft");
+        assert_eq!((g["details"]["developer"].as_str(), g["scraped"]["developer"].as_str()), (Some("Other"), Some("igdb")), "{g}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

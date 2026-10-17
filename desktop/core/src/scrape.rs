@@ -15,9 +15,10 @@ use crate::identify::{self, Candidate};
 use crate::index::Index;
 use crate::launchbox;
 use crate::library::Library;
-use crate::meta::{self, DatGame, Found};
+use crate::meta::{self, DatGame};
 use crate::pcgames::{norm_title, Match};
 use crate::scrapers;
+use crate::sources;
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -50,6 +51,10 @@ pub struct Options {
     pub language: String,
     /// fill (what's missing) | replace | skip (games with anything already)
     pub existing: String,
+    /// The kinds of picture kept from every source that has one, not only the chosen (D47)
+    pub variants: Vec<String>,
+    /// Ask the sources again, passing over their answers kept from the past week (D48)
+    pub fresh: bool,
 }
 
 impl Default for Options {
@@ -66,6 +71,8 @@ impl Default for Options {
             regions: ["us", "eu", "wor", "jp"].map(String::from).to_vec(),
             language: "en".into(),
             existing: "fill".into(),
+            variants: meta::MEDIA.iter().map(|(k, _, _)| k.to_string()).filter(|k| k != "video").collect(),
+            fresh: false,
         }
     }
 }
@@ -76,6 +83,7 @@ pub fn defaults(lib: &Library) -> Options {
     let mut o: Options = serde_json::from_value(lib.meta()["scrape"].clone()).unwrap_or_default();
     o.scope = "have".into();
     o.games.clear();
+    o.fresh = false;
     o.sources.retain(|s| SCRAPE_SOURCES.contains(&s.as_str()));
     o
 }
@@ -83,7 +91,7 @@ pub fn defaults(lib: &Library) -> Options {
 fn save_defaults(lib: &Library, o: &Options) -> Result<()> {
     let mut v = serde_json::to_value(o)?;
     if let Some(m) = v.as_object_mut() {
-        for k in ["scope", "platform", "collection", "games"] {
+        for k in ["scope", "platform", "collection", "games", "fresh"] {
             m.remove(k);
         }
     }
@@ -228,34 +236,21 @@ fn ask(cfg: &AppConfig, data_dir: &Path, o: &Options, g: &DatGame, off: &mut Has
     Asked { found, candidates }
 }
 
-/// The kinds of picture to fetch for a game, each with its URL, from the sources' answers.
-fn pictures(o: &Options, found: &[Match]) -> Vec<(String, String, String)> {
-    let mut v = vec![];
-    for kind in &o.media {
-        let from = o.prefer.get(kind).and_then(|p| found.iter().find(|m| &m.source == p && m.art.contains_key(kind))).or_else(|| found.iter().find(|m| m.art.contains_key(kind)));
-        if let Some(m) = from {
-            v.push((kind.clone(), m.art[kind].clone(), m.source.clone()));
-        }
-    }
-    v
+/// The source a kind of picture is chosen from: the one preferred for it, else the first that has it.
+fn chosen_from<'a>(o: &Options, found: &'a [Match], kind: &str) -> Option<&'a Match> {
+    o.prefer.get(kind).and_then(|p| found.iter().find(|m| &m.source == p && m.art.contains_key(kind))).or_else(|| found.iter().find(|m| m.art.contains_key(kind)))
 }
 
-/// Put what the sources said into a game's folder: details merged, pictures fetched.
-/// Returns how many pictures (and manuals) were kept.
+/// Put what the sources said into a game's folder: each source's answer kept and the
+/// details made from them (D46), pictures fetched, one from each source for the kinds
+/// that keep them all (D47). Returns how many pictures (and manuals) were kept.
 pub fn apply(ix: &Index, lib: &Library, g: &DatGame, found: &[Match], o: &Options, cancel: &AtomicBool) -> Result<usize> {
     let dir = meta::ensure_folder(ix, lib, g)?;
     let mut v = meta::read_game(&dir);
     let replace = o.existing == "replace";
-    if replace {
-        if let Some(d) = v["details"].as_object_mut() {
-            for f in &o.fields {
-                d.remove(f);
-            }
-        }
-    }
-    for (i, m) in found.iter().enumerate() {
-        let f = Found { source: &m.source, id: &m.id, title: (i == 0).then_some(m.title.as_str()), year: m.year, details: &m.details };
-        meta::merge_details(&mut v, &f, &o.fields, replace && i == 0);
+    sources::prepare(&dir, &v)?;
+    for m in found {
+        sources::keep(&dir, m, &o.fields, replace)?;
     }
     if !found.is_empty() {
         if let Some(obj) = v.as_object_mut() {
@@ -263,28 +258,60 @@ pub fn apply(ix: &Index, lib: &Library, g: &DatGame, found: &[Match], o: &Option
         }
     }
     let mut got = 0;
-    let media_dir = dir.join("media");
-    let have = meta::media_kinds(&dir);
-    for (kind, u, source) in pictures(o, found) {
+    for kind in &o.media {
         if cancel.load(Ordering::Relaxed) {
             break;
         }
+        let def = chosen_from(o, found, kind);
         if kind == "manual" {
+            let Some(m) = def else { continue };
             if docs::has_users(&dir, "manual") || (!replace && docs::has_scraped(&dir, "manual")) {
                 continue;
             }
-        } else if !replace && have.contains(&kind) {
+            if let Some((bytes, ext)) = scrapers::fetch(&m.art[kind], kind) {
+                docs::save_scraped(lib, &dir, "manual", identify::source_name(&m.source), &m.source, &ext, &bytes)?;
+                got += 1;
+            }
             continue;
         }
-        let Some((bytes, ext)) = scrapers::fetch(&u, &kind) else { continue };
-        if kind == "manual" {
-            docs::save_scraped(lib, &dir, "manual", identify::source_name(&source), &source, &ext, &bytes)?;
-        } else {
-            identify::save_media(&media_dir, &kind, &ext, &bytes)?;
-            v["scraped"]["media"][&kind] = json!(source);
+        let every = o.variants.iter().any(|k| k == kind);
+        if !every && !replace && sources::flat(&dir, kind).is_some() {
+            continue;
         }
-        got += 1;
+        let mut want: Vec<&Match> = def.into_iter().collect();
+        if every {
+            for m in found {
+                if m.art.contains_key(kind) && !want.iter().any(|w| w.source == m.source) {
+                    want.push(m);
+                }
+            }
+        }
+        let have = sources::names(&dir, &v, kind);
+        for m in want {
+            if !replace && have.contains(&m.source) {
+                continue;
+            }
+            let Some((bytes, ext)) = scrapers::fetch(&m.art[kind], kind) else { continue };
+            std::fs::create_dir_all(dir.join("media"))?;
+            sources::store(&dir, &v, kind, &m.source, &ext, &bytes)?;
+            got += 1;
+        }
+        if replace {
+            // a source asked again that has none of this kind any more
+            for m in found.iter().filter(|m| !m.art.contains_key(kind)) {
+                sources::remove(&dir, &mut v, kind, &m.source);
+            }
+        }
+        // which is shown: the user's pick, else (replacing, or nothing shown) the chosen source's
+        let names = sources::names(&dir, &v, kind);
+        let pinned = v["pinned_media"][kind].as_str().filter(|p| names.iter().any(|n| n == p)).map(String::from);
+        let shown = sources::flat(&dir, kind).is_some();
+        let target = pinned.or_else(|| def.map(|m| m.source.clone()).filter(|s| (replace || !shown) && names.contains(s))).or_else(|| (!shown).then(|| names.first().cloned()).flatten());
+        if let Some(t) = target {
+            sources::choose_in(&dir, &mut v, kind, &t)?;
+        }
     }
+    sources::make(&mut v, &dir, &sources::Rules::of(lib));
     meta::write_game(ix, lib, &dir, &v)?;
     Ok(got)
 }
@@ -316,6 +343,15 @@ pub fn run(ix: &Index, lib: &Library, cfg: &AppConfig, data_dir: &Path, o: &Opti
     }
     meta::sync(ix, lib)?;
     let games = games_of(ix, lib, &o)?;
+    // asking again: the answers kept are passed over until the scrape ends
+    struct Fresh;
+    impl Drop for Fresh {
+        fn drop(&mut self) {
+            scrapers::FRESH.store(false, Ordering::Relaxed);
+        }
+    }
+    scrapers::FRESH.store(o.fresh, Ordering::Relaxed);
+    let _fresh = Fresh;
     let (mut found_n, mut look, mut none, mut skipped, mut pics) = (0, 0, 0, 0, 0);
     let mut off: HashSet<String> = HashSet::new();
     let mut errors: BTreeMap<String, String> = BTreeMap::new();
@@ -451,6 +487,7 @@ pub(crate) mod tests {
             ("/media/manual.pdf".to_string(), pdf),
             ("/tw/oauth2/token".to_string(), br#"{"access_token":"tok","expires_in":5000,"token_type":"bearer"}"#.to_vec()),
             ("BODY:search \"Beta\"".to_string(), br#"[{"id":77,"name":"Beta","summary":"Beta from IGDB.","first_release_date":946684800,"cover":{"image_id":"co77"},"genres":[{"name":"Puzzle"}],"involved_companies":[{"company":{"name":"Beta Co"},"developer":true,"publisher":true}]}]"#.to_vec()),
+            ("BODY:search \"Alpha\"".to_string(), br#"[{"id":55,"name":"Alpha","summary":"Alpha from IGDB.","cover":{"image_id":"co77"}}]"#.to_vec()),
             ("BODY:search \"Delta\"".to_string(), br#"[{"id":88,"name":"Delta Force","summary":"Not quite."}]"#.to_vec()),
             ("BODY:where id = 88".to_string(), br#"[{"id":88,"name":"Delta Force","summary":"Picked by hand."}]"#.to_vec()),
             ("BODY:search ".to_string(), b"[]".to_vec()),
@@ -484,8 +521,8 @@ pub(crate) mod tests {
         let o = Options { platform: "gb".into(), sources: vec!["screenscraper".into(), "igdb".into(), "thegamesdb".into()], ..Default::default() };
         let cancel = AtomicBool::new(false);
         let r = run(&ix, &lib, &cfg, &data, &o, &cancel, &mut |_| {}).unwrap();
-        // eight games on disk: Alpha (Europe) by its hash, the three Betas by name, Delta unsure
-        assert_eq!((r["games"].as_u64(), r["found"].as_u64(), r["look"].as_u64()), (Some(8), Some(4), Some(1)), "{r}");
+        // eight games on disk: Alpha (Europe) by its hash (and by name), the other Alpha and the three Betas by name, Delta unsure
+        assert_eq!((r["games"].as_u64(), r["found"].as_u64(), r["look"].as_u64()), (Some(8), Some(5), Some(1)), "{r}");
         // TheGamesDB has no key: said once, the others still asked
         assert_eq!(r["errors"][0]["source"], "thegamesdb", "{r}");
         let alpha = dir.join("lib/_library/games/gb/Alpha (Europe)");
@@ -494,14 +531,16 @@ pub(crate) mod tests {
         assert_eq!((v["details"]["rating"].as_f64(), v["details"]["genres"][0].as_str(), v["ids"]["screenscraper"].as_str()), (Some(0.8), Some("Platform"), Some("1001")));
         assert_eq!(v["roms"][0]["name"], "Alpha (Europe).gb");
         assert_eq!(meta::media_kinds(&alpha), ["cover", "screenshot"]);
-        // the European box, not the Japanese
+        // the European box, not the Japanese; IGDB's kept beside it, and what it said
         assert_eq!(std::fs::read(alpha.join("media/cover.png")).unwrap(), png(600, 400));
+        assert!(alpha.join("media/cover/igdb.jpg").is_file());
+        assert_eq!(crate::sources::answers(&alpha)["igdb"]["details"]["description"], "Alpha from IGDB.");
         assert!(alpha.join("docs/Manual (ScreenScraper).pdf").is_file());
         let beta = meta::read_game(&dir.join("lib/_library/games/gb/Beta (Japan)"));
         assert_eq!((beta["details"]["developer"].as_str(), beta["year"].as_i64()), (Some("Beta Co"), Some(2000)));
         // the page's list and counts
         let l = meta::list(&ix, &lib, "gb", "have", "", 0, 50).unwrap();
-        assert_eq!((l["counts"]["have"].as_u64(), l["counts"]["details"].as_u64(), l["counts"]["look"].as_u64()), (Some(8), Some(4), Some(1)), "{l}");
+        assert_eq!((l["counts"]["have"].as_u64(), l["counts"]["details"].as_u64(), l["counts"]["look"].as_u64()), (Some(8), Some(5), Some(1)), "{l}");
         let look = meta::list(&ix, &lib, "gb", "look", "", 0, 50).unwrap();
         assert_eq!(look["items"][0]["name"], "Delta (World)");
         let a = l["items"].as_array().unwrap().iter().find(|x| x["name"] == "Alpha (Europe)").unwrap();
@@ -510,6 +549,17 @@ pub(crate) mod tests {
         let g = meta::game(&ix, &lib, gid).unwrap();
         assert_eq!((g["docs"][0]["kind"].as_str(), g["docs"][0]["source"].as_str()), (Some("manual"), Some("screenscraper")), "{g}");
         assert!(g["media"]["cover"].as_str().unwrap().ends_with("media/cover.png"));
+        assert_eq!((g["sources"].as_array().map(Vec::len), g["variants"]["cover"].as_array().map(Vec::len)), (Some(2), Some(2)), "{g}");
+        // IGDB's description and box chosen on its page; scraping again keeps them
+        crate::sources::pin(&ix, &lib, &alpha, "description", Some("igdb")).unwrap();
+        crate::sources::choose(&ix, &lib, &alpha, "cover", "igdb").unwrap();
+        let again = Options { scope: "games".into(), games: vec![gid], existing: "replace".into(), fresh: true, ..o.clone() };
+        let r = run(&ix, &lib, &cfg, &data, &again, &cancel, &mut |_| {}).unwrap();
+        assert_eq!(r["found"], 1, "{r}");
+        assert!(!scrapers::FRESH.load(Ordering::Relaxed));
+        let v = meta::read_game(&alpha);
+        assert_eq!((v["details"]["description"].as_str(), v["chosen"]["cover"].as_str()), (Some("Alpha from IGDB."), Some("igdb")), "{v}");
+        assert!(alpha.join("media/cover.jpg").is_file() && alpha.join("media/cover/screenscraper.png").is_file());
         // again: filling in what's missing fetches nothing new
         let r = run(&ix, &lib, &cfg, &data, &o, &cancel, &mut |_| {}).unwrap();
         assert_eq!(r["pictures"], 0, "{r}");
@@ -523,7 +573,7 @@ pub(crate) mod tests {
         // every game in the DAT: Alpha (USA) isn't on disk but ScreenScraper knows its hashes (it doesn't here)
         let all = Options { scope: "all".into(), existing: "skip".into(), ..o.clone() };
         let r = run(&ix, &lib, &cfg, &data, &all, &cancel, &mut |_| {}).unwrap();
-        assert_eq!((r["games"].as_u64(), r["skipped"].as_u64()), (Some(10), Some(4)), "{r}");
+        assert_eq!((r["games"].as_u64(), r["skipped"].as_u64()), (Some(10), Some(5)), "{r}");
         // the choices are saved for next time, without what they were for
         assert_eq!(defaults(&lib).sources, o.sources);
         let _ = std::fs::remove_dir_all(&dir);

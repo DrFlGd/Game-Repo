@@ -1775,6 +1775,9 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
     if plan.export.is_some() {
         crate::export::record(lib, plan, false)?;
     }
+    if plan.kind == "metadata" {
+        crate::sources::after(ix, lib, plan)?;
+    }
     audit::match_files(conn)?;
     audit::changed(conn)?;
     Ok(json!({ "id": id, "label": plan.label, "done": done, "ops": plan.ops.len(), "failed": failed, "stopped": stopped }))
@@ -1899,6 +1902,9 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
     }
     if plan.export.is_some() {
         crate::export::record(lib, &plan, true)?;
+    }
+    if plan.kind == "metadata" {
+        crate::sources::after(ix, lib, &plan)?;
     }
     audit::match_files(conn)?;
     audit::changed(conn)?;
