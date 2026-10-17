@@ -124,6 +124,7 @@ impl Plan {
             "ops": self.ops.len(), "by_op": by_op.iter().map(|(k, (n, b))| json!({ "op": k, "count": n, "bytes": b })).collect::<Vec<_>>(),
             "set_aside": set_aside, "conflicts": self.conflicts.len(), "duplicates": self.duplicates.len(), "left": self.left.len(),
             "space": self.space, "short": self.space.iter().any(|s| s["short"] == true), "new_root": self.new_root,
+            "layout_name": self.export.as_ref().and_then(|e| e.get("layout_name")).cloned(),
         })
     }
 }
@@ -146,6 +147,9 @@ pub struct Options {
     /// Laid out for ES-DE (an export, Phase 3): a game of one file is the file; a game of
     /// several is a folder named as its sheet (or first file), which ES-DE shows as the game
     pub esde: bool,
+    /// Every game in a folder of its own with its files named as the DAT says (the BIOS
+    /// set: a system's folder, its files as the cores look for them)
+    pub per_game_folder: bool,
     /// Files placed before (an export's), by path key: their size and modified time then.
     /// One still the same is there already, without reading it again.
     pub known: HashMap<String, (u64, i64)>,
@@ -712,7 +716,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         let first = chosen[0].1;
         let multi = g.roms.len() > 1;
         // for ES-DE, a game of several files is a folder named as the file it starts from
-        let per_game = naming.folder && !o.esde;
+        let per_game = (naming.folder || o.per_game_folder) && !o.esde;
         let folder_name = if o.esde {
             let start = g.roms.iter().find(|r| cue::is_sheet(&r.name)).or(g.roms.first()).map(|r| r.name.rsplit(['/', '\\']).next().unwrap_or(&r.name).to_string());
             safe_name(&start.unwrap_or_else(|| base.clone()))

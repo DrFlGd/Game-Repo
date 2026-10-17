@@ -135,14 +135,23 @@ function SaveDatsDialog({ c }) {
   <//>`;
 }
 
-/** Export…: to ES-DE or a plain folder, then the preview; Run starts the change.
+/** Where an export's places were last, by layout (Phase 3's `target`, `out`, `folder` and `esde` too). */
+function savedPlaces(saved, id) {
+  const p = { ...(saved.places?.[id] || {}) };
+  if (id === "esde") { p.roms = p.roms || saved.out || ""; p.esde = p.esde || saved.esde || ""; }
+  if (id === "folder") p.out = p.out || saved.folder || "";
+  return p;
+}
+
+/** Export…: a layout (ES-DE, a device's firmware, a plain folder: Settings › Export layouts),
+ *  where its places are, what it carries, then the preview; Run starts the change.
  *  Opened with `plan` (Update) it goes straight to the preview. */
 function ExportDialog({ c, sum, plan: given }) {
   const saved = prefs()?.get("gr-export", {}) || {};
-  const [target, setTarget] = useState(saved.target || "esde");
-  const [out, setOut] = useState(saved.out || "");
-  const [folder, setFolder] = useState(saved.folder || "");
-  const [esde, setEsde] = useState(saved.esde || "");
+  const [layouts, setLayouts] = useState(null);
+  const [layout, setLayout] = useState(saved.layout || saved.target || "esde");
+  const [places, setPlaces] = useState(() => savedPlaces(saved, saved.layout || saved.target || "esde"));
+  const [defaults, setDefaults] = useState({});
   const [alwaysCopy, setAlwaysCopy] = useState(false);
   const [shortNames, setShortNames] = useState(true);
   const [carry, setCarry] = useState({ ...NO_CARRY, ...(saved.carry || {}) });
@@ -151,23 +160,36 @@ function ExportDialog({ c, sum, plan: given }) {
   const [error, setError] = useState("");
   useEffect(() => {
     if (given) return;
-    api("export_defaults").then((d) => {
-      if (d.esde) setEsde((v) => v || d.esde);
-      if (d.roms) setOut((v) => v || d.roms);
-    }).catch(() => {});
+    api("layouts").then((l) => {
+      setLayouts(l);
+      if (!l.some((x) => x.id === layout)) setLayout("esde");
+    }).catch((e) => setError(`Couldn't read the layouts: ${err(e)}`));
+    api("export_defaults").then(setDefaults).catch(() => {});
   }, []);
-  const where = target === "esde" ? out : folder;
-  const pick = (set, title) => async () => {
-    const p = await ctx.platform.library.pickFolder(title);
-    if (p) set(p);
+  const l = layouts?.find((x) => x.id === layout);
+  const value = (p) => places[p.id] ?? "";
+  const shown = (p) => value(p) || (layout === "esde" ? defaults[p.id] || "" : "");
+  const ready = !!l && l.places.every((p) => p.optional || shown(p).trim());
+  const choose = (id) => {
+    const next = layouts.find((x) => x.id === id);
+    setLayout(id);
+    setPlaces(savedPlaces(saved, id));
+    if (next) setCarry((v) => ({ ...v, image_size: next.pictures || 0 }));
+  };
+  const pick = (p) => async () => {
+    const d = await ctx.platform.library.pickFolder(p.label);
+    if (d) setPlaces((v) => ({ ...v, [p.id]: d }));
   };
   const preview = async () => {
     setBusy(true);
     setError("");
     try {
-      prefs()?.set("gr-export", { target, out, folder, esde, carry });
-      const carried = target === "esde" ? { ...carry, docs: false } : { ...carry, fields: [] };
-      setPlan(await api("export_plan", { collection: c.id, target, out: where.trim(), esde: target === "esde" ? esde.trim() || null : null, always_copy: alwaysCopy, short_names: shortNames, carry: carried }));
+      const at = Object.fromEntries(l.places.map((p) => [p.id, shown(p).trim()]).filter(([, v]) => v));
+      prefs()?.set("gr-export", { layout, places: { ...(saved.places || {}), [layout]: at }, carry });
+      const can = l.carries;
+      const carried = { ...carry, fields: carry.fields.filter((f) => can.fields.includes(f)), media: carry.media.filter((m) => can.media.includes(m)),
+        manuals: carry.manuals && can.manuals, docs: carry.docs && can.docs, bios: !!carry.bios && can.bios };
+      setPlan(await api("export_plan", { collection: c.id, layout, places: at, always_copy: alwaysCopy, short_names: shortNames, carry: carried }));
     } catch (e) {
       setError(err(e));
     } finally {
@@ -178,32 +200,24 @@ function ExportDialog({ c, sum, plan: given }) {
     const nothing = !plan.ops;
     return html`<${Dialog} title=${plan.label} id="export-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Run"}
       cancelLabel=${given ? "Cancel" : "Back"} onCancel=${given ? close : () => setPlan(null)}>
+      ${plan.layout_name ? html`<p class="muted" id="export-layout-used">In the layout ${plan.layout_name}.</p>` : null}
       <${Preview} plan=${plan} />
       ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.in_place ? "the export is up to date." : "none of the collection's games are in the library."}</p>`
         : html`<p class="muted">Files are hardlinked where the folder is on the same drive as the library's games (they take no space), else copied, and every one written is read back and checked. Files the export placed before that the collection no longer has are set aside, never deleted. The change can be undone from the message afterwards or from Settings › History.</p>`}
     <//>`;
   }
-  return html`<${Dialog} title=${`Export ${c.name}`} id="export-dialog" onSubmit=${preview} busy=${busy || !where.trim()} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
-    <div class="field-block" role="radiogroup" aria-label="To">
-      <label class="check-row"><input type="radio" name="export-target" value="esde" checked=${target === "esde"} onChange=${() => setTarget("esde")} /> ES-DE</label>
-      <label class="check-row"><input type="radio" name="export-target" value="folder" checked=${target === "folder"} onChange=${() => setTarget("folder")} /> A plain folder</label>
-      <small class="muted" id="export-help">${target === "esde"
-        ? "Each system's games go in its folder in ES-DE's ROMs folder (gb, snes, psx…). A game of several files (a cue/bin) is a folder named as its cue sheet, which ES-DE shows as one game."
-        : "Each system's games go in a folder named as its DAT (Nintendo - Game Boy), named as Settings › Naming says."}</small>
-    </div>
-    ${target === "esde" ? html`
-      <div class="field-block"><span class="field-label">ES-DE's ROMs folder</span>
-        <div class="pick-row"><input type="text" id="export-out" placeholder="e.g. C:\\Users\\you\\ROMs" value=${out} onInput=${(e) => setOut(e.target.value)} />
-          ${isDesktop() ? html`<button type="button" class="ghost" id="export-pick" onClick=${pick(setOut, "ES-DE's ROMs folder")}>Choose…</button>` : null}</div></div>
-      <div class="field-block"><span class="field-label">ES-DE's own folder (optional)</span>
-        <div class="pick-row"><input type="text" id="export-esde" placeholder="e.g. C:\\Users\\you\\ES-DE" value=${esde} onInput=${(e) => setEsde(e.target.value)} />
-          ${isDesktop() ? html`<button type="button" class="ghost" id="export-esde-pick" onClick=${pick(setEsde, "ES-DE's folder (with gamelists and collections)")}>Choose…</button>` : null}</div>
-        <small class="muted">With it, each game gets an entry in its system's <code>gamelist.xml</code> (entries there already are kept) and the collection becomes ES-DE's custom collection <code>${c.name}</code>.</small></div>
-      <label class="check-row"><input type="checkbox" id="export-short" checked=${shortNames} onChange=${(e) => setShortNames(e.target.checked)} /> Name games in the gamelist by their title (Alpha), not the full name (Alpha (USA))</label>` : html`
-      <div class="field-block"><span class="field-label">Into</span>
-        <div class="pick-row"><input type="text" id="export-folder" placeholder="A folder for the collection" value=${folder} onInput=${(e) => setFolder(e.target.value)} />
-          ${isDesktop() ? html`<button type="button" class="ghost" id="export-folder-pick" onClick=${pick(setFolder, "The folder the collection goes to")}>Choose…</button>` : null}</div></div>`}
-    <${CarryChoices} value=${carry} onChange=${setCarry} target=${target} />
+  return html`<${Dialog} title=${`Export ${c.name}`} id="export-dialog" onSubmit=${preview} busy=${busy || !ready} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
+    <label class="field-block"><span class="field-label">To</span>
+      <select id="export-layout" class="compact" value=${layout} disabled=${!layouts} onChange=${(e) => choose(e.target.value)}>
+        ${(layouts || [{ id: layout, name: "…" }]).map((x) => html`<option key=${x.id} value=${x.id}>${x.name}${x.builtin === false ? " (yours)" : ""}</option>`)}
+      </select>
+      <small class="muted" id="export-help">${l?.about || ""} <a href=${routeHash("layouts")} id="export-edit-layouts" onClick=${close}>Export layouts…</a></small></label>
+    ${(l?.places || []).map((p) => html`<div class="field-block" key=${`${layout}-${p.id}`} data-place=${p.id}><span class="field-label">${p.label}${p.optional ? " (optional)" : ""}</span>
+      <div class="pick-row"><input type="text" id=${`export-place-${p.id}`} placeholder=${p.example ? `e.g. ${p.example}` : ""} value=${shown(p)} onInput=${(e) => setPlaces((v) => ({ ...v, [p.id]: e.target.value }))} />
+        ${isDesktop() ? html`<button type="button" class="ghost" id=${`export-place-${p.id}-pick`} onClick=${pick(p)}>Choose…</button>` : null}</div>
+      ${p.note ? html`<small class="muted">${p.note}</small>` : null}</div>`)}
+    ${l?.gamelist ? html`<label class="check-row"><input type="checkbox" id="export-short" checked=${shortNames} onChange=${(e) => setShortNames(e.target.checked)} /> Name games in the gamelist by their title (Alpha), not the full name (Alpha (USA))</label>` : null}
+    ${l ? html`<${CarryChoices} value=${carry} onChange=${setCarry} carries=${l.carries} layout=${l} />` : null}
     <label class="check-row"><input type="checkbox" id="export-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> Always copy (no hardlinks)</label>
     ${c.size_limit && sum && sum.size > c.size_limit ? html`<p class="warn-note" id="export-over">${c.name} is ${size(sum.size)}, ${size(sum.size - c.size_limit)} more than its size limit (${size(c.size_limit)}).</p>` : null}
     <p class="muted">Games are exported in the library's format (Convert… changes it first). Nothing changes until you've seen the preview and pressed Run.</p>
@@ -343,7 +357,7 @@ function Exports({ c, exports, off, onChange }) {
     ${mine.length ? html`<ul class="ls-list change-list" id="exports">${mine.map((e) => {
       const r = checks[e.id];
       return html`<li key=${e.id} data-export=${e.id} data-target=${e.target}>
-        <span class="change-label"><span><b>${e.target === "esde" ? "ES-DE" : "Folder"}</b> <span class="op-to">${e.out}</span></span>
+        <span class="change-label"><span><b>${e.layout_name || (e.target === "esde" ? "ES-DE" : "Folder")}</b> <span class="op-to">${e.out}</span></span>
           <span class="muted">${plural(e.count, "file", "files")} · updated ${e.updated?.slice(0, 10)}${e.checked ? ` · checked ${e.checked.at.slice(0, 10)}: ${e.checked.missing + e.checked.changed ? `${e.checked.missing} missing, ${e.checked.changed} changed` : "all as they should be"}` : ""}</span>
           ${r ? html`<span class="export-check" data-ok=${r.ok} data-missing=${r.missing.length} data-changed=${r.changed.length}>${[...r.missing.map((f) => ["Missing", f]), ...r.changed.map((f) => ["Changed", f])].slice(0, 20).map(([k, f], i) => html`<span key=${i} class="warn-note">${k}: ${f.path}${f.why ? ` (${f.why})` : ""}</span>`)}</span>` : null}</span>
         <button type="button" class="ghost" data-action="update" disabled=${off} title="Export it again: new games added, those the collection no longer has set aside" onClick=${() => update(e)}>Update…</button>

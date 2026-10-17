@@ -2,7 +2,7 @@
 // a button that does it), { type: "confirm", … } (before something that can't
 // be undone), "dat-platform" (which system a DAT is for), "make-dat" (a DAT
 // from a scanned set), "organise" and "convert" (organise.js), "system"
-// (systems.js), a collection's (collections.js), the PC games' and Identify's (pcgames.js), Scrape… (metadata.js) or the documents' (documents.js). The pages that need forms of their own add their types here.
+// (systems.js), a collection's (collections.js), the PC games' and Identify's (pcgames.js), Scrape… (metadata.js), the documents' (documents.js), Gather the BIOS files (bios.js) or Save as a new layout (layouts.js). The pages that need forms of their own add their types here.
 import { html, useState, useLayoutEffect, useRef } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -14,6 +14,8 @@ import { CollectionDialogs } from "./collections.js";
 import { PcDialogs } from "./pcgames.js";
 import { MetaDialogs } from "./metadata.js";
 import { DocDialogs } from "./documents.js";
+import { BiosDialogs } from "./bios.js";
+import { LayoutDialogs } from "./layouts.js";
 
 export const close = () => ui.set({ dialog: null });
 
@@ -182,5 +184,5 @@ export function Dialogs() {
   if (dialog.type === "make-dat") return html`<${MakeDatDialog} ...${dialog} />`;
   if (dialog.type === "organise") return html`<${OrganiseDialog} key=${dialog.plan?.id || "new"} ...${dialog} />`;
   if (dialog.type === "convert") return html`<${ConvertDialog} ...${dialog} />`;
-  return SystemDialogs({ dialog }) || CollectionDialogs({ dialog }) || PcDialogs({ dialog }) || MetaDialogs({ dialog }) || DocDialogs({ dialog });
+  return SystemDialogs({ dialog }) || CollectionDialogs({ dialog }) || PcDialogs({ dialog }) || MetaDialogs({ dialog }) || DocDialogs({ dialog }) || BiosDialogs({ dialog }) || LayoutDialogs({ dialog });
 }

@@ -7,7 +7,7 @@
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui, THEMES, SKINS, setTheme, setSkin } from "./state.js";
-import { ctx } from "./context.js";
+import { ctx, routeHash } from "./context.js";
 import { api, toast, isDesktop, openLibrary, renameLibrary, showLibraryFolder, checkIndex, undoable, size, plural } from "./library.js";
 import { undoChange, finishChange, CONVERT_FORMATS } from "./organise.js";
 import { addRoot, updateRoot, repointRoot, removeRoot, scanSettings, setScanSettings, importDats, starterDats, useDat, removeDat, refreshGames, reveal } from "./games.js";
@@ -121,7 +121,7 @@ function DatsSection({ lib }) {
       </li>`)}</ul></div>`) : html`<p id="dats-none">No DATs yet.</p>`}
     <div class="home-actions">
       ${isDesktop() ? html`<button type="button" class="ghost" id="import-dats" disabled=${off} onClick=${() => importDats()}>Import DATs…</button>` : null}
-      <button type="button" class="ghost" id="starter-dats" disabled=${off} title="The No-Intro cartridge DATs, from libretro's public copy" onClick=${starterDats}>Get starter DATs…</button>
+      <button type="button" class="ghost" id="starter-dats" disabled=${off} title="The No-Intro cartridge DATs, from libretro's public copy" onClick=${() => starterDats()}>Get starter DATs…</button>
       <button type="button" class="ghost" id="make-dat" disabled=${off} onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a set…</button>
     </div>
   </section>`;
@@ -282,6 +282,15 @@ function ToolsSection() {
   </section>`;
 }
 
+/** The export layouts: a link to their editor. */
+function LayoutsSection() {
+  return html`<section class="ls-section" id="settings-layouts">
+    <h2>Export layouts</h2>
+    <p class="muted">Where an export puts the games, gamelists, pictures, manuals and BIOS files for ES-DE, muOS, Knulli, ROCKNIX or a plain folder. Copy one and change it for a new firmware or frontend, seeing what it would write as you go.</p>
+    <div class="home-actions"><a class="button ghost" id="settings-layouts-link" href=${routeHash("layouts")}>${Icon.layers(15)} Export layouts…</a></div>
+  </section>`;
+}
+
 export function Settings() {
   const s = useStore(ui, (st) => ({ library: st.library, recent: st.recent, skin: st.skin, theme: st.theme, index: st.index }));
   const lib = s.library;
@@ -304,7 +313,7 @@ export function Settings() {
         <ul class="ls-list" id="recent-libraries">${others.map((p) => html`<li key=${p}><span>${p}</span>
           <button type="button" class="ghost" onClick=${() => openLibrary(p)}>Open</button></li>`)}</ul>` : null}
     </section>
-    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} /><${SystemsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${HistorySection} lib=${lib} />` : null}
+    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} /><${SystemsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${LayoutsSection} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${HistorySection} lib=${lib} />` : null}
     <${SourcesSettings} />
     <${SteamSettings} />
     <${ToolsSection} />

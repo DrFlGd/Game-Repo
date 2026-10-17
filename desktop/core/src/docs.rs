@@ -666,7 +666,7 @@ pub fn read_items(ix: &Index, lib: &Library, paths: &[PathBuf], platform: Option
     let fixed = game.map(|id| meta::dat_game(conn, id)).transpose()?;
     let mut cache: HashMap<String, Option<Titles>> = HashMap::new();
     let all_systems: Vec<String> = {
-        let mut q = conn.prepare("SELECT DISTINCT platform FROM dats WHERE current = 1 ORDER BY platform")?;
+        let mut q = conn.prepare("SELECT DISTINCT platform FROM dats WHERE current = 1 AND platform != 'bios' ORDER BY platform")?;
         let v = q.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
         v
     };

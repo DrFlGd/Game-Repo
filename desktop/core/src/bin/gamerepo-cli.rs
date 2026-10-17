@@ -106,19 +106,35 @@ under <dir>/config and <dir>/data instead of the app's own folders.
                              save it as DATs, one per system
   collection delete <id>
   export <collection id> --out <dir> [--to esde|folder] [--esde <ES-DE folder>]
+        [--layout <id> --place <place>=<dir>...]
         [--always-copy] [--full-names] [--dry-run] [--fields <a,b>|all]
-        [--media <a,b>|all] [--manuals] [--docs] [--image-size <pixels>]
+        [--media <a,b>|all] [--manuals] [--docs] [--bios] [--image-size <pixels>]
                              export a collection to ES-DE's ROMs folder (with its
-                             gamelists and a custom collection when --esde is given)
-                             or to a folder, hardlinked where it can be, checked;
-                             --fields, --media, --manuals and --docs (a folder only)
-                             carry the games' details, pictures and documents,
+                             gamelists and a custom collection when --esde is given),
+                             to a folder, or in any layout (layouts lists them, with
+                             the places each asks for: --place card=E:/ for a card),
+                             hardlinked where it can be, checked; --fields, --media,
+                             --manuals, --docs and --bios carry the games' details,
+                             pictures, documents and their systems' BIOS files,
                              --image-size makes the pictures smaller
   exports                    the exports made
   export update <export id> [--dry-run]
                              export it again: new games added, those gone set aside
   export check <export id>   read the export's files back against the DATs
   export forget <export id>  forget an export (its files stay)
+  layouts                    the export layouts: built in (ES-DE, the devices, a plain
+                             folder) and your own, with the places each asks for
+  layout show <id>           a layout as JSON
+  layout check <file.json>   what's wrong with a layout, if anything
+  layout import <file.json>  bring in a layout someone shared (or you edited)
+  layout write <id> <file.json>
+                             save a layout to a file, to change it or give it away
+  layout remove <id>         remove one of your own layouts
+  bios                       each system's BIOS files: have, missing, or a file of
+                             its name that isn't it (needs a BIOS DAT: dat starter bios
+                             brings in libretro's System.dat)
+  bios report                save a list of the missing BIOS files
+  bios gather [--dry-run]    copy each BIOS file found into the library's BIOS folder
 
   pc [list]                  the PC games
   pc show <id>               a PC game: its files, program and details
@@ -230,7 +246,7 @@ async fn run() -> Result<()> {
         "serve" => serve(a).await,
         "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" | "organise" | "duplicates" | "history" | "undo" | "finish"
         | "set-aside" | "convert" | "extract" | "formats" | "tools" | "systems" | "collections" | "collection" | "export" | "exports" | "pc" | "identify"
-        | "sources" | "launchbox" | "steam" | "add" | "games" | "game" | "scrape" | "docs" => library_command(&cmd, a).await,
+        | "sources" | "launchbox" | "steam" | "add" | "games" | "game" | "scrape" | "docs" | "layouts" | "layout" | "bios" => library_command(&cmd, a).await,
         other => bail!("unknown command {other} (gamerepo-cli --help lists them)"),
     }
 }
@@ -338,7 +354,7 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
     }
     let json_out = a.rest.iter().any(|x| x == "--json");
     a.rest.retain(|x| x != "--json");
-    let subs = matches!(cmd, "roots" | "dat" | "set-aside" | "systems" | "collection" | "export" | "pc" | "launchbox" | "steam")
+    let subs = matches!(cmd, "roots" | "dat" | "set-aside" | "systems" | "collection" | "export" | "pc" | "launchbox" | "steam" | "layout" | "bios")
         || (matches!(cmd, "sources" | "docs") && a.rest.first().is_some_and(|x| matches!(x.as_str(), "key" | "check" | "read" | "import")));
     let sub = if subs && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
     let list_of = |v: Option<String>, all: &[&str]| -> Option<Vec<String>> {
@@ -787,8 +803,14 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
                 bail!("export needs a collection's id (collections lists them)")
             } else {
                 let abs = |o: String| std::path::absolute(&o).map(|p| p.display().to_string()).unwrap_or(o);
+                let layout = a.flag("--layout");
+                let mut places = serde_json::Map::new();
+                while let Some(p) = a.flag("--place") {
+                    let (k, v) = p.split_once('=').context("--place is <place>=<dir>, such as card=E:\\")?;
+                    places.insert(k.trim().to_string(), json!(abs(v.trim().to_string())));
+                }
                 let target = a.flag("--to").unwrap_or_else(|| "esde".into());
-                let out = a.need("--out").map(abs)?;
+                let out = if layout.is_some() { a.flag("--out").map(abs).unwrap_or_default() } else { a.need("--out").map(abs)? };
                 let esde = a.flag("--esde").map(abs);
                 let always_copy = a.rest.iter().any(|x| x == "--always-copy");
                 let short_names = !a.rest.iter().any(|x| x == "--full-names");
@@ -798,9 +820,91 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
                     "fields": list_of(a.flag("--fields"), &fields).unwrap_or_default(), "media": list_of(a.flag("--media"), &media).unwrap_or_default(),
                     "manuals": a.rest.iter().any(|x| x == "--manuals"), "docs": a.rest.iter().any(|x| x == "--docs"),
                     "image_size": a.flag("--image-size").map(|n| n.parse::<u32>()).transpose().context("--image-size is a number of pixels")?.unwrap_or(0),
+                    "bios": a.rest.iter().any(|x| x == "--bios"),
                 });
-                invoke(&app, "export_plan", json!({ "collection": what, "target": target, "out": out, "esde": esde, "always_copy": always_copy, "short_names": short_names, "carry": carry })).await?
+                invoke(&app, "export_plan", json!({ "collection": what, "layout": layout, "places": places, "target": target, "out": out, "esde": esde, "always_copy": always_copy, "short_names": short_names, "carry": carry })).await?
             };
+            show_and_run(&app, plan, dry, json_out).await
+        }
+        ("layouts", _) => {
+            let v = invoke(&app, "layouts", json!({})).await?;
+            if json_out {
+                return print(&v);
+            }
+            for l in v.as_array().into_iter().flatten() {
+                let places: Vec<String> = l["places"].as_array().into_iter().flatten().map(|p| format!("--place {}=<{}>", p["id"].as_str().unwrap_or(""), p["label"].as_str().unwrap_or(""))).collect();
+                println!("{:<14} {}{}", l["id"].as_str().unwrap_or(""), l["name"].as_str().unwrap_or(""), if l["builtin"] == true { "  (built in)" } else { "" });
+                println!("{:<14} {}", "", places.join(" "));
+            }
+            Ok(())
+        }
+        ("layout", "show") => {
+            let id = a.rest.first().cloned().context("layout show needs a layout's id (layouts lists them)")?;
+            print(&invoke(&app, "layout_get", json!({ "id": id })).await?["layout"])
+        }
+        ("layout", "check") => {
+            let f = a.rest.first().cloned().context("layout check needs a layout's file")?;
+            let v: Value = serde_json::from_str(&std::fs::read_to_string(&f).with_context(|| format!("couldn't read {f}"))?).with_context(|| format!("{f} isn't JSON"))?;
+            let r = invoke(&app, "layout_check", json!({ "layout": v })).await?;
+            if json_out {
+                return print(&r);
+            }
+            let problems = r["problems"].as_array().cloned().unwrap_or_default();
+            if problems.is_empty() {
+                println!("{f}: no problems");
+            }
+            for p in &problems {
+                println!("{}: {}", p["at"].as_str().unwrap_or(""), p["message"].as_str().unwrap_or(""));
+            }
+            if !problems.is_empty() {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+        ("layout", "import") => {
+            let f = a.rest.first().cloned().context("layout import needs a layout's file")?;
+            let f = std::path::absolute(&f).map(|p| p.display().to_string()).unwrap_or(f);
+            let r = invoke(&app, "layout_import", json!({ "path": f })).await?;
+            println!("Brought in {} as {}", r["name"].as_str().unwrap_or(""), r["id"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        ("layout", "write") => {
+            let id = a.rest.first().cloned().context("layout write needs a layout's id and a file")?;
+            let to = a.rest.get(1).cloned().context("layout write needs a file to write")?;
+            let to = std::path::absolute(&to).map(|p| p.display().to_string()).unwrap_or(to);
+            print(&invoke(&app, "layout_write", json!({ "id": id, "to": to })).await?)
+        }
+        ("layout", "remove") => {
+            let id = a.rest.first().context("layout remove needs a layout's id")?;
+            invoke(&app, "layout_remove", json!({ "id": id })).await?;
+            Ok(())
+        }
+        ("bios", "") => {
+            let v = invoke(&app, "bios", json!({})).await?;
+            if json_out {
+                return print(&v);
+            }
+            if v["dats"].as_array().is_none_or(|d| d.is_empty()) {
+                println!("No BIOS DAT yet: dat starter bios brings in libretro's System.dat.");
+                return Ok(());
+            }
+            for s in v["systems"].as_array().into_iter().flatten() {
+                println!("{}{}: {} have, {} missing{}", s["name"].as_str().unwrap_or(""), if s["yours"] == true { "" } else { " (no games of it)" }, s["have"], s["missing"],
+                         if s["wrong"].as_i64().unwrap_or(0) > 0 { format!(", {} not what their names say", s["wrong"]) } else { String::new() });
+                for f in s["files"].as_array().into_iter().flatten().filter(|f| f["status"] != "have") {
+                    println!("  {:<8} {}{}", f["status"].as_str().unwrap_or(""), f["name"].as_str().unwrap_or(""), f["at"].as_str().map(|a| format!("  ({a})")).unwrap_or_default());
+                }
+            }
+            Ok(())
+        }
+        ("bios", "report") => {
+            let r = invoke(&app, "bios_report", json!({})).await?;
+            println!("{}", r["path"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        ("bios", "gather") => {
+            let dry = a.rest.iter().any(|x| x == "--dry-run");
+            let plan = invoke(&app, "bios_gather_plan", json!({})).await?;
             show_and_run(&app, plan, dry, json_out).await
         }
         ("pc", "") | ("pc", "list") => {

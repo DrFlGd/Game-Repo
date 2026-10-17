@@ -1,0 +1,73 @@
+{
+  "format": 1,
+  "id": "esde-card",
+  "version": 1,
+  "name": "ES-DE on Android or Linux",
+  "about": "An SD card for ES-DE on an Android or Linux device: the games in ROMs/, and ES-DE's gamelists and media in ES-DE/ on the card, to copy to the device's ES-DE folder or to point ES-DE's media folder at. BIOS files go in BIOS/, for RetroArch's system folder.",
+  "places": [
+    {
+      "id": "card",
+      "label": "The SD card",
+      "example": "E:\\"
+    }
+  ],
+  "systems": {},
+  "games": {
+    "path": "{card}/ROMs/{folder}/{file}",
+    "style": "frontend"
+  },
+  "gamelist": {
+    "kind": "es-xml",
+    "path": "{card}/ES-DE/gamelists/{folder}/gamelist.xml",
+    "fields": {
+      "description": "desc",
+      "developer": "developer",
+      "publisher": "publisher",
+      "released": "releasedate",
+      "genres": "genre",
+      "players": "players",
+      "rating": "rating"
+    }
+  },
+  "media": {
+    "cover": {
+      "path": "{card}/ES-DE/downloaded_media/{folder}/covers/{stem}.{ext}"
+    },
+    "back": {
+      "path": "{card}/ES-DE/downloaded_media/{folder}/backcovers/{stem}.{ext}"
+    },
+    "box3d": {
+      "path": "{card}/ES-DE/downloaded_media/{folder}/3dboxes/{stem}.{ext}"
+    },
+    "screenshot": {
+      "path": "{card}/ES-DE/downloaded_media/{folder}/screenshots/{stem}.{ext}"
+    },
+    "titlescreen": {
+      "path": "{card}/ES-DE/downloaded_media/{folder}/titlescreens/{stem}.{ext}"
+    },
+    "marquee": {
+      "path": "{card}/ES-DE/downloaded_media/{folder}/marquees/{stem}.{ext}"
+    },
+    "fanart": {
+      "path": "{card}/ES-DE/downloaded_media/{folder}/fanart/{stem}.{ext}"
+    },
+    "physical": {
+      "path": "{card}/ES-DE/downloaded_media/{folder}/physicalmedia/{stem}.{ext}"
+    },
+    "video": {
+      "path": "{card}/ES-DE/downloaded_media/{folder}/videos/{stem}.{ext}"
+    },
+    "manual": {
+      "path": "{card}/ES-DE/downloaded_media/{folder}/manuals/{stem}.pdf"
+    }
+  },
+  "text": {},
+  "pictures": {
+    "max": 640,
+    "as": "keep"
+  },
+  "collection": null,
+  "bios": {
+    "path": "{card}/BIOS/{bios_file}"
+  }
+}

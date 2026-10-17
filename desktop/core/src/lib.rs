@@ -16,11 +16,13 @@
 //! - [`scan`]: scanning the folders with games into the index
 //! - [`dat`]: reading and importing DAT files
 //! - [`audit`]: matching files with DATs, and what an audit shows
+//! - [`bios`]: each system's BIOS files, audited from a BIOS DAT, gathered and exported
 //! - [`makedat`]: making a DAT from a scanned set
 //! - [`organise`]: organising a set by its DAT (copy, rename or move), the journal and Undo
 //! - [`convert`]: converting games to CHD, RVZ, CSO/ZSO or ZIP and extracting them, verified
 //! - [`collection`]: collections of games from rules, 1G1R, saved as DATs
-//! - [`export`]: exporting a collection to ES-DE or a folder, re-sync and the check
+//! - [`layout`]: export layouts (ES-DE, the devices, a plain folder, the user's own) as JSON files
+//! - [`export`]: exporting a collection in a layout, re-sync and the check
 //! - [`starter`]: starter DATs downloaded from libretro's copy of No-Intro's
 //! - [`torrentzip`]: writing ZIPs that are the same bytes every time
 //! - [`watch`]: noticing changes in the folders with games while the app is open
@@ -32,6 +34,7 @@ pub mod addgame;
 pub mod api;
 pub mod archive;
 pub mod audit;
+pub mod bios;
 pub mod collection;
 pub mod config;
 pub mod convert;
@@ -44,6 +47,7 @@ pub mod identify;
 pub mod image;
 pub mod index;
 pub mod launchbox;
+pub mod layout;
 pub mod library;
 pub mod makedat;
 pub mod meta;

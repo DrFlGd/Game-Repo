@@ -5,7 +5,8 @@
 //! games by), so a disc's other tracks and its cue show as unknown until Redump's own
 //! DAT is imported; a newer DAT imported by hand becomes the version in use. The
 //! address is a setting on this computer (`dat_source`), in case libretro moves them;
-//! the Redump copies are looked for in `redump/` beside its `no-intro/`.
+//! the Redump copies are looked for in `redump/` beside its `no-intro/`, and the BIOS
+//! DAT (libretro's `System.dat`, D41) in `dat/` beside `metadat/`.
 
 use crate::index::Index;
 use crate::library::Library;
@@ -54,6 +55,8 @@ pub fn get(ix: &Index, lib: &Library, source: &str, only: &[String], again: bool
     crate::dat::sync_library(ix, lib)?;
     let base = if source.ends_with('/') { source.to_string() } else { format!("{source}/") };
     let redump = base.strip_suffix("no-intro/").map(|b| format!("{b}redump/")).unwrap_or_else(|| base.clone());
+    // the BIOS DAT is libretro's dat/System.dat, beside metadat/ (bios.rs)
+    let db = base.strip_suffix("metadat/no-intro/").or_else(|| base.strip_suffix("no-intro/")).unwrap_or(&base).to_string();
     let mut discs = false;
     let have: Vec<String> = ix.conn().prepare("SELECT DISTINCT platform FROM dats")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     let wanted: Vec<_> = PLATFORMS.iter().filter(|p| only.is_empty() || only.iter().any(|o| o == p.id)).collect();
@@ -71,7 +74,7 @@ pub fn get(ix: &Index, lib: &Library, source: &str, only: &[String], again: bool
         let mut found = false;
         let from = if platforms::is_disc(p.id) { &redump } else { &base };
         for name in p.dat_names {
-            let url = format!("{from}{}.dat", encode(name));
+            let url = if p.id == crate::bios::ID { format!("{db}dat/System.dat") } else { format!("{from}{}.dat", encode(name)) };
             match fetch(&url) {
                 Ok(Some(bytes)) => {
                     let mut answers = Map::new();
