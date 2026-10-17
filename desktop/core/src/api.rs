@@ -417,7 +417,7 @@ impl App {
         if ["pc_", "identify_", "sources", "launchbox_", "steam_", "add_"].iter().any(|p| cmd.starts_with(p)) {
             return self.pc_call(cmd, args).await;
         }
-        if ["meta_", "scrape_", "docs_"].iter().any(|p| cmd.starts_with(p)) {
+        if ["meta_", "scrape_", "docs_", "browse"].iter().any(|p| cmd.starts_with(p)) {
             return self.meta_call(cmd, args).await;
         }
         if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
@@ -944,6 +944,43 @@ impl App {
                 let lib = self.library()?;
                 let id = id_arg("id")?;
                 j(self.with_index(move |ix| meta::game(ix, &lib, id)).await?)
+            }
+            "meta_edit" => {
+                let lib = self.library()?;
+                let id = id_arg("id")?;
+                let field = arg(&args, "field").map_err(e2s)?.to_string();
+                let value = args.get("value").cloned();
+                j(self.with_index(move |ix| meta::edit(ix, &lib, id, &field, value.as_ref())).await?)
+            }
+            // the Library page (Phase 6): every game, a page per game
+            "browse" => {
+                let lib = self.library()?;
+                j(self
+                    .with_index(move |ix| {
+                        meta::sync(ix, &lib)?;
+                        let rebuilt = crate::browse::refresh(ix, &lib)?;
+                        let mut v = crate::browse::overview(ix)?;
+                        v["rebuilt"] = json!(rebuilt);
+                        Ok(v)
+                    })
+                    .await?)
+            }
+            "browse_query" => {
+                let lib = self.library()?;
+                let q: crate::browse::Query = serde_json::from_value(args["query"].clone()).map_err(|e| e.to_string())?;
+                j(self.with_index(move |ix| crate::browse::query(ix, &lib, &q)).await?)
+            }
+            "browse_game" => {
+                let lib = self.library()?;
+                let key = arg(&args, "key").map_err(e2s)?.to_string();
+                j(self.with_index(move |ix| crate::browse::game(ix, &lib, &key)).await?)
+            }
+            "browse_edit" => {
+                let lib = self.library()?;
+                let (key, field) = (arg(&args, "key").map_err(e2s)?.to_string(), arg(&args, "field").map_err(e2s)?.to_string());
+                // "value": null clears it; no "value" takes the edit mark off
+                let value = args.get("value").cloned();
+                j(self.with_index(move |ix| crate::browse::edit(ix, &lib, &key, &field, value.as_ref())).await?)
             }
             "meta_clear" => {
                 let lib = self.library()?;
@@ -1609,6 +1646,11 @@ impl App {
     fn served_path(&self, rel: &str) -> Result<PathBuf> {
         let rel = percent_decode(rel.trim_start_matches('/'));
         let lib = self.library().map_err(|e| anyhow!(e))?;
+        // ~thumb/<size>/<path>: a thumbnail of a picture (D43), made the first time
+        if let Some(rest) = rel.strip_prefix("~thumb/") {
+            let (size, pic) = rest.split_once('/').ok_or_else(|| anyhow!("no picture"))?;
+            return crate::browse::thumb(&lib, &self.paths.data_dir, pic, size.parse().unwrap_or(0));
+        }
         lib.resolve(&rel)
     }
 }

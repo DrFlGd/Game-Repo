@@ -320,7 +320,7 @@ fn sources(conn: &Connection, names: &[String], missing: &mut Vec<String>) -> Re
 }
 
 /// "1", "A" or "1.1" as something that sorts: higher is newer.
-fn revision_key(s: &str) -> Vec<u64> {
+pub(crate) fn revision_key(s: &str) -> Vec<u64> {
     s.split(['.', ' '])
         .map(|p| p.parse::<u64>().unwrap_or_else(|_| p.chars().next().map(|c| c.to_ascii_uppercase() as u64).unwrap_or(0)))
         .collect()
@@ -436,7 +436,7 @@ fn work_out_fresh(conn: &Connection, c: &Collection, dats: &[(String, Option<i64
 /// Each game of a DAT with the bytes its files take on disk and the bytes of its ROMs as
 /// the DAT lists them. On disk, a ROM counts once, by one of the files found for it (the
 /// archive or image it's in, else the file itself), and each file counts once per game.
-fn sizes(conn: &Connection, dat_id: i64) -> Result<HashMap<i64, (u64, u64)>> {
+pub(crate) fn sizes(conn: &Connection, dat_id: i64) -> Result<HashMap<i64, (u64, u64)>> {
     let mut out: HashMap<i64, (u64, u64)> = HashMap::new();
     let mut q = conn.prepare("SELECT game_id, SUM(COALESCE(size, 0)) FROM dat_roms WHERE dat_id = ?1 AND (status IS NULL OR status != 'nodump') GROUP BY game_id")?;
     for r in q.query_map([dat_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))? {

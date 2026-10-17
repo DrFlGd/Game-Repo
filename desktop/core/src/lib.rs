@@ -35,6 +35,7 @@ pub mod api;
 pub mod archive;
 pub mod audit;
 pub mod bios;
+pub mod browse;
 pub mod collection;
 pub mod config;
 pub mod convert;
