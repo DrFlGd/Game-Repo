@@ -82,7 +82,7 @@ jobs:
           cargo build --release -p gamerepo-core 2>&1 | tee ../ci-out/core-build.log
           cargo test --release -p gamerepo-core 2>&1 | tee ../ci-out/core-test.log
           # the performance targets of docs/PLAN.md (100k-file rescan, 50k-ROM DAT), on generated data
-          cargo test --release -p gamerepo-core -- --ignored timing --nocapture 2>&1 | tee ../ci-out/core-timing.log
+          cargo test --release -p gamerepo-core -- --ignored timing --nocapture --test-threads=1 2>&1 | tee ../ci-out/core-timing.log
           cp Cargo.lock ../ci-out/Cargo.lock
       - name: Front end
         run: |
@@ -163,7 +163,7 @@ jobs:
           cargo build --release -p gamerepo-core 2>&1 | tee ../ci-out/core-build.log
           cargo test --release -p gamerepo-core 2>&1 | tee ../ci-out/core-test.log
           # the performance targets of docs/PLAN.md (100k-file rescan, 50k-ROM DAT), on generated data
-          cargo test --release -p gamerepo-core -- --ignored timing --nocapture 2>&1 | tee ../ci-out/core-timing.log
+          cargo test --release -p gamerepo-core -- --ignored timing --nocapture --test-threads=1 2>&1 | tee ../ci-out/core-timing.log
           cp Cargo.lock ../ci-out/Cargo.lock
       - uses: actions/upload-artifact@v4
         with: { name: cli-windows, path: desktop/target/release/gamerepo-cli.exe, retention-days: 3 }
