@@ -1,8 +1,12 @@
 //! The platforms Game Repo knows (docs/platforms.md is the readable copy of this
 //! table; the two are kept in step): their ids (ES-DE's), the names DAT groups and
 //! folders use for them, their extensions, and how a DAT or a file finds its platform.
+//! Systems added in Settings (library.json `systems`, D22) join the table when the
+//! library opens (`configure`).
 
+use anyhow::{bail, Result};
 use serde_json::{json, Value};
+use std::sync::RwLock;
 
 pub struct Platform {
     /// ES-DE's id, the app's id for the platform and its folder name on export
@@ -84,7 +88,26 @@ pub enum Media {
     AuditOnly,
 }
 
+impl Media {
+    pub fn id(self) -> &'static str {
+        match self {
+            Media::Cartridge => "cartridge",
+            Media::Cd => "cd",
+            Media::Nintendo => "nintendo",
+            Media::Umd => "umd",
+            Media::AuditOnly => "audit",
+        }
+    }
+
+    pub fn from_id(s: &str) -> Option<Media> {
+        [Media::Cartridge, Media::Cd, Media::Nintendo, Media::Umd, Media::AuditOnly].into_iter().find(|m| m.id() == s)
+    }
+}
+
 pub fn media(id: &str) -> Media {
+    if let Some(m) = custom().iter().find(|c| c.0.id == id).map(|c| c.1) {
+        return m;
+    }
     match id {
         "psx" | "ps2" | "saturn" | "segacd" | "dreamcast" | "pcenginecd" | "neogeocd" | "3do" | "pcfx" | "atarijaguarcd" | "cdimono1" => Media::Cd,
         "gc" | "wii" => Media::Nintendo,
@@ -115,8 +138,84 @@ const DAT_SUFFIXES: &[&str] = &[
     "byteswapped", "a78", "lnx", "lyx", "j64", "rom", "private", "no-intro", "retool",
 ];
 
+// ------------------------------------------------------------ systems added by hand (D22)
+
+/// The systems added in this library (and ids DATs were given that aren't described yet).
+static CUSTOM: RwLock<Vec<(&'static Platform, Media)>> = RwLock::new(Vec::new());
+
+fn custom() -> Vec<(&'static Platform, Media)> {
+    CUSTOM.read().map(|c| c.clone()).unwrap_or_default()
+}
+
+/// Every platform: the built-in table, then the library's own.
+pub fn all() -> impl Iterator<Item = &'static Platform> {
+    PLATFORMS.iter().chain(custom().into_iter().map(|c| c.0))
+}
+
+fn leak(s: &str) -> &'static str {
+    Box::leak(s.to_string().into_boxed_str())
+}
+
+fn leak_list(v: &Value) -> &'static [&'static str] {
+    let items: Vec<&'static str> = v.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(leak).collect();
+    Box::leak(items.into_boxed_slice())
+}
+
+/// Take the library's systems (library.json `systems`, and the ids its `dat_platforms`
+/// gave DATs) into the table. Called when the library opens and when its systems change.
+pub fn configure(meta: &Value) {
+    let mut out: Vec<(&'static Platform, Media)> = vec![];
+    for s in meta["systems"].as_array().into_iter().flatten() {
+        let Some(id) = s["id"].as_str().filter(|id| valid_id(id).is_ok() && PLATFORMS.iter().all(|p| p.id != *id)) else { continue };
+        if out.iter().any(|(p, _)| p.id == id) {
+            continue;
+        }
+        let exts: Vec<String> = s["exts"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase()).collect();
+        let p = Platform {
+            id: leak(id),
+            name: leak(s["name"].as_str().filter(|n| !n.trim().is_empty()).unwrap_or(id).trim()),
+            dat_names: leak_list(&s["dat_names"]),
+            folders: leak_list(&s["folders"]),
+            exts: leak_list(&json!(exts)),
+        };
+        out.push((Box::leak(Box::new(p)), s["media"].as_str().and_then(Media::from_id).unwrap_or(Media::Cartridge)));
+    }
+    // ids typed for a DAT before systems could be added: a system named by its id
+    for id in meta["dat_platforms"].as_object().into_iter().flat_map(|m| m.values()).filter_map(Value::as_str) {
+        if valid_id(id).is_ok() && PLATFORMS.iter().all(|p| p.id != id) && out.iter().all(|(p, _)| p.id != id) {
+            let p = Platform { id: leak(id), name: leak(id), dat_names: &[], folders: &[], exts: &[] };
+            out.push((Box::leak(Box::new(p)), Media::Cartridge));
+        }
+    }
+    if let Ok(mut c) = CUSTOM.write() {
+        *c = out;
+    }
+}
+
+/// A system's id: lower case letters, digits, `-`, `_` and `.`, as a folder name.
+pub fn valid_id(id: &str) -> Result<()> {
+    if id.is_empty() || id.len() > 40 || id.starts_with('.') || !id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "-_.".contains(c)) {
+        bail!("A system's id is a short folder name: lower-case letters, digits, - _ and . (like satellaview).");
+    }
+    Ok(())
+}
+
+/// An id made from a system's name: "Sharp X68000" -> "sharpx68000".
+pub fn id_from_name(name: &str) -> String {
+    name.chars().filter(|c| c.is_ascii_alphanumeric()).flat_map(|c| c.to_lowercase()).take(40).collect()
+}
+
+/// Whether the system is one of the library's own (not built in).
+pub fn is_custom(id: &str) -> bool {
+    PLATFORMS.iter().all(|p| p.id != id) && custom().iter().any(|c| c.0.id == id)
+}
+
+/// Tests that add systems take turns (the table is the process's).
+#[cfg(test)]
+pub(crate) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn by_id(id: &str) -> Option<&'static Platform> {
-    PLATFORMS.iter().find(|p| p.id == id)
+    all().find(|p| p.id == id)
 }
 
 /// The platform's name, or its id for one this build doesn't know.
@@ -155,9 +254,7 @@ pub fn dat_base_name(name: &str) -> String {
 /// The platform a DAT is for, from its header name.
 pub fn from_dat_name(name: &str) -> Option<&'static Platform> {
     let base = squash(&dat_base_name(name));
-    PLATFORMS
-        .iter()
-        .find(|p| p.dat_names.iter().any(|d| squash(d) == base))
+    all().find(|p| p.dat_names.iter().any(|d| squash(d) == base))
 }
 
 /// The platform a folder's name means: one of its folder names, its id, its name or a DAT name.
@@ -166,7 +263,7 @@ pub fn from_folder(name: &str) -> Option<&'static Platform> {
     if n.is_empty() {
         return None;
     }
-    PLATFORMS.iter().find(|p| {
+    all().find(|p| {
         squash(p.id) == n
             || squash(p.name) == n
             || p.folders.iter().any(|f| squash(f) == n)
@@ -177,7 +274,7 @@ pub fn from_folder(name: &str) -> Option<&'static Platform> {
 /// The platform an extension belongs to, when only one platform uses it.
 pub fn from_ext(ext: &str) -> Option<&'static Platform> {
     let ext = ext.trim_start_matches('.').to_ascii_lowercase();
-    let mut found = PLATFORMS.iter().filter(|p| p.exts.contains(&ext.as_str()));
+    let mut found = all().filter(|p| p.exts.contains(&ext.as_str()));
     let first = found.next()?;
     found.next().is_none().then_some(first)
 }
@@ -205,9 +302,11 @@ pub fn guess(hint: Option<&str>, dirs: &[&str], name: &str) -> Option<String> {
 
 /// The table, as the page's platform pickers list it.
 pub fn list() -> Value {
-    json!(PLATFORMS
-        .iter()
-        .map(|p| json!({ "id": p.id, "name": p.name, "dat": p.dat_names[0], "exts": p.exts, "disc": is_disc(p.id), "formats": formats(p.id) }))
+    json!(all()
+        .map(|p| json!({
+            "id": p.id, "name": p.name, "dat": p.dat_names.first(), "dat_names": p.dat_names, "folders": p.folders, "exts": p.exts,
+            "disc": is_disc(p.id), "formats": formats(p.id), "media": media(p.id).id(), "custom": is_custom(p.id),
+        }))
         .collect::<Vec<_>>())
 }
 

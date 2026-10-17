@@ -179,7 +179,7 @@ impl Library {
         }
     }
 
-    fn meta_path(&self) -> PathBuf {
+    pub fn meta_path(&self) -> PathBuf {
         self.root.join(APP_DIR).join("library.json")
     }
 

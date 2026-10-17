@@ -4,7 +4,7 @@
 use crate::config::{AppConfig, Prefs};
 use crate::index::{self, Index};
 use crate::library::{self, Library};
-use crate::{audit, dat, makedat, organise, platforms, roots, scan, starter, watch};
+use crate::{audit, collection, dat, export, makedat, organise, platforms, roots, scan, starter, watch};
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -86,6 +86,8 @@ pub struct App {
     changed: Mutex<Option<Changed>>,
     /// off for the command line, which runs one command and ends
     watching: AtomicBool,
+    /// the library.json the systems added by hand were last read from, and when it changed
+    systems_read: Mutex<Option<(PathBuf, Option<std::time::SystemTime>)>>,
 }
 
 /// What `library()` says before any library was ever opened (the page then asks where).
@@ -113,6 +115,7 @@ impl App {
             watcher: Mutex::new(None),
             changed: Mutex::new(None),
             watching: AtomicBool::new(true),
+            systems_read: Mutex::new(None),
         }))
     }
 
@@ -129,13 +132,30 @@ impl App {
     /// The open library (opening the configured one on first use). On the very
     /// first start there's none: the page asks where it should go.
     pub fn library(&self) -> Result<Library, String> {
-        if let Some(l) = self.library.read().unwrap().as_ref() {
-            return Ok(l.clone());
-        }
-        let Some(path) = self.config().library else {
-            return Err(NO_LIBRARY.into());
+        let open = self.library.read().unwrap().clone();
+        let lib = match open {
+            Some(l) => l,
+            None => {
+                let Some(path) = self.config().library else {
+                    return Err(NO_LIBRARY.into());
+                };
+                self.open_library(&path).map_err(e2s)?
+            }
         };
-        self.open_library(&path).map_err(e2s)
+        self.read_systems(&lib);
+        Ok(lib)
+    }
+
+    /// The library's own systems (D22) join the table whenever its library.json changes
+    /// (systems added, a DAT given a new system, or another computer's changes).
+    fn read_systems(&self, lib: &Library) {
+        let path = lib.meta_path();
+        let stamp = Some((path.clone(), std::fs::metadata(&path).and_then(|m| m.modified()).ok()));
+        let mut read = self.systems_read.lock().unwrap();
+        if *read != stamp {
+            platforms::configure(&lib.meta());
+            *read = stamp;
+        }
     }
 
     fn open_library(&self, path: &Path) -> Result<Library> {
@@ -390,6 +410,9 @@ impl App {
         }
         if ["organise_", "change_", "naming", "convert_", "tools", "format"].iter().any(|p| cmd.starts_with(p)) {
             return self.organise_call(cmd, args).await;
+        }
+        if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
+            return self.collection_call(cmd, args).await;
         }
         match cmd {
             "app_info" => {
@@ -707,7 +730,7 @@ impl App {
                     partial: args["partial"].as_bool().unwrap_or(false),
                     always_copy: args["always_copy"].as_bool().unwrap_or(false),
                     only_misnamed: args["only_misnamed"].as_bool().unwrap_or(false),
-                    games: None,
+                    ..Default::default()
                 };
                 j(self
                     .with_index(move |ix| {
@@ -790,6 +813,7 @@ impl App {
                     "aside" => "Setting aside duplicates",
                     "convert" => "Converting",
                     "extract" => "Extracting",
+                    "export" => "Exporting",
                     _ => "Organising",
                 };
                 let running = self.begin_change(&plan.id)?;
@@ -850,6 +874,142 @@ impl App {
                 let template = args["template"].as_str().unwrap_or(organise::DEFAULT_TEMPLATE);
                 organise::set_naming(&lib, platform, template, args["folder"].as_bool().unwrap_or(false)).map_err(e2s)?;
                 j(Value::Null)
+            }
+            other => Err(format!("unknown command {other}")),
+        }
+    }
+
+    /// Systems added by hand, collections and exports (docs/PLAN.md, "Phase 3 design").
+    async fn collection_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
+        let j = |v: Value| Ok(Reply::Json(v));
+        let data_dir = self.paths.data_dir.clone();
+        let blocking = |f: Box<dyn FnOnce() -> Result<Value> + Send>| async move { tokio::task::spawn_blocking(f).await.map_err(|e| e.to_string())?.map_err(e2s) };
+        match cmd {
+            "systems_set" => {
+                let lib = self.library()?;
+                let s = crate::systems::System::from_json(&args["system"]).map_err(e2s)?;
+                let old = args["old"].as_str().filter(|o| !o.is_empty()).map(String::from);
+                j(blocking(Box::new(move || crate::systems::set(&lib, &s, old.as_deref()))).await?)
+            }
+            "systems_remove" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || crate::systems::remove(&lib, &id).map(|_| Value::Null))).await?)
+            }
+            "collections" => {
+                let lib = self.library()?;
+                j(json!(collection::list(&lib)))
+            }
+            "collection_get" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                j(self
+                    .with_index(move |ix| {
+                        let c = collection::load(&lib, &id)?;
+                        let w = collection::work_out(ix, &lib, &c)?;
+                        Ok(json!({ "collection": c, "summary": w.summary() }))
+                    })
+                    .await?)
+            }
+            "collection_games" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let platform = args["platform"].as_str().filter(|p| !p.is_empty()).map(String::from);
+                let removed = args["removed"].as_bool().unwrap_or(false);
+                let search = args["search"].as_str().unwrap_or("").to_string();
+                let (offset, limit) = (args["offset"].as_u64().unwrap_or(0) as usize, args["limit"].as_u64().unwrap_or(100) as usize);
+                j(self
+                    .with_index(move |ix| {
+                        let c = collection::load(&lib, &id)?;
+                        let w = collection::work_out(ix, &lib, &c)?;
+                        Ok(collection::page(&w, platform.as_deref(), removed, &search, offset, limit))
+                    })
+                    .await?)
+            }
+            "collection_save" => {
+                let lib = self.library()?;
+                let c: collection::Collection = serde_json::from_value(args["collection"].clone()).map_err(|e| format!("That isn't a collection: {e}"))?;
+                j(self
+                    .with_index(move |ix| {
+                        let c = collection::save(&lib, c)?;
+                        let w = collection::work_out(ix, &lib, &c)?;
+                        Ok(json!({ "collection": c, "summary": w.summary() }))
+                    })
+                    .await?)
+            }
+            "collection_delete" => {
+                let lib = self.library()?;
+                collection::delete(&lib, arg(&args, "id").map_err(e2s)?).map_err(e2s)?;
+                j(Value::Null)
+            }
+            "collection_candidates" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let search = args["search"].as_str().unwrap_or("").to_string();
+                let limit = args["limit"].as_u64().unwrap_or(100) as usize;
+                j(self
+                    .with_index(move |ix| {
+                        let c = collection::load(&lib, &id)?;
+                        collection::candidates(ix, &lib, &c, &platform, &search, limit)
+                    })
+                    .await?)
+            }
+            "collection_dats" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let to = args["to"].as_str().filter(|t| !t.trim().is_empty()).map(PathBuf::from);
+                j(self
+                    .with_index(move |ix| {
+                        let c = collection::load(&lib, &id)?;
+                        collection::save_dats(ix, &lib, &c, to.as_deref())
+                    })
+                    .await?)
+            }
+            "export_defaults" => j(export::esde_default()),
+            "export_plan" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let o = match args["export"].as_str() {
+                    Some(id) => export::options_of(&lib, id).map_err(e2s)?,
+                    None => export::Options {
+                        collection: arg(&args, "collection").map_err(e2s)?.to_string(),
+                        target: args["target"].as_str().unwrap_or("esde").to_string(),
+                        out: PathBuf::from(args["out"].as_str().unwrap_or("").trim()),
+                        esde: args["esde"].as_str().filter(|e| !e.trim().is_empty()).map(|e| PathBuf::from(e.trim())),
+                        always_copy: args["always_copy"].as_bool().unwrap_or(false),
+                        short_names: args["short_names"].as_bool().unwrap_or(true),
+                        export_id: None,
+                    },
+                };
+                j(self
+                    .with_index(move |ix| {
+                        let plan = export::plan(ix, &lib, &o)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        let mut v = plan.summary();
+                        v["present"] = json!(plan.present.len());
+                        Ok(v)
+                    })
+                    .await?)
+            }
+            "exports" => {
+                let lib = self.library()?;
+                j(json!(export::list(&lib)))
+            }
+            "export_forget" => {
+                let lib = self.library()?;
+                export::forget(&lib, arg(&args, "id").map_err(e2s)?).map_err(e2s)?;
+                j(Value::Null)
+            }
+            "export_check" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                export::load(&lib, &id).map_err(e2s)?;
+                self.not_running("Checking an export")?;
+                j(self.spawn_job("Checking an export", move |app, jid, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    export::check(&ix, &lib, &id, &cancel, &mut |p| app.job_progress(&jid, p))
+                }))
             }
             other => Err(format!("unknown command {other}")),
         }

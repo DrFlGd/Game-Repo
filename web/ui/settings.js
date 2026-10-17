@@ -1,6 +1,6 @@
 // Settings: the open library (name, folder, other libraries), its index on this
 // computer, the folders with games and how they're scanned and watched, the DAT
-// files, how games are named, the history of changes (Undo, set-aside files), the
+// files, the systems (built-in and added), how games are named, the history of changes (Undo, set-aside files), the
 // look, and the app's version with a link to About. Storage formats, external
 // tools and metadata sources come with the phases that use them (docs/PLAN.md, 3.7).
 import { html, useState, useEffect } from "../lib/html.js";
@@ -11,6 +11,7 @@ import { api, toast, isDesktop, openLibrary, renameLibrary, showLibraryFolder, c
 import { undoChange, finishChange, CONVERT_FORMATS } from "./organise.js";
 import { addRoot, updateRoot, repointRoot, removeRoot, scanSettings, setScanSettings, importDats, starterDats, useDat, removeDat, refreshGames, reveal } from "./games.js";
 import { confirmDialog } from "./dialogs.js";
+import { SystemsSection } from "./systems.js";
 import { CommandBar } from "./layout.js";
 import { Icon } from "./icons.js";
 
@@ -301,7 +302,7 @@ export function Settings() {
         <ul class="ls-list" id="recent-libraries">${others.map((p) => html`<li key=${p}><span>${p}</span>
           <button type="button" class="ghost" onClick=${() => openLibrary(p)}>Open</button></li>`)}</ul>` : null}
     </section>
-    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${HistorySection} lib=${lib} />` : null}
+    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} /><${SystemsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${HistorySection} lib=${lib} />` : null}
     <${ToolsSection} />
     <section class="ls-section">
       <h2>Appearance</h2>

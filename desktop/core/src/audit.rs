@@ -32,7 +32,18 @@ fn match_sql(p: &str, scope: &str) -> String {
 /// Something matched changed: summaries worked out before are stale.
 pub fn changed(conn: &Connection) -> Result<()> {
     conn.execute("DELETE FROM index_meta WHERE key LIKE 'summary:%'", [])?;
+    // and collections worked out before (collection.rs keeps the last one)
+    conn.execute(
+        "INSERT INTO index_meta (key, value) VALUES ('generation', '1')
+         ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)",
+        [],
+    )?;
     Ok(())
+}
+
+/// How many times what matched has changed (collection.rs's cache key).
+pub fn generation(conn: &Connection) -> Result<String> {
+    Ok(conn.query_row("SELECT value FROM index_meta WHERE key = 'generation'", [], |r| r.get(0)).optional()?.unwrap_or_default())
 }
 
 /// Match the files hashed since they were last matched. Returns how many matches were made.
@@ -124,7 +135,7 @@ fn match_sheets(conn: &Connection, sheets: &[Sheet], dat_id: Option<i64>) -> Res
 /// Each game of the DAT with how many of its ROMs (nodumps aside) are matched.
 /// A disc's cue sheet (or GDI) counts as had when the game's tracks are in a CHD,
 /// which keeps no cue (docs/PLAN.md, "2b", Compressed images).
-const GAMES: &str = "
+pub(crate) const GAMES: &str = "
   rs AS (SELECT r.game_id, r.id,
                 EXISTS (SELECT 1 FROM matches m WHERE m.rom_id = r.id)
                 OR ((lower(r.name) LIKE '%.cue' OR lower(r.name) LIKE '%.gdi')
@@ -180,7 +191,7 @@ pub fn dat_ref(conn: &Connection, id: i64) -> Result<DatRef> {
 /// No-Intro DAT, else its first current DAT by name.
 pub fn primary_dat(conn: &Connection, lib: &Library, platform: &str) -> Result<Option<i64>> {
     let chosen = lib.meta()["audit_dats"][platform].as_str().map(String::from);
-    let preferred = platforms::by_id(platform).map(|p| p.dat_names[0].to_ascii_lowercase()).unwrap_or_default();
+    let preferred = platforms::by_id(platform).and_then(|p| p.dat_names.first()).map(|n| n.to_ascii_lowercase()).unwrap_or_default();
     let mut q = conn.prepare("SELECT id, name FROM dats WHERE platform = ?1 AND current = 1 ORDER BY name")?;
     let rows: Vec<(i64, String)> = q.query_map([platform], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
     Ok(rows

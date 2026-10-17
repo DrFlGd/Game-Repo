@@ -7,6 +7,7 @@
 //!   gamerepo-cli serve --ui <dir> --home <dir> [--library <dir>] [--port 8790]
 //!   gamerepo-cli roots add|list|remove …, scan, dat import|list, audit, make-dat
 //!   gamerepo-cli organise, duplicates, convert, extract, history, undo, finish, set-aside empty, tools
+//!   gamerepo-cli systems, collections, collection, export, exports
 //!
 //! `serve` runs the app's commands behind a local web server, so the page can be
 //! tested in an ordinary browser (with tests/tauri_shim.js standing in for Tauri's
@@ -86,6 +87,31 @@ under <dir>/config and <dir>/data instead of the app's own folders.
   finish <change id>         finish a change that was interrupted
   set-aside empty [<change id>]
                              delete the files set aside by a change (or by all of them)
+
+  systems [list]             every system, with those added by hand marked
+  systems add --name <name> [--id <id>] [--dat-names <a,b>] [--folders <a,b>]
+        [--exts <a,b>] [--media cartridge|cd|nintendo|umd|audit]
+                             add a system (systems edit <id> … changes one)
+  systems remove <id>        remove a system added by hand (not one with DATs)
+  collections                the collections
+  collection new --name <name> [--platform <id>]... [--all] [--no-1g1r]
+        [--regions <USA,Europe,…>] [--only-regions] [--languages <En,Fr>]
+        [--search <text>] [--from-dat <DAT name>]...
+                             make a collection (collection edit <id> … changes one)
+  collection show <id>       its games, by system
+  collection dats <id> [--out <dir>]
+                             save it as DATs, one per system
+  collection delete <id>
+  export <collection id> --out <dir> [--to esde|folder] [--esde <ES-DE folder>]
+        [--always-copy] [--full-names] [--dry-run]
+                             export a collection to ES-DE's ROMs folder (with its
+                             gamelists and a custom collection when --esde is given)
+                             or to a folder, hardlinked where it can be, checked
+  exports                    the exports made
+  export update <export id> [--dry-run]
+                             export it again: new games added, those gone set aside
+  export check <export id>   read the export's files back against the DATs
+  export forget <export id>  forget an export (its files stay)
 ";
 
 struct Args {
@@ -147,7 +173,7 @@ async fn run() -> Result<()> {
         }
         "serve" => serve(a).await,
         "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" | "organise" | "duplicates" | "history" | "undo" | "finish"
-        | "set-aside" | "convert" | "extract" | "formats" | "tools" => library_command(&cmd, a).await,
+        | "set-aside" | "convert" | "extract" | "formats" | "tools" | "systems" | "collections" | "collection" | "export" | "exports" => library_command(&cmd, a).await,
         other => bail!("unknown command {other} (gamerepo-cli --help lists them)"),
     }
 }
@@ -229,7 +255,7 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
     }
     let json_out = a.rest.iter().any(|x| x == "--json");
     a.rest.retain(|x| x != "--json");
-    let sub = if matches!(cmd, "roots" | "dat" | "set-aside") && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
+    let sub = if matches!(cmd, "roots" | "dat" | "set-aside" | "systems" | "collection" | "export") && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
     match (cmd, sub.as_str()) {
         ("platforms", _) => print(&invoke(&app, "platforms", json!({})).await?),
         ("roots", "list") | ("roots", "") => {
@@ -487,44 +513,7 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
                 };
                 invoke(&app, "organise_plan", json!({ "dat": dat_id, "mode": mode, "out": out, "format": format, "partial": partial, "always_copy": always_copy, "only_misnamed": misnamed })).await?
             };
-            let ops = invoke(&app, "organise_preview", json!({ "id": plan["id"], "limit": 1000 })).await?;
-            if json_out && dry {
-                return print(&json!({ "plan": plan, "ops": ops }));
-            }
-            if !json_out {
-                println!("{}: {} games, {} already in place", plan["label"].as_str().unwrap_or(""), plan["games"], plan["in_place"]);
-                for o in plan["by_op"].as_array().into_iter().flatten() {
-                    println!("  {:<8} {:>6}  ({} MB)", o["op"].as_str().unwrap_or(""), o["count"], o["bytes"].as_u64().unwrap_or(0) / 1_000_000);
-                }
-                for (k, what) in [("conflicts", "in the way (left as they are)"), ("duplicates", "duplicates"), ("left", "games left out")] {
-                    if plan[k].as_u64().unwrap_or(0) > 0 {
-                        println!("  {} {what}", plan[k]);
-                    }
-                }
-                for sp in plan["space"].as_array().into_iter().flatten().filter(|s| s["short"] == true) {
-                    eprintln!("  not enough space on {}: {} MB needed, {} MB free", sp["drive"].as_str().unwrap_or(""), sp["needed"].as_u64().unwrap_or(0) / 1_000_000, sp["free"].as_u64().unwrap_or(0) / 1_000_000);
-                }
-                if dry {
-                    for o in ops["items"].as_array().into_iter().flatten() {
-                        println!("{:<8} {}  <-  {}", o["op"].as_str().unwrap_or(""), o["to"].as_str().unwrap_or(""), o["from"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join(", "));
-                    }
-                    if ops["total"].as_u64().unwrap_or(0) > 1000 {
-                        println!("… and {} more", ops["total"].as_u64().unwrap_or(0) - 1000);
-                    }
-                }
-            }
-            if dry || plan["ops"].as_u64().unwrap_or(0) == 0 {
-                return Ok(());
-            }
-            let r = follow(&app, invoke(&app, "organise_run", json!({ "id": plan["id"] })).await?).await?;
-            if json_out {
-                return print(&r);
-            }
-            println!("{} of {} steps done{}; change {} (undo {} puts it back)", r["done"], r["ops"], if r["stopped"] == true { " (stopped)" } else { "" }, r["id"].as_str().unwrap_or(""), r["id"].as_str().unwrap_or(""));
-            for f in r["failed"].as_array().into_iter().flatten().take(20) {
-                eprintln!("  {}", f["error"].as_str().or(f.as_str()).unwrap_or(""));
-            }
-            Ok(())
+            show_and_run(&app, plan, dry, json_out).await
         }
         ("history", _) => {
             let h = invoke(&app, "change_history", json!({})).await?;
@@ -555,8 +544,204 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             println!("{} MB freed ({} changes)", r["freed"].as_u64().unwrap_or(0) / 1_000_000, r["changes"]);
             Ok(())
         }
+        ("systems", "") | ("systems", "list") => {
+            let p = invoke(&app, "platforms", json!({})).await?;
+            if json_out {
+                return print(&json!(p.as_array().into_iter().flatten().filter(|x| x["custom"] == true).collect::<Vec<_>>()));
+            }
+            for x in p.as_array().into_iter().flatten() {
+                println!("{:<14} {}{}", x["id"].as_str().unwrap_or(""), x["name"].as_str().unwrap_or(""), if x["custom"] == true { "  (added)" } else { "" });
+            }
+            Ok(())
+        }
+        ("systems", "add") | ("systems", "edit") => {
+            let old = if sub == "edit" { Some(a.rest.first().cloned().context("systems edit needs the system's id")?) } else { None };
+            let name = a.need("--name")?;
+            let system = json!({
+                "id": a.flag("--id").or(old.clone()), "name": name, "dat_names": a.flag("--dat-names").unwrap_or_default(),
+                "folders": a.flag("--folders").unwrap_or_default(), "exts": a.flag("--exts").unwrap_or_default(),
+                "media": a.flag("--media").unwrap_or_else(|| "cartridge".into()),
+            });
+            print(&invoke(&app, "systems_set", json!({ "system": system, "old": old })).await?)
+        }
+        ("systems", "remove") => {
+            let id = a.rest.first().context("systems remove needs the system's id")?;
+            invoke(&app, "systems_remove", json!({ "id": id })).await?;
+            Ok(())
+        }
+        ("collections", _) => {
+            let v = invoke(&app, "collections", json!({})).await?;
+            if json_out {
+                return print(&v);
+            }
+            for c in v.as_array().into_iter().flatten() {
+                println!("{}  {}", c["id"].as_str().unwrap_or(""), c["name"].as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
+        ("collection", "new") | ("collection", "edit") => {
+            let mut c = if sub == "edit" {
+                let id = a.rest.first().cloned().context("collection edit needs the collection's id")?;
+                invoke(&app, "collection_get", json!({ "id": id })).await?["collection"].clone()
+            } else {
+                json!({ "id": "", "name": "", "rules": {} })
+            };
+            if let Some(n) = a.flag("--name") {
+                c["name"] = json!(n);
+            }
+            let mut platforms = vec![];
+            while let Some(p) = a.flag("--platform") {
+                platforms.push(p);
+            }
+            let mut from = vec![];
+            while let Some(d) = a.flag("--from-dat") {
+                from.push(d);
+            }
+            let r = &mut c["rules"];
+            if !platforms.is_empty() {
+                r["platforms"] = json!(platforms);
+            }
+            if !from.is_empty() {
+                r["from_dats"] = json!(from);
+            }
+            if let Some(x) = a.flag("--regions") {
+                r["regions"] = json!(x.split(',').map(str::trim).filter(|s| !s.is_empty()).collect::<Vec<_>>());
+            }
+            if let Some(x) = a.flag("--languages") {
+                r["languages"] = json!(x.split(',').map(str::trim).filter(|s| !s.is_empty()).collect::<Vec<_>>());
+            }
+            if let Some(x) = a.flag("--search") {
+                r["search"] = json!(x);
+            }
+            let has = |f: &str| a.rest.iter().any(|x| x == f);
+            if has("--all") {
+                r["include"] = json!("all");
+            }
+            if has("--have") {
+                r["include"] = json!("have");
+            }
+            if has("--no-1g1r") {
+                r["one_per_title"] = json!(false);
+            }
+            if has("--only-regions") {
+                r["only_regions"] = json!(true);
+            }
+            let saved = invoke(&app, "collection_save", json!({ "collection": c })).await?;
+            if json_out {
+                return print(&saved);
+            }
+            let sum = &saved["summary"];
+            println!("{}  {}: {} games ({} you have)", saved["collection"]["id"].as_str().unwrap_or(""), saved["collection"]["name"].as_str().unwrap_or(""), sum["games"], sum["have"]);
+            Ok(())
+        }
+        ("collection", "show") => {
+            let id = a.rest.first().cloned().context("collection show needs the collection's id")?;
+            let c = invoke(&app, "collection_get", json!({ "id": id })).await?;
+            let games = invoke(&app, "collection_games", json!({ "id": id, "limit": 1000 })).await?;
+            if json_out {
+                return print(&json!({ "collection": c["collection"], "summary": c["summary"], "games": games }));
+            }
+            for s in c["summary"]["systems"].as_array().into_iter().flatten() {
+                println!("{}: {} games ({} you have)", s["name"].as_str().unwrap_or(""), s["games"], s["have"]);
+            }
+            for g in games["items"].as_array().into_iter().flatten() {
+                println!("  {:<6} {}", g["status"].as_str().unwrap_or(""), g["key"].as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
+        ("collection", "dats") => {
+            let id = a.rest.first().cloned().context("collection dats needs the collection's id")?;
+            let to = a.flag("--out").map(|o| std::path::absolute(&o).map(|p| p.display().to_string()).unwrap_or(o));
+            print(&invoke(&app, "collection_dats", json!({ "id": id, "to": to })).await?)
+        }
+        ("collection", "delete") => {
+            let id = a.rest.first().context("collection delete needs the collection's id")?;
+            invoke(&app, "collection_delete", json!({ "id": id })).await?;
+            Ok(())
+        }
+        ("exports", _) => print(&invoke(&app, "exports", json!({})).await?),
+        ("export", "check") => {
+            let id = a.rest.first().context("export check needs the export's id (exports lists them)")?;
+            let r = follow(&app, invoke(&app, "export_check", json!({ "id": id })).await?).await?;
+            if json_out {
+                return print(&r);
+            }
+            println!("{} files: {} as they should be, {} missing, {} changed", r["files"], r["ok"], r["missing"].as_array().map(Vec::len).unwrap_or(0), r["changed"].as_array().map(Vec::len).unwrap_or(0));
+            for f in r["missing"].as_array().into_iter().flatten() {
+                println!("  missing  {}", f["path"].as_str().unwrap_or(""));
+            }
+            for f in r["changed"].as_array().into_iter().flatten() {
+                println!("  changed  {}  ({})", f["path"].as_str().unwrap_or(""), f["why"].as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
+        ("export", "forget") => {
+            let id = a.rest.first().context("export forget needs the export's id")?;
+            invoke(&app, "export_forget", json!({ "id": id })).await?;
+            Ok(())
+        }
+        ("export", what) => {
+            let dry = a.rest.iter().any(|x| x == "--dry-run");
+            let plan = if what == "update" {
+                let id = a.rest.iter().find(|x| !x.starts_with("--")).cloned().context("export update needs the export's id (exports lists them)")?;
+                invoke(&app, "export_plan", json!({ "export": id })).await?
+            } else if what.is_empty() {
+                bail!("export needs a collection's id (collections lists them)")
+            } else {
+                let abs = |o: String| std::path::absolute(&o).map(|p| p.display().to_string()).unwrap_or(o);
+                let target = a.flag("--to").unwrap_or_else(|| "esde".into());
+                let out = a.need("--out").map(abs)?;
+                let esde = a.flag("--esde").map(abs);
+                let always_copy = a.rest.iter().any(|x| x == "--always-copy");
+                let short_names = !a.rest.iter().any(|x| x == "--full-names");
+                invoke(&app, "export_plan", json!({ "collection": what, "target": target, "out": out, "esde": esde, "always_copy": always_copy, "short_names": short_names })).await?
+            };
+            show_and_run(&app, plan, dry, json_out).await
+        }
         (c, s) => bail!("unknown command {c} {s} (gamerepo-cli --help lists them)"),
     }
+}
+
+/// Show a planned change (all of it with --dry-run), then run it.
+async fn show_and_run(app: &Arc<App>, plan: Value, dry: bool, json_out: bool) -> Result<()> {
+    let ops = invoke(app, "organise_preview", json!({ "id": plan["id"], "limit": 1000 })).await?;
+    if json_out && dry {
+        return print(&json!({ "plan": plan, "ops": ops }));
+    }
+    if !json_out {
+        println!("{}: {} games, {} already in place", plan["label"].as_str().unwrap_or(""), plan["games"], plan["in_place"]);
+        for o in plan["by_op"].as_array().into_iter().flatten() {
+            println!("  {:<8} {:>6}  ({} MB)", o["op"].as_str().unwrap_or(""), o["count"], o["bytes"].as_u64().unwrap_or(0) / 1_000_000);
+        }
+        for (k, what) in [("conflicts", "in the way (left as they are)"), ("duplicates", "duplicates"), ("left", "games left out")] {
+            if plan[k].as_u64().unwrap_or(0) > 0 {
+                println!("  {} {what}", plan[k]);
+            }
+        }
+        for sp in plan["space"].as_array().into_iter().flatten().filter(|s| s["short"] == true) {
+            eprintln!("  not enough space on {}: {} MB needed, {} MB free", sp["drive"].as_str().unwrap_or(""), sp["needed"].as_u64().unwrap_or(0) / 1_000_000, sp["free"].as_u64().unwrap_or(0) / 1_000_000);
+        }
+        if dry {
+            for o in ops["items"].as_array().into_iter().flatten() {
+                println!("{:<8} {}  <-  {}", o["op"].as_str().unwrap_or(""), o["to"].as_str().unwrap_or(""), o["from"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join(", "));
+            }
+            if ops["total"].as_u64().unwrap_or(0) > 1000 {
+                println!("… and {} more", ops["total"].as_u64().unwrap_or(0) - 1000);
+            }
+        }
+    }
+    if dry || plan["ops"].as_u64().unwrap_or(0) == 0 {
+        return Ok(());
+    }
+    let r = follow(app, invoke(app, "organise_run", json!({ "id": plan["id"] })).await?).await?;
+    if json_out {
+        return print(&r);
+    }
+    println!("{} of {} steps done{}; change {} (undo {} puts it back)", r["done"], r["ops"], if r["stopped"] == true { " (stopped)" } else { "" }, r["id"].as_str().unwrap_or(""), r["id"].as_str().unwrap_or(""));
+    for f in r["failed"].as_array().into_iter().flatten().take(20) {
+        eprintln!("  {}", f["error"].as_str().or(f.as_str()).unwrap_or(""));
+    }
+    Ok(())
 }
 
 /// The app's backend with its settings under `home` (config/, data/).

@@ -61,8 +61,7 @@ pub fn set_preferred(lib: &Library, platform: &str, format: &str) -> Result<()> 
 
 /// Each platform that can be converted, with its formats and the one preferred.
 pub fn formats(lib: &Library) -> Value {
-    json!(platforms::PLATFORMS
-        .iter()
+    json!(platforms::all()
         .filter(|p| !platforms::formats(p.id).is_empty())
         .map(|p| json!({ "platform": p.id, "name": p.name, "formats": platforms::formats(p.id), "preferred": preferred(lib, p.id) }))
         .collect::<Vec<_>>())
@@ -225,7 +224,7 @@ fn new_plan(lib: &Library, d: &audit::DatRef, kind: &str, label: String, to: &st
         dat: json!({ "id": d.id, "name": d.name, "version": d.version }), platform: d.platform.clone(),
         mode: if out.is_some() { "copy".into() } else { "in-place".into() }, format: to.into(),
         out: out.map(|o| o.display().to_string()), ops: vec![], games: 0, in_place: 0,
-        conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None,
+        conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, present: vec![], export: None,
     }
 }
 
@@ -251,7 +250,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         let mut plan = organise::plan(ix, lib, &organise::Options {
             dat_id: o.dat_id, mode: if o.out.is_some() { "copy".into() } else { "rename".into() }, out: o.out.clone(),
             format: if o.to == "extract" { "loose".into() } else { "zip".into() },
-            partial: false, always_copy: false, only_misnamed: false, games: o.games.clone(),
+            partial: false, always_copy: false, only_misnamed: false, games: o.games.clone(), ..Default::default()
         })?;
         plan.kind = if o.to == "extract" { "extract".into() } else { "convert".into() };
         plan.label = match (o.to.as_str(), &o.out) {

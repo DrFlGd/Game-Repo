@@ -13,6 +13,7 @@ import { Settings } from "./settings.js";
 import { About } from "./about.js";
 import { Coming, COMING } from "./coming.js";
 import { Audit } from "./audit.js";
+import { Collections } from "./collections.js";
 import { loadIndex } from "./library.js";
 import { ContextMenu, onWindowKey } from "./actions.js";
 
@@ -22,6 +23,7 @@ function Main() {
   if (route === "settings" && !blocked) return html`<${Settings} />`;
   if (route === "about") return html`<${About} />`;
   if (route === "audit" && !blocked) return html`<${Audit} />`;
+  if (route === "collections" && !blocked) return html`<${Collections} />`;
   if (COMING[route] && !blocked) return html`<${Coming} key=${route} page=${route} />`;
   return html`<${Home} />`;
 }

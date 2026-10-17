@@ -1192,6 +1192,156 @@ arcade merged/split sets (7), automatic DAT updates (8), lossy conversions, writ
   when you empty it; not sent to the Recycle Bin (which may delete large files at once)
   and not deleted.
 
+### Phase 3 design (written 2026-10-17; Jerred asked for it to be built straight away)
+
+Phase 3 makes the library's games into **collections** and **exports** them. Jerred
+added three things on 2026-10-17: a collection can be **saved as DATs**, a collection can
+span **several systems**, and **systems can be added** in Settings. The "which system is
+this DAT for?" question offers the known systems (built-in and added ones) or a new one.
+
+**Systems (D22)**
+
+- Systems added by hand are kept in library.json `systems`: `{id, name, dat_names,
+  folders, exts, media}`. The id is the folder name exports use (ES-DE's system name for
+  ES-DE), lower case; `media` is cartridge, cd, nintendo, umd or audit (which formats it
+  converts to, as for the built-in systems). They join the built-in table when the
+  library opens (`platforms::configure`), so DATs, folders and extensions find them like
+  any other, and every page's system list shows them.
+- An id a DAT was given before (Phase 1's "another platform…") is shown as a system
+  named by its id until it's described.
+- *Settings › Systems* lists the built-in systems (read-only) and the added ones: add,
+  edit, remove (a system with DATs can't be removed until they are).
+- *Which system is this DAT for?* lists every system, plus *A new system…*, which asks
+  for its name (its id follows from the name and can be changed) and adds it with the
+  DAT's name as its DAT name, so the next version is found on its own.
+
+**Collections (D21)**
+
+- A collection is a file in the library, `_library/collections/<id>.json`: its name, its
+  rules and the games added or left out by hand. Nothing about it is in the index: it is
+  worked out from the index when it's shown or used, so it follows the library.
+- **Rules**: the systems it covers (none ticked: every system with a DAT, D23 for
+  several); which games (*games you have*, the default, or *every game in the DAT*, for a
+  list of what to look for); *1G1R* with a region order (USA, World, Europe, Japan by
+  default) and *only those regions*; languages; leave out betas, prototypes, demos,
+  samples, unlicensed, pirate, BIOS, programs, kiosk and debug builds (each a tick);
+  a name search; and **from DATs**: only games in one or more other DATs (by name or
+  by any ROM's hashes), so a DAT of your own (a "best of" list, a RetroAchievements
+  list) picks the games.
+- **1G1R**: in each parent/clone group, among the games that pass the rules (and, with
+  *games you have*, that you have), the game whose first region comes earliest in the
+  order, then the one with no flags, then the highest revision and version, then the
+  parent. With *only those regions* a group with no game in them gives none.
+- **By hand**: *Leave out* on any game in the result, *Add games…* from a system's DAT;
+  both kept by `system/game name` and shown, with *Put back*.
+- The page: the list of collections, and for the one chosen its rules, then the result
+  (a count per system, the games a page at a time with a search). New, Rename,
+  Duplicate, Delete. Every change is saved at once.
+
+**Save as DATs (D23)**
+
+- One Logiqx DAT per system, `<Collection> - <System>.dat`, with each game and its ROMs
+  as its own DAT lists them (clone links kept when both are in), header author Game
+  Repo. They go to a folder you choose (by default `_library/collection-dats/<name>/`).
+  One DAT per system because RomVault, clrmamepro and igir expect a DAT to be one system.
+
+**Export**
+
+- Two targets: **ES-DE** (`<ROMs folder>/<system id>/`) and **a plain folder**
+  (`<folder>/<DAT group name>/`, as Organise's *Move* names it, with Settings › Naming's
+  folder per game). Files are hardlinked when the export is on the same drive (no space
+  used), else copied, or always copied if you choose; every file written is checked
+  (Phase 2a's copy, read back). It's a change like Organise's, with the preview, the
+  journal and Undo.
+- For ES-DE, a game of several files (a cue/bin, a GDI) goes into a folder named as its
+  sheet, `Game (USA).cue/`, which ES-DE shows as one game and launches the file of the
+  same name inside (its "directories interpreted as files"); a game of one file is the
+  file. Names follow Settings › Naming; the files inside a game's folder keep the DAT's
+  names, as the sheet names them.
+- With the ES-DE folder given (`%USERPROFILE%/ES-DE` is offered when it exists), the
+  export also writes `gamelists/<system>/gamelist.xml` (an entry with the game's short
+  title or its full name for each exported game that has none; entries already there are
+  kept as they are) and the collection as an ES-DE custom collection,
+  `collections/custom-<Collection>.cfg`. A file it replaces is set aside, so Undo puts
+  it back.
+- **Re-sync**: each export is remembered in `_library/exports/<id>.json` (collection,
+  target, folders, files it placed). *Update* plans it again: games already there with the
+  same contents are left, new ones are added, and files the export placed that the
+  collection no longer has are set aside in `.gamerepo-set-aside/` at the top of the
+  export folder (D20). Files it didn't place are never touched.
+- **Check**: reads every file of the export back and reports the ones missing, changed
+  (their contents no longer match a DAT) or as they should be. A job, with Stop.
+- An export folder inside a folder with games is refused: its copies would be counted
+  as duplicates.
+
+**Not in Phase 3**: converting on export (the library's format is exported; Convert
+changes it first), `.m3u` files for multi-disc games, scraped details and media in the
+gamelist (Phase 5), RetroArch, Pegasus and the rest (Phase 8).
+
+**Tests**: Rust: systems added and found by DAT name, folder and extension; each rule and
+1G1R on the fixture set; DATs as sources; collections saved as DATs and imported again
+(the same games); ES-DE and plain exports, with a cue/bin game in its folder, the gamelist
+merged, the custom collection, re-sync after a rule change and Undo; Check finding a
+changed file. Page: Settings › Systems; the DAT question with an existing and a new
+system; a collection made, changed by hand, saved as DATs, exported to ES-DE, updated and
+checked.
+
+**Decisions taken for Phase 3** (Jerred, 2026-10-17, from Claude's proposal)
+
+- **D21** Collections are saved queries in the library, worked out from the index when
+  used; games added or left out by hand are kept by system and name.
+- **D22** Systems can be added in Settings and from the DAT question; they're kept in
+  library.json beside the built-in table.
+- **D23** A collection can span systems; saved as DATs, it's one DAT per system.
+
+### Phase 3 notes (built 2026-10-17)
+
+- **Core**: `systems.rs` (D22: library.json `systems`, checked against the built-in ids
+  and DAT names; an id with DATs can't change), `platforms.rs` (`configure` adds the
+  library's systems to the table behind a lock, `all()` is the built-in and added rows;
+  ids a DAT was given before become systems named by their id; `App::library` reads
+  library.json's systems again when it changes), `collection.rs` (D21: rules, 1G1R,
+  DATs as sources, by hand; the last result cached by the index's `generation` counter,
+  which every index change bumps; Save as DATs), `export.rs` (the export plan, the record
+  in `_library/exports/<id>.json`, the gamelist and custom collection, Check). `api.rs`
+  gained `systems_set`, `systems_remove`, `collections`, `collection_get`,
+  `collection_games`, `collection_save`, `collection_delete`, `collection_candidates`,
+  `collection_dats`, `export_defaults`, `export_plan`, `exports`, `export_check` and
+  `export_forget`; the command line has `systems`, `collections`, `collection`,
+  `export` and `exports`.
+- **An export is an Organise change.** `export::plan` makes one `organise::plan` (copy,
+  format *keep*) per system into `<out>/<system id>/` (ES-DE) or `<out>/<DAT group
+  name>/`, merges them, and adds `aside` steps for files the export placed before that
+  the collection no longer has (set aside at `<out>/.gamerepo-set-aside/<change>/`, a
+  `dir:` source root, since the export folder isn't a folder with games) and `text`
+  steps for ES-DE's `gamelist.xml` and `collections/custom-<name>.cfg` (the file they
+  replace is set aside first, so Undo puts it back). Running, the journal, Undo and
+  *Finish* are Phase 2a's; `organise::run` and `undo` call `export::record`.
+- **Organise's options** gained `esde` (a game of several files goes in a folder named
+  as its sheet, ES-DE's "directories interpreted as files"; a game of one file is the
+  file, whatever Naming's folder option says) and `known` (files the export placed,
+  with their size and modified time: one still the same is *there already* without
+  reading it). A plan's `present` lists targets there already with the right contents.
+- **Re-sync**: the record keeps each file placed with its size, modified time, game,
+  system and DAT. Files there already that the export didn't place are never recorded,
+  so never set aside. Undo of an update restores the record from the files on disk;
+  Undo of the first export forgets it.
+- **Check** reads each recorded file (archives and images by their members) and
+  compares it with its game's ROMs in the DAT it was exported from (or the system's
+  current DAT of that name): *missing*, *changed* or as it should be. A cue sheet is
+  checked by being there (the export may rewrite it).
+- **The page**: Collections (rules beside the games, a page at a time with a search,
+  Leave out and Put back, Add games…, Save as DATs…, Export…, the collection's exports
+  with Update…, Check and Forget), Settings › Systems, and the DAT question (and Make a
+  DAT) offering every system, added ones too, or *A new system…* named there. Rule
+  changes are saved one after another, each on the collection as the last left it.
+- **Not as designed**: the export folder can't hold a folder with games either (its
+  copies would be found by scans); gamelist entries are added, never removed (ES-DE
+  drops entries whose files are gone).
+- **To check on a real set** (Jerred): export a collection to ES-DE's ROMs folder and
+  open ES-DE: the systems, a cue/bin game shown once, the gamelist names and the custom
+  collection; update it after a rule change.
+
 ---
 
 ## 8. Working in a cloud session
@@ -1284,7 +1434,10 @@ arcade merged/split sets (7), automatic DAT updates (8), lossy conversions, writ
 - **D19, D20** (Phase 2 design): Phase 2 in two halves; originals and duplicates set aside
   on the same drive until emptied. Proposed defaults, followed unless Jerred changes them.
 
-New ones get a number here as they come up (next: D21).
+- **D21–D23** (Phase 3 design): collections in the library, systems added by hand, one
+  DAT per system when a collection is saved as DATs. Taken 2026-10-17.
+
+New ones get a number here as they come up (next: D24).
 
 ---
 
@@ -1299,3 +1452,4 @@ New ones get a number here as they come up (next: D21).
 4. ~~Merge Phase 1 and release v0.1.0.~~ Done 2026-10-16 (PR #4).
 5. Phase 2: design written ("Phase 2 design"); 2a built ("Phase 2a notes"), merged and
    released as v0.2.0; 2b built ("Phase 2b notes").
+6. Phase 3: design written ("Phase 3 design", D21–D23) and built ("Phase 3 notes").
