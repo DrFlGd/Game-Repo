@@ -10,7 +10,7 @@ the app. The **For agents** section is the map for whoever works on the code nex
 
 ### What this is
 
-A Windows desktop app (Tauri 2) for organising large video game collections: auditing ROM sets against DAT files, building and exporting collections (ES-DE, Steam), importing PC games into a common layout, and scraping each game's details, media and manuals, with the user's own documents attached. The owner ("DrFlGd", Jerred) steers by phases; the plan, every decision taken (D1–D18, D21–D24, D29; D19–D20 and D25–D28 proposed and followed) and the phases are in `docs/PLAN.md`.
+A Windows desktop app (Tauri 2) for organising large video game collections: auditing ROM sets against DAT files, building and exporting collections (ES-DE, Steam), importing PC games into a common layout, and scraping each game's details, media and manuals, with the user's own documents attached. The owner ("DrFlGd", Jerred) steers by phases; the plan, every decision taken (D1–D18, D21–D24, D29–D30; D31 proposed; D19–D20 and D25–D28 proposed and followed) and the phases are in `docs/PLAN.md`.
 
 The code started as a trimmed copy of [Model Library](https://github.com/DrFlGd/Model-Library) (same owner, same stack): its Tauri shell, its one-command-table backend, its library folder, its jobs and its Preact interface. Much more of it is meant to come across as the phases need it (the browser views, the sorting workspace for the PC inbox, journals and Undo, ZIP/7z reading, the side viewer for documents): look there before writing something from scratch. `docs/PLAN.md` section 5 lists what carries over.
 
@@ -71,6 +71,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 ## Unreleased
 
 - Roadmap: device profiles for muOS, Knulli, ROCKNIX, and ES-DE on Android or Linux come right after Phase 5, for exporting a collection to a handheld's SD card.
+- Roadmap: Phase 5 lets you choose what is scraped (for your games, a collection or a whole DAT) and what each export writes, bulk import guides and manuals with a review of which game each goes with, and search documents on their own page. Magazines come in a later phase.
 
 ## 0.4.0 (2026-10-17)
 
