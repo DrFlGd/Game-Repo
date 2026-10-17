@@ -561,7 +561,8 @@ mod tests {
         let (dir, lib, ix) = fixture("export-esde");
         let c = collection(&lib, |_| {});
         let es = dir.join("ES-DE");
-        let roms = dir.join("ROMs");
+        // (not "ROMs": on Windows that is the fixture's "Roms", a folder with games)
+        let roms = dir.join("ES-ROMs");
         std::fs::create_dir_all(es.join("settings")).unwrap();
         std::fs::write(es.join("settings").join("es_settings.xml"), format!("<?xml version=\"1.0\"?>\n<string name=\"ROMDirectory\" value=\"{}\" />\n", roms.display())).unwrap();
         // a gamelist there already, with an entry of its own
