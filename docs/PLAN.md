@@ -586,6 +586,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **3** | Collections + ES-DE export | Rule-based collections with 1G1R; export to ES-DE (ROMs, gamelist.xml, custom collections) and a plain tree; export verification and re-sync. |
 | **4** | PC game import + Steam | Inbox classification, GOG id detection, common structure + `game.json`, duplicate detection; Steam non-Steam shortcuts with artwork; Add a game… for one ROM, disc or PC game, and Identify with Steam, GOG and LaunchBox (D24). |
 | **5** | Metadata, media & documents | Provider settings; LaunchBox offline provider, then ScreenScraper (hash lookup, manuals), IGDB and TheGamesDB, all in Identify (D24); media storage; the game folder with `docs/`, attach and bulk attach, the side viewer for PDFs/images/text/audio; ES-DE media and manuals folders and Steam grid output; review queue for weak matches. |
+| **5b** | Device profiles | Export a collection to an SD card in the layout of muOS, Knulli, ROCKNIX, or ES-DE on Android or Linux (3.10, D18, D29): each firmware's ROM folders, gamelists and media, within the card's size limit. Built on Phase 3's export and Phase 5's media. |
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets and providers | RetroArch playlists, Pegasus, Playnite, LaunchBox exports; MobyGames; automatic DAT updates where allowed; Linux build if wanted. |
@@ -1627,7 +1628,10 @@ IGDB, TheGamesDB: Phase 5), scraped media for ES-DE (Phase 5).
 - **D18 Devices (taken 2026-10-17):** the devices are muOS, Knulli and ROCKNIX
   handhelds, and Android or Linux running ES-DE. Their device profiles come first
   (3.10); none of them needs a client app of its own (browser, WebDAV and sync cover
-  them). When the SD-card profiles are built is D29.
+  them).
+- **D29 When device profiles come (taken 2026-10-17):** right after Phase 5, as export
+  targets for SD cards (Phase 5b), since what they carry is Phase 5's metadata and
+  media; serving and syncing over the network stay in Phase 9.
 
 ## 11. Open decisions
 
@@ -1646,10 +1650,6 @@ IGDB, TheGamesDB: Phase 5), scraped media for ES-DE (Phase 5).
 - **D25–D28** (Phase 4 design): the PC games folder, import as an Organise change,
   Phase 4's sources, Steam's shortcuts. Proposed defaults, followed in the build
   ("Phase 4 notes"); Jerred asked for Phase 4 to be built and released on 2026-10-17.
-
-- **D29 When device profiles come** (from D18): proposed right after Phase 5, as export
-  targets for SD cards, since what they carry is Phase 5's metadata and media; serving
-  and syncing over the network stay in Phase 9. Asked 2026-10-17.
 
 New ones get a number here as they come up (next: D30).
 
