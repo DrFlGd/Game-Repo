@@ -36,7 +36,7 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ folders: "Renaming game folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting", import: "Importing", add: "Adding", docs: "Bringing in documents" })[kind] || "Organising";
+const verb = (kind) => ({ folders: "Renaming game folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting", import: "Importing", add: "Adding", docs: "Bringing in documents", metadata: "Deleting metadata" })[kind] || "Organising";
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
 export const organiseDialog = (opts) => ui.set({ dialog: { type: "organise", ...opts } });
@@ -198,7 +198,8 @@ export function OrganiseDialog({ dat, platform, platformName, plan: given }) {
     return html`<${Dialog} title=${plan.label} id="organise-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "OK" : plan.kind === "aside" ? "Set them aside" : "Run"}
       cancelLabel=${given ? "Cancel" : "Back"} onCancel=${given ? close : () => setPlan(null)}>
       <${Preview} plan=${plan} />
-      ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.kind === "folders" ? "no game folder can be renamed (the preview says why)." : plan.in_place ? "everything is in place already." : "no files match this DAT yet."}</p>`
+      ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.kind === "folders" ? "no game folder can be renamed (the preview says why)." : plan.kind === "metadata" ? "there's none of that to delete." : plan.in_place ? "everything is in place already." : "no files match this DAT yet."}</p>`
+        : plan.kind === "metadata" ? html`<p class="muted">The files are set aside in the library, not deleted, and the games' details are made again from what's left. Your own documents and what you've written yourself stay. The change can be undone from the message afterwards or from Settings › History, which also empties what was set aside.</p>`
         : plan.kind === "folders" ? html`<p class="muted">Each game's folder in the library is renamed where it is, with what's in it (details, pictures, documents). The change can be undone from the message afterwards or from Settings › History.</p>`
         : html`<p class="muted">Every file written is read back and checked before anything is set aside. The change can be undone from the message afterwards or from Settings › History.</p>`}
     <//>`;

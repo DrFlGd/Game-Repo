@@ -3,7 +3,10 @@
 // its details each saying where it came from and editable by hand (kept over later
 // scrapes, D44), its documents, its files, the collections it's in, and Scrape…,
 // Identify… and Attach documents…; files dropped on the page are attached to it.
-// Previous and Next go through the Library list it was opened from.
+// Each detail lists what the other sources said, and each kind of picture the other
+// sources' ones, with Use this ("Phase 6b design", D46, D47); Scrape again… and Delete
+// metadata… are in its menu (D48). Previous and Next go through the Library list it was
+// opened from.
 import { html, useState, useEffect, useLayoutEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -12,7 +15,7 @@ import { api, toast, isDesktop, plural, size, libraryUrl } from "./library.js";
 import { reveal } from "./games.js";
 import { CommandBar } from "./layout.js";
 import { usePageKeys } from "./actions.js";
-import { scrapeDialog } from "./metadata.js";
+import { scrapeDialog, deleteMetadata } from "./metadata.js";
 import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
 import { identifyDialog } from "./pcgames.js";
 import { convertDialog } from "./organise.js";
@@ -47,14 +50,21 @@ function parsed(field, text) {
   return t;
 }
 
-/** One detail: its box, and where it came from (a source, or you). */
-function Detail({ g, field, label, off, onSave, onUnmark }) {
+/** What a source said of a detail. */
+const said = (a, field) => (field === "title" || field === "year" ? a[field] : a.details?.[field]);
+const short = (t) => (t.length > 90 ? `${t.slice(0, 88)}…` : t);
+
+/** One detail: its box, where it came from (a source, or you), and what the other
+ *  sources said, to use instead. */
+function Detail({ g, field, label, off, onSave, onUnmark, onUse }) {
   const value = field === "title" || field === "year" ? g[field] : g.details?.[field];
   const [v, setV] = useState(shown(field, value));
   useLayoutEffect(() => setV(shown(field, value)), [JSON.stringify(value)]);
   const from = g.scraped?.[field];
   const mine = from === "you" || g.edited?.includes?.(field);
   const save = () => { if (v.trim() !== shown(field, value)) onSave(field, parsed(field, v)); };
+  const others = (g.sources || []).filter((a) => a.source !== from && shown(field, said(a, field)) && shown(field, said(a, field)) !== shown(field, value));
+  const pinned = g.pinned?.[field];
   const key = (e) => {
     if (e.key === "Escape") { e.stopPropagation(); setV(shown(field, value)); e.currentTarget.blur(); }
     else if (e.key === "Enter" && field !== "description") e.currentTarget.blur();
@@ -63,23 +73,35 @@ function Detail({ g, field, label, off, onSave, onUnmark }) {
   return html`<div class=${`game-detail${field === "description" ? " wide" : ""}`} data-field=${field} data-edited=${mine ? "yes" : "no"}>
     <label class="game-detail-label" for=${`game-${field}`}>${label}</label>
     ${field === "description" ? html`<textarea rows="5" ...${props}></textarea>` : html`<input type="text" ...${props} placeholder=${field === "rating" ? "e.g. 80%" : field === "genres" ? "e.g. Puzzle, Action" : ""} />`}
-    <span class="game-detail-from muted">${mine ? html`Yours, kept over scrapes <button type="button" class="linkish" data-action="unmark" title="A later scrape may replace it again" onClick=${() => onUnmark(field)}>Let scrapes change it</button>` : from ? `From ${sourceName(from)}` : ""}</span>
+    <span class="game-detail-from muted">${mine ? html`Yours, kept over scrapes <button type="button" class="linkish" data-action="unmark" title="The sources' value comes back, and later scrapes may change it" onClick=${() => onUnmark(field)}>Let scrapes change it</button>`
+      : from ? html`From ${sourceName(from)}${pinned === from ? html`, as you chose <button type="button" class="linkish" data-action="unpin" title="Take it from the sources in their usual order" onClick=${() => onUse(field, null)}>Usual order</button>` : ""}` : ""}</span>
+    ${others.length && !off ? html`<details class="game-detail-others" data-count=${others.length}><summary class="muted">${others.length === 1 ? `${others[0].name} says otherwise` : `${others.length} other sources say otherwise`}</summary>
+      <ul>${others.map((a) => html`<li key=${a.source} data-source=${a.source}><span><b>${a.name}</b>: ${short(shown(field, said(a, field)))}</span>
+        <button type="button" class="linkish" data-action="use" onClick=${() => onUse(field, a.source)}>Use this</button></li>`)}</ul></details>` : null}
   </div>`;
 }
 
-function Gallery({ g }) {
+function Gallery({ g, off, onChoose }) {
   const media = g.media || {};
   const kinds = [...ORDER.filter((k) => media[k]), ...Object.keys(media).filter((k) => !ORDER.includes(k))];
   const [cur, setCur] = useState(kinds[0]);
   useEffect(() => setCur(kinds[0]), [g.key]);
-  const rel = media[cur] || media[kinds[0]];
+  const kind = media[cur] ? cur : kinds[0];
+  const vs = g.variants?.[kind] || [];
+  // the chosen source's name after it, so another source's picture under the same name is shown (D47)
+  const url = (k, thumb = "") => `${libraryUrl(`${thumb}${media[k]}`)}?v=${encodeURIComponent(g.variants?.[k]?.find((x) => x.chosen)?.name || "")}`;
+  const rel = media[kind];
   if (!kinds.length) return html`<div class="game-gallery" id="game-gallery"><span class="game-hero lib-cover-none" style=${`background:${systemColour(g.platform)}`} aria-hidden="true">${(g.title || "?").slice(0, 1)}</span>
     <p class="muted">No pictures yet: Scrape… brings them${g.kind === "pc" ? " (or Identify on the PC games page)" : ""}.</p></div>`;
   return html`<div class="game-gallery" id="game-gallery">
-    ${isVideo(rel) ? html`<video class="game-hero" src=${libraryUrl(rel)} controls preload="metadata"></video>` : html`<img class="game-hero" src=${libraryUrl(rel)} alt=${PICTURES[cur] || cur} />`}
+    ${isVideo(rel) ? html`<video class="game-hero" src=${url(kind)} controls preload="metadata"></video>` : html`<img class="game-hero" src=${url(kind)} alt=${PICTURES[cur] || cur} />`}
     ${kinds.length > 1 ? html`<div class="game-strip" role="tablist" aria-label="Pictures">${kinds.map((k) => html`<button type="button" role="tab" key=${k} data-kind=${k} aria-selected=${k === cur ? "true" : "false"} title=${PICTURES[k] || k} onClick=${() => setCur(k)}>
-      ${isVideo(media[k]) ? html`<span class="game-strip-video">${Icon.image(16)} Video</span>` : html`<img src=${libraryUrl(`~thumb/128/${media[k]}`)} alt="" loading="lazy" />`}</button>`)}</div>` : null}
+      ${isVideo(media[k]) ? html`<span class="game-strip-video">${Icon.image(16)} Video</span>` : html`<img src=${url(k, "~thumb/128/")} alt="" loading="lazy" />`}</button>`)}</div>` : null}
     <p class="muted">${PICTURES[cur] || cur}${g.scraped?.media?.[cur] ? ` · from ${sourceName(g.scraped.media[cur])}` : ""}</p>
+    ${vs.length > 1 ? html`<div class="game-variants" id="game-variants" data-kind=${cur} role="group" aria-label="From each source">${vs.map((x) => html`<button type="button" key=${x.name} data-name=${x.name} aria-pressed=${x.chosen ? "true" : "false"}
+      disabled=${off} title=${x.chosen ? `Shown: ${x.source_name}'s` : `Use ${x.source_name}'s`} onClick=${() => { if (!x.chosen) onChoose(cur, x.name); }}>
+      ${isVideo(x.path) ? html`<span class="game-strip-video">${Icon.image(16)} Video</span>` : html`<img src=${libraryUrl(`~thumb/128/${x.path}`)} alt="" loading="lazy" />`}
+      <span class="muted">${x.source_name}${x.chosen ? " · shown" : ""}</span></button>`)}</div>` : null}
   </div>`;
 }
 
@@ -122,6 +144,21 @@ export function GamePage() {
   const unmark = async (field) => {
     try { setG(await api("browse_edit", { key, field })); } catch (e) { setError(err(e)); }
   };
+  // another source's value, or picture, used instead (D46, D47)
+  const changed = async (cmd, args) => {
+    setBusy(true);
+    setError("");
+    try {
+      await api(cmd, { folder: g.folder, ...args });
+      setG(await api("browse_game", { key }));
+    } catch (e) {
+      setError(err(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const use = (field, source) => changed("meta_pin", { field, source });
+  const choose = (kind, name) => changed("meta_choose", { kind, name });
   const step = async (by) => {
     const i = opened.index + by;
     if (!opened.query || i < 0 || i >= opened.total) return;
@@ -141,6 +178,9 @@ export function GamePage() {
   const more = () => [
     ...(dat ? [{ id: "game-identify", label: "Identify…", icon: "search", disabled: off, run: () => identifyDialog({ title: `Identify ${g.name}`, query: g.title, platform: g.platform, onPick: async (x) => { setG(await api("meta_pick", { game: g.id, source: x.source, id: x.id }).then(() => api("browse_game", { key }))); } }) }] : []),
     ...(g?.kind === "pc" ? [{ id: "game-pc", label: "Open in PC games", icon: "monitor", run: () => { location.hash = routeHash("pc"); } }] : []),
+    ...(dat ? [{ id: "game-scrape-again", label: "Scrape again…", icon: "scrape", disabled: off, run: () => scrapeDialog({ platform: g.platform, platformName: g.platform_name, games: [g.id], gameName: g.title, again: true }) }] : []),
+    ...(g?.kind !== "pc" ? [{ id: "game-delete-metadata", label: "Delete metadata…", icon: "trash", disabled: off || !g?.folder, run: () => deleteMetadata({ folder: g.folder, gameName: g.title, platformName: g.platform_name }) }] : []),
+    { sep: true },
     { id: "game-attach", label: "Attach documents…", icon: "file", disabled: off || !isDesktop() || !dat, run: () => attach() },
     { id: "game-reveal", label: "Show its folder", icon: "folder", disabled: !isDesktop() || !(g?.folder_path || g?.dir), run: () => reveal(g.folder_path || g.dir) },
     { sep: true },
@@ -171,11 +211,11 @@ export function GamePage() {
   const dir = g.dir || "";
   return html`${head}<div class="pages game-page" id="game-page" data-key=${g.key} data-kind=${g.kind}>
     <div class="game-top">
-      <${Gallery} g=${g} />
+      <${Gallery} g=${g} off=${off || busy || g.kind === "pc"} onChoose=${choose} />
       <section class="game-details" id="game-details" aria-busy=${busy ? "true" : "false"}>
         <p class="muted game-sub">${[g.platform_name, g.kind === "dat" ? (g.have ? "in the library" : "not in the library") : g.kind === "pc" ? "a PC game" : "a game no DAT knows", g.name && g.name !== g.title ? g.name : null].filter(Boolean).join(" · ")}</p>
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
-        <div class="game-fields">${FIELDS.map(([k, l]) => html`<${Detail} key=${k} g=${g} field=${k} label=${l} off=${off || busy} onSave=${save} onUnmark=${unmark} />`)}</div>
+        <div class="game-fields">${FIELDS.map(([k, l]) => html`<${Detail} key=${k} g=${g} field=${k} label=${l} off=${off || busy} onSave=${save} onUnmark=${unmark} onUse=${use} />`)}</div>
         <p class="muted">What you change here is kept in the game's folder and stays when it's scraped again.</p>
         ${Object.keys(g.ids || {}).length ? html`<p class="muted" id="game-ids">Its ids at the sources: ${Object.entries(g.ids).map(([k, v]) => `${sourceName(k)} ${v}`).join(" · ")}</p>` : null}
       </section>

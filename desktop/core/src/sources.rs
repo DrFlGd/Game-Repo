@@ -3,7 +3,7 @@
 //!
 //! A game's folder keeps what each source said in `sources/<source>.json` (its id, title,
 //! year and the details taken), and `game.json`'s details, title and year are made from
-//! those files field by field: the game's own pick (`pinned`), else Settings › Sources'
+//! those files field by field: the game's own pick (`pinned`), else Settings › Metadata's
 //! *Details from* (library.json `details_from`), else the scrape's order of sources. A
 //! hand edit wins over all of them (D44).
 //!
@@ -150,7 +150,7 @@ fn split(dir: &Path, v: &Value) -> Result<()> {
     Ok(())
 }
 
-/// What decides which source a field comes from: Settings › Sources' choice for it, and
+/// What decides which source a field comes from: Settings › Metadata's choice for it, and
 /// the scrape's order of sources.
 pub struct Rules {
     pub order: Vec<String>,
@@ -163,7 +163,7 @@ impl Rules {
     }
 }
 
-/// Settings › Sources' *Details from*: field → source.
+/// Settings › Metadata's *Details from*: field → source.
 pub fn details_from(lib: &Library) -> Map<String, Value> {
     lib.meta()["details_from"].as_object().cloned().unwrap_or_default()
 }
@@ -268,19 +268,8 @@ pub fn make(v: &mut Value, dir: &Path, rules: &Rules) {
             v["scraped"].as_object_mut().unwrap().remove("when");
         }
     }
-    // the kinds whose pictures have gone lose what was said of them
-    let shown: HashSet<String> = meta::media_kinds(dir).into_iter().collect();
-    for k in ["chosen", "pinned_media"] {
-        if let Some(o) = v[k].as_object_mut() {
-            o.retain(|kind, _| shown.contains(kind) || (k == "pinned_media" && !variant_names(dir, kind).is_empty()));
-        }
-    }
-    if let Some(o) = v["scraped"]["media"].as_object_mut() {
-        o.retain(|kind, _| shown.contains(kind));
-    }
-    if let Some(o) = v["pinned"].as_object_mut() {
-        o.retain(|_, s| s.as_str().is_some_and(|s| have.contains_key(s)));
-    }
+    // what was chosen and picked stays when its files are gone, so an Undo of a deletion
+    // brings it all back as it was
     v["by_source"] = json!(true);
 }
 
@@ -318,7 +307,7 @@ fn game_dirs(lib: &Library, platform: Option<&str>) -> Vec<PathBuf> {
     v
 }
 
-/// Make every game's details again (Settings › Sources' *Details from* changed), from
+/// Make every game's details again (Settings › Metadata's *Details from* changed), from
 /// the answers kept, without asking the sources.
 pub fn remake_all(ix: &Index, lib: &Library, cancel: &std::sync::atomic::AtomicBool, progress: &mut dyn FnMut(Value)) -> Result<usize> {
     lib.writable()?;
@@ -340,7 +329,7 @@ pub fn remake_all(ix: &Index, lib: &Library, cancel: &std::sync::atomic::AtomicB
     Ok(n)
 }
 
-/// Choose the source a field comes from (Settings › Sources' *Details from*): `None` is
+/// Choose the source a field comes from (Settings › Metadata's *Details from*): `None` is
 /// the scrape's order. Every game's details are made again.
 pub fn set_details_from(lib: &Library, field: &str, source: Option<&str>) -> Result<()> {
     if field != "title" && field != "year" && !FIELDS.iter().any(|(k, _)| *k == field) {
@@ -602,7 +591,7 @@ pub fn sizes(lib: &Library) -> Value {
             }
         }
     }
-    for (platform, (kinds, games)) in &by {
+    for (platform, (kinds, games)) in by.iter().filter(|(_, (_, games))| *games > 0) {
         for (k, n) in kinds {
             *total.entry(k.clone()).or_default() += n;
         }
@@ -778,7 +767,7 @@ mod tests {
         assert_eq!((v["title"].as_str(), v["year"].as_i64(), v["details"]["description"].as_str()), (Some("Alpha"), Some(1998), Some("From SS.")), "{v}");
         assert_eq!((v["details"]["developer"].as_str(), v["scraped"]["developer"].as_str()), (Some("IGDB Dev"), Some("igdb")));
         assert_eq!(v["ids"], json!({ "igdb": "igdb-1", "screenscraper": "screenscraper-1" }));
-        // Settings › Sources says descriptions come from IGDB; the game's own pick wins over that
+        // Settings › Metadata says descriptions come from IGDB; the game's own pick wins over that
         let mut from = Map::new();
         from.insert("description".into(), json!("igdb"));
         let rules = Rules { order: rules.order, from };
@@ -867,13 +856,14 @@ mod tests {
         crate::organise::run(&ix, &lib, &plan, &cancel, &mut |_| {}).unwrap();
         let v = meta::read_game(&gdir);
         assert!(!gdir.join(DIR).exists() && meta::media_kinds(&gdir).is_empty() && !gdir.join("media/cover").exists());
-        assert_eq!((v["title"].as_str(), v["chosen"].get("cover")), (Some("Alpha"), None), "{v}");
+        assert_eq!(v["title"].as_str(), Some("Alpha"), "{v}");
         // the set-aside folder isn't taken for a system
         meta::sync(&ix, &lib).unwrap();
         crate::organise::undo(&ix, &lib, &plan.id, &cancel, &mut |_| {}).unwrap();
         let v = meta::read_game(&gdir);
         assert_eq!((v["title"].as_str(), meta::media_kinds(&gdir)), (Some("Alpha SS"), vec!["cover".to_string()]), "{v}");
         assert!(gdir.join("media/cover/igdb.jpg").is_file());
+        assert_eq!((v["chosen"]["cover"].as_str(), v["scraped"]["media"]["cover"].as_str()), (Some("thegamesdb"), Some("thegamesdb")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

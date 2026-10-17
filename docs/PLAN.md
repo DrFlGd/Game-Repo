@@ -2229,21 +2229,23 @@ scrapes was offered and set aside by Jerred, 2026-10-17.)
   by `scraped`, which already says where each came from, the first time it's touched.
 - PC games keep their own `game.json` as Phase 4 made it.
 
-**Pictures and video in variants (D47)**
+**Pictures and video from each source (D47)**
 
-- The sources give several of most kinds: ScreenScraper a box per region, a logo in
-  several styles, a video and a short one; IGDB several screenshots and artworks;
-  TheGamesDB several screenshots and fan art. Each is a **variant**: its source and a tag
-  (a region, a style, or a number).
+- A kind of picture or video can come from each source that has one. A **variant** is
+  one source's, and there is one per source (Jerred, 2026-10-17: a variant is a different
+  source's of the same kind, never a second one from the same source).
 - The **chosen** variant of a kind stays at `media/<kind>.<ext>`, where the grid, the game
   page, exports and frontends already look. The others are kept at
-  `media/<kind>/<source>-<tag>.<ext>`; `game.json` `chosen` names the chosen one's.
-- The chosen one is the game's own region's (a Europe game's EU box), else the region
-  order's, else the source order's, as now. On a game's page each kind shows its
-  variants, and *Use this* swaps it in.
+  `media/<kind>/<source>.<ext>`; `game.json` `chosen` names the chosen one's source.
+- **Exports carry only the chosen one**, named as now (`cover.png`, the layout's names);
+  the others never leave the library.
+- The chosen one is the preferred source's for that kind (the Scrape dialog's *A picture
+  from a source of its own*), else the first source in order that has one; each source
+  picks its own by the game's region, then the region order, as now. On a game's page
+  each kind shows its variants, and *Use this* swaps it in, kept over later scrapes.
 - **What to scrape**: the Scrape dialog keeps its choice of details and kinds, and adds,
-  for each kind, *every variant* or *the chosen one only*. Every variant is the default
-  for pictures, the chosen one for video. There's no size limit.
+  for each kind, *from every source that has one* or the chosen one only. Every source
+  is the default for pictures, the chosen one for video. There's no size limit.
 - **Sizes**: Settings › Metadata shows what the library's metadata takes, for each system
   and each kind (details, each kind of picture, video, manuals, the user's documents).
 
@@ -2261,11 +2263,57 @@ scrapes was offered and set aside by Jerred, 2026-10-17.)
 
 - **D46** Each source's answer is kept in the game's folder; the details are made from
   them by field (a game's pick, Settings › Sources, the scrape's order), hand edits first.
-- **D47** Pictures and video are kept as variants per kind, the chosen one where it is
-  now; the Scrape dialog chooses which kinds and whether every variant; no size limit, the
-  sizes shown in Settings.
+- **D47** Pictures and video are kept as one variant per source for each kind, the
+  chosen one where it is now and the only one exported; the Scrape dialog chooses which
+  kinds and whether every source's; no size limit, the sizes shown in Settings.
 - **D48** Deleting metadata is an Organise change with Undo; scraping again replaces and
   asks the sources afresh.
+
+### Phase 6b notes (built 2026-10-17)
+
+- **Core**: `sources.rs` (D46–D48). `keep` writes a source's answer (only the fields
+  chosen; *Replace* writes them again, *Fill in* adds what's missing); `make` builds
+  `game.json`'s `details`, `title`, `year`, `ids` and `scraped` field by field from
+  `pinned`, library.json `details_from` and the scrape's order, hand edits first, and
+  marks the folder `by_source`; a folder from before is split by `scraped` first (what
+  nothing attributes goes to the one source in `ids`, else to `earlier`, *An earlier
+  scrape*). Pictures: `store`, `choose_in`/`choose` (`chosen`, `pinned_media`),
+  `variants`. `delete_plan` is an Organise change of kind `metadata` whose `aside` steps
+  have the root `dir:<_library/games>`, so they're set aside in
+  `_library/games/.gamerepo-set-aside/<id>/`; `organise::run` and `undo` call `after`,
+  which makes those games' details again. `scrape::apply` uses them; `Options` gains
+  `variants` and `fresh` (`scrapers::FRESH` passes over the week's cache while a scrape
+  runs). Add a game…'s Identify keeps its source's answer the same way. `meta::sync`
+  skips dot-folders. Commands: `meta_pin`, `meta_choose`, `meta_delete`, `meta_sizes`,
+  `meta_details_from`, `meta_set_details_from` (a job making every game's details
+  again); `scrape_choices` lists what can be deleted.
+- **The pages**: the Scrape dialog's *From every source that has one* and *Ask the
+  sources again*; Scrape again… and Delete metadata… in the Metadata page's menu, a
+  game's panel there and a game's page's menu; a game's page lists what the other
+  sources said under each detail, with *Use this*, and each source's picture of the kind
+  shown; Settings › Metadata has *Details from* and the sizes.
+- **Not as designed**:
+  - *Details from* is in Settings › Metadata, beside the sizes, rather than in
+    Settings › Sources (which is about the sources' accounts and keys, on this
+    computer, while *Details from* belongs to the library).
+  - The Metadata page's *Clear what was scraped* became *Delete metadata…* with Undo;
+    `meta_clear` and `game --clear` remain for the command line.
+  - Taking the hand-edit mark off a detail brings the sources' value back at once,
+    instead of waiting for the next scrape.
+  - A picture's URL carries `?v=` (the chosen source on a game's page, the folder's
+    stamp in the Library), which the servers leave out, so a picture changed under the
+    same name isn't shown from the browser's cache.
+- **Tests**: the core's (details by field from two sources, a pick, *Details from*,
+  edits, fill and replace, none left; a folder from before split; one picture per
+  source, a second from the same source replacing the first, chosen and swapped, the
+  sizes, a system's details and boxes deleted and undone; the scrape test asks IGDB
+  too, keeps its box beside ScreenScraper's, and scrapes a game again with a pick kept);
+  the page test chooses another source's box and description on a game's page, opens
+  Scrape again…, deletes the game's metadata and undoes it, and works out the sizes.
+- **To check with a real library** (Jerred): scrape a system with two sources and
+  *From every source* ticked; on a game's page choose another source's box and
+  description, scrape it again and see both kept; export it and see only the chosen box;
+  Delete metadata… for a system, look in Settings › Metadata, then Undo.
 
 ## 8. Working in a cloud session
 
@@ -2401,7 +2449,7 @@ scrapes was offered and set aside by Jerred, 2026-10-17.)
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design". New ones get a number here as they come up (next: D49).
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D49).
 
 ---
 
@@ -2426,4 +2474,4 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
    files (D40), and built ("Phase 5b notes"). Merged on Jerred's go-ahead.
 10. Phase 6: design written ("Phase 6 design", D42–D45) and built ("Phase 6 notes"); released as v0.5.2.
 11. Phase 6b: metadata by source, variants, delete and scrape again (Jerred,
-    2026-10-17); design written ("Phase 6b design", D46–D48).
+    2026-10-17); built ("Phase 6b notes", D46–D48), to be merged on Jerred's word.

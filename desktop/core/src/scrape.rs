@@ -118,6 +118,8 @@ pub fn choices(cfg: &AppConfig, data_dir: &Path, lib: &Library) -> Value {
         "sources": sources,
         "fields": meta::FIELDS.iter().map(|(k, n)| json!({ "id": k, "name": n })).collect::<Vec<_>>(),
         "media": meta::MEDIA.iter().map(|(k, n, _)| json!({ "id": k, "name": n })).chain([json!({ "id": "manual", "name": "Manual" })]).collect::<Vec<_>>(),
+        // what Delete metadata… offers (D48)
+        "delete": sources::what_choices(),
     })
 }
 

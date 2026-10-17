@@ -169,13 +169,23 @@ under <dir>/config and <dir>/data instead of the app's own folders.
                              for each (details, pictures, documents); look: those a
                              scrape wasn't sure about
   game <id> [--clear] [--pick <source> <id>] [--edit <field> <value>] [--unmark <field>]
+        [--use <field> <source>] [--show <kind> <source>] [--delete-metadata <a,b>]
                              a game's details, pictures and documents; --clear forgets
                              what was scraped, --pick takes a source's game for it,
                              --edit changes a detail by hand (kept over later scrapes
-                             until --unmark)
+                             until --unmark), --use takes a detail from that source,
+                             --show shows that source's picture of a kind,
+                             --delete-metadata sets aside its details, kinds of
+                             picture or manuals, with a preview and Undo
   games rename-folders [--dry-run]
                              rename the game folders a DAT's new version renamed the
                              games of, with a preview and Undo
+  games delete-metadata <platform> --what <details,cover,…,manual> [--dry-run]
+                             set aside a system's metadata, with a preview and Undo
+  games sizes                what the library's metadata takes, by system and kind
+  games details-from [<field> <source|order>]
+                             which source each detail is taken from (else the
+                             scrape's order); every game's details made again
   library [--search <text>] [--all] [--one] [--system <a,b>] [--genre <a,b>]
         [--decade <1990,2000>] [--developer <a>] [--publisher <a>] [--region <a>]
         [--language <a>] [--players <n>] [--rating <0-1>] [--has <pictures,manual,…>]
@@ -186,10 +196,12 @@ under <dir>/config and <dir>/data instead of the app's own folders.
                              counts (--facets)
   scrape <platform> [--all] [--game <id>]... [--collection <id>] [--sources <a,b>]
         [--fields <a,b>] [--media <a,b>] [--regions <us,eu,…>] [--language <en>]
-        [--existing fill|replace|skip]
+        [--existing fill|replace|skip] [--variants <cover,…>] [--again]
                              scrape a system's games in the library (--all: every
                              game in its DAT) for their details, pictures and manual;
-                             the choices left out are the last scrape's
+                             --variants: the kinds kept from every source that has
+                             one; --again replaces and asks the sources afresh; the
+                             choices left out are the last scrape's
   docs [--search <text>] [--kind <kind>] [--platform <id>] [--yours]
                              the documents (guides, manuals, …), searched by their text
   docs read                  read the documents' text for searching
@@ -369,7 +381,7 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
     a.rest.retain(|x| x != "--json");
     let subs = matches!(cmd, "roots" | "dat" | "set-aside" | "systems" | "collection" | "export" | "pc" | "launchbox" | "steam" | "layout" | "bios")
         || (matches!(cmd, "sources" | "docs") && a.rest.first().is_some_and(|x| matches!(x.as_str(), "key" | "check" | "read" | "import")))
-        || (cmd == "games" && a.rest.first().is_some_and(|x| x == "rename-folders"));
+        || (cmd == "games" && a.rest.first().is_some_and(|x| ["rename-folders", "delete-metadata", "sizes", "details-from"].contains(&x.as_str())));
     let sub = if subs && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
     let list_of = |v: Option<String>, all: &[&str]| -> Option<Vec<String>> {
         v.map(|v| if v == "all" { all.iter().map(|s| s.to_string()).collect() } else { v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect() })
@@ -1045,6 +1057,34 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             let plan = invoke(&app, "organise_rename_folders", json!({})).await?;
             show_and_run(&app, plan, dry, json_out).await
         }
+        ("games", "delete-metadata") => {
+            let dry = a.rest.iter().any(|x| x == "--dry-run");
+            let what = list_of(a.flag("--what"), &[]).context("--what <details,cover,…,manual>")?;
+            let platform = a.rest.iter().find(|x| !x.starts_with("--")).cloned().context("games delete-metadata needs a system")?;
+            let plan = invoke(&app, "meta_delete", json!({ "platform": platform, "what": what })).await?;
+            show_and_run(&app, plan, dry, json_out).await
+        }
+        ("games", "sizes") => {
+            let v = invoke(&app, "meta_sizes", json!({})).await?;
+            if json_out {
+                return print(&v);
+            }
+            let mb = |n: &Value| format!("{:.1} MB", n.as_f64().unwrap_or(0.0) / 1e6);
+            println!("{} in all", mb(&v["total"]));
+            for sys in v["systems"].as_array().into_iter().flatten() {
+                let kinds: Vec<String> = sys["kinds"].as_object().into_iter().flatten().map(|(k, n)| format!("{k} {}", mb(n))).collect();
+                println!("  {} ({} games): {}  [{}]", sys["name"].as_str().unwrap_or(""), sys["games"], mb(&sys["total"]), kinds.join(", "));
+            }
+            Ok(())
+        }
+        ("games", "details-from") => {
+            let rest: Vec<&String> = a.rest.iter().filter(|x| !x.starts_with("--")).collect();
+            if let (Some(field), Some(source)) = (rest.first(), rest.get(1)) {
+                let source = if *source == "order" { Value::Null } else { json!(source) };
+                follow(&app, invoke(&app, "meta_set_details_from", json!({ "field": field, "source": source })).await?).await?;
+            }
+            print(&invoke(&app, "meta_details_from", json!({})).await?)
+        }
         ("library", _) => {
             let rebuilt = invoke(&app, "browse", json!({})).await?;
             let mut q = json!({ "limit": 1000, "facets": a.rest.iter().any(|x| x == "--facets") });
@@ -1149,6 +1189,25 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             if let Some(field) = a.flag("--unmark") {
                 return print(&invoke(&app, "meta_edit", json!({ "id": id, "field": field })).await?);
             }
+            // the rest work on the game's folder
+            for (flag, cmd, k) in [("--use", "meta_pin", "field"), ("--show", "meta_choose", "kind")] {
+                if let Some(i) = a.rest.iter().position(|x| x == flag) {
+                    let (x, source) = (a.rest.get(i + 1).cloned().context("<what> <source>")?, a.rest.get(i + 2).cloned().context("<what> <source>")?);
+                    let g = invoke(&app, "meta_game", json!({ "id": id })).await?;
+                    let folder = g["folder"].as_str().context("the game has nothing scraped")?.to_string();
+                    let mut args = json!({ "folder": folder });
+                    args[k] = json!(x);
+                    args[if cmd == "meta_pin" { "source" } else { "name" }] = json!(source);
+                    invoke(&app, cmd, args).await?;
+                    return print(&invoke(&app, "meta_game", json!({ "id": id })).await?);
+                }
+            }
+            if let Some(what) = list_of(a.flag("--delete-metadata"), &[]) {
+                let g = invoke(&app, "meta_game", json!({ "id": id })).await?;
+                let folder = g["folder"].as_str().context("the game has nothing scraped")?.to_string();
+                let plan = invoke(&app, "meta_delete", json!({ "folder": folder, "what": what })).await?;
+                return show_and_run(&app, plan, a.rest.iter().any(|x| x == "--dry-run"), json_out).await;
+            }
             print(&invoke(&app, "meta_game", json!({ "id": id })).await?)
         }
         ("scrape", _) => {
@@ -1171,6 +1230,13 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             }
             let ids = |k: &str| -> Vec<String> { choices[k].as_array().into_iter().flatten().filter_map(|x| x["id"].as_str().map(String::from)).collect() };
             let (sources, fields, media) = (ids("sources"), ids("fields"), ids("media"));
+            if let Some(v) = list_of(a.flag("--variants"), &refs(&media)) {
+                o["variants"] = json!(v);
+            }
+            if a.rest.iter().any(|x| x == "--again") {
+                o["existing"] = json!("replace");
+                o["fresh"] = json!(true);
+            }
             fn refs(v: &[String]) -> Vec<&str> {
                 v.iter().map(String::as_str).collect()
             }

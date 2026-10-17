@@ -3,12 +3,13 @@
 // files, the systems (built-in and added), how games are named, the history of changes (Undo, set-aside files), the
 // look, and the app's version with a link to About. Storage formats and external tools
 // (Phase 2b), PC games, Identify's sources and Steam (Phase 4), and the sources' accounts and keys
-// (Phase 5) have sections of their own.
+// (Phase 5) have sections of their own, and so does Metadata (Phase 6b: which source each
+// detail is taken from, and the space the library's metadata takes).
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui, THEMES, SKINS, setTheme, setSkin } from "./state.js";
 import { ctx, routeHash } from "./context.js";
-import { api, toast, isDesktop, openLibrary, renameLibrary, showLibraryFolder, checkIndex, undoable, size, plural } from "./library.js";
+import { api, toast, isDesktop, openLibrary, renameLibrary, showLibraryFolder, checkIndex, undoable, size, plural, followJob } from "./library.js";
 import { undoChange, finishChange, CONVERT_FORMATS } from "./organise.js";
 import { addRoot, updateRoot, repointRoot, removeRoot, scanSettings, setScanSettings, importDats, starterDats, useDat, removeDat, refreshGames, reveal } from "./games.js";
 import { confirmDialog } from "./dialogs.js";
@@ -180,6 +181,52 @@ function NamingSection({ lib }) {
 }
 
 /** The changes made to files (organising, setting aside), newest first: Undo, and the space set-aside files take. */
+/** Metadata: which source each detail comes from (D46), and what the library's metadata
+ *  takes, by system and kind (D47), worked out when asked. */
+function MetadataSection({ lib }) {
+  const [c, setC] = useState(null);
+  const [sizes, setSizes] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const off = !!lib.read_only;
+  useEffect(() => { api("meta_details_from").then(setC).catch(() => setC(null)); }, [lib.path]);
+  const choose = async (field, source) => {
+    setBusy(true);
+    try {
+      const { job } = await api("meta_set_details_from", { field, source: source || null });
+      setC(await api("meta_details_from"));
+      const done = await followJob(job, "Making details again");
+      if (done.error) throw new Error(done.error);
+      ui.set((st) => ({ changes: (st.changes || 0) + 1 }));
+      toast(`Made the details of ${plural(done.result.games, "game", "games")} again.`, 6000);
+    } catch (e) {
+      toast(`Couldn't change it: ${e.message || e}`, 10000);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const work = async () => {
+    setSizes("busy");
+    try { setSizes(await api("meta_sizes")); } catch (e) { setSizes({ error: e.message || String(e) }); }
+  };
+  const names = Object.fromEntries((sizes?.names || []).map((n) => [n.id, n.name]));
+  return html`<section class="ls-section" id="settings-metadata">
+    <h2>Metadata</h2>
+    <p class="muted">Each source's answer is kept in the game's folder, and each detail is taken from the first source in the scrape's order that has it, unless you choose one here (or on a game's page).</p>
+    ${c ? html`<div class="prefer-grid" id="details-from">${c.fields.map((f) => html`<label class="field-inline" key=${f.id}><span>${f.name}</span>
+      <select class="compact" data-field=${f.id} value=${c.from[f.id] || ""} disabled=${off || busy} onChange=${(e) => choose(f.id, e.target.value)}>
+        <option value="">The scrape's order</option>
+        ${c.sources.map((x) => html`<option key=${x.id} value=${x.id}>${x.name}</option>`)}
+      </select></label>`)}</div>` : null}
+    <h3>Space taken</h3>
+    ${sizes && sizes !== "busy" && !sizes.error ? html`<p id="meta-size-total"><b>${size(sizes.total)}</b> in all${Object.keys(sizes.kinds).length ? `: ${Object.entries(sizes.kinds).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${names[k] || k} ${size(n)}`).join(", ")}` : ""}.</p>
+      ${sizes.systems.length ? html`<ul class="ls-list" id="meta-sizes">${sizes.systems.map((x) => html`<li key=${x.platform} data-platform=${x.platform}><span><b>${x.name}</b> <span class="muted">${plural(x.games, "game", "games")}</span></span>
+        <span class="muted">${size(x.total)}${Object.keys(x.kinds).length ? ` · ${Object.entries(x.kinds).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${names[k] || k} ${size(n)}`).join(", ")}` : ""}</span></li>`)}</ul>` : null}`
+      : sizes?.error ? html`<p class="warn-note" role="alert">${sizes.error}</p>` : null}
+    <div class="home-actions"><button type="button" class="ghost" id="meta-sizes-work" disabled=${sizes === "busy"} onClick=${work}>${sizes === "busy" ? "Working it out…" : sizes ? "Work it out again" : "Work it out"}</button></div>
+    <small class="muted">Details, each kind of picture and video, scraped manuals and your own documents, for each system. Delete metadata… on the Metadata page or a game's page frees it.</small>
+  </section>`;
+}
+
 function HistorySection({ lib }) {
   const changes = useStore(ui, (st) => st.changes);
   const [list, setList] = useState(null);
@@ -313,7 +360,7 @@ export function Settings() {
         <ul class="ls-list" id="recent-libraries">${others.map((p) => html`<li key=${p}><span>${p}</span>
           <button type="button" class="ghost" onClick=${() => openLibrary(p)}>Open</button></li>`)}</ul>` : null}
     </section>
-    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} /><${SystemsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${LayoutsSection} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${HistorySection} lib=${lib} />` : null}
+    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} /><${SystemsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${LayoutsSection} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${MetadataSection} lib=${lib} key=${`m-${lib.path}`} /><${HistorySection} lib=${lib} />` : null}
     <${SourcesSettings} />
     <${SteamSettings} />
     <${ToolsSection} />
