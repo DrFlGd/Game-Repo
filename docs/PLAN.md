@@ -1577,6 +1577,152 @@ IGDB, TheGamesDB: Phase 5), scraped media for ES-DE (Phase 5).
   an inbox; Identify one; Unpack a GOG installer (with innoextract in the tools folder);
   Add to Steam with Steam closed, then open Steam and look at the shortcuts' artwork.
 
+### Phase 5 design (written 2026-10-17; Jerred asked for it to be built straight away)
+
+Phase 5 fills the library with each game's **details, pictures, videos and manuals**
+(3.6), lets the user **attach their own documents** one at a time or in bulk and find
+them on a **Documents** page (3.8), and has every export **choose what it carries**
+(D30). Identify gains the sources that need an account (D24).
+
+**A game's folder (D13, D32)**
+
+- A DAT game's folder is `_library/games/<system>/<DAT game name>/` (the name made safe
+  for a folder), holding `game.json`, `media/` and `docs/`. It is made the first time
+  anything is kept for the game. A ROM no DAT knows keeps Phase 4's
+  `_library/games/<system>/<SHA1>/`.
+- `game.json`: `id` (made once), `platform`, `name` (the DAT game's name), `dat` (the
+  DAT's name), `roms` (name, size, CRC32, SHA1 of each of the game's ROMs, from its DAT),
+  `title`, `year`, `ids` (screenscraper, igdb, thegamesdb, launchbox…), `details`
+  (description, developer, publisher, released, genres, players, rating), `scraped`
+  (when, and which source gave each field and picture), `review` (the candidates when a
+  scrape wasn't sure). Unknown keys are kept.
+- The game is found by its ROMs' hashes, not its name (D13): the index keeps every
+  `game.json`'s ROMs (`meta_games`, `meta_roms`), so a DAT game is joined to its folder
+  by SHA1, or CRC32 and size. A DAT update that renames the game still finds the folder;
+  the folder keeps its old name until the next scrape of that game, which renames it
+  (Phase 6 makes that a journalled change).
+- The index reads the game folders when the library opens and after every scrape,
+  attach or import, by each `game.json`'s size and modified time, so a hundred thousand
+  of them are read once.
+
+**Scraping (3.6, D30)**
+
+- *Scrape…* on the Metadata page, for: a system's games in the library, **every game in
+  the system's DAT** (owned or not), or a collection. The dialog chooses:
+  - **sources**, in order, from those set up in Settings › Sources (off ones can be
+    turned on for this scrape);
+  - **details** to take: description, developer, publisher, release date, genres,
+    players, rating;
+  - **pictures and more**: box front, box back, 3D box, screenshot, title screen,
+    marquee (logo), fan art, cartridge or disc, video, manual; each from the first source
+    in the order that has it, or from one source chosen for that kind;
+  - **regions** preferred for names and pictures (from the DAT game's region first,
+    then the list, `us, eu, wor, jp` by default);
+  - **games that have something already**: fill in what's missing (the default),
+    replace, or leave them.
+  The choices are saved in library.json `scrape` as the next scrape's defaults.
+- Each game is asked of the sources in order. **ScreenScraper** is asked by the ROMs'
+  hashes (CRC32, MD5 when known, SHA1, size and name), which works for games the user
+  doesn't have, since the DAT records the hashes; then **IGDB**, **TheGamesDB** and
+  **LaunchBox** by the DAT game's title (its name without the tags) and system. A
+  name-only answer is taken when its title is the same (ignoring case, punctuation and
+  a leading "The") and its year agrees with the DAT's, where both have one; otherwise the
+  best few are kept as the game's `review` and it is listed under **Needs a look**, where
+  Identify settles it.
+- A scrape is a job (progress, Stop). Each source has its own pace: ScreenScraper one
+  request at a time (its free accounts allow one thread) and slowing down when it says
+  it's busy, IGDB four a second, TheGamesDB and the rest one a second. Every answer is
+  kept on this computer (`<data dir>/scrape-cache/`) for a week, so a stopped scrape
+  starts again where it stopped.
+- Pictures go in `media/` by kind (`cover`, `back`, `box3d`, `screenshot`,
+  `titlescreen`, `marquee`, `fanart`, `physical`, `video`), as Phase 4's PC artwork does.
+  A scraped manual is a document of kind *manual* in `docs/`, named
+  `Manual (ScreenScraper).pdf`, and never replaces one of the user's.
+
+**Sources that need an account (D8, D24, D33)**
+
+- **ScreenScraper**: a ScreenScraper account (user name and password) and the app's
+  developer id and password, which ScreenScraper gives each application on request.
+  Game Repo has none yet, so Settings › Sources has a place for all four; the app
+  works without them.
+- **IGDB**: a Twitch developer application's client id and secret (free); the app
+  fetches the access token and renews it.
+- **TheGamesDB**: an API key (free, on request from TheGamesDB).
+- The keys are kept on this computer in config.json `source_keys`, never in the library
+  (D33). Settings › Sources says which sources are ready and which need a key, and
+  *Check* tries them.
+- Identify (Phase 4's dialog) searches these too, in the same order.
+
+**The Metadata page**
+
+- A system's games (owned, or every game in its DAT) with what each has: details,
+  pictures, documents, and whether it needs a look. Search and paging as the Audit
+  lists do. *Scrape…* above it.
+- A game's panel: its title, year, details, pictures (the video plays), its documents
+  (opened in the side viewer), *Attach documents…*, *Identify…* (the dialog, with the
+  scrape's candidates first when it needs a look), *Scrape this game* and *Clear* (the
+  game's scraped details and pictures go; the user's documents stay).
+- **Needs a look**: the games a scrape wasn't sure about, each with its candidates.
+
+**Documents (3.8)**
+
+- A game's documents are the files in its `docs/` folder. `docs/docs.json` keeps each
+  one's kind, title and source (missing ones are guessed from the name and format:
+  manual, guide, FAQ, map, poster, box scan, cartridge or disc scan, soundtrack, readme,
+  magazine, other). Documents of no game live in `_library/docs/` (by system, or
+  General) with a `docs.json` of their own.
+- **Attach documents…** (a game's panel, or files dropped on it) and **Import
+  documents…** (the Documents page, for a folder) are one change: the files picked or
+  the folder's (walked), each paired with a game (Import) and given a kind; a review
+  list shows each file with its game, how sure the pairing is, and its kind, and lets
+  each be changed (search for another game, *No game*, or *Leave out*); then the
+  preview, and the change copies (or moves) the files into the games' `docs/` folders
+  and writes their `docs.json`, journalled with Undo.
+- Pairing: the file's name, without its extension, the kind words ("manual", "guide",
+  "FAQ"…) and the tags, compared with the DAT games' titles of the system chosen (or
+  every system with a DAT, the system's name in the path deciding when it can):
+  the same title is *sure*, a close one (by words in common) *likely*, else none.
+- **The Documents page** lists every document: title, kind, game, system, source, size.
+  Search covers titles, file names and the **text inside** PDFs, text and Markdown
+  files (read once into the index's full-text table on this computer, as a job), with
+  filters by kind, system and source. A document opens in the side viewer (PDFs in the
+  system's PDF viewer, pictures, text and Markdown as text, audio plays); *Open
+  outside* uses the program Windows chooses. Model Library's viewer carries over.
+
+**Exports choose what they carry (D30, D34)**
+
+- The Export dialog gains **What it carries**: which details go in the gamelist, which
+  pictures (and the video), manuals and other documents, and the **largest picture
+  size** (as they are, or 1920, 1280, 640 or 320 pixels on the longest side, made
+  smaller by the app as JPEG or PNG; a handheld's SD card wants small ones). The
+  choices are kept with the export and used by *Update*.
+- **ES-DE**: each game's gamelist entry gets the details chosen (name, desc, rating,
+  releasedate, developer, publisher, genre, players), replacing those the export wrote
+  before and keeping the user's other entries and fields; pictures go to
+  `<ES-DE>/downloaded_media/<system>/<covers|backcovers|3dboxes|screenshots|
+  titlescreens|marquees|fanart|physicalmedia|videos|manuals>/<the game's file name>.<ext>`.
+- **A plain folder**: pictures and documents beside each game's file, in a folder named
+  after it, when chosen.
+- Pictures and documents are copied (hardlinked on the same drive) as the export's
+  steps, checked, recorded, set aside by *Update* when they go, and undone with it.
+- Steam's grid artwork (Phase 4) is unchanged.
+
+**Not in Phase 5**: renaming a game's folder when its DAT renames it (Phase 6), the
+Library page with thumbnails and filters by metadata (Phase 6), arcade metadata
+(Phase 7), MobyGames (Phase 8), device profiles (Phase 5b), magazines (D31), reading text
+from scanned PDFs (only PDFs with text are searched inside).
+
+**Decisions proposed for Phase 5** (defaults the build follows unless changed)
+
+- **D32** A DAT game's folder is named after it and found by its ROMs' hashes, recorded
+  in its `game.json`; the index keeps them for joins.
+- **D33** Sources' keys are kept on this computer (config.json `source_keys`), not in the
+  library; the scrape's choices are the library's (library.json `scrape`).
+- **D34** Documents are kept by kind in `docs.json` beside them; their text is searched
+  from the index, read once.
+- **D35** An export keeps what it carries with it; the app makes pictures smaller itself
+  (no external tool).
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -1692,7 +1838,12 @@ IGDB, TheGamesDB: Phase 5), scraped media for ES-DE (Phase 5).
   like games (3.8). Proposed for Phase 8, after arcade; it reuses the documents page and
   viewer from Phase 5.
 
-New ones get a number here as they come up (next: D32).
+- **D32–D35** (Phase 5 design): game folders found by their ROMs' hashes, sources' keys on
+  this computer, documents kept by kind beside them, exports keeping what they carry.
+  Proposed defaults, followed in the build; Jerred asked for Phase 5 to be built on
+  2026-10-17.
+
+New ones get a number here as they come up (next: D36).
 
 ---
 
