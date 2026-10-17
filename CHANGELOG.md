@@ -71,6 +71,10 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- Plan: Phase 5b's design. Device and frontend export layouts (ES-DE, muOS, Knulli, ROCKNIX, a plain folder) become JSON files you can copy, edit and share, with a visual editor in Settings › Layouts that shows the folders an export would write and saves your changes as a new layout.
+
+## 0.5.0 (2026-10-17)
+
 - Roadmap: device profiles for muOS, Knulli, ROCKNIX, and ES-DE on Android or Linux come right after Phase 5, for exporting a collection to a handheld's SD card.
 - **Metadata** (a new page): a system's games as its DAT lists them, the ones you have or every one, with what the library holds for each (details, pictures, documents) and those that need a look. A game's panel shows its description, release date, developer, publisher, genres, players and rating, where each came from, its pictures and video, and its documents.
 - **Scrape…**: fill in a system's games from ScreenScraper (by the ROMs' hashes, so it knows games by their files), IGDB, TheGamesDB and LaunchBox Games DB (by title), for the games you have or every game in the DAT, so the library has them ahead of the games. Choose the sources and their order, which details and which pictures (box front and back, 3D box, screenshot, title screen, logo, fan art, cartridge or disc, video, manual), a source of its own for any kind of picture, the regions and language, and whether games that have something are filled in, replaced or left. The choices are kept with the library for next time. Everything is kept in the game's folder in the library, found again by its ROMs, not its file name.

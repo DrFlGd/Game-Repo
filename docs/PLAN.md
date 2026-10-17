@@ -397,6 +397,10 @@ take games from it, without copying an SD card by hand.
   previews and descriptions). ArkOS and Batocera follow if asked for. Each profile's
   folder names and media layout are checked against that firmware's documentation when
   it is built.
+- **Layouts the user can change (D36)**: each profile's folders, game lists and media
+  names are a JSON layout the user can copy and edit, by hand or in a visual editor that
+  shows the export folder by folder ("Phase 5b design"), so a new firmware or frontend,
+  or a change to one, needs no new version of the app.
 - **SD cards first, then the network.** A device profile is first an export target: a
   collection exported to an SD card in that firmware's layout, within the card's size
   limit (Phase 3's *Size limit*). Serving and syncing over the network reuse the same
@@ -618,7 +622,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **3** | Collections + ES-DE export | Rule-based collections with 1G1R; export to ES-DE (ROMs, gamelist.xml, custom collections) and a plain tree; export verification and re-sync. |
 | **4** | PC game import + Steam | Inbox classification, GOG id detection, common structure + `game.json`, duplicate detection; Steam non-Steam shortcuts with artwork; Add a game… for one ROM, disc or PC game, and Identify with Steam, GOG and LaunchBox (D24). |
 | **5** | Metadata, media & documents | Provider settings; LaunchBox offline provider, then ScreenScraper (hash lookup, manuals), IGDB and TheGamesDB, all in Identify (D24); media storage; the game folder with `docs/`, attach and bulk attach, the side viewer for PDFs/images/text/audio; ES-DE media and manuals folders and Steam grid output; review queue for weak matches. Choosing what is scraped and for what (a whole DAT included) and what each export writes (3.6); bulk import of documents with a review of the pairings, and the Documents page with search (3.8). |
-| **5b** | Device profiles | Export a collection to an SD card in the layout of muOS, Knulli, ROCKNIX, or ES-DE on Android or Linux (3.10, D18, D29): each firmware's ROM folders, gamelists and media, within the card's size limit. Built on Phase 3's export and Phase 5's media. |
+| **5b** | Device profiles | Export a collection to an SD card in the layout of muOS, Knulli, ROCKNIX, or ES-DE on Android or Linux (3.10, D18, D29): each firmware's ROM folders, gamelists and media, within the card's size limit. Layouts are JSON files the user can copy and change, in a visual editor (D36). Built on Phase 3's export and Phase 5's media. |
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets and providers | RetroArch playlists, Pegasus, Playnite, LaunchBox exports; MobyGames; automatic DAT updates where allowed; Linux build if wanted; magazines (3.8, D31). |
@@ -1769,6 +1773,167 @@ from scanned PDFs (only PDFs with text are searched inside).
   with pictures and details ticked and open ES-DE. ScreenScraper needs a developer id
   and password for Game Repo, which ScreenScraper gives on request (its forum).
 
+### Phase 5b design (written 2026-10-17; Jerred asked for layouts the user can change)
+
+Phase 5b exports a collection to an **SD card in the layout a device's firmware reads**:
+muOS, Knulli, ROCKNIX, or ES-DE on Android or Linux (3.10, D18, D29). Each card gets
+the firmware's ROM folders, its game lists, and the pictures, descriptions and manuals it
+shows, within the card's size limit. Jerred asked (2026-10-17, D36) that these layouts
+not be fixed in the code: new firmwares and frontends come along and change, so each
+layout is a **JSON file that can be copied and edited**, and the app has a **visual
+editor** that shows what an export would write, folder by folder, lets the user change
+it, and saves it as a new layout.
+
+**A layout is a JSON file (D36, D37)**
+
+- The **built-in layouts** ship with the app: *ES-DE* (Phase 3's export, on this
+  computer), *ES-DE on Android or Linux*, *Knulli*, *ROCKNIX*, *muOS* and *Plain folder*.
+  They can't be changed; a change to one is saved as a new layout.
+- The user's own layouts are files in the library, `_library/layouts/<id>.json` (with
+  its collections and exports, so they move with it). *Import a layout…* reads a `.json`
+  file, *Save as file…* writes one to give to someone else, and *Open the folder* shows
+  them, so a layout can be shared or edited in any text editor.
+- A layout says where everything goes as **paths made of tokens**, starting from a
+  **place** the Export dialog asks for:
+  ```json
+  {
+    "format": 1,
+    "id": "knulli",
+    "name": "Knulli",
+    "about": "Knulli's SHARE partition: a folder per system with its gamelist.xml and media beside it.",
+    "places": [{ "id": "card", "label": "The SD card's SHARE partition" }],
+    "systems": { "megadrive": "megadrive", "pce": "pcengine", "3do": null },
+    "games": { "path": "{card}/roms/{folder}/{file}", "names": "dat" },
+    "gamelist": {
+      "kind": "es-xml", "path": "{card}/roms/{folder}/gamelist.xml",
+      "fields": { "description": "desc", "developer": "developer", "publisher": "publisher",
+                  "released": "releasedate", "genres": "genre", "players": "players", "rating": "rating" }
+    },
+    "media": {
+      "cover":      { "path": "{card}/roms/{folder}/images/{stem}-thumb.{ext}",  "tag": "thumbnail" },
+      "screenshot": { "path": "{card}/roms/{folder}/images/{stem}-image.{ext}",  "tag": "image" },
+      "marquee":    { "path": "{card}/roms/{folder}/images/{stem}-marquee.{ext}", "tag": "marquee" },
+      "video":      { "path": "{card}/roms/{folder}/videos/{stem}-video.{ext}",  "tag": "video" },
+      "manual":     { "path": "{card}/roms/{folder}/manuals/{stem}-manual.pdf",  "tag": "manual" }
+    },
+    "text": {},
+    "pictures": { "max": 640, "as": "keep" },
+    "collection": null
+  }
+  ```
+  - **Tokens**: `{<place>}` (where a place is on this computer), `{folder}` (the
+    system's folder in this layout), `{system}` (the system's id), `{system_name}` (the
+    layout's name for the system, else the app's), `{file}` (the game's file or folder,
+    as exported), `{stem}` (that without its extension), `{title}` (the game's title),
+    `{ext}` (the picture's or document's own extension).
+  - **`systems`**: the layout's folder for each system; a system not listed uses its id
+    (ES-DE's name, which most firmwares share). An entry can be an object,
+    `{ "folder": "SFC", "name": "Nintendo SNES-SFC" }`, when the firmware also names the
+    system (muOS's catalogue). `null`: the firmware doesn't run it, so its games are
+    left out and the export says why.
+  - **`gamelist`**: `es-xml` (EmulationStation's `gamelist.xml`, which ES-DE, Knulli,
+    ROCKNIX and Batocera read), with the tag each detail goes in; a picture with a `tag`
+    is written into the entry too, as a path relative to the gamelist (`./images/…`).
+    ES-DE's own layout tags none, since ES-DE finds them by name. `null`: no gamelist
+    (muOS). Other kinds (Pegasus, RetroArch playlists) come with Phase 8's exports.
+  - **`media`**: where each kind of picture (meta::MEDIA), the video and the manual go;
+    a kind left out isn't offered. **`text`**: details written as text files (muOS's
+    description, `{ "description": { "path": "…/text/{stem}.txt" } }`).
+  - **`pictures`**: the size pictures are made for this device (the Export dialog can
+    change it) and `as`: `keep`, or `png` for a firmware that only shows PNG (muOS).
+  - **`collection`**: `esde-cfg` writes ES-DE's custom collection (Phase 3); `null`
+    writes none.
+  - `format` is the file's version: a layout from a newer Game Repo is refused in plain
+    words, and keys the app doesn't know are kept. A copy keeps `copied_from` (the
+    built-in's id and version), so the editor can say when the built-in has changed
+    since.
+- **Checked when it's saved or imported**, each problem said beside the line it's on:
+  every path starts with a place; no `..`; every token is known; the games' path has
+  `{file}`; a game's picture, text or manual path has `{stem}`, `{file}` or `{title}`;
+  two kinds don't write the same file; a gamelist's tagged pictures are under the
+  gamelist's folder.
+
+**The built-in layouts** (each checked against its firmware's documentation as it's
+built; what couldn't be confirmed there is said in the notes)
+
+- **ES-DE** (this computer): places *ROMs folder* and *ES-DE's folder*; exactly what
+  Phase 3 and 5 write today, custom collection included.
+- **ES-DE on Android or Linux**: one place, the card. `{card}/ROMs/{system}/{file}`, and
+  ES-DE's `gamelists/` and `downloaded_media/` in `{card}/ES-DE/`, to be copied to the
+  device's ES-DE folder or used by pointing ES-DE's media folder at the card. ES-DE on
+  Android keeps its own folder on internal storage, which a card can't reach.
+- **Knulli**: `{card}/roms/{folder}/{file}` on the SHARE partition (Knulli's
+  documentation: "only scans for games in the subfolders of the roms folder"; folder
+  names are case-sensitive), with each system's `gamelist.xml`, `images/`, `videos/`
+  and `manuals/` beside its games, as in the example above.
+- **ROCKNIX**: `{card}/roms/{folder}/{file}` (ROCKNIX's documentation: the card's `roms`
+  folder, `/storage/roms` on the device), with the same gamelist and media as Knulli.
+- **muOS**: `{card}/ROMS/{folder}/{file}`, and its catalogue,
+  `{card}/MUOS/info/catalogue/{system_name}/box/{stem}.png` (box front),
+  `…/preview/{stem}.png` (screenshot) and `…/text/{stem}.txt` (description); no
+  gamelist; pictures as PNG. The catalogue's system names are those of muOS's
+  `info/assign/<system>.ini` (`catalogue=`), such as "Nintendo SNES-SFC" (muOS's
+  documentation, *Artwork*).
+- **Plain folder**: Phase 3 and 5's plain folder, pictures and documents beside each
+  game.
+- Pictures are made 640 pixels at most for the handhelds by default (the screens are
+  640×480 or smaller), as they are now for Phase 5's exports (D35).
+
+**The editor (Settings › Layouts)**
+
+- On the left, the layouts: the built-in ones (marked *built in*) and the user's own,
+  with *New from…*, *Import a layout…*, *Save as file…* and *Remove*.
+- In the middle, **On the card**: a folder tree of what an export with this layout would
+  write, worked out from a sample: the first few games of up to three systems of a
+  collection chosen above it, with their own pictures and manuals; or, with nothing in
+  the library yet, a stand-in game per system. Each file says what it is (the game, box
+  front, gamelist, description…). Folders open and close; an empty kind (a game with no
+  video) is drawn faintly, so it can still be chosen.
+- On the right, whatever is chosen in the tree: a file's path, with its tokens as
+  buttons to put in and what it comes to for the sample game shown under it; its
+  gamelist tag; *Leave it out*. A system's folder: its folder name and the name the
+  firmware gives it, or *Not on this device*. The gamelist: on or off, where it goes,
+  and the tag for each detail. The pictures' size and format. Every change redraws the
+  tree at once, and problems are listed under it.
+- **Save**: a built-in layout is never changed, so the first change makes a draft and
+  Save asks for its name and saves it as a new layout (*Knulli (mine)*). The user's own
+  layout is saved in place; *Save as new…* copies it.
+- **JSON**: the layout as text, editable, checked as it's typed, for copying to and from
+  a forum post or another computer.
+- *Compare with the built-in* shows what a copy changed, when it was copied from one.
+
+**Exporting to a card**
+
+- The Export dialog's targets are the layouts (ES-DE first, then the devices, then the
+  user's own). It asks for the layout's places (a card's drive, `E:\`, say), and the rest
+  is as before: what it carries (only kinds the layout has a place for), picture size,
+  Update, Check, Undo.
+- **One engine (D38)**: Phase 3's ES-DE and plain-folder exports become the built-in
+  *ES-DE* and *Plain folder* layouts run through the same code; a test checks they write
+  exactly what they wrote before. Exports made before keep working, as those layouts.
+- An export remembers its layout's id. *Update* uses the layout as it is now, so after
+  the layout is changed, files it no longer wants are set aside and the new ones written,
+  as Phase 3 does when a collection changes.
+- **Size limit**: the export adds up the games and everything it carries, and says so
+  before it starts when that's more than the collection's size limit or the card's free
+  space.
+- Gamelists are merged as they are for ES-DE (D35): entries for the exported games are
+  added or updated, and the device's own entries (play counts, favourites) kept.
+
+**Not in Phase 5b**: converting games on the way to the card (a format the device can't
+play is the collection's to choose; 3.9's convert-on-export comes later), `.m3u` lists
+for multi-disc games, writing to a device over the network (Phase 9), reading a card's
+own layout to make a layout from it, ArkOS and Batocera (if asked for).
+
+**Decisions proposed for Phase 5b** (defaults the build follows unless changed)
+
+- **D37** Layouts are JSON files: built-in ones in the app, the user's own in the
+  library (`_library/layouts/`); a built-in one is changed only by saving a copy.
+- **D38** One export engine: ES-DE and the plain folder are built-in layouts like the
+  devices' ones.
+- **D39** The editor's tree is worked out from the user's own games (a collection's
+  first few), not a fixed example, so it shows the names the card will really hold.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -1889,7 +2054,16 @@ from scanned PDFs (only PDFs with text are searched inside).
   Proposed defaults, followed in the build; Jerred asked for Phase 5 to be built on
   2026-10-17.
 
-New ones get a number here as they come up (next: D36).
+- **D36 Layouts the user can change** (Jerred, 2026-10-17): device and frontend export
+  layouts are user-configurable, so new firmwares and frontends can be followed: kept as
+  JSON specs that can be copied and edited, with a visual editor that shows the expected
+  export at folder level, lets the user adjust it and saves a new layout. Taken as asked;
+  Phase 5b ("Phase 5b design").
+- **D37–D39** (Phase 5b design): layouts as JSON files, built-in ones changed only by
+  copying; one export engine; the editor's tree made from the user's own games.
+  Proposed defaults, followed in the build unless changed.
+
+New ones get a number here as they come up (next: D40).
 
 ---
 
@@ -1909,3 +2083,5 @@ New ones get a number here as they come up (next: D36).
    and 4 merged and released together, as Jerred asked (2026-10-17) as v0.4.0.
 8. Phase 5: design written ("Phase 5 design", D32–D35) and built ("Phase 5 notes"). Next:
    Phase 5b, device profiles for SD cards (D18, D29).
+9. Phase 5 merged and released as v0.5.0 (2026-10-17). Phase 5b: design written
+   ("Phase 5b design", D36–D39), with layouts the user can change (D36).
