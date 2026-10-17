@@ -1947,8 +1947,7 @@ set of games so another device has what they need.
   for these systems** (required ones, or optional ones too), for the systems the
   collection's games are on. Each layout says where they go, as `"bios": { "path": … }`,
   with the token `{bios_file}` (the file's name with its DAT folder): Knulli
-  `{card}/bios/{bios_file}`, ROCKNIX `{card}/roms/bios/{bios_file}` (its documentation:
-  the BIOS folder is under `roms`), muOS `{card}/MUOS/bios/{bios_file}`, ES-DE on
+  `{card}/bios/{bios_file}`, ROCKNIX `{card}/roms/bios/{bios_file}`, muOS `{card}/MUOS/bios/{bios_file}`, ES-DE on
   Android or Linux `{card}/BIOS/{bios_file}`, to point RetroArch's system folder at,
   and the plain folder `{out}/BIOS/{system_name}/{bios_file}`. The editor shows them in
   the tree like the rest. Each layout's BIOS folder is checked against its firmware's
