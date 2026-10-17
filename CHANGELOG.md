@@ -66,11 +66,15 @@ The code started as a trimmed copy of [Model Library](https://github.com/DrFlGd/
 
 ### Next (roadmap)
 
-Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion), 3 (collections, Save as DATs, export to ES-DE or a folder) and 4 (PC games, Identify with Steam, GOG and LaunchBox, Add to Steam, Add a game…; "Phase 4 notes" in `docs/PLAN.md`) are released (v0.4.0). Phase 5 (scraping from ScreenScraper, IGDB, TheGamesDB and LaunchBox, the Metadata and Documents pages, document import with pairings, exports that carry what's chosen; "Phase 5 notes" in `docs/PLAN.md`) is released (v0.5.0). Phase 5b (export layouts for SD cards and frontends with the visual editor, BIOS files; "Phase 5b notes" in `docs/PLAN.md`) is v0.5.1. Phase 6 (the Library page and a page for each game; "Phase 6 notes") is built. Next is Phase 7 (arcade sets). Phase 9 serves games to devices on the home network (`docs/PLAN.md` 3.10).
+Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion), 3 (collections, Save as DATs, export to ES-DE or a folder) and 4 (PC games, Identify with Steam, GOG and LaunchBox, Add to Steam, Add a game…; "Phase 4 notes" in `docs/PLAN.md`) are released (v0.4.0). Phase 5 (scraping from ScreenScraper, IGDB, TheGamesDB and LaunchBox, the Metadata and Documents pages, document import with pairings, exports that carry what's chosen; "Phase 5 notes" in `docs/PLAN.md`) is released (v0.5.0). Phase 5b (export layouts for SD cards and frontends with the visual editor, BIOS files; "Phase 5b notes" in `docs/PLAN.md`) is v0.5.1. Phase 6 (the Library page and a page for each game; "Phase 6 notes") is v0.5.2. Phase 6b (each source's metadata kept apart, picture variants, delete and scrape again; "Phase 6b design") is being built, then Phase 7 (arcade sets). Phase 9 serves games to devices on the home network (`docs/PLAN.md` 3.10).
 
 ---
 
 ## Unreleased
+
+- Plan: Phase 6b's design in `docs/PLAN.md` (D46–D48): each source's metadata kept apart, picture variants, delete and scrape again.
+
+## 0.5.2 (2026-10-17)
 
 - **The Library** (a new page, after Home): every game you have, across every system and PC games too, by its cover in a grid (three sizes), as a list or as a table. Search titles, developers and descriptions; filter by system, genre, year, developer, publisher, players, rating, region, language, what it has (pictures, a description, a manual, a video, documents), *Needs a look* and a collection, each value with its count; group by system, genre, decade, developer or publisher; sort by title, system, year, rating, size or file date. The filters show as chips and are kept in the page's address, so Back works. *Every game in the DATs* shows the games you don't have too, and *One per title* keeps one of each. It keeps up with 200,000 games: a page in under 15 ms and the counts in about 0.2 s.
 - Pick games with click, Ctrl, Shift or Ctrl+A, then Add to a collection…, Scrape…, Convert…, Attach documents… or Show in folder. **Save as a collection…** turns the filters into a collection's rules, so it keeps up as games are scraped; collections gain rules by genre, year, developer, publisher, players, rating and what a game has.
