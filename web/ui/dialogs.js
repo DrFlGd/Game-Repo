@@ -7,7 +7,7 @@ import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { Icon } from "./icons.js";
 import { importDats, makeDat } from "./games.js";
-import { OrganiseDialog } from "./organise.js";
+import { OrganiseDialog, ConvertDialog } from "./organise.js";
 
 export const close = () => ui.set({ dialog: null });
 
@@ -155,5 +155,6 @@ export function Dialogs() {
   if (dialog.type === "dat-platform") return html`<${DatPlatformDialog} ...${dialog} />`;
   if (dialog.type === "make-dat") return html`<${MakeDatDialog} ...${dialog} />`;
   if (dialog.type === "organise") return html`<${OrganiseDialog} key=${dialog.plan?.id || "new"} ...${dialog} />`;
+  if (dialog.type === "convert") return html`<${ConvertDialog} ...${dialog} />`;
   return null;
 }

@@ -425,6 +425,9 @@ fn plan_extract(
         return Ok(true);
     }
     let cd = kind == "chd" && members.iter().any(|(_, n, _)| n.starts_with("Track "));
+    // a GD-ROM's audio tracks are .raw files, as Redump names them
+    let gd_audio = if cd { image::gd_audio(Path::new(&first.path)) } else { None };
+    let gd = gd_audio.is_some();
     let many = members.len() > 1 || cd;
     let folder = if many || (naming.folder && o.out.is_some()) { dir.join(&base) } else { dir.clone() };
     let mut track_names = vec![];
@@ -433,7 +436,7 @@ fn plan_extract(
         let member = src.member.clone().unwrap_or_default();
         let out_name = match named.get(member.as_str()) {
             Some(n) => n.to_string(),
-            None if cd => format!("{base} (Track {}).bin", mname.trim_start_matches("Track ").trim_end_matches(".bin").trim_start_matches('0')),
+            None if cd => format!("{base} (Track {}).{}", mname.trim_start_matches("Track ").trim_end_matches(".bin").trim_start_matches('0'), if gd_audio.as_ref().is_some_and(|a| a.contains(mname)) { "raw" } else { "bin" }),
             None if kind == "chd" || image::KINDS.contains(&kind.as_str()) => format!("{base}.iso"),
             None => member.rsplit('/').next().unwrap_or(&member).to_string(),
         };
@@ -444,7 +447,7 @@ fn plan_extract(
         p.ops.push(Op { op: "extract".into(), game: g.fields.name.clone(), to: to.display().to_string(), from: vec![src], names: vec![], aside: vec![], size, note: None });
     }
     if cd {
-        let to = folder.join(sheet_rom.map(|n| organise::safe_name(&n)).unwrap_or_else(|| format!("{base}.cue")));
+        let to = folder.join(sheet_rom.map(|n| organise::safe_name(&n)).unwrap_or_else(|| format!("{base}.{}", if gd { "gdi" } else { "cue" })));
         claim(taken, &to)?;
         let mut src = first.clone();
         src.member = None;

@@ -83,14 +83,16 @@ pub fn command(path: &Path) -> Command {
     c
 }
 
-/// The first line a tool prints about itself that names a version.
+/// The first line a tool prints about itself that names a version (a number like 5.0 or 2412).
 fn version(path: &Path) -> Option<String> {
     let out = command(path).arg("--version").output().ok()?;
     let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    text.lines()
-        .map(str::trim)
-        .find(|l| l.chars().any(|c| c.is_ascii_digit()) && l.contains('.'))
-        .map(|l| l.chars().take(120).collect())
+    let numbered = |l: &str| {
+        let b = l.as_bytes();
+        b.windows(3).any(|w| w[0].is_ascii_digit() && w[1] == b'.' && w[2].is_ascii_digit())
+            || l.split(|c: char| !c.is_ascii_digit()).any(|n| n.len() >= 4)
+    };
+    text.lines().map(str::trim).find(|l| numbered(l)).map(|l| l.chars().take(120).collect())
 }
 
 /// What Settings › Tools shows.

@@ -71,6 +71,7 @@ function AttentionCard({ home }) {
       ${last ? html` Last scan ${when(last.finished || last.started)}${last.stopped ? " (stopped)" : ""}.` : " Not scanned yet."}</p>`
       : html`<p>Add the folders your games are in, then scan them.${isDesktop() ? html` <button type="button" class="ghost" id="home-add-root" onClick=${() => addRoot()}>Add a folder…</button>` : null}</p>`}
     ${home.unhashed ? html`<p class="warn-note">${plural(home.unhashed, "file hasn't", "files haven't")} been read yet: scan to finish.</p>` : null}
+    ${home.needs_tool ? html`<p class="warn-note" id="home-needs-tool">${plural(home.needs_tool, "RVZ file waits", "RVZ files wait")} for dolphin-tool: set where it is in <a href=${routeHash("settings")}>Settings › Tools</a>, then scan.</p>` : null}
     ${missing.map((r) => html`<p class="warn-note" key=${r.id}>${r.dir} isn't on this computer.
       ${isDesktop() ? html` <button type="button" class="ghost" onClick=${() => repointRoot(r)}>Point it elsewhere…</button>` : null}</p>`)}
     ${loose.length ? html`<h3>Without a DAT</h3><ul class="ls-list" id="home-loose">${loose.map((l) => html`<li key=${l.platform || "none"}>

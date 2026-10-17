@@ -14,6 +14,26 @@
     "crc32": "bfd78a26",
     "sha1": "ba3fbcfc61db51f3e970b47675edf92000f937a6"
   },
+  "Gd Game (Japan).gdi": {
+    "size": 147,
+    "crc32": "6ccd835e",
+    "sha1": "e5c74f1c6a1acefd24ce8421352b4ef878be7048"
+  },
+  "Gd Game (Japan) (Track 1).bin": {
+    "size": 70560,
+    "crc32": "f6a5fe69",
+    "sha1": "bdff1dbeaedea47aa432afed4de0db06f4f43fdc"
+  },
+  "Gd Game (Japan) (Track 2).raw": {
+    "size": 47040,
+    "crc32": "2998bfcd",
+    "sha1": "4ab581e9818c49a49ea7cda6ade797567d743ce6"
+  },
+  "Gd Game (Japan) (Track 3).bin": {
+    "size": 70560,
+    "crc32": "1e83ae4a",
+    "sha1": "69f3c4c852e92bf1ac8d4a5b6bf6c90c6de72ea6"
+  },
   "Dvd Game (Europe).iso": {
     "size": 143360,
     "crc32": "ddfc1acf",

@@ -8,7 +8,7 @@ import { useStore } from "../lib/store.js";
 import { ui, THEMES, SKINS, setTheme, setSkin } from "./state.js";
 import { ctx } from "./context.js";
 import { api, toast, isDesktop, openLibrary, renameLibrary, showLibraryFolder, checkIndex, undoable, size, plural } from "./library.js";
-import { undoChange, finishChange } from "./organise.js";
+import { undoChange, finishChange, CONVERT_FORMATS } from "./organise.js";
 import { addRoot, updateRoot, repointRoot, removeRoot, scanSettings, setScanSettings, importDats, starterDats, useDat, removeDat, refreshGames, reveal } from "./games.js";
 import { confirmDialog } from "./dialogs.js";
 import { CommandBar } from "./layout.js";
@@ -220,6 +220,65 @@ function HistorySection({ lib }) {
   </section>`;
 }
 
+/** Each platform's preferred format (D12): what Convert… offers first. Kept in the library. */
+function FormatsSection({ lib }) {
+  const [list, setList] = useState(null);
+  useEffect(() => { api("formats").then(setList).catch((e) => setList({ error: e.message || String(e) })); }, [lib.path]);
+  const choose = async (p, format) => {
+    try {
+      setList(await api("format_set", { platform: p.platform, format }));
+      toast(`${p.name} games convert to ${CONVERT_FORMATS[format]?.[0] || format} first.`);
+    } catch (e) {
+      toast(e.message || String(e), 8000);
+    }
+  };
+  const items = Array.isArray(list) ? list.filter((p) => p.formats.length > 1) : [];
+  return html`<section class="ls-section" id="settings-formats">
+    <h2>Preferred formats</h2>
+    <p class="muted">What Convert… offers first for each platform. CD and DVD systems keep CHD, GameCube and Wii RVZ, and cartridges a ZIP for each game; the platforms below have a choice.</p>
+    ${list?.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
+    ${items.length ? html`<ul class="ls-list" id="formats">${items.map((p) => html`<li key=${p.platform} data-platform=${p.platform}>
+      <span>${p.name}</span>
+      <select class="compact" aria-label=${`${p.name}'s preferred format`} value=${p.preferred} disabled=${!!lib.read_only} onChange=${(e) => choose(p, e.target.value)}>
+        ${p.formats.map((f) => html`<option key=${f} value=${f}>${CONVERT_FORMATS[f]?.[0] || f.toUpperCase()}</option>`)}
+      </select></li>`)}</ul>` : null}
+  </section>`;
+}
+
+/** The external tools (D14): where each was found, and a path to set for it. Kept on this computer. */
+function ToolsSection() {
+  const [r, setR] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => { api("tools").then(setR).catch((e) => setError(e.message || String(e))); }, []);
+  const set = async (id, path) => {
+    setError("");
+    try {
+      setR(await api("tools_set", { id, path }));
+    } catch (e) {
+      setError(e.message || String(e));
+    }
+  };
+  const pick = async (t) => {
+    const p = await ctx.platform.library.pickFile(`Where is ${t.id}?`, ["exe"]);
+    if (p) set(t.id, p);
+  };
+  return html`<section class="ls-section" id="settings-tools">
+    <h2>Tools</h2>
+    <p class="muted">Game Repo reads and writes CHD, CSO and ZSO itself. For RVZ it uses Dolphin's own tool, found in the app's <code>tools</code> folder${r?.app_dir ? html` (<code>${r.app_dir}</code>)` : null}, on the PATH, or where you set it here. Nothing is downloaded.</p>
+    ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
+    ${r ? html`<ul class="ls-list change-list" id="tools">${r.tools.map((t) => html`<li key=${t.id} data-tool=${t.id} data-found=${t.path ? "yes" : "no"}>
+      <span class="change-label"><span><b>${t.id}</b> <span class="muted">${t.what}</span></span>
+        <span class="muted tool-where">${t.path ? `${t.path}${t.version ? ` · ${t.version}` : ""}` : "Not found"}</span></span>
+      ${isDesktop() ? html`<button type="button" class="ghost" data-action="choose" onClick=${() => pick(t)}>Choose…</button>` : null}
+      ${t.set ? html`<button type="button" class="ghost" data-action="clear" onClick=${() => set(t.id, null)}>Clear</button>` : null}
+    </li>`)}</ul>
+    ${!isDesktop() ? html`<form class="pick-row" id="tools-form" onSubmit=${(e) => { e.preventDefault(); const f = e.target; set(f.tool.value, f.path.value); }}>
+      <select name="tool" class="compact" aria-label="Tool">${r.tools.map((t) => html`<option key=${t.id} value=${t.id}>${t.id}</option>`)}</select>
+      <input type="text" name="path" id="tools-path" placeholder="Its path" aria-label="Its path" />
+      <button type="submit" class="ghost" id="tools-set">Set</button></form>` : null}` : null}
+  </section>`;
+}
+
 export function Settings() {
   const s = useStore(ui, (st) => ({ library: st.library, recent: st.recent, skin: st.skin, theme: st.theme, index: st.index }));
   const lib = s.library;
@@ -242,7 +301,8 @@ export function Settings() {
         <ul class="ls-list" id="recent-libraries">${others.map((p) => html`<li key=${p}><span>${p}</span>
           <button type="button" class="ghost" onClick=${() => openLibrary(p)}>Open</button></li>`)}</ul>` : null}
     </section>
-    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${HistorySection} lib=${lib} />` : null}
+    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${HistorySection} lib=${lib} />` : null}
+    <${ToolsSection} />
     <section class="ls-section">
       <h2>Appearance</h2>
       <label class="field-block"><span>Skin</span>
@@ -257,7 +317,7 @@ export function Settings() {
     </section>
     <section class="ls-section" id="settings-coming">
       <h2>Still to come</h2>
-      <p class="muted">Each platform's preferred storage format (CHD, RVZ, CSO, 7z), folders for external tools such as chdman, and accounts for metadata sources each arrive with the phase that uses them.</p>
+      <p class="muted">Accounts for metadata sources (ScreenScraper and others) and the tools for PC installers arrive with the phases that use them.</p>
     </section>
     <section class="ls-section" id="settings-about">
       <h2>About</h2>

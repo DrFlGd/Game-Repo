@@ -8,8 +8,8 @@
 //! - **RVZ** (GameCube, Wii): the `.iso`'s hashes as `dolphin-tool verify` reports
 //!   them; without the tool it's left to be checked when it's found.
 //!
-//! It also writes CHD (CD from a cue sheet or GDI, DVD from an ISO) and CSO/ZSO, for
-//! Convert.
+//! It also writes CHD (CD from a cue sheet, GD-ROM from a GDI, DVD from an ISO) and
+//! CSO/ZSO, for Convert.
 
 use crate::archive::{Listing, Member};
 use crate::cue;
@@ -126,8 +126,12 @@ pub struct ChdTrack {
     pub pregap: u64,
     pub pgtype: String,
     pub postgap: u64,
-    /// Empty frames after it (CHD pads each track to 4 frames)
+    /// Empty frames after it (CHD pads each track to 4 frames; a GD-ROM's also hold the
+    /// gap before the next track)
     pub pad: u64,
+    /// The disc is a GD-ROM (CHGD metadata, from a GDI): `lba` is where the track starts
+    pub gd: bool,
+    pub lba: u64,
 }
 
 impl ChdTrack {
@@ -173,7 +177,9 @@ fn parse_track(text: &str, gd: bool) -> Option<ChdTrack> {
             .map(str::to_string)
     };
     let num = |k: &str| get(k).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
-    let frames = num("FRAMES");
+    // a GD-ROM's FRAMES runs to the next track's LBA: its file's frames, then PAD empty ones
+    let all = num("FRAMES");
+    let frames = if gd { all.saturating_sub(num("PAD")) } else { all };
     Some(ChdTrack {
         number: get("TRACK")?.parse().ok()?,
         kind: get("TYPE")?,
@@ -181,7 +187,9 @@ fn parse_track(text: &str, gd: bool) -> Option<ChdTrack> {
         pregap: num("PREGAP"),
         pgtype: get("PGTYPE").unwrap_or_default(),
         postgap: num("POSTGAP"),
-        pad: if gd { num("PAD") } else { frames.div_ceil(4) * 4 - frames },
+        pad: all.div_ceil(4) * 4 - frames,
+        gd,
+        lba: if gd { all } else { 0 },
     })
 }
 
@@ -211,6 +219,11 @@ impl ChdImage {
             }
         }
         tracks.sort_by_key(|t| t.number);
+        // each GD-ROM track starts where the ones before it end (parse_track left its length in lba)
+        let mut lba = 0;
+        for t in tracks.iter_mut().filter(|t| t.gd) {
+            (t.lba, lba) = (lba, lba + t.lba);
+        }
         let layout = if !tracks.is_empty() {
             Layout::Cd(tracks)
         } else if dvd {
@@ -361,10 +374,11 @@ pub fn iso_as_cd(iso: &Path) -> io::Result<Vec<CdTrackSource>> {
         return Err(other("its size isn't a whole number of 2,048-byte sectors"));
     }
     let track = cue::Track { number: 1, mode: "MODE1/2048".into(), index0: None, index1: 0, pregap: 0, postgap: 0 };
-    Ok(vec![CdTrackSource { path: iso.to_path_buf(), offset: 0, frames: len / 2048, track, pregap_in_file: 0 }])
+    Ok(vec![CdTrackSource { path: iso.to_path_buf(), lba: None, offset: 0, frames: len / 2048, track, pregap_in_file: 0 }])
 }
 
-/// The cue sheet for a CD CHD's tracks, naming them `names` (one per track, in order).
+/// The cue sheet for a CD CHD's tracks, naming them `names` (one per track, in order);
+/// for a GD-ROM, its GDI.
 pub fn cue_for(chd: &Path, names: &[String]) -> io::Result<String> {
     let c = ChdImage::open(chd)?;
     let Layout::Cd(tracks) = &c.layout else {
@@ -373,7 +387,35 @@ pub fn cue_for(chd: &Path, names: &[String]) -> io::Result<String> {
     if names.len() != tracks.len() {
         return Err(other(format!("it holds {} tracks, not {}", tracks.len(), names.len())));
     }
+    if is_gd(tracks) {
+        return Ok(gdi_text(tracks, names));
+    }
     Ok(tracks.iter().zip(names).map(|(t, n)| cue_lines(t, n)).collect())
+}
+
+/// Whether a CHD's tracks are a GD-ROM's (its sheet is a GDI).
+pub fn is_gd(tracks: &[ChdTrack]) -> bool {
+    tracks.first().is_some_and(|t| t.gd)
+}
+
+/// When the CHD at `path` holds a GD-ROM: the members that are its audio tracks.
+pub fn gd_audio(path: &Path) -> Option<std::collections::HashSet<String>> {
+    let c = ChdImage::open(path).ok()?;
+    match &c.layout {
+        Layout::Cd(t) if is_gd(t) => Some(t.iter().filter(|t| t.is_audio()).map(|t| track_name(t.number)).collect()),
+        _ => None,
+    }
+}
+
+/// A GDI for a GD-ROM's tracks, as Redump writes them (names with spaces quoted, CRLF).
+fn gdi_text(tracks: &[ChdTrack], names: &[String]) -> String {
+    let mut s = format!("{}\r\n", tracks.len());
+    for (t, n) in tracks.iter().zip(names) {
+        let name = if n.contains(' ') { format!("\"{n}\"") } else { n.clone() };
+        let kind = if t.is_audio() { 0 } else { 4 };
+        s.push_str(&format!("{} {} {kind} {} {name} 0\r\n", t.number, t.lba, t.data_size()));
+    }
+    s
 }
 
 /// mm:ss:ff of a number of frames.
@@ -412,6 +454,8 @@ fn cue_lines(t: &ChdTrack, file: &str) -> String {
 /// A track to write into a CD CHD: where its bytes are, and how the cue describes it.
 pub struct CdTrackSource {
     pub path: std::path::PathBuf,
+    /// From a GDI: where the track starts on the GD-ROM
+    pub lba: Option<u64>,
     /// Where its bytes start in that file, and how many frames it has there
     pub offset: u64,
     pub frames: u64,
@@ -435,7 +479,7 @@ pub fn cd_tracks(sheet: &Path) -> io::Result<Vec<CdTrackSource>> {
                 _ => "MODE1/2352",
             };
             let track = cue::Track { number: t.number, mode: mode.into(), index0: None, index1: 0, pregap: 0, postgap: 0 };
-            out.push(CdTrackSource { path, offset: 0, frames: len / t.sector, track, pregap_in_file: 0 });
+            out.push(CdTrackSource { path, lba: Some(t.lba), offset: 0, frames: len / t.sector, track, pregap_in_file: 0 });
         }
         return Ok(out);
     }
@@ -451,20 +495,42 @@ pub fn cd_tracks(sheet: &Path) -> io::Result<Vec<CdTrackSource>> {
             let end = f.tracks.get(i + 1).map(|n| n.start() * size).unwrap_or(len);
             let frames = (end.saturating_sub(start * size)) / size;
             let pregap_in_file = t.index0.map(|z| t.index1.saturating_sub(z)).unwrap_or(0);
-            out.push(CdTrackSource { path: path.clone(), offset: start * size, frames, track: t.clone(), pregap_in_file });
+            out.push(CdTrackSource { path: path.clone(), lba: None, offset: start * size, frames, track: t.clone(), pregap_in_file });
         }
     }
     Ok(out)
 }
 
 /// Write a CD CHD of these tracks (as `chdman createcd` does: 2,448-byte frames, each
-/// track padded to 4 frames, audio big-endian, CHT2 metadata per track).
+/// track padded to 4 frames, audio big-endian, CHT2 metadata per track; from a GDI,
+/// CHGD metadata, each track followed by empty frames up to the next one's LBA).
 pub fn write_cd(tracks: &[CdTrackSource], to: &Path, cancel: &AtomicBool) -> io::Result<()> {
     use chd::write::{ChdWriteOptions, ChdWriter};
     let file = std::fs::File::create(to)?;
     let mut w = ChdWriter::new(io::BufWriter::new(file), ChdWriteOptions::cd()).map_err(other)?;
-    for t in tracks {
+    // a GD-ROM's tracks: the empty frames after each, up to the next track
+    let gaps: Option<Vec<u64>> = tracks.iter().all(|t| t.lba.is_some()).then(|| {
+        tracks
+            .iter()
+            .enumerate()
+            .map(|(i, t)| match (t.lba, tracks.get(i + 1).and_then(|n| n.lba)) {
+                (Some(a), Some(b)) => b.saturating_sub(a).saturating_sub(t.frames),
+                _ => 0,
+            })
+            .collect()
+    });
+    for (i, t) in tracks.iter().enumerate() {
         let kind = t.track.chd_type();
+        if let Some(gaps) = &gaps {
+            let meta = format!(
+                "TRACK:{} TYPE:{kind} SUBTYPE:NONE FRAMES:{} PAD:{} PREGAP:0 PGTYPE:MODE1 PGSUB:NONE POSTGAP:0\0",
+                t.track.number,
+                t.frames + gaps[i],
+                gaps[i]
+            );
+            w.add_metadata(CHGD, meta.as_bytes(), true).map_err(other)?;
+            continue;
+        }
         let (pregap, pgtype) = if t.pregap_in_file > 0 {
             (t.pregap_in_file, format!("V{kind}"))
         } else {
@@ -477,8 +543,9 @@ pub fn write_cd(tracks: &[CdTrackSource], to: &Path, cancel: &AtomicBool) -> io:
         w.add_metadata(CHT2, meta.as_bytes(), true).map_err(other)?;
     }
     let mut frame = vec![0u8; FRAME as usize];
-    for t in tracks {
+    for (i, t) in tracks.iter().enumerate() {
         let size = t.track.sector_size() as usize;
+        let all = t.frames + gaps.as_ref().map_or(0, |g| g[i]);
         let mut f = BufReader::new(std::fs::File::open(&t.path)?);
         f.seek(SeekFrom::Start(t.offset))?;
         for _ in 0..t.frames {
@@ -495,7 +562,10 @@ pub fn write_cd(tracks: &[CdTrackSource], to: &Path, cancel: &AtomicBool) -> io:
             w.write_all(&frame)?;
         }
         frame.fill(0);
-        for _ in t.frames..t.frames.div_ceil(4) * 4 {
+        for n in t.frames..all.div_ceil(4) * 4 {
+            if n % 4096 == 0 && cancel.load(Ordering::Relaxed) {
+                return Err(stopped());
+            }
             w.write_all(&frame)?;
         }
     }
@@ -533,19 +603,23 @@ fn copy_stopping(r: &mut dyn Read, w: &mut dyn Write, cancel: &AtomicBool) -> io
 }
 
 /// Write a CHD's CD tracks back out as `<base> (Track N).bin` files and a cue sheet
-/// naming them, into `dir`. Returns the files written (the cue first).
+/// naming them (a GD-ROM's as Redump does, with `.raw` audio and a GDI), into `dir`. Returns the files written (the cue first).
 pub fn extract_cd(chd: &Path, dir: &Path, base: &str, cancel: &AtomicBool) -> io::Result<Vec<std::path::PathBuf>> {
     let mut c = ChdImage::open(chd)?;
     let Layout::Cd(tracks) = c.layout.clone() else {
         return Err(other("it isn't a CD image"));
     };
     let many = tracks.len() > 1;
+    let gd = is_gd(&tracks);
     let mut cue_text = String::new();
+    let mut names = vec![];
     let mut written = vec![];
     let mut frame = 0u64;
     for t in &tracks {
-        let name = if many { format!("{base} (Track {}).bin", t.number) } else { format!("{base}.bin") };
+        let ext = if gd && t.is_audio() { "raw" } else { "bin" };
+        let name = if many { format!("{base} (Track {}).{ext}", t.number) } else { format!("{base}.{ext}") };
         cue_text.push_str(&cue_lines(t, &name));
+        names.push(name.clone());
         let p = dir.join(&name);
         let mut out = io::BufWriter::new(std::fs::File::create(&p)?);
         copy_stopping(&mut TrackReader::new(&mut c, frame, t), &mut out, cancel)?;
@@ -553,8 +627,8 @@ pub fn extract_cd(chd: &Path, dir: &Path, base: &str, cancel: &AtomicBool) -> io
         written.push(p);
         frame += t.frames + t.pad;
     }
-    let cue_path = dir.join(format!("{base}.cue"));
-    std::fs::write(&cue_path, cue_text)?;
+    let cue_path = dir.join(format!("{base}.{}", if gd { "gdi" } else { "cue" }));
+    std::fs::write(&cue_path, if gd { gdi_text(&tracks, &names) } else { cue_text })?;
     written.insert(0, cue_path);
     Ok(written)
 }
@@ -914,6 +988,47 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_gd_rom_from_a_gdi_is_written_as_chdman_writes_it_and_read_back() {
+        let dir = sources("image-gd");
+        let stop = AtomicBool::new(false);
+        let names = ["Gd Game (Japan) (Track 1).bin", "Gd Game (Japan) (Track 2).raw", "Gd Game (Japan) (Track 3).bin"];
+        // chdman's GD CHD reads as Redump's files, its gaps left out
+        let theirs = fixtures().join("Gd Game (Japan).chd");
+        let l = read(&theirs, "chd", &stop).unwrap();
+        check(&l, &[("Track 01.bin", names[0]), ("Track 02.bin", names[1]), ("Track 03.bin", names[2])]);
+        // ours, from the GDI, is the same CHD
+        let gdi = dir.join("Gd Game (Japan).gdi");
+        let chd = dir.join("gd.chd");
+        write_cd(&cd_tracks(&gdi).unwrap(), &chd, &stop).unwrap();
+        let (a, b) = (ChdImage::open(&chd).unwrap(), ChdImage::open(&theirs).unwrap());
+        match (&a.layout, &b.layout) {
+            (Layout::Cd(x), Layout::Cd(y)) => {
+                assert_eq!(x, y);
+                assert_eq!(x.iter().map(|t| t.lba).collect::<Vec<_>>(), [0, 180, 45000]);
+            }
+            _ => panic!("not CDs"),
+        }
+        assert_eq!(a.chd.header().raw_sha1(), b.chd.header().raw_sha1(), "the same data as chdman's");
+        assert_eq!(a.sha1(), b.sha1(), "and the same SHA1 with the metadata");
+        let hashes = cd_file_hashes(&chd, &cd_tracks(&gdi).unwrap(), &stop).unwrap();
+        let e = expected();
+        for ((p, h), n) in hashes.iter().zip(names) {
+            assert_eq!((p.file_name().unwrap().to_str().unwrap(), h.sha1.as_deref()), (n, e[n]["sha1"].as_str()));
+        }
+        // and back out to Redump's GDI and tracks, byte for byte
+        let names: Vec<String> = names.iter().map(|n| n.to_string()).collect();
+        assert_eq!(cue_for(&chd, &names).unwrap().as_bytes(), std::fs::read(&gdi).unwrap());
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let files = extract_cd(&chd, &out, "Gd Game (Japan)", &stop).unwrap();
+        assert_eq!(files.len(), 4);
+        for n in names.iter().chain([&"Gd Game (Japan).gdi".to_string()]) {
+            assert_eq!(std::fs::read(out.join(n)).unwrap(), std::fs::read(dir.join(n)).unwrap(), "{n}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn chds_written_here_pass_chdman_verify() {
         // only where chdman is installed (CI's Windows job fetches it)
         let Some(chdman) = crate::tools::which(&["chdman"]) else { return };
@@ -921,9 +1036,11 @@ pub(crate) mod tests {
         let stop = AtomicBool::new(false);
         let chd = dir.join("cd.chd");
         write_cd(&cd_tracks(&dir.join("Disc Game (USA).cue")).unwrap(), &chd, &stop).unwrap();
+        let gd = dir.join("gd.chd");
+        write_cd(&cd_tracks(&dir.join("Gd Game (Japan).gdi")).unwrap(), &gd, &stop).unwrap();
         let dvd = dir.join("dvd.chd");
         write_dvd(&dir.join("Dvd Game (Europe).iso"), &dvd, &stop).unwrap();
-        for p in [&chd, &dvd] {
+        for p in [&chd, &gd, &dvd] {
             let out = std::process::Command::new(&chdman).args(["verify", "-i"]).arg(p).output().unwrap();
             assert!(out.status.success(), "chdman verify {}: {}", p.display(), String::from_utf8_lossy(&out.stderr));
         }

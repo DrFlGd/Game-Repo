@@ -1,7 +1,8 @@
 """Write the made-up disc images the disc tests use (no real game data).
 
-    python3 make_discs.py <dir>          the source files: a two-track CD as cue/bin
-                                         and a DVD as an iso, and a CSO of the iso
+    python3 make_discs.py <dir>          the source files: a two-track CD as cue/bin,
+                                         a three-track GD-ROM as gdi, a DVD as an
+                                         iso, and a CSO of the iso
     python3 make_discs.py --chd <dir>    also their CHDs, made by chdman (which must
                                          be on the PATH); tests/fixtures/discs/ keeps
                                          the CHDs made this way, so tests don't need it
@@ -25,6 +26,10 @@ DVD_NAME = "Dvd Game (Europe)"
 # track 1: data; track 2: audio, its first PREGAP frames in the file as INDEX 00
 DATA_FRAMES, AUDIO_FRAMES, PREGAP = 45, 31, 10
 DVD_SECTORS = 70
+GD_NAME = "Gd Game (Japan)"
+# a GD-ROM as Redump lists it: track 1 and its 150-frame gap, an audio track, then the
+# high-density area at LBA 45,000 (chdman stores the gaps as empty frames)
+GD_TRACKS = [(1, 0, 4, 30, "bin"), (2, 180, 0, 20, "raw"), (3, 45000, 4, 30, "bin")]
 
 
 def pattern(n, seed):
@@ -51,6 +56,16 @@ def cd_files():
         f"{CD_NAME} (Track 1).bin": t1,
         f"{CD_NAME} (Track 2).bin": t2,
     }
+
+
+def gd_files():
+    out = {}
+    gdi = f"{len(GD_TRACKS)}\r\n"
+    for n, lba, kind, frames, ext in GD_TRACKS:
+        name = f"{GD_NAME} (Track {n}).{ext}"
+        out[name] = pattern(frames * SECTOR, 200 + n)
+        gdi += f'{n} {lba} {kind} {SECTOR} "{name}" 0\r\n'
+    return {f"{GD_NAME}.gdi": gdi.encode(), **out}
 
 
 def dvd_files():
@@ -81,7 +96,7 @@ def hashes(b):
 
 def write(out, chd=False):
     os.makedirs(out, exist_ok=True)
-    files = {**cd_files(), **dvd_files()}
+    files = {**cd_files(), **gd_files(), **dvd_files()}
     for name, b in files.items():
         with open(os.path.join(out, name), "wb") as f:
             f.write(b)
@@ -91,6 +106,7 @@ def write(out, chd=False):
     if chd:
         tool = shutil.which("chdman") or sys.exit("chdman isn't on the PATH")
         subprocess.run([tool, "createcd", "-f", "-i", os.path.join(out, f"{CD_NAME}.cue"), "-o", os.path.join(out, f"{CD_NAME}.chd")], check=True, capture_output=True)
+        subprocess.run([tool, "createcd", "-f", "-i", os.path.join(out, f"{GD_NAME}.gdi"), "-o", os.path.join(out, f"{GD_NAME}.chd")], check=True, capture_output=True)
         subprocess.run([tool, "createdvd", "-f", "-i", os.path.join(out, f"{DVD_NAME}.iso"), "-o", os.path.join(out, f"{DVD_NAME}.chd")], check=True, capture_output=True)
     return {name: hashes(b) for name, b in files.items()}
 

@@ -1127,6 +1127,59 @@ index is updated as operations complete and can be rebuilt by a scan.
 - Real-set check (Jerred): organise a copy of a real set in mode 1, then mode 2 on a
   copy, and Undo; convert a few real discs to CHD and compare with `chdman verify`.
 
+#### Phase 2b notes (built 2026-10-17)
+
+- **Core**: `cue.rs` (cue sheets and GDIs: tracks, file names, rewriting the names),
+  `image.rs` (reading CHD, CSO, ZSO and RVZ as the files they hold; writing CHD and
+  CSO/ZSO), `convert.rs` (Convert and Extract plans, run by `organise::run`, so the
+  journal, Undo and *Finish* are Phase 2a's), `tools.rs` (D14: `tools/` beside the app,
+  then PATH, a path set in Settings first). `api.rs` gained `convert_plan`, `formats`,
+  `format_set`, `tools` and `tools_set`; the command line has `convert`, `extract`,
+  `formats` and `tools`. `platforms.rs` has the 15 disc rows and each platform's media
+  and formats.
+- **No chdman or maxcso.** The `chd` crate (chd-rs, BSD-3-Clause) writes CHDs; with
+  `chdman createcd`'s layout (2,448-byte frames, tracks padded to 4 frames, audio
+  big-endian, CHT2 metadata; for a GDI, CHGD metadata with each track's gap to the next
+  LBA as empty frames) and `createdvd`'s, its CHDs have the same data SHA1 and the same
+  SHA1 as chdman 0.264's, checked by the tests against CHDs chdman made
+  (`tests/fixtures/discs/`, made by `make_discs.py --chd`). CSO (v1, 2,048-byte blocks,
+  deflate) and ZSO (LZ4, `lz4_flex`) are written in the core too, so maxcso was dropped.
+  `dolphin-tool` (or `DolphinTool`) is the one tool, for RVZ; without it RVZ files are
+  scanned with `locked = 2`, counted as *waiting for dolphin-tool* on Home and the
+  Audit, and read on the next scan once it's found.
+- **Images are containers.** `files.kind` gains 'chd', 'cso', 'zso', 'rvz' (no migration
+  step was needed: the column is text). Their members are ordinary members
+  (`kind = 'member'`, not 'track' as designed): a CD CHD's are `Track NN.bin`, a DVD
+  CHD's, CSO's, ZSO's or RVZ's is `<stem>.iso`. `blobs.inner` wasn't needed: the member
+  rows already make an unchanged image free on a rescan.
+- **Cue sheets**: a game in a CHD is *Have* without its cue (or GDI), and a member is
+  *named right* when the image is named for the game. A sheet that isn't Redump's but
+  names the game's tracks is matched with method `cue`. Organise rewrites a cue or GDI
+  to the new track names, and a disc game's images are always kept whole (Organise's
+  format is *keep* for disc platforms; Convert changes it). A single-file image (a CHD,
+  an ISO) isn't put in a folder of its own unless Naming says so; a multi-file set is.
+- **Convert and Extract**: each result is written beside its target as
+  `<name>.gamerepo-tmp` and checked before it takes its name: a CD CHD's tracks hashed
+  per source file (`cd_file_hashes`), anything else read back whole and compared with
+  the source's hashes. In place, the originals are set aside (D20). Extract writes
+  Redump's files again: tracks named as the DAT names them and the sheet rewritten for
+  them (so it's an exact match), a GD-ROM as a GDI with `.raw` audio. Cartridges'
+  Convert (ZIP) and Extract (loose files) are Organise's copy or rename plans.
+- **Preferred formats** (D12) are in library.json `formats`; CD and DVD systems have
+  CHD only, GameCube and Wii RVZ, PSP CSO, ZSO or CHD; Xbox is audited only.
+- **Starter DATs** for the disc systems come from libretro's `metadat/redump/` copies,
+  which list one file of each disc (its first track or ISO), so a disc's other tracks
+  and its sheet are unknown files against them; the app says so after importing them.
+  Redump's own DATs (redump.org) give the full check.
+- **CI**: the tests don't need chdman (the fixtures hold chdman's CHDs); the
+  `chdman verify` test runs where chdman is installed (this session's Linux), not on
+  Windows CI, where only MAME's full release has it. The RVZ round trip uses
+  `tests/fixtures/fake_dolphin_tool.py`, on Linux only.
+- **To check on a real set** (Jerred): convert a few real CD, GD-ROM and DVD games to
+  CHD and compare with `chdman verify` and chdman's own CHD of the same disc (the
+  `SHA1` line of `chdman info`); a PSP game to CSO in PPSSPP; with dolphin-tool, a
+  GameCube game to RVZ and back.
+
 **Not in Phase 2**: 1G1R and region choices (Phase 3 collections), export to ES-DE (3),
 arcade merged/split sets (7), automatic DAT updates (8), lossy conversions, writing RAR.
 
@@ -1244,4 +1297,5 @@ New ones get a number here as they come up (next: D21).
 3. Phase 1: scanner, DAT import and audit, verified end to end on one real No-Intro set.
    Built (Phase 1 notes); the real-set check is Jerred's.
 4. ~~Merge Phase 1 and release v0.1.0.~~ Done 2026-10-16 (PR #4).
-5. Phase 2: design written ("Phase 2 design"); 2a built ("Phase 2a notes"), then 2b.
+5. Phase 2: design written ("Phase 2 design"); 2a built ("Phase 2a notes"), merged and
+   released as v0.2.0; 2b built ("Phase 2b notes").

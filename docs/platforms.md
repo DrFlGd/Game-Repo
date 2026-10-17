@@ -5,8 +5,8 @@ in the app and its folder name on export), by the DAT groups, and in folder name
 app's own copy of this table is in the core (`platforms.rs`, Phase 1); this page is the
 readable version, and the two are kept in step.
 
-Phase 1 covers cartridge (and cartridge-like) systems. Disc systems come with Phase 2,
-arcade with Phase 7, metadata providers' ids with Phase 5.
+Phase 1 covers cartridge (and cartridge-like) systems, Phase 2b the disc systems
+(below the cartridges), arcade comes with Phase 7, metadata providers' ids with Phase 5.
 
 **To check during Phase 1:** each DAT name against the current No-Intro release, and each
 id against ES-DE's `es_systems.xml`. Anything found wrong here is fixed in both places.
@@ -63,10 +63,36 @@ group's suffixes: anything in brackets at the end that is a date or one of `Head
 
 `.bin` and `.rom` belong to several platforms, so they never decide one on their own.
 
+## Disc systems (Phase 2b)
+
+Audited against Redump's DATs. A CHD, CSO, ZSO or RVZ is read as the files Redump lists
+(a CD CHD as its cue sheet's tracks, the others as one ISO), and *Kept as* is the format
+Convert… offers first (Settings › Preferred formats changes it where there's a choice).
+Where Redump has renamed a DAT, both names are listed; libretro's copies use the second.
+
+| Id | Name | DAT names (Redump's, then libretro's copy) | Folder names | Extensions | Kept as |
+| --- | --- | --- | --- | --- | --- |
+| `psx` | PlayStation | Sony - PlayStation | PSX, PS1, PlayStation, PlayStation 1, Sony PlayStation | .cue, .bin, **.img**, .chd, **.m3u** | CHD |
+| `ps2` | PlayStation 2 | Sony - PlayStation 2 | PS2, PlayStation 2, Sony PlayStation 2 | .iso, .cue, .bin, .chd | CHD |
+| `psp` | PlayStation Portable | Sony - PlayStation Portable | PSP, PlayStation Portable, Sony PlayStation Portable | .iso, **.cso**, **.zso**, .chd | CSO (or ZSO, CHD) |
+| `saturn` | Sega Saturn | Sega - Saturn | Saturn, Sega Saturn | .cue, .bin, .iso, .chd | CHD |
+| `segacd` | Sega CD / Mega-CD | Sega - Mega CD & Sega CD; Sega - Mega-CD - Sega CD | Sega CD, Mega CD, Mega-CD, SegaCD, MegaCD | .cue, .bin, .iso, .chd | CHD |
+| `dreamcast` | Sega Dreamcast | Sega - Dreamcast | Dreamcast, DC, Sega Dreamcast | **.gdi**, **.cdi**, .cue, .bin, .chd | CHD |
+| `pcenginecd` | PC Engine CD / TurboGrafx-CD | NEC - PC Engine CD & TurboGrafx CD; NEC - PC Engine CD - TurboGrafx-CD | PC Engine CD, TurboGrafx-CD, TurboGrafx CD, PCE-CD, TG-CD | .cue, .bin, .chd | CHD |
+| `neogeocd` | Neo Geo CD | SNK - Neo Geo CD | Neo Geo CD, NeoGeo CD, NGCD | .cue, .bin, .chd | CHD |
+| `3do` | 3DO | Panasonic - 3DO Interactive Multiplayer; The 3DO Company - 3DO | 3DO, Panasonic 3DO | .cue, .bin, .iso, .chd | CHD |
+| `pcfx` | PC-FX | NEC - PC-FX & PC-FXGA; NEC - PC-FX | PC-FX, PCFX | .cue, .bin, .chd | CHD |
+| `atarijaguarcd` | Atari Jaguar CD | Atari - Jaguar CD Interactive Multimedia System; Atari - Jaguar CD | Jaguar CD, Atari Jaguar CD | .cue, .bin, .chd | CHD |
+| `cdimono1` | Philips CD-i | Philips - CD-i | CD-i, CDi, Philips CD-i | .cue, .bin, .iso, .chd | CHD |
+| `gc` | Nintendo GameCube | Nintendo - GameCube | GameCube, GC, NGC, Nintendo GameCube | .iso, **.gcm**, .rvz, .gcz, **.ciso** | RVZ |
+| `wii` | Nintendo Wii | Nintendo - Wii | Wii, Nintendo Wii | .iso, **.wbfs**, .rvz, **.wia**, .gcz | RVZ |
+| `xbox` | Xbox | Microsoft - Xbox | Xbox, Microsoft Xbox | .iso, **.xiso** | audited only |
+
+`.cue`, `.bin`, `.iso` and `.chd` belong to several disc platforms, so a disc set is
+found by its DAT match or its folder name.
+
 ## Later
 
-- Disc systems (Phase 2): PlayStation, PlayStation 2, PSP, Sega CD, Saturn, Dreamcast,
-  PC Engine CD, Neo Geo CD, GameCube, Wii, 3DO, Xbox, with Redump's DAT names.
 - Arcade (Phase 7): `mame`, `fbneo`, `neogeo`.
 - PC (Phase 4): `pc` (no DAT; see docs/PLAN.md, 3.5).
 - ScreenScraper, LaunchBox and IGDB ids per platform (Phase 5).
