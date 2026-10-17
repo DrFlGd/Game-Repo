@@ -1,13 +1,16 @@
 // Dialogs. Which one is open is `ui.dialog`: { type: "ask", … } (a question with
 // a button that does it), { type: "confirm", … } (before something that can't
-// be undone), "dat-platform" (which platform a DAT is for), "make-dat" (a DAT
-// from a scanned set) or "organise" (organise.js). The pages that need forms of their own add their types here.
+// be undone), "dat-platform" (which system a DAT is for), "make-dat" (a DAT
+// from a scanned set), "organise" and "convert" (organise.js), "system"
+// (systems.js) or a collection's (collections.js). The pages that need forms of their own add their types here.
 import { html, useState, useLayoutEffect, useRef } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { Icon } from "./icons.js";
 import { importDats, makeDat } from "./games.js";
 import { OrganiseDialog, ConvertDialog } from "./organise.js";
+import { SystemDialogs, resolveSystem, idFromName } from "./systems.js";
+import { CollectionDialogs } from "./collections.js";
 
 export const close = () => ui.set({ dialog: null });
 
@@ -71,36 +74,55 @@ function ConfirmDialog({ title, text, button, run }) {
 /** `{ title, text, button, run }`: `run()` is what happens after the red button. */
 export const confirmDialog = (opts) => ui.set({ dialog: { type: "confirm", ...opts } });
 
-/** A platform picker: the platforms the app knows, or another (its id typed). */
+/** A system picker: every system the app knows (built-in and added), or a new one,
+ *  named here and added when the form is sent (its value is then `{ new, name, id }`,
+ *  which `resolveSystem` turns into an id). */
 function PlatformSelect({ id, value, onChange, none }) {
   const list = useStore(ui, (s) => s.platforms) || [];
-  const known = !value || list.some((p) => p.id === value);
-  const [other, setOther] = useState(!known);
+  const isNew = value && typeof value === "object";
+  const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name));
   return html`<span class="platform-pick">
-    <select id=${id} class="compact" value=${other ? "__other" : value || ""} onChange=${(e) => {
-      if (e.target.value === "__other") { setOther(true); onChange(""); } else { setOther(false); onChange(e.target.value); }
+    <select id=${id} class="compact" value=${isNew ? "__new" : value || ""} onChange=${(e) => {
+      if (e.target.value === "__new") onChange({ new: true, name: "", id: "" }); else onChange(e.target.value);
     }}>
       <option value="">${none}</option>
-      ${list.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
-      <option value="__other">Another platform…</option>
+      ${sorted.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}${p.custom ? " (added)" : ""}</option>`)}
+      <option value="__new">A new system…</option>
     </select>
-    ${other ? html`<input type="text" id=${`${id}-other`} class="compact" placeholder="its id, e.g. satellaview" value=${value}
-      onInput=${(e) => onChange(e.target.value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-"))} />` : null}
+    ${isNew ? html`<span class="new-system">
+      <input type="text" id=${`${id}-name`} class="compact" maxlength="80" placeholder="The system's name, e.g. Satellaview" aria-label="The new system's name" value=${value.name}
+        onInput=${(e) => onChange({ ...value, name: e.target.value, id: value.idTyped ? value.id : idFromName(e.target.value) })} />
+      <input type="text" id=${`${id}-id`} class="compact system-id" maxlength="40" placeholder="its id" aria-label="The new system's id (its folder name on export)" title="Its id: the folder exports use" value=${value.id}
+        onInput=${(e) => onChange({ ...value, id: e.target.value.trim().toLowerCase(), idTyped: true })} />
+    </span>` : null}
   </span>`;
 }
 
-/** Which platform is each of these DATs for? Imported again with the answers, which the library remembers. */
+/** Whether a PlatformSelect has an answer. */
+const answered = (v) => (v && typeof v === "object" ? !!(v.name.trim() && v.id) : !!v);
+
+/** Which system is each of these DATs for? Imported again with the answers, which the library
+ *  remembers; a new system is added first, with the DAT's name, so its next version is found. */
 function DatPlatformDialog({ asks, answers }) {
   const [picked, setPicked] = useState(() => Object.fromEntries(asks.map((a) => [a.name, ""])));
   const [busy, setBusy] = useState(false);
-  const ready = asks.every((a) => picked[a.name]);
+  const [error, setError] = useState("");
+  const ready = asks.every((a) => answered(picked[a.name]));
   const submit = async () => {
     setBusy(true);
-    close();
-    await importDats([...new Set(asks.map((a) => a.path))], { ...answers, ...picked });
+    setError("");
+    try {
+      const ids = {};
+      for (const a of asks) ids[a.name] = await resolveSystem(typeof picked[a.name] === "object" ? { ...picked[a.name], name: picked[a.name].name.trim() } : picked[a.name], a.name);
+      close();
+      await importDats([...new Set(asks.map((a) => a.path))], { ...answers, ...ids });
+    } catch (e) {
+      setError(e.message || String(e));
+      setBusy(false);
+    }
   };
-  return html`<${Dialog} title="Which platform are these DATs for?" id="dat-platform-dialog" onSubmit=${submit} busy=${busy || !ready} submitLabel="Import">
-    <p>The app couldn't tell from ${asks.length === 1 ? "this DAT's name" : "these DATs' names"}. Your answer is kept in the library, so newer versions are recognised.</p>
+  return html`<${Dialog} title="Which system are these DATs for?" id="dat-platform-dialog" onSubmit=${submit} busy=${busy || !ready} error=${error} submitLabel="Import">
+    <p>The app couldn't tell from ${asks.length === 1 ? "this DAT's name" : "these DATs' names"}. Choose a system, or add a new one. Your answer is kept in the library, so newer versions are recognised.</p>
     ${asks.map((a, i) => html`<div class="field-block" key=${a.name}><span class="field-label">${a.name}</span>
       <small class="muted">${a.file}</small>
       <${PlatformSelect} id=${`dat-platform-${i}`} value=${picked[a.name]} none="Choose…" onChange=${(v) => setPicked((p) => ({ ...p, [a.name]: v }))} /></div>`)}
@@ -120,7 +142,8 @@ function MakeDatDialog() {
     setBusy(true);
     setError("");
     try {
-      await makeDat({ root, folder: folder.trim().replace(/\\/g, "/"), name: name.trim(), platform: platform || null });
+      const system = await resolveSystem(platform, name.trim());
+      await makeDat({ root, folder: folder.trim().replace(/\\/g, "/"), name: name.trim(), platform: system || null });
       close();
     } catch (e) {
       setError(e.message || String(e));
@@ -132,7 +155,7 @@ function MakeDatDialog() {
     return html`<${Dialog} title="Make a DAT from a set" id="make-dat-dialog" onSubmit=${close} submitLabel="OK">
       <p>Add the folder with the set (Settings › Folders with games) and scan it first: the DAT is made from what the scan read.</p><//>`;
   }
-  return html`<${Dialog} title="Make a DAT from a set" id="make-dat-dialog" onSubmit=${submit} busy=${busy || !name.trim() || !root} error=${error} submitLabel="Make the DAT">
+  return html`<${Dialog} title="Make a DAT from a set" id="make-dat-dialog" onSubmit=${submit} busy=${busy || !name.trim() || !root || (typeof platform === "object" && !answered(platform))} error=${error} submitLabel="Make the DAT">
     <p class="muted">Each file (or ZIP) the last scan found becomes a game in a Logiqx DAT, saved in the library's <code>_library/made-dats</code> folder. ZIPs are read in full so every ROM has its SHA1.</p>
     <label class="field-block"><span class="field-label">Folder with games</span>
       <select id="make-dat-root" class="compact" value=${root} onChange=${(e) => setRoot(e.target.value)}>
@@ -156,5 +179,5 @@ export function Dialogs() {
   if (dialog.type === "make-dat") return html`<${MakeDatDialog} ...${dialog} />`;
   if (dialog.type === "organise") return html`<${OrganiseDialog} key=${dialog.plan?.id || "new"} ...${dialog} />`;
   if (dialog.type === "convert") return html`<${ConvertDialog} ...${dialog} />`;
-  return null;
+  return SystemDialogs({ dialog }) || CollectionDialogs({ dialog });
 }

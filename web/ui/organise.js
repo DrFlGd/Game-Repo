@@ -25,7 +25,7 @@ export const FORMATS = [
   ["loose", "Loose files"],
 ];
 
-const OPS = { rename: "Rename", move: "Move", copy: "Copy", link: "Hardlink", zip: "Write ZIP", extract: "Unpack", aside: "Set aside", convert: "Convert", sheet: "Write cue sheet", cue: "Rewrite cue sheet" };
+const OPS = { text: "Write", rename: "Rename", move: "Move", copy: "Copy", link: "Hardlink", zip: "Write ZIP", extract: "Unpack", aside: "Set aside", convert: "Convert", sheet: "Write cue sheet", cue: "Rewrite cue sheet" };
 
 /** The formats a game can be converted to, and what each is for. */
 export const CONVERT_FORMATS = {
@@ -36,7 +36,7 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting" })[kind] || "Organising";
+const verb = (kind) => ({ aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting" })[kind] || "Organising";
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
 export const organiseDialog = (opts) => ui.set({ dialog: { type: "organise", ...opts } });
@@ -100,7 +100,7 @@ export async function offerInterrupted() {
 }
 
 /** Run a planned change, then say what it did, with Undo. */
-async function runPlan(plan) {
+export async function runPlan(plan) {
   try {
     const { job } = await api("organise_run", { id: plan.id });
     const done = await followJob(job, verb(plan.kind));
@@ -119,7 +119,7 @@ async function runPlan(plan) {
 /** The totals of a plan: what each kind of step does, and what's left alone. */
 function Totals({ plan }) {
   return html`<div class="organise-totals" id="organise-totals">
-    <p><b>${plural(plan.games, "game", "games")}</b> to change${plan.in_place ? html`, <span class="muted">${plan.in_place} already in place</span>` : null}.</p>
+    <p><b>${plural(plan.games, "game", "games")}</b> to ${plan.kind === "export" ? "export" : "change"}${plan.in_place ? html`, <span class="muted">${plan.in_place} already in place</span>` : null}.</p>
     ${plan.by_op.length ? html`<ul class="ls-list">${plan.by_op.map((o) => html`<li key=${o.op} data-op=${o.op}><span>${OPS[o.op] || o.op}: ${plural(o.count, "file", "files")}</span><span class="muted">${size(o.bytes)}</span></li>`)}</ul>` : null}
     ${plan.set_aside ? html`<p class="muted">${plural(plan.set_aside, "file is", "files are")} set aside in <code>.gamerepo-set-aside</code> at the top of ${plan.set_aside === 1 ? "its" : "their"} folder, until you empty it (Settings › History).</p>` : null}
     ${plan.out ? html`<p class="muted">Into <span class="op-to">${plan.out}</span>${plan.new_root ? ", which becomes a folder with games" : ""}.</p>` : null}
@@ -128,8 +128,8 @@ function Totals({ plan }) {
 }
 
 /** The preview: the totals, then each list a page at a time. */
-function Preview({ plan }) {
-  const tabs = [["all", "Steps", plan.ops], ["conflicts", "In the way", plan.conflicts], ["duplicates", "Duplicates", plan.duplicates], ["left", "Left alone", plan.left]].filter(([k, , n]) => k === "all" || n);
+export function Preview({ plan }) {
+  const tabs = [["all", "Steps", plan.ops], ["present", "There already", plan.present], ["conflicts", "In the way", plan.conflicts], ["duplicates", "Duplicates", plan.duplicates], ["left", "Left alone", plan.left]].filter(([k, , n]) => k === "all" || n);
   const [what, setWhat] = useState("all");
   const [list, setList] = useState({ total: 0, items: [] });
   useEffect(() => {
@@ -150,6 +150,7 @@ function Preview({ plan }) {
     }
     if (what === "conflicts") return html`<li key=${i}><span class="op-paths"><span>${it.game}</span><span class="muted">${it.to} is another file: it's left as it is, and this game isn't changed.</span></span></li>`;
     if (what === "duplicates") return html`<li key=${i}><span class="op-paths"><span>${it.path}</span><span class="muted">another copy of ${it.rom}</span></span></li>`;
+    if (what === "present") return html`<li key=${i}><span class="op-paths"><span>${it.game}</span><span class="muted op-to">${it.to}</span></span></li>`;
     return html`<li key=${i}><span class="op-paths"><span>${it.path}</span><span class="muted">${it.why}</span></span></li>`;
   };
   return html`<${Totals} plan=${plan} />

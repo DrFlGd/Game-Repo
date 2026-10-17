@@ -91,6 +91,17 @@ Where Redump has renamed a DAT, both names are listed; libretro's copies use the
 `.cue`, `.bin`, `.iso` and `.chd` belong to several disc platforms, so a disc set is
 found by its DAT match or its folder name.
 
+## Systems added by hand (Phase 3, D22)
+
+A system the table doesn't have is added in *Settings › Systems* (or as *A new system…*
+when a DAT's system is asked for): its name, its id (the folder exports use, ES-DE's
+system name when it has one), its DAT names, folder names and extensions, and what its
+games are on (cartridges, CDs, GameCube/Wii discs, PSP discs, or audit only), which
+sets the formats Convert… offers. They're kept in the library's `library.json` under
+`systems` and join this table when the library opens, so DATs, folders and files find
+them as they find the built-in ones. A DAT name is kept as its base name (no version or
+`(Parent-Clone)`), so every version of the DAT is found.
+
 ## Later
 
 - Arcade (Phase 7): `mame`, `fbneo`, `neogeo`.

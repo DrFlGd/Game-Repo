@@ -1451,3 +1451,37 @@ svg g[data-sk] { display: none; }
 .cmd-buttons { display: flex; gap: 8px; flex: none; align-items: center; }
 #organise-dialog .pick-row input { flex: 1 1 260px; width: auto; min-width: 0; }
 #organise-dialog .dialog-head h2 { overflow-wrap: anywhere; font-size: 17px; }
+
+/* Collections and systems (Phase 3): the rules beside the result, the exports */
+.collections-page { display: grid; gap: 12px; align-content: start; width: 100%; }
+.collection-body { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 0 28px; align-items: start; }
+.collection-body > #collection-exports { grid-column: 1 / -1; }
+.rules { border: 0; margin: 0; padding: 0; display: grid; gap: 10px; min-width: 0; }
+.rules input[type="text"] { width: 100%; }
+.rule-pair { display: grid; gap: 6px; }
+.tick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 4px 12px; max-height: 220px; overflow: auto; }
+.tick-grid .check-row { font-weight: 400; font-size: 13px; overflow-wrap: anywhere; }
+.collection-result { min-width: 0; }
+.props { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 16px; margin: 0 0 12px; }
+.props > div { min-width: 0; }
+.props dt { font-size: 12px; color: var(--graphite); }
+.props dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.props dd .muted { font-weight: 400; }
+.size-limit { display: grid; gap: 4px; margin-top: 6px; }
+.size-limit p { margin: 0; font-size: 13.5px; }
+.size-limit .audit-bar { height: 10px; }
+.size-limit[data-over="true"] .audit-bar > span { background: var(--danger); }
+.size-limit[data-over="true"] b { color: var(--danger); }
+#collection-limit-gb { width: 9em; }
+.system-sizes li { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(60px, 160px) 6em; gap: 10px; align-items: center; font-size: 13px; }
+.system-sizes .linkish { text-align: left; overflow-wrap: anywhere; }
+.sys-size, .game-size { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; font-size: 12.5px; }
+.game-size { flex: none; }
+.export-check { display: grid; gap: 2px; font-size: 12.5px; }
+.export-check .warn-note { overflow-wrap: anywhere; }
+.new-system { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 100%; }
+.new-system input { flex: 1 1 200px; min-width: 0; }
+.new-system input.system-id { flex: 0 1 140px; }
+@media (max-width: 900px) {
+  .collection-body { grid-template-columns: minmax(0, 1fr); }
+}

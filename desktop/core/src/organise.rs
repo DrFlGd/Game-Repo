@@ -99,6 +99,12 @@ pub struct Plan {
     /// A folder with games added for the output (mode 3), when it isn't in one
     #[serde(default)]
     pub new_root: Option<String>,
+    /// Targets there already with the right contents: `{ game, to }` (an export keeps them)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub present: Vec<Value>,
+    /// For an export (export.rs): which, and where to
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export: Option<Value>,
 }
 
 impl Plan {
@@ -123,7 +129,7 @@ impl Plan {
 }
 
 /// What the Organise dialog chose.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Options {
     pub dat_id: i64,
     /// copy | rename | move
@@ -137,6 +143,12 @@ pub struct Options {
     pub only_misnamed: bool,
     /// Only these games (by name), not the whole platform
     pub games: Option<Vec<String>>,
+    /// Laid out for ES-DE (an export, Phase 3): a game of one file is the file; a game of
+    /// several is a folder named as its sheet (or first file), which ES-DE shows as the game
+    pub esde: bool,
+    /// Files placed before (an export's), by path key: their size and modified time then.
+    /// One still the same is there already, without reading it again.
+    pub known: HashMap<String, (u64, i64)>,
 }
 
 // ------------------------------------------------------------ names
@@ -600,7 +612,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         bail!("There's no format called {}.", o.format);
     }
     let roots = roots::list(lib);
-    let platform_folder = platforms::by_id(&d.platform).map(|p| p.dat_names[0]).unwrap_or(&d.platform).to_string();
+    let platform_folder = platforms::by_id(&d.platform).and_then(|p| p.dat_names.first().copied()).unwrap_or(&d.platform).to_string();
     let out: Option<PathBuf> = match o.mode.as_str() {
         "copy" => Some(o.out.clone().ok_or_else(|| anyhow!("Choose the folder the sorted set goes to."))?),
         "move" => Some(o.out.clone().unwrap_or_else(|| lib.root().join(safe_name(&platform_folder)))),
@@ -647,6 +659,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             dat: json!({ "id": d.id, "name": d.name, "version": d.version }), platform: d.platform.clone(),
             mode: mode.clone(), format: format.clone(), out: out.as_ref().map(|o| o.display().to_string()),
             ops: vec![], games: 0, in_place: 0, conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root,
+            present: vec![], export: None,
         },
         taken: HashSet::new(),
         roots: &roots,
@@ -698,9 +711,17 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         let src_dir = |c: &Cand| Path::new(&c.src.path).parent().map(Path::to_path_buf).unwrap_or_default();
         let first = chosen[0].1;
         let multi = g.roms.len() > 1;
+        // for ES-DE, a game of several files is a folder named as the file it starts from
+        let per_game = naming.folder && !o.esde;
+        let folder_name = if o.esde {
+            let start = g.roms.iter().find(|r| cue::is_sheet(&r.name)).or(g.roms.first()).map(|r| r.name.rsplit(['/', '\\']).next().unwrap_or(&r.name).to_string());
+            safe_name(&start.unwrap_or_else(|| base.clone()))
+        } else {
+            base.clone()
+        };
         let dest = |folder: bool| -> PathBuf {
             match &out {
-                Some(o) if folder => o.join(&base),
+                Some(o) if folder => o.join(&folder_name),
                 Some(o) => o.clone(),
                 None => src_dir(first),
             }
@@ -713,7 +734,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                 let (kind, _, _) = c.archive.clone().unwrap();
                 // (a disc image's tracks need no names)
                 let names_right = c.in_image() || chosen.iter().all(|(r, c)| c.src.member.as_deref() == Some(r.name.as_str()));
-                let dir = dest(naming.folder);
+                let dir = dest(per_game);
                 if names_right {
                     let to = p.claim(&dir, &format!("{base}.{kind}"));
                     let src = whole_archive(&c.src);
@@ -731,7 +752,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                 }
             }
             "zip" => {
-                let dir = dest(naming.folder);
+                let dir = dest(per_game);
                 let to_name = format!("{base}.zip");
                 let already = whole.is_some()
                     && first.archive.as_ref().is_some_and(|a| a.0 == "zip")
@@ -755,7 +776,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                 }
             }
             _ => {
-                let folder = naming.folder || multi;
+                let folder = per_game || multi;
                 // a cue sheet that isn't the DAT's own names the tracks as they were: it's rewritten
                 let mut renames: Vec<String> = vec![];
                 let mut sheets: Vec<usize> = vec![];
@@ -800,11 +821,14 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         // contents (and not the source itself) it's a conflict, and the game is left
         let ops: Vec<Op> = p.plan.ops.drain(before..).collect();
         let mut kept = vec![];
+        let mut there = vec![];
         for op in ops {
             let to = Path::new(&op.to);
             if !to.exists() || op.from.iter().any(|s| s.member.is_none() && same_file(Path::new(&s.path), to)) {
                 kept.push(op);
-            } else if !already_there(conn, &roots, &op, cancel_never()) {
+            } else if placed_before(&o.known, to) || already_there(conn, &roots, &op, cancel_never()) {
+                there.push(json!({ "game": op.game, "to": op.to }));
+            } else {
                 conflict = Some(op.to.clone());
                 break;
             }
@@ -813,6 +837,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             p.plan.conflicts.push(json!({ "game": g.fields.name, "to": to }));
             continue;
         }
+        p.plan.present.extend(there);
         for op in &kept {
             if matches!(op.op.as_str(), "zip" | "extract") {
                 for s in &op.from {
@@ -851,9 +876,15 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             p.plan.left.push(json!({ "path": src.path, "why": "It holds other files too, so it stays where it is." }));
         }
     }
-    // space on each drive written to
+    p.plan.space = space_needed(&p.plan.ops);
+    let _ = p.roots;
+    Ok(p.plan)
+}
+
+/// The space a change's steps take on each drive they write to, and what's free there.
+pub(crate) fn space_needed(ops: &[Op]) -> Vec<Value> {
     let mut need: BTreeMap<String, (u64, PathBuf)> = BTreeMap::new();
-    for op in &p.plan.ops {
+    for op in ops {
         let to = Path::new(&op.to);
         let from = op.from.first().map(|s| PathBuf::from(&s.path)).unwrap_or_default();
         let bytes = match op.op.as_str() {
@@ -866,12 +897,12 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             e.0 += bytes;
         }
     }
-    for (drive, (bytes, at)) in need {
-        let free = fs4::available_space(existing(&at)).unwrap_or(u64::MAX);
-        p.plan.space.push(json!({ "drive": drive, "needed": bytes, "free": free, "short": bytes > free }));
-    }
-    let _ = p.roots;
-    Ok(p.plan)
+    need.into_iter()
+        .map(|(drive, (bytes, at))| {
+            let free = fs4::available_space(existing(&at)).unwrap_or(u64::MAX);
+            json!({ "drive": drive, "needed": bytes, "free": free, "short": bytes > free })
+        })
+        .collect()
 }
 
 fn cancel_never() -> &'static AtomicBool {
@@ -923,6 +954,18 @@ fn already_there(conn: &Connection, roots: &[Root], op: &Op, cancel: &AtomicBool
     check_file(to, src, cancel).is_ok()
 }
 
+/// Whether a file an export placed is still as it was then (its size and modified time).
+fn placed_before(known: &HashMap<String, (u64, i64)>, to: &Path) -> bool {
+    known.get(&key(to)).is_some_and(|&(size, mtime)| file_stamp(to) == Some((size, mtime)))
+}
+
+/// A file's size and modified time (ms), as an export remembers them.
+pub(crate) fn file_stamp(p: &Path) -> Option<(u64, i64)> {
+    let m = std::fs::metadata(p).ok()?;
+    let t = m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64;
+    Some((m.len(), t))
+}
+
 fn zip_op(game: &str, to: &Path, chosen: &[(&RomRow, &Cand)]) -> Op {
     Op {
         op: "zip".into(), game: game.into(), to: to.display().to_string(),
@@ -944,7 +987,7 @@ pub fn plan_duplicates(ix: &Index, lib: &Library, dat_id: i64) -> Result<Plan> {
         label: format!("Set aside {} duplicates", platforms::name_of(&d.platform)),
         dat: json!({ "id": d.id, "name": d.name, "version": d.version }), platform: d.platform.clone(),
         mode: "aside".into(), format: "keep".into(), out: None, ops: vec![], games: 0, in_place: 0,
-        conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None,
+        conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, present: vec![], export: None,
     };
     let mut kept: HashSet<(i64, Option<String>)> = HashSet::new();
     let mut extra: Vec<&Cand> = vec![];
@@ -1035,6 +1078,7 @@ pub fn preview(plan: &Plan, what: &str, offset: usize, limit: usize) -> Value {
         "conflicts" => plan.conflicts.clone(),
         "duplicates" => plan.duplicates.clone(),
         "left" => plan.left.clone(),
+        "present" => plan.present.clone(),
         op => plan
             .ops
             .iter()
@@ -1145,6 +1189,13 @@ fn aside_dirs(lib: &Library, id: &str) -> Vec<PathBuf> {
     let in_lib = lib.root().join(APP_DIR).join("set-aside").join(id);
     if in_lib.is_dir() {
         v.push(in_lib);
+    }
+    // an export's: at the top of its folders
+    if let Ok(plan) = load(lib, id) {
+        let mut tops: Vec<PathBuf> = plan.ops.iter().flat_map(|o| o.from.iter().chain(o.aside.iter())).filter_map(|s| s.root.strip_prefix("dir:")).map(|d| Path::new(d).join(SET_ASIDE).join(id)).collect();
+        tops.sort();
+        tops.dedup();
+        v.extend(tops.into_iter().filter(|p| p.is_dir()));
     }
     v
 }
@@ -1282,9 +1333,11 @@ fn stage(op: &Op, at: &Path, cancel: &AtomicBool) -> Result<HashMap<(String, Str
 /// Move `path` into the change's set-aside folder; returns where it went.
 fn set_aside(lib: &Library, roots: &[Root], id: &str, src: &Src) -> Result<String> {
     let from = Path::new(&src.path);
-    let to = match roots.iter().find(|r| r.id == src.root) {
-        Some(r) => src.rel.split('/').fold(r.dir.join(SET_ASIDE).join(id), |p, part| p.join(part)),
-        None => lib.root().join(APP_DIR).join("set-aside").join(id).join(from.file_name().unwrap_or_default()),
+    let to = match (roots.iter().find(|r| r.id == src.root), src.root.strip_prefix("dir:")) {
+        (Some(r), _) => src.rel.split('/').fold(r.dir.join(SET_ASIDE).join(id), |p, part| p.join(part)),
+        // a file in an export's folder: set aside at the top of it
+        (None, Some(dir)) => src.rel.split('/').fold(Path::new(dir).join(SET_ASIDE).join(id), |p, part| p.join(part)),
+        (None, None) => lib.root().join(APP_DIR).join("set-aside").join(id).join(from.file_name().unwrap_or_default()),
     };
     if let Some(dir) = to.parent() {
         std::fs::create_dir_all(dir)?;
@@ -1464,6 +1517,20 @@ fn perform(op: &Op, cancel: &AtomicBool) -> Result<(Option<Written>, bool)> {
             make_parent(to)?;
             Ok((Some(crate::convert::perform(op, cancel)?), true))
         }
+        "text" => {
+            // a file the change writes whole (an export's gamelist or custom collection)
+            make_parent(to)?;
+            let text = op.names.first().map(String::as_str).unwrap_or("");
+            let tmp = to.with_file_name(format!("{}.gamerepo-tmp", to.file_name().unwrap_or_default().to_string_lossy()));
+            std::fs::write(&tmp, text.as_bytes())?;
+            if to.exists() {
+                let _ = std::fs::remove_file(&tmp);
+                bail!("{} is there already", to.display());
+            }
+            std::fs::rename(&tmp, to)?;
+            let h = hash::hash_reader(&mut text.as_bytes(), text.len() as u64, &to.to_string_lossy(), cancel)?;
+            Ok((Some(Written { members: vec![], file: Some(h), kind: "file" }), true))
+        }
         "aside" => Ok((None, false)),
         other => bail!("unknown step {other}"),
     }
@@ -1629,7 +1696,8 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
         // a cue sheet rewritten under its own name is set aside first, and read from there
         let mut early = vec![];
         let mut step = op.clone();
-        if op.op == "cue" && key(Path::new(&op.from[0].path)) == key(Path::new(&op.to)) && Path::new(&op.to).exists() {
+        let replaces = (op.op == "cue" || op.op == "text") && op.from.first().is_some_and(|f| key(Path::new(&f.path)) == key(Path::new(&op.to)));
+        if replaces && Path::new(&op.to).exists() {
             match set_aside(lib, &roots, &id, &op.from[0]) {
                 Ok(held) => {
                     early.push(json!([op.from[0].path, held]));
@@ -1684,6 +1752,9 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
     if !stopped {
         log(lib, &id, &json!({ "state": "done", "failed": failed.len() }))?;
         prune(lib);
+    }
+    if plan.export.is_some() {
+        crate::export::record(lib, plan, false)?;
     }
     audit::match_files(conn)?;
     audit::changed(conn)?;
@@ -1807,6 +1878,9 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
     if !cancel.load(Ordering::Relaxed) {
         log(lib, id, &json!({ "state": "undone", "problems": problems.len() }))?;
     }
+    if plan.export.is_some() {
+        crate::export::record(lib, &plan, true)?;
+    }
     audit::match_files(conn)?;
     audit::changed(conn)?;
     Ok(json!({ "id": id, "label": plan.label, "undone": undone, "problems": problems }))
@@ -1871,7 +1945,7 @@ mod tests {
     }
 
     fn opts(dat: i64, mode: &str, format: &str) -> Options {
-        Options { dat_id: dat, mode: mode.into(), out: None, format: format.into(), partial: false, always_copy: false, only_misnamed: false, games: None }
+        Options { dat_id: dat, mode: mode.into(), out: None, format: format.into(), partial: false, always_copy: false, only_misnamed: false, games: None, ..Default::default() }
     }
 
     fn go(f: &Fixture, plan: &Plan) -> Value {
@@ -2146,7 +2220,7 @@ mod tests {
         let r = crate::dat::import(&ix, &lib, &dir.join("big.dat"), &serde_json::Map::new()).unwrap();
         let crate::dat::Imported::Loaded(v) = &r[0] else { panic!() };
         let dat_id = v["id"].as_i64().unwrap();
-        let o = Options { dat_id, mode: "rename".into(), out: None, format: "keep".into(), partial: false, always_copy: false, only_misnamed: false, games: None };
+        let o = Options { dat_id, mode: "rename".into(), out: None, format: "keep".into(), partial: false, always_copy: false, only_misnamed: false, games: None, ..Default::default() };
         let t = std::time::Instant::now();
         let mut plan = plan(&ix, &lib, &o).unwrap();
         let planned = t.elapsed();

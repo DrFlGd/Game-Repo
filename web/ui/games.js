@@ -15,8 +15,9 @@ export async function platforms() {
 export async function refreshGames() {
   if (!ui.get().library) { ui.set({ home: null, roots: [], dats: [] }); return; }
   try {
-    const [home, dats] = await Promise.all([api("home"), api("dats"), platforms()]);
-    ui.set({ home, roots: home.roots, dats });
+    // the systems too: a library can have systems of its own (Settings › Systems)
+    const [home, dats, list] = await Promise.all([api("home"), api("dats"), api("platforms")]);
+    ui.set({ home, roots: home.roots, dats, platforms: list });
     loadIndex();
   } catch (e) {
     ui.set({ home: { error: e.message || String(e) } });

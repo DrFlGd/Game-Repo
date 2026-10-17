@@ -7,14 +7,6 @@ import { Icon } from "./icons.js";
 import { routeHash } from "./context.js";
 
 export const COMING = {
-  collections: {
-    title: "Collections", icon: "collection", phase: 3,
-    lead: "Build collections from rules and export them for ES-DE or as a plain folder tree.",
-    points: [
-      "Pick games by platform, region, language, genre or a DAT of your own, with one game per title (1G1R) when you want it.",
-      "Export to ES-DE with its system folders, gamelist.xml, media and custom collections, then keep the export in step as the library changes.",
-    ],
-  },
   import: {
     title: "PC games", icon: "monitor", phase: 4,
     lead: "Bring zipped PC games and installers into one layout.",

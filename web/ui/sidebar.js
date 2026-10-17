@@ -1,4 +1,4 @@
-// The menu on the left: Home, Audit, the pages each phase still brings, and Settings. In a
+// The menu on the left: Home, Audit, Collections, the pages each phase still brings, and Settings. In a
 // narrow window it's a drawer; on a wide one it folds to its icons.
 import { html } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
@@ -28,6 +28,7 @@ export function Sidebar() {
       <ul class="nav-list">
         <${NavLink} route="home" label="Home" icon="home" current=${s.route} />
         <${NavLink} route="audit" label="Audit" icon="audit" current=${s.route} />
+        <${NavLink} route="collections" label="Collections" icon="collection" current=${s.route} />
       </ul>
       <p class="nav-head">Coming</p>
       <ul class="nav-list" id="coming-pages">
