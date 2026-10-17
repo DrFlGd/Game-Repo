@@ -22,6 +22,11 @@ const FORMAT: &str = "1";
 /// Between the genres in a row's `genres` (a genre may have a comma in it).
 const SEP: &str = "\u{1f}";
 
+/// A system's name ("PC" for the PC games, which aren't one of platforms.rs's).
+fn system_name(id: &str) -> String {
+    if id == "pc" { "PC".into() } else { platforms::name_of(id) }
+}
+
 /// The title a game sorts by: lower-case, "The", "A" and "An" at its start put last.
 pub fn sort_key(title: &str) -> String {
     let t = title.trim().to_lowercase();
@@ -570,7 +575,7 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
             let group: Option<Sql> = r.get(21)?;
             let genres: String = r.get(22)?;
             Ok((r.get::<_, i64>(0)?, json!({
-                "key": r.get::<_, String>(1)?, "kind": r.get::<_, String>(2)?, "platform_name": platforms::name_of(&platform), "platform": platform,
+                "key": r.get::<_, String>(1)?, "kind": r.get::<_, String>(2)?, "platform_name": system_name(&platform), "platform": platform,
                 "dat_game": r.get::<_, Option<i64>>(4)?, "name": r.get::<_, String>(5)?, "title": r.get::<_, String>(6)?, "year": r.get::<_, Option<i64>>(7)?,
                 "developer": r.get::<_, Option<String>>(8)?, "publisher": r.get::<_, Option<String>>(9)?, "players": r.get::<_, Option<i64>>(10)?,
                 "rating": r.get::<_, Option<f64>>(11)?, "regions": r.get::<_, String>(12)?, "have": r.get::<_, i64>(13)? == 1,
@@ -584,10 +589,23 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
     let mut items: Vec<Value> = ids.iter().filter_map(|id| by.remove(id)).collect();
     if q.group == "system" {
         for it in &mut items {
-            it["group_name"] = json!(platforms::name_of(it["platform"].as_str().unwrap_or("")));
+            it["group_name"] = json!(system_name(it["platform"].as_str().unwrap_or("")));
         }
     }
     let mut out = json!({ "total": total, "offset": q.offset.max(0), "items": items });
+    if group != "NULL" && q.offset <= 0 {
+        // the groups in the list's order, with their counts, so the page can lay them out
+        let mut st = conn.prepare(&format!("SELECT {group} AS g, COUNT(*) FROM library l WHERE {w} GROUP BY g ORDER BY g IS NULL, g"))?;
+        let groups: Vec<Value> = st
+            .query_map(params_from_iter(p.iter()), |r| {
+                let v: Sql = r.get(0)?;
+                let value = match v { Sql::Text(t) => json!(t), Sql::Integer(n) => json!(n), _ => Value::Null };
+                let name = if q.group == "system" { json!(system_name(value.as_str().unwrap_or(""))) } else { Value::Null };
+                Ok(json!({ "value": value, "name": name, "count": r.get::<_, i64>(1)? }))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        out["groups"] = json!(groups);
+    }
     if q.facets {
         out["facets"] = facets(conn, q, &keys)?;
     }
@@ -705,12 +723,14 @@ fn facets(conn: &Connection, q: &Query, keys: &Option<Vec<String>>) -> Result<Va
             }
         }
     }
+    // each filter's 500 most-used values, which its Find box searches
+    const TOP: usize = 500;
     let top = |field: &str| -> Vec<Value> {
         let mut v: Vec<(&String, &i64)> = c.values.get(field).map(|m| m.iter().collect()).unwrap_or_default();
         v.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
         v.into_iter()
-            .take(50)
-            .map(|(k, n)| if field == "platform" { json!({ "value": k, "count": n, "name": platforms::name_of(k) }) } else { json!({ "value": k, "count": n }) })
+            .take(TOP)
+            .map(|(k, n)| if field == "platform" { json!({ "value": k, "count": n, "name": system_name(k) }) } else { json!({ "value": k, "count": n }) })
             .collect()
     };
     let mut decade: Vec<(&i64, &i64)> = c.decade.iter().collect();
@@ -726,15 +746,41 @@ fn facets(conn: &Connection, q: &Query, keys: &Option<Vec<String>>) -> Result<Va
     }))
 }
 
-/// How many games the library has, and what's in it (the page's first look).
-pub fn overview(ix: &Index) -> Result<Value> {
+/// The keys of every game a query finds (for "everything selected"), with what each
+/// action needs: its DAT game and system.
+pub fn keys(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
     let conn = ix.conn();
+    let keys = match q.collection.as_str() {
+        "" => None,
+        id => Some(collection::work_out(ix, lib, &collection::load(lib, id)?)?.games().map(|g| g.key()).collect::<Vec<_>>()),
+    };
+    let (w, p) = where_of(q, &keys, "");
+    let v: Vec<Value> = conn
+        .prepare(&format!("SELECT l.key, l.dat_game, l.platform, l.kind, l.name FROM library l WHERE {w} ORDER BY l.sort, l.id"))?
+        .query_map(params_from_iter(p.iter()), |r| {
+            Ok(json!({ "key": r.get::<_, String>(0)?, "dat_game": r.get::<_, Option<i64>>(1)?, "platform": r.get::<_, String>(2)?, "kind": r.get::<_, String>(3)?, "name": r.get::<_, String>(4)? }))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(json!(v))
+}
+
+/// How many games the library has, and what's in it (the page's first look), with the
+/// DAT each system's games are of.
+pub fn overview(ix: &Index, lib: &Library) -> Result<Value> {
+    let conn = ix.conn();
+    let mut dats = Map::new();
+    let systems: Vec<String> = conn.prepare("SELECT DISTINCT platform FROM library WHERE kind = 'dat'")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    for p in systems {
+        if let Some(d) = audit::primary_dat(conn, lib, &p)? {
+            dats.insert(p, json!(d));
+        }
+    }
     let (have, all, systems): (i64, i64, i64) = conn.query_row(
         "SELECT COALESCE(SUM(have), 0), COUNT(*), COUNT(DISTINCT CASE WHEN have = 1 THEN platform END) FROM library",
         [],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
-    Ok(json!({ "have": have, "all": all, "systems": systems }))
+    Ok(json!({ "have": have, "all": all, "systems": systems, "dats": dats }))
 }
 
 // ------------------------------------------------------------ a game
@@ -749,13 +795,17 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
         .optional()?;
     let Some((kind, platform, dat_game, folder, title)) = row else { bail!("There's no game {key} in the library (it may have gone since the list was shown).") };
     let mut v = match (kind.as_str(), dat_game) {
-        ("dat", Some(id)) => meta::game(ix, lib, id)?,
+        ("dat", Some(id)) => {
+            let mut v = meta::game(ix, lib, id)?;
+            v["dat_id"] = json!(audit::primary_dat(conn, lib, &platform)?);
+            v
+        }
         ("pc", _) => {
             let id = key.strip_prefix("pc/").unwrap_or(key);
             let e = pcgames::get(lib, id)?;
             let mut v = e.to_json(lib);
             v["platform"] = json!("pc");
-            v["platform_name"] = json!(platforms::name_of("pc"));
+            v["platform_name"] = json!(system_name("pc"));
             v["docs"] = json!(match &folder { Some(f) => docs::of_folder(conn, f)?, None => vec![] });
             v["pc_id"] = json!(id);
             v
@@ -765,7 +815,7 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
             let dir = lib.resolve(&f)?;
             let j = meta::read_game(&dir);
             json!({
-                "platform": platform, "platform_name": platforms::name_of(&platform), "name": j["name"], "title": title, "year": j["year"],
+                "platform": platform, "platform_name": system_name(&platform), "name": j["name"], "title": title, "year": j["year"],
                 "details": j["details"], "ids": j["ids"], "scraped": j["scraped"], "edited": j["edited"], "folder": f, "have": true,
                 "media": crate::identify::media_of(lib, &dir.join("media")), "docs": docs::of_folder(conn, &f)?, "roms": j["files"],
             })
@@ -773,7 +823,12 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
     };
     v["key"] = json!(key);
     v["kind"] = json!(kind);
-    v["files"] = json!(match dat_game { Some(id) => files_of(conn, lib, id)?, None => vec![] });
+    match (kind.as_str(), dat_game) {
+        ("dat", Some(id)) => v["files"] = json!(files_of(conn, lib, id)?),
+        // a PC game's files are its folder's (pcgames.rs)
+        ("pc", _) => {}
+        _ => v["files"] = json!([]),
+    }
     v["collections"] = json!(collections_of(ix, lib, key)?);
     Ok(v)
 }
@@ -951,7 +1006,7 @@ mod tests {
         let v = ask(&ix, &lib, |_| {});
         assert_eq!(v["total"], 8);
         assert_eq!(v["items"][0]["key"], "gb/Alpha (Europe)");
-        assert_eq!(v["items"][0]["platform_name"], platforms::name_of("gb"));
+        assert_eq!(v["items"][0]["platform_name"], system_name("gb"));
         // every game in the DAT, and one per title in the collection rules' region order
         assert_eq!(ask(&ix, &lib, |q| q.all = true)["total"], 10);
         assert_eq!(titles(&ask(&ix, &lib, |q| q.one_per_title = true)), ["Alpha (Europe)", "Beta (Europe) (Rev 1)", "Delta (World)", "Epsilon (Japan) (En,Ja)", "Gamma (USA) (Beta)"]);

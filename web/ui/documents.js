@@ -5,7 +5,7 @@
 // when they go with none. Import documents… reads files or a folder, pairs each with
 // the game its name suggests, lets each pairing be changed, then brings them in as a
 // change with a preview and Undo. The viewer shows PDFs, pictures, text and audio.
-import { html, useState, useEffect } from "../lib/html.js";
+import { html, useState, useEffect, useRef } from "../lib/html.js";
 import { useStore, createStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
@@ -249,9 +249,11 @@ function DocsImportDialog({ paths, game = null, gameName = "", platform = null }
 }
 
 /** Import documents… (files or a folder), or Attach documents… to `game`. */
-export async function attachDocs({ game = null, gameName = "", platform = null, how = null } = {}) {
-  let paths = [];
-  if ((how || (game ? "files" : "folder")) === "files") {
+export async function attachDocs({ game = null, gameName = "", platform = null, how = null, paths: given = null } = {}) {
+  let paths = given || [];
+  if (given) {
+    // dropped on the page
+  } else if ((how || (game ? "files" : "folder")) === "files") {
     paths = (await ctx.platform.library.pickFiles(game ? `Documents for ${gameName}` : "The documents to bring in")) || [];
   } else {
     const p = await ctx.platform.library.pickFolder("A folder of documents (guides, manuals, maps, scans)");
@@ -259,6 +261,25 @@ export async function attachDocs({ game = null, gameName = "", platform = null, 
   }
   if (!paths.length) return;
   ui.set({ dialog: { type: "docs-import", paths, game, gameName, platform } });
+}
+
+let dropping = null;
+let listening = false;
+
+/** Files dropped on the window go to `fn(paths)` while the page using this is shown
+ *  (a game's page, the Metadata page's panel: they're attached to its game). */
+export function useDroppedFiles(fn) {
+  const ref = useRef(fn);
+  ref.current = fn;
+  useEffect(() => {
+    if (!listening && ctx.platform?.onDrop) {
+      listening = true;
+      ctx.platform.onDrop((paths) => { if (paths?.length && dropping && !ui.get().dialog) dropping(paths); }, (on) => document.documentElement.classList.toggle("drop-over", !!(on && dropping)));
+    }
+    const h = (paths) => ref.current?.(paths);
+    dropping = h;
+    return () => { if (dropping === h) dropping = null; };
+  }, []);
 }
 
 export function DocDialogs({ dialog }) {

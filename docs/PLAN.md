@@ -2148,6 +2148,62 @@ MobyGames and magazines (Phase 8).
 - **D45** A game's folder is renamed to its DAT's new name only as a change the user
   runs, with a preview and Undo, never by itself.
 
+### Phase 6 notes (built 2026-10-17)
+
+- **Core**: `browse.rs` (D42: the `library` table, `library_values` and the FTS5 table
+  `library_text`, a new migration that also gives `meta_games` the details and picture
+  from `game.json`; `refresh` rebuilds a system when its stamp changes, kept in
+  `index_meta` as `library:<system>`, PC games being a system of their own; `query`,
+  `facets`, `keys`, `overview`, `game` and `edit`; `matching` for collection rules;
+  thumbnails and `prune`, D43). `meta.rs` gains `edit_value`/`edit_dir` (D44, the edit
+  marked in `game.json` `edited` and `scraped[field] = "you"`, skipped by
+  `merge_details`) and `rename_folders_plan` (D45, an Organise change of kind
+  `folders`, run and undone like any other). `collection.rs` gains `Rules.details`
+  (search, genre, decade, developer, publisher, players, rating, has, look) and the
+  `include` value `none`, only the games added by hand. The commands are `browse`,
+  `browse_query`, `browse_keys`, `browse_game`, `browse_edit`, `meta_edit` and
+  `organise_rename_folders`; thumbnails are served at
+  `library://~thumb/<128|256|512>/<path>`. The command line has `library [filters]
+  [--facets]`, `games rename-folders [--dry-run]` and `game <id> --edit <field> <value>`
+  / `--unmark <field>`.
+- **The pages**: *Library* is in the menu after Home (`browse.js`); a game's page is
+  `#/game/<system>/<DAT name>` (`gamepage.js`). The query is kept in the address
+  (`#/library?genre=Action&sort=year`), a filter change being a new history entry and
+  typing in the search replacing it. Previous and Next on a game's page replace the
+  entry too, so Back goes to the list it came from.
+- **Not as designed**:
+  - Lists page by offset, not by key: each sort has a covering index (`year_sort`,
+    `rating_sort`, `size_sort`, `date_sort`, with unknowns last) and a page fetches its
+    ids first, which keeps a page at 120,000 under 15 ms, so keyset paging wasn't needed.
+  - The filters' counts are added up in Rust over the filtered games, one pass for the
+    filters not in use and one per filter in use (leaving it out), instead of a GROUP
+    BY per filter, which took about a second at 200,000 games. Each filter sends its
+    500 most-used values; its Find box searches those.
+  - Year is by decade only, not opening to years.
+  - Grouping by genre uses a game's first genre; games with no value for the grouping
+    go under *Unknown*.
+  - Thumbnails load with the browser's own lazy loading rather than an
+    IntersectionObserver queue; the core makes at most four at once either way.
+  - A game's page lists its files with their format and size but not the audit's word
+    on each, and its DAT facts are the DAT, the name, the regions and the ROM count:
+    languages, revision and clone-of aren't shown yet.
+  - *Add to a collection…* with a new collection makes one with `include: none`, so it
+    holds only the games chosen.
+- **Timing** (the ignored test `timing_the_library_of_200k_games`, run in release on
+  CI): a page in 7–15 ms at any depth and sort, the counts in about 190 ms, a search
+  matching every game in about 230 ms (limits 100 ms and 300 ms).
+- **Tests**: the core's (the list with 1G1R and refresh, edits kept over a scrape,
+  search, filters and counts, a collection by details, a folder renamed to its new DAT
+  name and undone, thumbnails made and pruned, the timing test); the page test opens
+  the Library with thumbnails, filters by genre and goes Back, searches, picks a game
+  and opens its page, edits the developer there, drops a file on the page to attach
+  it, steps to the next game and back, and saves the filters as a collection, checked
+  against `library --genre Action`.
+- **To check with a real library** (Jerred): open the Library on a large scraped set
+  and scroll the grid quickly; filter by genre and year; open a game, change a detail,
+  scrape it again and see the change kept; import a newer DAT that renames games and
+  run *Rename the folders…*.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -2282,7 +2338,7 @@ MobyGames and magazines (Phase 8).
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are proposed in "Phase 6 design". New ones get a number here as they come up (next: D46).
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). New ones get a number here as they come up (next: D46).
 
 ---
 
@@ -2305,4 +2361,4 @@ D42–D45 are proposed in "Phase 6 design". New ones get a number here as they c
 9. Phase 5 merged and released as v0.5.0 (2026-10-17). Phase 5b: design written
    ("Phase 5b design", D36–D41), with layouts the user can change (D36) and BIOS
    files (D40), and built ("Phase 5b notes"). Merged on Jerred's go-ahead.
-10. Phase 6: design written ("Phase 6 design", D42–D45 proposed); the build follows.
+10. Phase 6: design written ("Phase 6 design", D42–D45) and built ("Phase 6 notes").

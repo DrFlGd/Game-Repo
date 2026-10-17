@@ -19,6 +19,8 @@ import { Metadata } from "./metadata.js";
 import { Documents } from "./documents.js";
 import { Bios } from "./bios.js";
 import { Layouts } from "./layouts.js";
+import { Browse } from "./browse.js";
+import { GamePage } from "./gamepage.js";
 import { loadIndex } from "./library.js";
 import { ContextMenu, onWindowKey } from "./actions.js";
 
@@ -27,6 +29,8 @@ function Main() {
   const blocked = useStore(ui, (s) => s.firstRun && !s.library);
   if (route === "settings" && !blocked) return html`<${Settings} />`;
   if (route === "about") return html`<${About} />`;
+  if (route === "library" && !blocked) return html`<${Browse} />`;
+  if (route === "game" && !blocked) return html`<${GamePage} />`;
   if (route === "audit" && !blocked) return html`<${Audit} />`;
   if (route === "collections" && !blocked) return html`<${Collections} />`;
   if (route === "pc" && !blocked) return html`<${PcGames} />`;

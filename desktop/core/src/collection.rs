@@ -29,7 +29,7 @@ pub const FLAGS: &[&str] = &[
 pub struct Rules {
     /// The systems it covers; none: every system with a DAT
     pub platforms: Vec<String>,
-    /// have (the games you have) | all (every game in the DAT)
+    /// have (the games you have) | all (every game in the DAT) | none (only the games added by hand)
     pub include: String,
     /// One game per parent/clone group
     pub one_per_title: bool,
@@ -95,6 +95,8 @@ impl Default for Rules {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Collection {
+    /// Empty for a new one, which `save` gives an id
+    #[serde(default)]
     pub id: String,
     pub name: String,
     #[serde(default)]
@@ -150,8 +152,8 @@ pub fn save(lib: &Library, mut c: Collection) -> Result<Collection> {
     if c.name.is_empty() {
         bail!("Give the collection a name.");
     }
-    if !["have", "all"].contains(&c.rules.include.as_str()) {
-        bail!("A collection has the games you have or every game in the DAT.");
+    if !["have", "all", "none"].contains(&c.rules.include.as_str()) {
+        bail!("A collection has the games you have, every game in the DAT, or only the games added to it.");
     }
     if list(lib).iter().any(|o| o.id != c.id && o.name.eq_ignore_ascii_case(&c.name)) {
         bail!("There's a collection called {} already.", c.name);
@@ -418,7 +420,8 @@ fn work_out_fresh(conn: &Connection, c: &Collection, dats: &[(String, Option<i64
         };
         let with_details = if r.details.is_empty() { None } else { Some(crate::browse::matching(conn, platform, &r.details)?) };
         let passes = |g: &Row| -> bool {
-            (r.include == "all" || g.status == "have")
+            r.include != "none"
+                && (r.include == "all" || g.status == "have")
                 && with_details.as_ref().is_none_or(|d| d.contains(&g.id))
                 && !split(&g.flags).any(|f| exclude.contains(f))
                 && (langs.is_empty() || g.languages.is_empty() || split(&g.languages).any(|l| langs.contains(&l.to_ascii_lowercase())))
@@ -708,6 +711,11 @@ pub(crate) mod tests {
         assert_eq!(names(&w), ["Alpha (Europe)", "Beta (Europe) (Rev 1)", "Epsilon (Japan) (En,Ja)", "Gamma (USA) (Beta)"]);
         assert_eq!(w.systems[0].removed.len(), 1);
         assert!(w.games().find(|g| g.name.starts_with("Gamma")).unwrap().manual);
+        // only the games added by hand, saved from the page without an id
+        let c: Collection = serde_json::from_value(json!({ "name": "Picked", "rules": { "platforms": ["gb"], "include": "none" }, "added": ["gb/Delta (World)"] })).unwrap();
+        let c = save(&lib, c).unwrap();
+        assert!(!c.id.is_empty());
+        assert_eq!(names(&work_out(&ix, &lib, &c).unwrap()), ["Delta (World)"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

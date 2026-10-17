@@ -25,7 +25,10 @@ from stand-ins for Steam and GOG, unpacked, added to a stand-in Steam, and Add a
 documents imported from a folder with a pairing changed, searched and read, and an
 export carrying pictures and documents; (Phase 5b) BIOS files from a stand-in for
 libretro's list, audited and gathered, the layout editor with a change saved as a new
-layout, and an export to a card in it with the BIOS files;
+layout, and an export to a card in it with the BIOS files; (Phase 6) the Library
+with thumbnails, a filter with counts kept in the address, the search, selecting,
+the table sorted and grouped, a game's page with a detail edited and a file dropped
+on it, Next, and the filters saved as a collection;
 renaming the library, with Undo; opening a folder that already holds games
 leaves them as they were, and switching back from the recent list; the theme
 and skin follow the settings and are kept; a library from a newer app opens
@@ -243,7 +246,7 @@ async def main():
             active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
             lead = await pg.inner_text("#audit-empty")
             check("the menu's places open, with the pages still to come saying what they'll do",
-                  labels == ["Game Repo", "Home", "Audit", "BIOS files", "Collections", "Export layouts", "PC games", "Metadata", "Documents", "Settings", "About", "Theme: System"]
+                  labels == ["Game Repo", "Home", "Library", "Audit", "BIOS files", "Collections", "Export layouts", "PC games", "Metadata", "Documents", "Settings", "About", "Theme: System"]
                   and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
             await pg.screenshot(path=str(out / "01-coming.png"))
 
@@ -1068,6 +1071,113 @@ async def main():
             check("an export to a card in the new layout puts the games in its folders, with a gamelist, small pictures and the BIOS files",
                   all(f"roms/gameboy/{n}" in " ".join(on_card) for n in names) and "bios/gb_bios.bin" in on_card and gl.count("<game>") == len(names)
                   and any(c.startswith("roms/gameboy/images/") and c.endswith("-thumb.png") for c in on_card) and "Knulli (mine)" in listed, (said, on_card, gl[:300], listed))
+            # Phase 6. The Library: every game across the systems, by its pictures, filtered with counts
+            await pg.evaluate("() => window.__gamerepo.platform.store.prefs.set('gr-library-view', 'grid')")
+            await pg.click('.sidebar a[href="#/library"]')
+            await pg.wait_for_selector('#lib-games .lib-tile[data-key="gb/Alpha (USA)"]')
+            tiles = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.map(e => e.dataset.key)")
+            total = await pg.get_attribute("#lib-games", "data-total")
+            await pg.wait_for_function("() => { const i = document.querySelector('.lib-tile[data-key=\"gb/Alpha (USA)\"] img'); return i && i.complete && i.naturalWidth > 0; }", timeout=15000)
+            src = await pg.get_attribute('.lib-tile[data-key="gb/Alpha (USA)"] img', "src")
+            thumbs = [x for x in (home / "data/thumbs").rglob("*.jpg")] if (home / "data/thumbs").is_dir() else []
+            systems = await pg.eval_on_selector_all("#filter-platform [data-value]", "els => els.map(e => e.dataset.value)")
+            check("the Library shows every game you have across the systems (PC games too), with thumbnails made on this computer",
+                  "gb/Alpha (USA)" in tiles and "nes/Echo (USA)" in tiles and any(t.startswith("pc/") for t in tiles) and int(total) == len(tiles)
+                  and "~thumb/256/" in (src or "") and thumbs and not list(library.rglob("*.jpg")) and {"gb", "nes", "pc"} <= set(systems), (tiles, total, src, len(thumbs), systems))
+            await pg.screenshot(path=str(out / "50-library.png"))
+            action = await pg.inner_text('#filter-genre [data-value="Action"] .lib-count')
+            await pg.click('#filter-genre [data-value="Action"] input')
+            await pg.wait_for_selector('#lib-chips [data-chip="genre-Action"]')
+            await pg.wait_for_function("(n) => document.querySelectorAll('#lib-games .lib-tile').length === n", arg=int(action))
+            shown = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.map(e => e.dataset.key)")
+            address = await pg.evaluate("location.hash")
+            gb_count = await pg.inner_text('#filter-platform [data-value="gb"] .lib-count')
+            await pg.go_back()
+            await pg.wait_for_selector('#lib-chips [data-chip="genre-Action"]', state="detached")
+            await pg.wait_for_function("(n) => document.querySelectorAll('#lib-games .lib-tile').length === n", arg=len(tiles), timeout=10000)
+            back = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.length")
+            check("a filter's values have counts, its chip shows above the games, it's kept in the address and Back takes it off",
+                  int(action) >= 2 and "gb/Alpha (USA)" in shown and "gb/Beta (Europe)" in shown and "nes/Echo (USA)" not in shown and "genre=Action" in address
+                  and int(gb_count) == int(action) and back == len(tiles), (action, shown, address, gb_count, back))
+            await pg.fill("#lib-search", "stand-in")
+            await pg.wait_for_function("() => location.hash.includes('q=stand-in') && !document.querySelector('.lib-tile[data-key=\"nes/Echo (USA)\"]')")
+            found = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.map(e => e.dataset.key)")
+            await pg.fill("#lib-search", "")
+            await pg.wait_for_selector('.lib-tile[data-key="nes/Echo (USA)"]')
+            check("the search finds games by their developer, description or title", "gb/Alpha (USA)" in found and "nes/Echo (USA)" not in found, found)
+            await pg.click('.lib-tile[data-key="gb/Alpha (USA)"]')
+            await pg.wait_for_selector('#lib-panel[data-key="gb/Alpha (USA)"] #lib-panel-title')
+            panel = await pg.inner_text("#lib-panel")
+            await pg.click('.lib-tile[data-key="gb/Beta (Europe)"]', modifiers=["Control"])
+            await pg.wait_for_selector('#lib-panel[data-count="2"]')
+            bar = await pg.inner_text("#bar-count")
+            await pg.keyboard.press("Control+a")
+            await pg.wait_for_function("(n) => document.querySelector('#bar-count')?.textContent.startsWith(String(n))", arg=len(tiles))
+            await pg.keyboard.press("Escape")
+            await pg.wait_for_selector("#lib-head:not(.selecting)")
+            check("picking a game shows it in the panel; Ctrl adds to the selection, Ctrl+A takes every game shown and Esc clears it",
+                  "Alpha" in panel and "Stand-in Soft" in panel and bar.startswith("2"), (panel[:200], bar))
+            await pg.click("#lib-view [data-view=table]")
+            await pg.wait_for_selector('#lib-games .lib-row[data-key="gb/Alpha (USA)"]')
+            await pg.click('.lib-thead [data-sort="year"]')
+            await pg.wait_for_function("() => location.hash.includes('sort=year')")
+            await pg.wait_for_function("() => document.querySelector('#lib-games .lib-row .lib-col-year')?.textContent === '1990'")
+            await pg.click("#lib-group")
+            await pg.click('#context-menu [data-action="group-system"]')
+            await pg.wait_for_selector('#lib-games .lib-group[data-group="gb"]')
+            groups = await pg.eval_on_selector_all("#lib-games .lib-group", "els => els.map(e => e.dataset.group)")
+            await pg.screenshot(path=str(out / "51-library-table.png"))
+            check("the table sorts by a column, and the games can be grouped by system", "gb" in groups and "nes" in groups and "pc" in groups, groups)
+            await pg.click("#lib-view [data-view=grid]")
+            await pg.click("#lib-group")
+            await pg.click('#context-menu [data-action="group-none"]')
+            # a game's page: its details edited by hand (kept over scrapes), a file dropped on it attached
+            await pg.dblclick('.lib-tile[data-key="gb/Alpha (USA)"]')
+            await pg.wait_for_selector('#game-page[data-key="gb/Alpha (USA)"] #game-developer')
+            await pg.fill("#game-developer", "My Own Studio")
+            await pg.press("#game-developer", "Tab")
+            await pg.wait_for_selector('.game-detail[data-field="developer"][data-edited="yes"]')
+            alpha_json = json.loads((alpha / "game.json").read_text())
+            pos = await pg.inner_text(".game-pos")
+            gallery = await pg.eval_on_selector_all("#game-strip [data-kind], .game-strip [data-kind]", "els => els.map(e => e.dataset.kind)")
+            check("a game's page shows its pictures and details; a detail changed there is kept in game.json, marked as yours",
+                  alpha_json["details"]["developer"] == "My Own Studio" and "developer" in alpha_json.get("edited", []) and alpha_json["scraped"]["developer"] == "you"
+                  and "of" in pos and sorted(gallery) == ["cover", "screenshot"], (alpha_json.get("details"), alpha_json.get("edited"), pos, gallery))
+            await pg.screenshot(path=str(out / "52-game.png"), full_page=True)
+            dropped = home / "Guides" / "Alpha Map.txt"
+            dropped.write_text("The map of Alpha's second world.")
+            await pg.evaluate("(p) => window.__shimEmit('tauri://drag-drop', { paths: [p], position: { x: 400, y: 400 } })", str(dropped))
+            await pg.wait_for_selector("#docs-import-dialog #doc-items li")
+            await pg.click("#docs-import-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-totals")
+            await pg.click("#docs-import-dialog button[type=submit]")
+            said = await toast_text(pg, "Brought in 1 document")
+            await pg.wait_for_function("() => document.querySelector('#game-docs')?.textContent.includes('Alpha Map')")
+            check("a file dropped on a game's page is attached to it as a document", (alpha / "docs/Alpha Map.txt").is_file(), said)
+            await pg.click("#game-next")
+            await pg.wait_for_function("() => document.querySelector('#game-page')?.dataset.key && document.querySelector('#game-page').dataset.key !== 'gb/Alpha (USA)'")
+            next_key = await pg.get_attribute("#game-page", "data-key")
+            await pg.click("#game-back")
+            await pg.wait_for_selector("#lib-page")
+            await pg.click('.lib-tile[data-key="gb/Alpha (USA)"]')
+            await pg.wait_for_selector('#lib-panel[data-key="gb/Alpha (USA)"]')
+            panel = await pg.inner_text("#lib-panel")
+            check("Next goes to the next game in the list it was opened from, and the Library follows the edit", next_key and next_key != "gb/Alpha (USA)" and "My Own Studio" in panel, (next_key, panel[:200]))
+            # the filters saved as a collection, whose rules keep up with the details
+            await pg.click('#filter-genre [data-value="Action"] input')
+            await pg.wait_for_selector('#lib-chips [data-chip="genre-Action"]')
+            await pg.click("#lib-menu")
+            await pg.click('#context-menu [data-action="lib-save"]')
+            await pg.fill("#lib-save-name", "Action games")
+            await pg.click("#lib-save-dialog button[type=submit]")
+            await toast_text(pg, "Saved Action games")
+            saved = [json.loads(x.read_text()) for x in (library / "_library/collections").glob("*.json")]
+            mine = next((c for c in saved if c.get("name") == "Action games"), {})
+            cli = cli_json("library", "--home", str(home), "--genre", "Action", "--json")
+            check("Save as a collection… makes the filters a collection's rules (by its games' details); the command line filters the same",
+                  mine.get("rules", {}).get("details", {}).get("genre") == ["Action"] and cli.get("total") == int(action), (mine.get("rules"), cli.get("total")))
+            await pg.click('#lib-chips [data-chip="genre-Action"] button')
+
             await pg.click('.sidebar a[href="#/settings"]')
             await pg.wait_for_selector("#theme-select")
 
@@ -1103,7 +1213,7 @@ async def main():
             await pg.wait_for_selector("#about-versions")
             about = await pg.inner_text("#about-page")
             check("About shows the version, what's coming and how a library is laid out",
-                  "Game Repo" in about and "Phase 5" in about and "_library/" in about and "game.json" in about, about[:200])
+                  "Game Repo" in about and "Phase 7" in about and "_library/" in about and "game.json" in about, about[:200])
             await pg.screenshot(path=str(out / "04-about.png"), full_page=True)
 
             # 10. a library made by a newer app opens read-only

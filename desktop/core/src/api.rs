@@ -971,7 +971,7 @@ impl App {
                     .with_index(move |ix| {
                         meta::sync(ix, &lib)?;
                         let rebuilt = crate::browse::refresh(ix, &lib)?;
-                        let mut v = crate::browse::overview(ix)?;
+                        let mut v = crate::browse::overview(ix, &lib)?;
                         v["rebuilt"] = json!(rebuilt);
                         Ok(v)
                     })
@@ -981,6 +981,11 @@ impl App {
                 let lib = self.library()?;
                 let q: crate::browse::Query = serde_json::from_value(args["query"].clone()).map_err(|e| e.to_string())?;
                 j(self.with_index(move |ix| crate::browse::query(ix, &lib, &q)).await?)
+            }
+            "browse_keys" => {
+                let lib = self.library()?;
+                let q: crate::browse::Query = serde_json::from_value(args["query"].clone()).map_err(|e| e.to_string())?;
+                j(self.with_index(move |ix| crate::browse::keys(ix, &lib, &q)).await?)
             }
             "browse_game" => {
                 let lib = self.library()?;
