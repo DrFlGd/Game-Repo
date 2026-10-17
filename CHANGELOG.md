@@ -80,6 +80,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 - Scrape… for a collection (on the Collections page) and for the games shown or picked on the Library page.
 - **Command line**: `library [filters] [--facets]`, `games rename-folders [--dry-run]`, and `game <id> --edit <field> <value>` / `--unmark <field>`.
 - Plan: Phase 6's notes in `docs/PLAN.md` (D42–D45 as built).
+- A picture put in a game's `media/` folder just after its details changed is noticed on Windows too (the two times are added, not the later taken, since Windows can give both the same time).
 
 ## 0.5.1 (2026-10-17)
 
