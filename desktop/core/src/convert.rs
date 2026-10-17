@@ -72,14 +72,15 @@ pub fn formats(lib: &Library) -> Value {
 
 /// A file of the index as a source: a file in a folder with games, or a member of an archive or image there.
 fn src_of(conn: &Connection, roots: &[Root], file_id: i64) -> Result<Option<Src>> {
-    let row: Option<(String, String, Option<i64>, String, i64, Option<String>, Option<String>)> = conn
+    type Row = (String, String, Option<i64>, i64, Option<String>, Option<String>);
+    let row: Option<Row> = conn
         .query_row(
-            "SELECT f.root_id, f.rel_path, f.parent_id, f.name, f.size, b.crc32, b.sha1 FROM files f LEFT JOIN blobs b ON b.id = f.blob_id WHERE f.id = ?1",
+            "SELECT f.root_id, f.rel_path, f.parent_id, f.size, b.crc32, b.sha1 FROM files f LEFT JOIN blobs b ON b.id = f.blob_id WHERE f.id = ?1",
             [file_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
         )
         .optional()?;
-    let Some((root, rel, parent, _name, size, crc32, sha1)) = row else { return Ok(None) };
+    let Some((root, rel, parent, size, crc32, sha1)) = row else { return Ok(None) };
     let Some(crc32) = crc32 else { return Ok(None) };
     let (file_id, rel, member) = match parent {
         Some(pid) => {

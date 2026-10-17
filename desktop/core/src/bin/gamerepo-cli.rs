@@ -6,7 +6,7 @@
 //!   gamerepo-cli index-info --library <dir> --data <dir>
 //!   gamerepo-cli serve --ui <dir> --home <dir> [--library <dir>] [--port 8790]
 //!   gamerepo-cli roots add|list|remove …, scan, dat import|list, audit, make-dat
-//!   gamerepo-cli organise, duplicates, history, undo, finish, set-aside empty
+//!   gamerepo-cli organise, duplicates, convert, extract, history, undo, finish, set-aside empty, tools
 //!
 //! `serve` runs the app's commands behind a local web server, so the page can be
 //! tested in an ordinary browser (with tests/tauri_shim.js standing in for Tauri's
@@ -69,6 +69,18 @@ under <dir>/config and <dir>/data instead of the app's own folders.
                              --dry-run shows the plan without changing anything
   duplicates <platform> [--dat <id>] [--dry-run]
                              set aside the extra copies of each matched file
+  convert <platform> [--to chd|cso|zso|rvz|zip] [--out <dir>] [--game <name>]...
+        [--dat <id>] [--dry-run]
+                             convert the platform's games (or those named) to a format
+                             (its preferred one by default), into --out or in place
+                             (the originals are set aside); every result is checked
+  extract <platform> [--out <dir>] [--game <name>]... [--dat <id>] [--dry-run]
+                             extract games from their images or archives (CHD to
+                             cue/bin or ISO, CSO/ZSO/RVZ to ISO, ZIP/7z/RAR to files)
+  formats [<platform> <format>]
+                             the preferred format of each platform, or set one
+  tools [<tool> <path>|--clear <tool>]
+                             the external tools found (dolphin-tool), or set where one is
   history                    the changes made, newest first
   undo <change id>           put a change back (the newest that can be undone)
   finish <change id>         finish a change that was interrupted
@@ -135,7 +147,7 @@ async fn run() -> Result<()> {
         }
         "serve" => serve(a).await,
         "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" | "organise" | "duplicates" | "history" | "undo" | "finish"
-        | "set-aside" => library_command(&cmd, a).await,
+        | "set-aside" | "convert" | "extract" | "formats" | "tools" => library_command(&cmd, a).await,
         other => bail!("unknown command {other} (gamerepo-cli --help lists them)"),
     }
 }
@@ -400,8 +412,48 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             println!("{} games, {} ROMs written to {}", r["games"], r["roms"], r["path"].as_str().unwrap_or(""));
             Ok(())
         }
-        ("organise", _) | ("duplicates", _) => {
+        ("formats", _) => {
+            let v = if a.rest.len() >= 2 {
+                invoke(&app, "format_set", json!({ "platform": a.rest[0], "format": a.rest[1] })).await?
+            } else {
+                invoke(&app, "formats", json!({})).await?
+            };
+            if json_out {
+                return print(&v);
+            }
+            for p in v.as_array().into_iter().flatten() {
+                println!("{:<16} {:<5} (can be: {})", p["platform"].as_str().unwrap_or(""), p["preferred"].as_str().unwrap_or(""),
+                    p["formats"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join(", "));
+            }
+            Ok(())
+        }
+        ("tools", _) => {
+            let v = if let Some(id) = a.flag("--clear") {
+                invoke(&app, "tools_set", json!({ "id": id, "path": null })).await?
+            } else if a.rest.len() >= 2 {
+                let path = std::path::absolute(&a.rest[1]).map(|p| p.display().to_string()).unwrap_or(a.rest[1].clone());
+                invoke(&app, "tools_set", json!({ "id": a.rest[0], "path": path })).await?
+            } else {
+                invoke(&app, "tools", json!({})).await?
+            };
+            if json_out {
+                return print(&v);
+            }
+            for t in v["tools"].as_array().into_iter().flatten() {
+                println!("{:<14} {}", t["id"].as_str().unwrap_or(""), match t["path"].as_str() {
+                    Some(p) => format!("{p}{}", t["version"].as_str().map(|v| format!(" ({v})")).unwrap_or_default()),
+                    None => "not found".into(),
+                });
+            }
+            Ok(())
+        }
+        ("organise", _) | ("duplicates", _) | ("convert", _) | ("extract", _) => {
             let dat = a.flag("--dat").map(|d| d.parse::<i64>()).transpose()?;
+            let to = a.flag("--to");
+            let mut games = vec![];
+            while let Some(g) = a.flag("--game") {
+                games.push(g);
+            }
             let mode = a.flag("--mode");
             let out = a.flag("--out").map(|o| std::path::absolute(&o).map(|p| p.display().to_string()).unwrap_or(o));
             let format = a.flag("--format").unwrap_or_else(|| "keep".into());
@@ -415,6 +467,18 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             let dat_id = s["summary"]["dat"]["id"].clone();
             let plan = if cmd == "duplicates" {
                 invoke(&app, "organise_duplicates", json!({ "dat": dat_id })).await?
+            } else if cmd == "convert" || cmd == "extract" {
+                let to = match (cmd, to) {
+                    ("extract", _) => "extract".to_string(),
+                    (_, Some(t)) => t,
+                    _ => {
+                        let f = invoke(&app, "formats", json!({})).await?;
+                        f.as_array().into_iter().flatten().find(|p| p["platform"] == platform.as_str()).and_then(|p| p["preferred"].as_str().map(String::from))
+                            .with_context(|| format!("{platform} games aren't converted"))?
+                    }
+                };
+                let games = (!games.is_empty()).then_some(games);
+                invoke(&app, "convert_plan", json!({ "dat": dat_id, "to": to, "out": out, "games": games })).await?
             } else {
                 let mode = match (mode, misnamed) {
                     (Some(m), _) => m,

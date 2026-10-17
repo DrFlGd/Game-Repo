@@ -72,6 +72,7 @@ Phase 1 is released (v0.1.0); what's left of it is Jerred's check on a real No-I
 - **CHD, CSO, ZSO and RVZ** are audited as the games they hold: a CHD's tracks as the bins Redump lists, a CSO's or ZSO's ISO, and an RVZ's disc through dolphin-tool (until it's found, RVZ files wait to be checked).
 - **Convert…** a game, a selection or a whole platform to its preferred format (CHD for CD and DVD systems, RVZ for GameCube and Wii, CSO or ZSO for PSP, ZIP for cartridges), into a folder or in place, and **Extract** back to cue/bin or ISO. Every result is read back and compared with the files it came from before anything is replaced, and Undo puts it all back. CHDs are written by the app itself, the same data chdman writes, so no tool is needed for them.
 - **Get starter DATs** now also fetches libretro's copies of Redump's DATs for the disc systems. They list one track of each disc, so import Redump's own DATs for a full check.
+- **Command line**: `convert <platform> [--to <format>] [--out <folder>] [--game <name>]… [--dry-run]`, `extract <platform>`, `formats [<platform> <format>]` and `tools [<tool> <path> | --clear <tool>]`.
 
 ## 0.2.0 (2026-10-16)
 

@@ -101,6 +101,7 @@ fn arg<'a>(args: &'a Value, k: &str) -> Result<&'a str> {
 
 impl App {
     pub fn new(paths: AppPaths) -> Result<Arc<Self>> {
+        crate::tools::configure(&AppConfig::load(&paths.config_dir.join("config.json")).tools);
         Ok(Arc::new(Self {
             paths,
             library: RwLock::new(None),
@@ -387,7 +388,7 @@ impl App {
         if !cmd.starts_with("job") {
             self.ensure_watch();
         }
-        if cmd.starts_with("organise_") || cmd.starts_with("change_") || cmd.starts_with("naming") {
+        if ["organise_", "change_", "naming", "convert_", "tools", "format"].iter().any(|p| cmd.starts_with(p)) {
             return self.organise_call(cmd, args).await;
         }
         match cmd {
@@ -716,6 +717,52 @@ impl App {
                     })
                     .await?)
             }
+            "convert_plan" => {
+                let lib = self.library()?;
+                let o = crate::convert::Options {
+                    dat_id: args["dat"].as_i64().ok_or("missing dat")?,
+                    to: arg(&args, "to").map_err(e2s)?.to_string(),
+                    games: args["games"].as_array().map(|a| a.iter().filter_map(|g| g.as_str().map(String::from)).collect()),
+                    out: args["out"].as_str().filter(|o| !o.trim().is_empty()).map(PathBuf::from),
+                };
+                j(self
+                    .with_index(move |ix| {
+                        let plan = crate::convert::plan(ix, &lib, &o)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            "formats" => j(crate::convert::formats(&self.library()?)),
+            "format_set" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                crate::convert::set_preferred(&lib, arg(&args, "platform").map_err(e2s)?, arg(&args, "format").map_err(e2s)?).map_err(e2s)?;
+                j(crate::convert::formats(&lib))
+            }
+            "tools" => j(tokio::task::spawn_blocking(crate::tools::list).await.map_err(|e| e.to_string())?),
+            "tools_set" => {
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                if !crate::tools::TOOLS.iter().any(|t| t.id == id) {
+                    return Err(format!("There's no tool called {id}."));
+                }
+                let mut cfg = self.config();
+                match args["path"].as_str().map(str::trim).filter(|p| !p.is_empty()) {
+                    Some(p) => {
+                        let p = PathBuf::from(p);
+                        if !p.is_file() {
+                            return Err(format!("There's no file at {}.", p.display()));
+                        }
+                        cfg.tools.insert(id, p);
+                    }
+                    None => {
+                        cfg.tools.remove(&id);
+                    }
+                }
+                cfg.save(&self.config_path()).map_err(e2s)?;
+                crate::tools::configure(&cfg.tools);
+                j(tokio::task::spawn_blocking(crate::tools::list).await.map_err(|e| e.to_string())?)
+            }
             "organise_duplicates" => {
                 let lib = self.library()?;
                 let dat_id = args["dat"].as_i64().ok_or("missing dat")?;
@@ -739,7 +786,12 @@ impl App {
                 lib.writable().map_err(e2s)?;
                 let id = arg(&args, "id").map_err(e2s)?;
                 let plan = organise::load_pending(&data_dir, id).map_err(e2s)?;
-                let label = if plan.kind == "aside" { "Setting aside duplicates" } else { "Organising" };
+                let label = match plan.kind.as_str() {
+                    "aside" => "Setting aside duplicates",
+                    "convert" => "Converting",
+                    "extract" => "Extracting",
+                    _ => "Organising",
+                };
                 let running = self.begin_change(&plan.id)?;
                 j(self.spawn_job(label, move |app, jid, cancel| {
                     let _running = running;
