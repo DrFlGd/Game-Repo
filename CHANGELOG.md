@@ -73,6 +73,10 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **Collections and Audit no longer shift sideways** when you pick a system or the list changes: their columns keep the page's width instead of following the length of the names shown.
+
+## 0.5.5 (2026-10-17)
+
 - **The Library opens again** when a DAT lists two different games under the same name (libretro's copies of some DATs do). It failed with "UNIQUE constraint failed: library.key"; now both games are listed, the second with its own page.
 
 ## 0.5.4 (2026-10-17)
