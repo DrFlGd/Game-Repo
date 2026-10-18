@@ -252,7 +252,7 @@ async def main():
             active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
             lead = await pg.inner_text("#audit-empty")
             check("the menu's places open, with the pages still to come saying what they'll do",
-                  labels == ["Game Repo", "Home", "Library", "Audit", "BIOS files", "Collections", "Export layouts", "PC games", "Metadata", "Documents", "Magazines", "Settings", "Help", "About"]
+                  labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Export layouts", "History", "Settings", "Help", "About"]
                   and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
             await pg.screenshot(path=str(out / "01-coming.png"))
 
@@ -324,6 +324,8 @@ async def main():
             make_fixtures.main(fx)
             expected = json.loads((fx / "expected.json").read_text())
             pick(fx / "Roms")
+            # (games kept where they are: Import › Folders with games, D73)
+            await pg.click('.sidebar a[href="#/import"]')
             await pg.click("#add-root")
             await pg.wait_for_selector("#roots li")
             roots_json = json.loads((library / "_library/library.json").read_text()).get("roots", [])
@@ -352,7 +354,7 @@ async def main():
                   and new_id == "satellaview" and systems.get("satellaview", {}).get("dat_names") == ["Nintendo - Satellaview"], (dat_files, remembered, new_id, systems))
             await pg.wait_for_selector('#home-platforms [data-platform="gb"]')
             bar = await pg.inner_text('#home-platforms [data-platform="gb"]')
-            check("Home shows each platform against its DAT, with 1G1R", "3 of 6" in bar and "1G1R 3 of 5" in bar, bar)
+            check("Home shows each system against its DAT, with one per title (1G1R)", "3 of 6" in bar and "One per title 3 of 5" in bar, bar)
             await pg.screenshot(path=str(out / "10-home-platforms.png"), full_page=True)
 
             async def tab_names(tab):
@@ -384,11 +386,10 @@ async def main():
             regions = await pg.eval_on_selector_all("#audit-region option", "els => els.map(e => e.value).filter(Boolean)")
             await pg.select_option("#audit-region", regions[0])
             await pg.wait_for_selector(f'#audit-list[data-by="{regions[0]}|name"][aria-busy="false"]')
-            await pg.click('#audit-look [data-view="table"]')
             await pg.wait_for_selector("#audit-list-table tr.audit-row")
             cells = await pg.eval_on_selector_all("#audit-list-table tr.audit-row td:nth-child(2)", "els => els.map(e => e.textContent)")
             await pg.screenshot(path=str(out / "11b-audit-table.png"))
-            check("a games list is narrowed to a region and shown as a table with a column for it",
+            check("a games list is narrowed to a region, in a table with a column for it",
                   cells and all(regions[0] in c for c in cells) and len(cells) < len(have_all), (regions, cells, have_all))
             await pg.select_option("#audit-region", "")
             await pg.click("#audit-sort")
@@ -398,7 +399,6 @@ async def main():
             check("a games list is sorted by region", by_region == sorted(by_region), by_region)
             await pg.click("#audit-sort")
             await pg.click('#context-menu [data-action="sort-name"]')
-            await pg.click('#audit-look [data-view="list"]')
             side = await pg.eval_on_selector_all("#audit-panel-list .nav-link", "els => els.map(e => e.dataset.id)")
             await pg.click('#audit-panel-list a[data-id=""]')
             await pg.wait_for_selector('#audit-overview tr[data-platform="gb"]')
@@ -455,7 +455,7 @@ async def main():
             (gbdir / "Extra").mkdir()
             shutil.copy(gbdir / "Alpha (USA).gb", gbdir / "Extra/alpha again.gb")
             (gbdir / "Extra/gamma.gb").write_bytes(make_fixtures.rom(3, 32768))
-            said = await toast_text(pg, "Read what changed", timeout=30000)
+            said = await toast_text(pg, "Scanned what changed", timeout=30000)
             misnamed = await tab_names("misnamed")
             check("files added outside the app are read without a scan (the folder watcher)", "2 new" in said and misnamed == ["alpha again.gb", "gamma.gb"], (said, misnamed))
 
@@ -517,6 +517,8 @@ async def main():
             check("Settings › Naming shows how names come out and keeps the platform's template in the library",
                   naming.get("gb", {}).get("template") == "{title} ({region})", naming)
 
+            # History, a page of its own (D71)
+            await pg.click('.sidebar a[href="#/history"]')
             await pg.wait_for_selector("#history li")
             states = await pg.eval_on_selector_all("#history li", "els => els.map(e => e.dataset.state)")
             await pg.screenshot(path=str(out / "16-history.png"), full_page=True)
@@ -527,23 +529,27 @@ async def main():
             await pg.click("#confirm-dialog button[type=submit]")
             await toast_text(pg, "Freed")
             emptied = not any(x.is_file() for x in (fx / "Roms").rglob("*") if ".gamerepo-set-aside" in x.parts)
+            await pg.click('.sidebar a[href="#/settings"]')
             await pg.uncheck("#scan-watch")
             await pg.wait_for_timeout(300)
             watch = json.loads((home / "config/config.json").read_text()).get("scan", {}).get("watch")
-            check("Settings › History lists the changes; the newest is undone there, what was set aside is emptied, and watching can be turned off",
+            check("History lists the changes; the newest is undone there, what was set aside is emptied, and watching can be turned off",
                   states == ["done", "done", "undone"] and gone and emptied and watch is False, (states, gone, emptied, watch))
             await pg.check("#scan-watch")
 
-            # Settings: the DATs, and how scans read ZIPs (kept on this computer)
-            await pg.click('.sidebar a[href="#/settings"]')
+            # Import: the DATs; Settings: how scans read ZIPs (kept on this computer)
+            await pg.click('.sidebar a[href="#/import"]')
             await pg.wait_for_selector("#settings-dats .dat-group")
             groups = await pg.eval_on_selector_all("#settings-dats .dat-group h3", "els => els.map(e => e.textContent)")
+            await pg.screenshot(path=str(out / "12b-import.png"), full_page=True)
+            await pg.click('.sidebar a[href="#/settings"]')
             await pg.select_option("#scan-zips", "full")
             await pg.wait_for_timeout(300)
             cfg = json.loads((home / "config/config.json").read_text())
-            check("Settings lists the DATs by platform and keeps the scan settings on this computer",
+            check("Import lists the DATs by system, and Settings keeps the scan settings on this computer",
                   groups == ["Game Boy", "Nintendo Entertainment System", "Satellaview"] and cfg.get("scan", {}).get("full") is True, (groups, cfg.get("scan")))
             await pg.screenshot(path=str(out / "12-settings-games.png"), full_page=True)
+            await pg.click('.sidebar a[href="#/import"]')
             await pg.click("#starter-dats")
             await pg.click("#ask-dialog button[type=submit]")
             said = await toast_text(pg, "starter DATs for")
@@ -551,6 +557,7 @@ async def main():
             check("Get starter DATs downloads the DATs of the systems that have none", "2 systems" in said and "2 already had one" in said and starters == ["gamegear", "vectrex"], (said, starters))
 
             # Phase 2b. disc systems: a cue/bin set and an ISO, converted, extracted and put back
+            await pg.click('.sidebar a[href="#/settings"]')
             await pg.uncheck("#scan-watch")
             await pg.wait_for_timeout(300)
             made = make_discs.write(home / "disc-src")
@@ -568,6 +575,7 @@ async def main():
                                                                 [("Dvd Game (Europe)", None, [make_fixtures.rom_xml("Dvd Game (Europe).iso", (src / "Dvd Game (Europe).iso").read_bytes())])]))
             for f in ("psx.dat", "psp.dat"):
                 pick(ddir / f)
+            await pg.click('.sidebar a[href="#/import"]')
             await pg.click("#import-dats")
             await toast_text(pg, "Imported")
             await pg.goto(B + "#/")
@@ -606,7 +614,8 @@ async def main():
             extracted = home / "Extracted"
             pick(extracted)
             await pg.click('#audit-tabs [data-tab="have"]')
-            await pg.click('#audit-list .audit-row[data-name="Disc Game (USA)"] .audit-convert-one')
+            await pg.click('#audit-list .audit-row[data-name="Disc Game (USA)"]', button="right")
+            await pg.click('#context-menu [data-action="audit-convert-one"]')
             await pg.wait_for_selector("#convert-dialog")
             await pg.select_option("#convert-to", "extract")
             await pg.check('input[name="convert-place"][value="folder"]')
@@ -620,7 +629,7 @@ async def main():
             want = {k: v["sha1"] for k, v in made.items() if k.startswith("Disc Game")}
             check("Extract writes a CHD back out as the cue/bin Redump lists, byte for byte", out_files == want, (said, out_files))
 
-            await pg.click('.sidebar a[href="#/settings"]')
+            await pg.click('.sidebar a[href="#/history"]')
             await pg.wait_for_selector("#history li")
             await pg.click('#history li:first-child [data-action="undo"]')
             await toast_text(pg, "Undone")
@@ -634,6 +643,7 @@ async def main():
             check("Undo puts the extracted files and the CHD's originals back as they were",
                   back == ["Disc Game (USA) (Track 1).bin", "Disc Game (USA) (Track 2).bin", "Disc Game (USA).cue"] and gone, (back, gone))
 
+            await pg.click('.sidebar a[href="#/settings"]')
             await pg.wait_for_selector('#formats li[data-platform="psp"] select')
             await pg.select_option('#formats li[data-platform="psp"] select', "zso")
             said = await toast_text(pg, "PlayStation Portable games convert to ZSO")
@@ -686,6 +696,7 @@ async def main():
             widgets.write_text('<?xml version="1.0"?>\n<datafile><header><name>Homebrew - Widgets</name><version>1</version></header>\n'
                                '<game name="Widget"><description>Widget</description><rom name="widget.gzm" size="3" crc="12345678"/></game>\n</datafile>\n')
             pick(widgets)
+            await pg.click('.sidebar a[href="#/import"]')
             await pg.click("#import-dats")
             await pg.wait_for_selector("#dat-platform-dialog")
             offered = await pg.eval_on_selector_all("#dat-platform-0 option", "els => els.map(e => e.value)")
@@ -966,16 +977,29 @@ async def main():
             await pg.click("#collection-new-dialog button[type=submit]")
             await pg.wait_for_selector("#subset-review", timeout=30000)
             lacking = await pg.eval_on_selector_all("#subset-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
-            await pg.check("#subset-bring")
+            pointed = await pg.inner_text("#subset-lacking")
             await pg.click("#subset-review button[type=submit]")
+            await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Wanted'")
+            # collecting copies nothing (D71): the game the library lacks comes in from Import
+            await pg.click('.sidebar a[href="#/import"]')
+            await pg.click("#import-games")
+            pick(wanted)
+            await pg.click("#import-add-folder")
+            await pg.wait_for_selector("#import-folders li")
+            await pg.click("#import-games-dialog button[type=submit]")
+            await pg.wait_for_selector("#import-games-review", timeout=30000)
+            offered = await pg.eval_on_selector_all("#import-games-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
+            await pg.click("#import-games-review button[type=submit]")
             await pg.wait_for_selector("#bring-dialog #organise-totals")
             await pg.screenshot(path=str(out / "23d-bring-in.png"))
             await pg.click("#bring-dialog button[type=submit]")
-            said = await toast_text(pg, "Brought 1 game into the library")
+            said = await toast_text(pg, "Imported 1 game into the library")
             brought = [x for x in (fx / "Roms").rglob("Alpha (Europe).gb") if ".gamerepo-set-aside" not in x.parts]
+            await pg.click('.sidebar a[href="#/collections"]')
+            await pg.click('#collection-panel-list .panel-link:has-text("Wanted")')
             await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Wanted' && document.querySelector('#collection-have')?.textContent === '1'", timeout=30000)
-            check("Bring these into the library copies a game the full set lacks into its folder with games, named as the DAT says, and scans it",
-                  lacking == [["Alpha (Europe)", "missing"]] and len(brought) == 1 and (wanted / "europe one.gb").is_file(), (lacking, said, brought))
+            check("a collection from folders points at Import for the games the library lacks; Import copies one into its folder with games, named as the DAT says, and scans it",
+                  lacking == [["Alpha (Europe)", "missing"]] and "Import" in pointed and offered == [["Alpha (Europe)", "missing"]] and len(brought) == 1 and (wanted / "europe one.gb").is_file(), (lacking, pointed, offered, said, brought))
             await pg.click('#collection-panel-list .panel-link:has-text("Best Of")')
             await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Best Of'")
 
@@ -1115,7 +1139,7 @@ async def main():
             await pg.click("#docs-import-dialog button[type=submit]")
             await pg.wait_for_selector("#organise-totals")
             await pg.click("#docs-import-dialog button[type=submit]")
-            said = await toast_text(pg, "Brought in 1 document")
+            said = await toast_text(pg, "Imported 1 document")
             await pg.wait_for_function("() => document.querySelector('#game-docs')?.textContent.includes('Zeta Map')")
             check("a file dropped on a PC game's page is attached to it as a document, kept with its details", (zeta_meta / "docs/Zeta Map.txt").is_file(), said)
             await pg.screenshot(path=str(out / "26c-pc-game-page.png"), full_page=True)
@@ -1163,8 +1187,8 @@ async def main():
                   (said, shown, cfg.get("source_keys")))
             await pg.screenshot(path=str(out / "30-sources.png"))
             await pg.click('.sidebar a[href="#/metadata"]')
-            await pg.wait_for_selector("#meta-page #meta-platform")
-            await pg.select_option("#meta-platform", "gb")
+            await pg.wait_for_selector("#meta-page")
+            await pg.click('#meta-systems-list a[data-id="gb"]')
             await pg.wait_for_selector('#meta-list .pc-row[data-name="Alpha (USA)"]')
             counts = await pg.inner_text("#meta-counts")
             await pg.click("#meta-scrape")
@@ -1213,7 +1237,7 @@ async def main():
             await pg.click("#docs-import-dialog button[type=submit]")
             await pg.wait_for_selector("#organise-totals")
             await pg.click("#docs-import-dialog button[type=submit]")
-            said = await toast_text(pg, "Brought in 3 documents")
+            said = await toast_text(pg, "Imported 3 documents")
             alpha_docs = json.loads((alpha / "docs/docs.json").read_text()) if (alpha / "docs/docs.json").is_file() else {}
             delta_docs = sorted(x.name for x in (library / "_library/games/gb/Delta (World)/docs").iterdir()) if (library / "_library/games/gb/Delta (World)/docs").is_dir() else []
             check("Import documents… pairs each file with its game by name, a pairing is changed by hand, and they're brought into the games' folders (the originals stay)",
@@ -1289,15 +1313,15 @@ async def main():
             searched = await pg.eval_on_selector_all("#bios-list .bios-system", "els => els.map(e => e.dataset.system)")
             await pg.fill("#bios-search", "")
             check("BIOS files: libretro's list is got from the BIOS page and every system audited, the ones you have games for first, with a search and no picker (D69)",
-                  shown == [["Nintendo - Gameboy", 1, 1], ["Sega - Dreamcast", 0, 1]] and searched == ["Sega - Dreamcast"] and "0 of 1 systems" in totals
+                  shown == [["Nintendo - Gameboy", 1, 1], ["Sega - Dreamcast", 0, 1]] and searched == ["Sega - Dreamcast"] and "0 of 1 with every BIOS file" in totals
                   and await pg.query_selector("#bios-show") is None, (said, shown, searched, totals))
             await pg.screenshot(path=str(out / "40-bios.png"), full_page=True)
             await pg.click("#bios-gather")
             await pg.wait_for_selector("#bios-gather-dialog #organise-totals")
             await pg.click("#bios-gather-dialog button[type=submit]")
-            said = await toast_text(pg, "Gathered the BIOS files")
+            said = await toast_text(pg, "Imported the BIOS files")
             gathered = library / "BIOS/Nintendo - Gameboy/gb_bios.bin"
-            check("Gather copies the BIOS files the library has into its BIOS folder, a folder for each system",
+            check("Import copies the BIOS files the library has into its BIOS folder, a folder for each system",
                   gathered.is_file() and gathered.read_bytes() == gb_bios and (fx / "Roms/gb_bios.bin").is_file(), said)
 
             # the layout editor: Knulli's layout as a tree, a system's folder changed, saved as a new layout
@@ -1448,7 +1472,7 @@ async def main():
             await pg.click("#docs-import-dialog button[type=submit]")
             await pg.wait_for_selector("#organise-totals")
             await pg.click("#docs-import-dialog button[type=submit]")
-            said = await toast_text(pg, "Brought in 1 document")
+            said = await toast_text(pg, "Imported 1 document")
             await pg.wait_for_function("() => document.querySelector('#game-docs')?.textContent.includes('Alpha Map')")
             check("a file dropped on a game's page is attached to it as a document", (alpha / "docs/Alpha Map.txt").is_file(), said)
             await pg.click("#game-next")
@@ -1493,7 +1517,10 @@ async def main():
                   and (alpha / "media/cover.png").read_bytes() == png(90, 60, (10, 160, 60)) and (alpha / "media/cover/thegamesdb.png").is_file() and hero.endswith("v=igdb"),
                   (kept, alpha_json.get("chosen"), hero, sorted(x.name for x in (alpha / "media").rglob("*"))))
             await pg.screenshot(path=str(out / "53-game-variants.png"), full_page=True)
-            # the Media ribbon on the right (D69): every kind, each source's, larger, Use this; ] folds it
+            # the Media ribbon on the right (D69): every kind, each source's, larger, Use this; ] folds it.
+            # It starts folded (UI pass 3, finding 1), so the rail opens it
+            started_folded = await pg.evaluate("() => !document.querySelector('#pane-media') && !!document.querySelector('#rail-media')")
+            await pg.click("#rail-media")
             await pg.wait_for_selector('#inspector[data-tab="media"] #game-media .media-kind[data-kind="cover"] .media-variant[data-name="igdb"].chosen')
             in_ribbon = await pg.eval_on_selector_all('#game-media .media-kind[data-kind="cover"] .media-variant', "els => els.map(e => e.dataset.name)")
             await pg.click('#game-media .media-kind[data-kind="cover"] .media-variant[data-name="thegamesdb"] .media-thumb')
@@ -1506,8 +1533,8 @@ async def main():
             await pg.wait_for_function("() => !document.querySelector('#pane-media') && document.querySelector('#rail-media')")
             await pg.click("#rail-media")
             await pg.wait_for_selector("#pane-media #game-media")
-            check("a game's page has a ribbon on the right with every source's pictures by kind, larger on a click, Use this, folded with ]",
-                  sorted(in_ribbon) == ["igdb", "thegamesdb"] and chosen_now == "thegamesdb", (in_ribbon, chosen_now))
+            check("a game's page has a ribbon on the right, folded at first, with every source's pictures by kind, larger on a click, Use this, folded with ]",
+                  started_folded and sorted(in_ribbon) == ["igdb", "thegamesdb"] and chosen_now == "thegamesdb", (started_folded, in_ribbon, chosen_now))
             await pg.click('#game-variants button[data-name="igdb"]')
             await pg.wait_for_selector('#game-variants button[data-name="igdb"][aria-pressed="true"]')
             row = '.game-detail[data-field="description"]'
@@ -1573,6 +1600,7 @@ async def main():
                             f'<machine name="beta" romof="bios1"><description>Beta Quest</description>{rx("bios.bin", 4, "bios.bin")}{rx("b.1", 5)}<device_ref name="dev1"/></machine>\n'
                             '</mame>\n')
             pick(mame)
+            await pg.click('.sidebar a[href="#/import"]')
             await pg.click("#import-dats")
             await toast_text(pg, "Imported")
             await pg.goto(B + "#/")
@@ -1584,16 +1612,16 @@ async def main():
             await pg.wait_for_selector("#audit-playable")
             totals = await pg.inner_text("#audit-totals")
             await pg.click('#audit-tabs [data-tab="have"]')
-            await pg.wait_for_selector('#audit-list[data-tab="have"] li[data-name="beta"] .audit-needs')
-            needs = await pg.inner_text('#audit-list li[data-name="beta"] .audit-needs')
-            alpha_row = await pg.inner_text('#audit-list li[data-name="alpha"]')
+            await pg.wait_for_selector('#audit-list[data-tab="have"] tr[data-name="beta"] .audit-needs')
+            needs = await pg.inner_text('#audit-list tr[data-name="beta"] .audit-needs')
+            alpha_row = await pg.inner_text('#audit-list tr[data-name="alpha"]')
             await pg.screenshot(path=str(out / "56-arcade-audit.png"), full_page=True)
             await pg.click('#audit-tabs [data-tab="sets"]')
-            await pg.wait_for_selector('#audit-list[data-tab="sets"] li[data-name="bios1"]')
+            await pg.wait_for_selector('#audit-list[data-tab="sets"] tr[data-name="bios1"]')
             sets = await pg.inner_text("#audit-list")
             check("an arcade DAT (MAME's -listxml) is audited: BIOS sets and devices apart from the games, what's playable, and what a game needs",
                   "3 of 3 games" in totals.replace("\n", " ") and "2 playable" in totals and "1 of 2" in totals
-                  and "dev1" in needs and "Alpha Fighter" in alpha_row and "1991" in alpha_row and "bios1" in sets and "dev1" in sets and "missing" in sets,
+                  and "dev1" in needs and "Alpha Fighter" in alpha_row and "1991" in alpha_row and "bios1" in sets and "dev1" in sets and "missing" in sets.lower(),
                   (totals, needs, alpha_row, sets))
             await pg.select_option("#audit-set-type", "split")
             await toast_text(pg, "split set")
@@ -1638,7 +1666,7 @@ async def main():
             await pg.wait_for_selector("#organise-totals")
             totals = await pg.inner_text("#organise-totals")
             await pg.click("#mag-import-dialog button[type=submit]")
-            said = await toast_text(pg, "Brought in 3 magazine issues")
+            said = await toast_text(pg, "Imported 3 magazine issues")
             await pg.wait_for_selector('#mag-panel-list a[data-id="Game Fan"]')
             fan = library / "Magazines" / "Game Fan"
             fan_json = json.loads((fan / "magazine.json").read_text()) if (fan / "magazine.json").is_file() else {}
@@ -1671,7 +1699,7 @@ async def main():
             listed.write_text("magazine,number,date\nGame Fan,1,1992-10\nGame Fan,2,1992-11\nGame Fan,3,1992-12\n")
             pick(listed)
             await pg.click("#mag-add-list-button")
-            await toast_text(pg, "Added the list")
+            await toast_text(pg, "Imported the list")
             await pg.wait_for_selector("#mag-missing li")
             missing = await pg.inner_text("#mag-missing")
             totals = await pg.inner_text("#mag-totals")

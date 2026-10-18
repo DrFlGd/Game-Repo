@@ -337,14 +337,14 @@ export function Layouts() {
     }
   };
   const importOne = async () => {
-    const p = await ctx.platform.library.pickFile("A layout to bring in (.json)", ["json"]);
+    const p = await ctx.platform.library.pickFile("A layout to import (.json)", ["json"]);
     if (!p) return;
     try {
       const r = await api("layout_import", { path: p });
-      toast(`Brought in the layout ${r.name}.`);
+      toast(`Imported the layout ${r.name}.`);
       await load(r.id);
     } catch (e) {
-      toast(`Couldn't bring it in: ${err(e)}`, 10000);
+      toast(`Couldn't import it: ${err(e)}`, 10000);
     }
   };
   const writeOne = async () => {
@@ -379,11 +379,11 @@ export function Layouts() {
   const menu = () => [
     { id: "layout-import", label: "Import a layout…", icon: "download", disabled: off || !isDesktop(), run: importOne },
     { id: "layout-write", label: "Save as a file…", icon: "file", disabled: !isDesktop() || !id, run: writeOne },
-    { id: "layout-folder", label: "Open the layouts folder", icon: "folder", disabled: !isDesktop(), run: showFolder },
+    { id: "layout-folder", label: "Show the layouts folder", icon: "folder", disabled: !isDesktop(), run: showFolder },
     { sep: true },
     { id: "layout-save-as", label: "Save as a new layout…", icon: "copy", disabled: off || !draft, run: () => ui.set({ dialog: { type: "layout-save", draft, onSaved: saved } }) },
-    { id: "layout-revert", label: "Undo the changes", icon: "refresh", disabled: !dirty, run: () => edit(clone(base.layout)) },
-    { id: "layout-remove", label: "Remove this layout", icon: "trash", disabled: off || builtin || !id, run: remove },
+    { id: "layout-revert", label: "Discard the changes", icon: "refresh", disabled: !dirty, run: () => edit(clone(base.layout)) },
+    { id: "layout-remove", label: "Delete this layout…", icon: "trash", disabled: off || builtin || !id, run: remove },
   ];
   const head = html`<${CommandBar} id="layouts-head" title="Export layouts" count=${list ? plural(list.length, "layout", "layouts") : null}
     primary=${html`<button type="button" class="primary compact" id="layout-save" disabled=${off || !draft || (!dirty && !builtin) || !!textError || !!preview?.problems?.length}

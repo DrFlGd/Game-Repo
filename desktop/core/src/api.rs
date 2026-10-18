@@ -860,8 +860,8 @@ impl App {
                     "import" => "Importing",
                     "add" => "Adding",
                     "bring" => "Bringing in games",
-                    "docs" => "Bringing in documents",
-                    "magazines" => "Bringing in magazines",
+                    "docs" => "Importing documents",
+                    "magazines" => "Importing magazines",
                     "metadata" => "Deleting metadata",
                     _ => "Organising",
                 };

@@ -651,9 +651,11 @@ export function Browse() {
     { head: "Cover size" },
     ...Object.keys(SIZES).map((k) => ({ id: `size-${k}`, label: k[0].toUpperCase() + k.slice(1), icon: px === k ? "check" : null, run: () => pickSize(k), disabled: view !== "grid" ? "In the grid" : false })),
     { sep: true },
+    { id: "lib-import", label: "Import…", icon: "inbox", run: () => { location.hash = routeHash("import"); } },
+    { sep: true },
     { id: "lib-save", label: "Save as a collection…", icon: "collection", disabled: off || !filtered(q) ? (off ? true : "Choose some filters first") : false, run: () => ui.set({ dialog: { type: "lib-save", q } }) },
     { id: "lib-scrape-shown", label: `Scrape the ${plural(games.total, "game", "games")} shown…`, icon: "scrape", disabled: off || !games.total, run: async () => { const list = (await api("browse_keys", { query: q })).filter((g) => g.dat_game); if (list.length) scrapeDialog({ platform: list[0].platform, platformName: "", games: list.map((g) => g.dat_game), gameName: plural(list.length, "game", "games") }); } },
-    { id: "lib-rename-folders", label: "Rename games' library folders to their DAT names…", icon: "edit", disabled: off, run: renameFolders },
+    { id: "lib-rename-folders", label: "Rename game folders to the DAT's names…", icon: "edit", disabled: off, run: renameFolders },
   ];
   const search = html`<input type="search" id="lib-search" data-search="1" class="compact" placeholder="Search titles, developers, descriptions" aria-label="Search the library" value=${box} onInput=${(e) => setBox(e.target.value)} />`;
   const tools = html`<${ViewSwitch} id="lib-view" views=${VIEWS} value=${view} onChange=${pickView} />
@@ -669,7 +671,8 @@ export function Browse() {
     return html`${head}<div class="pages"><div class="library-settings" id="lib-empty">
       <p class="page-lead">${Icon.grid(18)} Every game the library holds, across its systems, by its pictures and details.</p>
       <section class="ls-section"><h2>To start</h2>
-        <p>Add a folder with games and import a DAT for its system (<a href=${routeHash("audit")}>Audit</a>), or import PC games (<a href=${routeHash("pc")}>PC games</a>). Scraping (<a href=${routeHash("metadata")}>Metadata</a>) brings their pictures and details.</p></section>
+        <p>Import your games and a DAT for each system: a folder you keep them in, games to copy into the library, or PC games. Scraping (<a href=${routeHash("metadata")}>Metadata</a>) brings their pictures and details.</p>
+        <div class="home-actions"><a class="primary button-link" id="lib-import-first" href=${routeHash("import")}>Import…</a></div></section>
     </div></div>`;
   }
   const keyOf = one ? one.key : null;

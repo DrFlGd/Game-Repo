@@ -345,7 +345,7 @@ pub fn bring_plan(ix: &Index, lib: &Library, games: &[(i64, Vec<PathBuf>)], canc
     for (id, files) in games {
         let (game, platform, roms, first_rom): (String, String, i64, Option<String>) = q.query_row([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).with_context(|| format!("There's no DAT game {id}."))?;
         let Some(place) = crate::addgame::places(lib, &platform).into_iter().find_map(|p| p["path"].as_str().map(PathBuf::from)) else {
-            left.push(json!({ "path": format!("{} › {game}", platforms::name_of(&platform)), "why": format!("There's no folder with games for {} to bring it into: add one on the Audit page.", platforms::name_of(&platform)) }));
+            left.push(json!({ "path": format!("{} › {game}", platforms::name_of(&platform)), "why": format!("There's no folder with games for {} to import it into: add one on the Import page.", platforms::name_of(&platform)) }));
             continue;
         };
         // one file of a game of one ROM, or an archive holding it; every file of a game of several
@@ -393,8 +393,8 @@ pub fn bring_plan(ix: &Index, lib: &Library, games: &[(i64, Vec<PathBuf>)], canc
     let places: HashSet<String> = ops.iter().filter_map(|o| Path::new(&o.to).parent().map(|p| p.display().to_string())).collect();
     Ok(organise::Plan {
         id: organise::new_id(), created: crate::library::now(), kind: "bring".into(),
-        label: format!("Brought {count} game{} into the library", if count == 1 { "" } else { "s" }),
-        title: format!("Bring {count} game{} into the library", if count == 1 { "" } else { "s" }),
+        label: format!("Imported {count} game{} into the library", if count == 1 { "" } else { "s" }),
+        title: format!("Import {count} game{} into the library", if count == 1 { "" } else { "s" }),
         dat: Value::Null, platform: String::new(), mode: "copy".into(), format: "keep".into(),
         out: if places.len() == 1 { places.into_iter().next() } else { None },
         space: organise::space_needed(&ops), ops, games: count, in_place: 0, conflicts: vec![], duplicates: vec![], left, new_root: None, present: vec![], export: None,

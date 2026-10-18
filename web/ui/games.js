@@ -108,7 +108,7 @@ export function followAutoScans() {
     const parts = [r.added && `${r.added} new`, r.changed && `${r.changed} changed`, r.moved && `${r.moved} moved`, r.removed && `${r.removed} gone`].filter(Boolean);
     if (!parts.length) return;
     await refreshGames();
-    toast(`Read what changed in your folders: ${parts.join(", ")}.`, 5000);
+    toast(`Scanned what changed in your folders: ${parts.join(", ")}.`, 5000);
   };
   const poll = async () => {
     if (ui.get().library && !document.hidden) {
@@ -118,7 +118,7 @@ export function followAutoScans() {
           seen.add(j.id);
           if (first) continue;
           if (j.done) told(j);
-          else followJob(j.id, "Reading what changed").then(told);
+          else followJob(j.id, "Scanning what changed").then(told);
         }
         first = false;
       } catch { /* the next poll tries again */ }
@@ -174,7 +174,7 @@ async function offerFolderRenames() {
   try {
     const plan = await api("organise_rename_folders");
     if (!plan.ops) return;
-    toast(`The new DAT renamed ${plural(plan.ops, "game", "games")} the library has a folder for.`, { ms: 15000, actions: [{ label: "Rename the folders…", run: () => ui.set({ dialog: { type: "organise", plan, platformName: "" } }) }] });
+    toast(`The new DAT renamed ${plural(plan.ops, "game", "games")} the library has a folder for.`, { ms: 15000, actions: [{ label: "Rename game folders to the DAT's names…", run: () => ui.set({ dialog: { type: "organise", plan, platformName: "" } }) }] });
   } catch {
     // a read-only library, or no games' folders: nothing to offer
   }

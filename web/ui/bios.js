@@ -82,8 +82,8 @@ export function Bios() {
     { id: "bios-starter", label: "Get libretro's list of BIOS files…", icon: "download", disabled: off, run: () => starterDats(["bios"]) },
     ...(isDesktop() ? [{ id: "bios-import", label: "Import a BIOS DAT…", icon: "plus", disabled: off, run: importOne }] : []),
     { sep: true },
-    { id: "bios-report", label: "Save a report of what's missing", icon: "file", disabled: off || !has, run: report },
-    ...(isDesktop() && data?.folder ? [{ id: "bios-folder", label: "Open the BIOS folder", icon: "folder", run: () => ctx.platform.library.openPath(data.folder) }] : []),
+    { id: "bios-report", label: "Save a list of what's missing", icon: "file", disabled: off || !has, run: report },
+    ...(isDesktop() && data?.folder ? [{ id: "bios-folder", label: "Show the BIOS folder", icon: "folder", run: () => ctx.platform.library.openPath(data.folder) }] : []),
   ];
   const head = html`<${CommandBar} id="bios-head" title="BIOS files" count=${data?.systems ? plural(data.systems.length, "system", "systems") : null}
     primary=${has && !off ? html`<button type="button" class="primary compact" id="bios-gather" title="Copy the BIOS files the library has into its BIOS folder, a folder for each system, with a preview and Undo" onClick=${gather}>${Icon.inbox(15)} Import BIOS files…</button>` : null}

@@ -40,7 +40,7 @@ const SHOW_HELP = {
   look: "Games a scrape found more than one possible match for, or none it was sure of: pick the right one.",
   none: "Games you have with no details or pictures yet.",
 };
-const PICTURES = { cover: "Box", back: "Back", box3d: "3D box", screenshot: "Screenshot", titlescreen: "Title screen", marquee: "Logo", fanart: "Fan art", physical: "Cartridge or disc", video: "Video" };
+const PICTURES = { cover: "Box front", back: "Back", box3d: "3D box", screenshot: "Screenshot", titlescreen: "Title screen", marquee: "Logo", fanart: "Fan art", physical: "Cartridge or disc", video: "Video" };
 const EXISTING = [["fill", "Fill in what's missing"], ["replace", "Replace what's there"], ["skip", "Skip games that have anything"]];
 const REGIONS = [["us", "USA"], ["eu", "Europe"], ["wor", "World"], ["jp", "Japan"], ["ss", "ScreenScraper's own"], ["fr", "France"], ["de", "Germany"], ["es", "Spain"], ["it", "Italy"], ["uk", "United Kingdom"], ["au", "Australia"], ["kr", "Korea"], ["br", "Brazil"]];
 
@@ -371,7 +371,7 @@ export function Metadata() {
   };
   const platforms = summary?.platforms || [];
   useSidePanel(platforms.length ? {
-    id: "meta-panel", route: "metadata", title: "Systems", icon: "scrape", count: platforms.length, current: p,
+    id: "meta-systems", route: "metadata", title: "Systems", icon: "scrape", count: platforms.length, current: p,
     items: platforms.map((x) => ({ id: x.id, label: x.name, href: argHash("metadata", x.id) })),
   } : null);
   const pName = platforms.find((x) => x.id === p)?.name || p;
@@ -387,7 +387,7 @@ export function Metadata() {
       { id: "meta-scrape-again", label: "Scrape again…", icon: "scrape", disabled: off || !p, run: () => scrapeDialog({ platform: p, platformName: pName, have: counts.have || 0, all: counts.all || 0, again: true }) },
       { id: "meta-delete-all", label: "Delete metadata…", icon: "trash", disabled: off || !p, run: () => deleteMetadata({ platform: p, platformName: pName }) },
       { sep: true },
-      { id: "meta-sources", label: "Sources settings", icon: "cog", run: () => { location.hash = "#/settings"; setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); } },
+      { id: "meta-sources", label: "Settings › Sources", icon: "cog", run: () => { location.hash = "#/settings"; setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); } },
     ] }} />`;
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   if (!summary) return html`${head}<div class="pages"><p class="muted">Reading the systems…</p></div>`;

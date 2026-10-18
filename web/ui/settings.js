@@ -70,16 +70,16 @@ export function RootsSection({ lib }) {
       <span class="root-path"><span title=${r.dir}>${r.dir}</span>
         ${r.found ? null : html`<span class="warn-text">Not found on this computer</span>`}
         ${r.network ? html`<span class="muted root-note">A network drive: changes there are read when you scan.</span>` : null}</span>
-      <select class="compact" aria-label="Platform of the files no DAT knows" title="The platform of files in it that no DAT recognises (matched files take their DAT's)" value=${r.platform || ""} disabled=${off}
+      <select class="compact" aria-label="System of the files no DAT knows" title="The system of files in it that no DAT recognises (matched files take their DAT's)" value=${r.platform || ""} disabled=${off}
         onChange=${(e) => updateRoot(r.id, { platform: e.target.value || null })}>
-        <option value="">Platform: worked out</option>
+        <option value="">System: worked out</option>
         ${(s.platforms || []).map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
       </select>
       ${isDesktop() && !r.found ? html`<button type="button" class="ghost" disabled=${off} onClick=${() => repointRoot(r)}>Point it elsewhere…</button>` : null}
       ${isDesktop() && r.found ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label="Show in folder" onClick=${() => ctx.platform.library.openPath(r.dir)}>${Icon.folder(14)}</button>` : null}
       <button type="button" class="ghost" data-action="remove-root" disabled=${off} onClick=${() => confirmDialog({
         title: "Stop scanning this folder?", text: `${r.dir} leaves the list, with what scans found in it. Nothing in the folder is changed or deleted.`,
-        button: "Remove", run: () => removeRoot(r) })}>Remove</button>
+        button: "Remove", run: () => removeRoot(r) })}>Remove…</button>
     </li>`)}</ul>` : html`<p id="roots-none">No folders yet.</p>`}
     ${isDesktop() ? html`<div><button type="button" class="ghost" id="add-root" disabled=${off} onClick=${() => addRoot()}>Add a folder…</button></div>` : null}
   </section>`;
@@ -132,12 +132,12 @@ export function DatsSection({ lib }) {
         ${isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label="Show in folder" onClick=${() => reveal(`${lib.path}/${d.path}`)}>${Icon.folder(14)}</button>` : null}
         <button type="button" class="ghost" data-action="remove-dat" disabled=${off} onClick=${() => confirmDialog({
           title: "Remove this DAT?", text: `${d.name} (${d.version}) and its copy in the library are removed, with what was matched to it. Your ROMs aren't touched; you can import it again.`,
-          button: "Remove", run: () => removeDat(d) })}>Remove</button>
+          button: "Remove", run: () => removeDat(d) })}>Remove…</button>
       </li>`)}</ul></div>`) : html`<p id="dats-none">No DATs yet.</p>`}
     <div class="home-actions">
       ${isDesktop() ? html`<button type="button" class="ghost" id="import-dats" disabled=${off} onClick=${() => importDats()}>Import DATs…</button>` : null}
-      <button type="button" class="ghost" id="starter-dats" disabled=${off} title="The No-Intro cartridge DATs, from libretro's public copy" onClick=${() => starterDats()}>Get starter DATs…</button>
-      <button type="button" class="ghost" id="make-dat" disabled=${off} onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a set…</button>
+      <button type="button" class="ghost" id="starter-dats" disabled=${off} title="No-Intro's and Redump's DATs, from libretro's public copy" onClick=${() => starterDats()}>Get starter DATs…</button>
+      <button type="button" class="ghost" id="make-dat" disabled=${off} onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a folder…</button>
     </div>
   </section>`;
 }
@@ -174,9 +174,9 @@ function NamingSection({ lib }) {
   const off = !!lib.read_only;
   return html`<section class="ls-section" id="settings-naming">
     <h2>Naming</h2>
-    <p class="muted">How organised games are named, for each platform with a DAT. The DAT's own name (<code>{name}</code>) is what other collectors' tools expect; the fields below make shorter names. Existing files change only when you organise.</p>
+    <p class="muted">How organised games are named, for each system with a DAT. The DAT's own name (<code>{name}</code>) is what other collectors' tools expect; the fields below make shorter names. Existing files change only when you organise.</p>
     ${!platforms.length ? html`<p class="muted">Import a DAT first.</p>` : html`
-      <label class="field-inline"><span>Platform</span>
+      <label class="field-inline"><span>System</span>
         <select id="naming-platform" class="compact" value=${p} onChange=${(e) => setPlatform(e.target.value)}>
           ${platforms.map(([id, name]) => html`<option key=${id} value=${id}>${name}</option>`)}
         </select></label>
@@ -241,7 +241,7 @@ function MetadataSection({ lib }) {
           ${kindsShown.map((k) => html`<td class="num" key=${k}>${x.kinds[k] ? size(x.kinds[k]) : ""}</td>`)}<td class="num"><b>${size(x.total)}</b></td></tr>`)}</tbody>
       </table></div>` : null}`
       : sizes?.error ? html`<p class="warn-note" role="alert">${sizes.error}</p>` : null}
-    <div class="home-actions"><button type="button" class="ghost" id="meta-sizes-work" disabled=${sizes === "busy"} onClick=${work}>${sizes === "busy" ? "Working it out…" : sizes ? "Work it out again" : "Work it out"}</button></div>
+    <div class="home-actions"><button type="button" class="ghost" id="meta-sizes-work" disabled=${sizes === "busy"} onClick=${work}>${sizes === "busy" ? "Measuring…" : sizes ? "Measure again" : "Measure the space taken"}</button></div>
     <small class="muted">Details, each kind of picture and video, scraped manuals and your own documents, for each system. Delete metadata… on the Metadata page or a game's page frees it.</small>
   </section>`;
 }
@@ -282,10 +282,10 @@ export function HistorySection({ lib }) {
       <span class="change-label"><span>${c.label}</span><span class="muted">${c.created?.replace("T", " ").slice(0, 16)} · ${plural(c.ops, "step", "steps")}${c.held ? ` · ${size(c.held)} set aside` : ""}</span></span>
       <span class=${c.state === "interrupted" ? "badge review" : "badge"}>${state[c.state] || c.state}</span>
       ${c.state === "interrupted" ? html`<button type="button" class="ghost" data-action="finish" disabled=${busy || off} onClick=${() => act(() => finishChange(c.id).then(() => "Finished it."))}>Finish</button>` : null}
-      ${c.can_undo ? html`<button type="button" class="ghost" data-action="undo" disabled=${busy || off} onClick=${() => act(() => undoChange(c.id))}>${c.state === "interrupted" ? "Put back" : "Undo"}</button>` : null}
-      ${c.held && c.state !== "running" ? html`<button type="button" class="ghost" data-action="empty" disabled=${busy || off} onClick=${() => empty(c)}>Empty</button>` : null}
+      ${c.can_undo ? html`<button type="button" class="ghost" data-action="undo" disabled=${busy || off} onClick=${() => act(() => undoChange(c.id))}>"Undo"</button>` : null}
+      ${c.held && c.state !== "running" ? html`<button type="button" class="ghost" data-action="empty" disabled=${busy || off} onClick=${() => empty(c)}>Empty…</button>` : null}
     </li>`)}</ul>` : null}
-    ${held ? html`<div class="home-actions"><button type="button" class="ghost" id="history-empty" disabled=${busy || off} onClick=${() => empty(null)}>Empty everything set aside (${size(held)})</button></div>` : null}
+    ${held ? html`<div class="home-actions"><button type="button" class="ghost" id="history-empty" disabled=${busy || off} onClick=${() => empty(null)}>Empty everything set aside (${size(held)})…</button></div>` : null}
   </section>`;
 }
 

@@ -16,12 +16,12 @@ const PAGE = 100;
 export const MODES = [
   ["copy", "Copy to a folder", "Your files stay as they are; the sorted set is written to a folder you choose (hardlinked when it's on the same drive, so it takes no space)."],
   ["rename", "Rename where they are", "Files are renamed in their folders to their DAT names. Extra copies and replaced archives are set aside, not deleted."],
-  ["move", "Move into the library", "Files are moved into a folder for the platform in the library, named by the DAT. What they replace is set aside, not deleted."],
+  ["move", "Move into the library", "Files are moved into a folder for the system in the library, named by the DAT. What they replace is set aside, not deleted."],
 ];
 
 export const FORMATS = [
   ["keep", "As they are"],
-  ["zip", "A ZIP for each game (TorrentZip)"],
+  ["zip", "A ZIP for each game (TorrentZip: the same game gives the same file as other tools)"],
   ["loose", "Loose files"],
 ];
 
@@ -36,7 +36,7 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting", import: "Importing", add: "Adding", bring: "Bringing in games", docs: "Bringing in documents", magazines: "Bringing in magazines", metadata: "Deleting metadata" })[kind] || "Organising";
+const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing", add: "Adding", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", metadata: "Deleting metadata" })[kind] || "Organising";
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
 export const organiseDialog = (opts) => ui.set({ dialog: { type: "organise", ...opts } });
@@ -94,7 +94,7 @@ export async function offerInterrupted() {
     if (!c) return;
     const run = (fn) => fn(c.id).then((said) => toast(typeof said === "string" ? said : "Finished it.", 6000)).catch((e) => toast(e.message || String(e), 10000));
     toast(`A change didn't finish: ${c.label} (${c.done_ops} of ${plural(c.ops, "step", "steps")} done).`, {
-      ms: 30000, actions: [{ label: "Finish it", run: () => run(finishChange) }, ...(c.can_undo ? [{ label: "Put it back", run: () => run(undoChange) }] : [])],
+      ms: 30000, actions: [{ label: "Finish it", run: () => run(finishChange) }, ...(c.can_undo ? [{ label: "Undo", run: () => run(undoChange) }] : [])],
     });
   } catch { /* History offers it too */ }
 }
@@ -220,8 +220,8 @@ export function OrganiseDialog({ dat, platform, platformName, plan: given }) {
         ${FORMATS.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}
       </select>
       <small class="muted">ZIPs are written the TorrentZip way, so the same game gives the same bytes as other collectors' tools. Names follow Settings › Naming.</small></label>`}
-    <label class="check-row"><input type="checkbox" id="organise-partial" checked=${partial} onChange=${(e) => setPartial(e.target.checked)} /> Include partly-there games</label>
-    ${mode === "copy" ? html`<label class="check-row"><input type="checkbox" id="organise-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> Always copy (no hardlinks)</label>` : null}
+    <label class="check-row"><input type="checkbox" id="organise-partial" checked=${partial} onChange=${(e) => setPartial(e.target.checked)} /> Include games partly there</label>
+    ${mode === "copy" ? html`<label class="check-row"><input type="checkbox" id="organise-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> <span title="Hardlinks are a second name for the same file on the same drive: they take no space">Always copy (no hardlinks)</span></label>` : null}
     <p class="muted">Nothing changes until you've seen the preview and pressed Run.</p>
   <//>`;
 }
@@ -277,7 +277,7 @@ export function ConvertDialog({ dat, platform, platformName, games }) {
     <label class="field-block"><span class="field-label">To</span>
       <select id="convert-to" class="compact" value=${to} onChange=${(e) => setTo(e.target.value)}>
         ${formats.map((f) => html`<option key=${f} value=${f}>${CONVERT_FORMATS[f]?.[0] || f.toUpperCase()}</option>`)}
-        <option value="extract">${disc ? "Extract (cue/bin or ISO)" : "Loose files"}</option>
+        <option value="extract">${disc ? "Unpack (cue/bin or ISO)" : "Loose files"}</option>
       </select>
       <small class="muted" id="convert-help">${to === "extract" ? extractHelp : CONVERT_FORMATS[to]?.[1]}</small></label>
     <div class="field-block" role="radiogroup" aria-label="Where">

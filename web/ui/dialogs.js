@@ -160,11 +160,11 @@ function MakeDatDialog() {
     }
   };
   if (!roots.length) {
-    return html`<${Dialog} title="Make a DAT from a set" id="make-dat-dialog" onSubmit=${close} submitLabel="OK">
-      <p>Add the folder with the set (Import › Folders with games) and scan it first: the DAT is made from what the scan read.</p><//>`;
+    return html`<${Dialog} title="Make a DAT from a folder" id="make-dat-dialog" onSubmit=${close} submitLabel="OK">
+      <p>Add the folder (Import › Folders with games) and scan it first: the DAT is made from what the scan read.</p><//>`;
   }
-  return html`<${Dialog} title="Make a DAT from a set" id="make-dat-dialog" onSubmit=${submit} busy=${busy || !name.trim() || !root || (typeof platform === "object" && !answered(platform))} error=${error} submitLabel="Make the DAT">
-    <p class="muted">Each file (or ZIP) the last scan found becomes a game in a Logiqx DAT, saved in the library's <code>_library/made-dats</code> folder. ZIPs are read in full so every ROM has its SHA1.</p>
+  return html`<${Dialog} title="Make a DAT from a folder" id="make-dat-dialog" onSubmit=${submit} busy=${busy || !name.trim() || !root || (typeof platform === "object" && !answered(platform))} error=${error} submitLabel="Make the DAT">
+    <p class="muted">Each file (or ZIP) the last scan found becomes a game in a standard (Logiqx) DAT, saved in the library's <code>_library/made-dats</code> folder. ZIPs are read in full so every ROM has its full hash.</p>
     <label class="field-block"><span class="field-label">Folder with games</span>
       <select id="make-dat-root" class="compact" value=${root} onChange=${(e) => setRoot(e.target.value)}>
         ${roots.map((r) => html`<option key=${r.id} value=${r.id}>${r.dir}</option>`)}

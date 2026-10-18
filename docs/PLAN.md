@@ -2956,8 +2956,7 @@ fixdat gets a plain label with the term in its tooltip.
 **Claude's findings from the review** (built in the same pass unless marked):
 
 1. The game page shows its pictures twice (the strip under the picture and the Media
-   ribbon): the strip stays, the ribbon shows each source's pictures only and starts
-   folded.
+   ribbon): the ribbon starts folded.
 2. The Library's right-hand panel only shows a hint until a game is picked: it starts
    folded and opens on a pick.
 3. Metadata repeats the game page in a side panel: it becomes a table per system (game,
@@ -2980,6 +2979,28 @@ fixdat gets a plain label with the term in its tooltip.
 
 **Later (roadmap):** magazine OCR (text read from scanned issues, so they're searchable as
 documents are) and tagging an issue with the games it covers, linked from each game's page.
+
+### UI pass 3 notes (built 2026-10-18)
+
+Built as designed above, with these differences:
+
+- The menu, the Import page (`web/ui/importpage.js`) and the History page
+  (`web/ui/history.js`) are as D72–D73 say. *Games to copy into the library* reads folders
+  with `collection_read_folders` and copies with D53's `collection_bring_plan`; files no DAT
+  knows can go on to *Add a game…*. Settings keeps the index, Scanning (ZIPs and the
+  watcher), Systems, Naming, Preferred formats, Metadata, Sources and Tools.
+- Finding 1: the Media ribbon starts folded; it still shows every picture by source.
+- Finding 3 (Metadata) was built smaller: the systems moved into the ribbon (no drop-down);
+  the game panel stays, since it's where a scrape's candidates are chosen.
+- Finding 5 (shorter dialogs) is left for a later pass.
+- Finding 10: an issue's date and a magazine's publisher are edit boxes (text until
+  clicked), not a field under every cover.
+- Wording (D76), the words that changed: *Gather* → *Import* (BIOS files); *Bring in* →
+  *Import* (games); *Platform* → *System*; *fixdat* → *Save a list of what's missing*
+  (fixdat in the tooltip); *1G1R* → *One per title*; *Put it back* → *Undo*; *Take out* →
+  *Leave out*; *Reveal* → *Show in folder*; *Make a DAT from a set* → *Make a DAT from a
+  folder*; *Rename to DAT names* → *Rename to the DAT's names*. Help's terms and pages
+  are rewritten in the menu's order.
 
 ## 8. Working in a cloud session
 
@@ -3115,7 +3136,7 @@ documents are) and tagging an issue with the games it covers, linked from each g
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D77). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D77). D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 

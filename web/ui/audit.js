@@ -49,11 +49,11 @@ export const SET_TYPES = [
 const HELP = {
   have: "Games with every ROM their DAT lists.",
   partial: "Games with some of their ROMs (a multi-file game missing a part).",
-  missing: "Games the DAT lists that none of your files match. Export fixdat writes them as a DAT.",
+  missing: "Games the DAT lists that none of your files match. Save a list of what's missing writes them as a DAT (a fixdat).",
   matched: "Files that match the DAT and are named as it names them.",
   misnamed: "Files that match the DAT under another name.",
   baddump: "Files named as one of the DAT's ROMs that don't match it: likely corrupt, trimmed or patched copies.",
-  unknown: "Files of this platform that no DAT for it knows: hacks, translations, homebrew or files for another system.",
+  unknown: "Files of this system that no DAT for it knows: hacks, translations, homebrew or files for another system.",
   duplicates: "Files that match the same ROM as another file. Setting them aside keeps the copy that's named right (or the first).",
   sets: "The BIOS sets and devices the games lean on. They're kept as ZIPs of their own and copied with the games that need them.",
 };
@@ -220,13 +220,13 @@ export function Audit() {
     } catch (e) { toast(`Couldn't save the report: ${e.message || e}`, 8000); }
   };
   const menu = () => [
-    { id: "export-fixdat", label: "Export fixdat", icon: "download", disabled: !dat, run: fixdat },
-    { id: "copy-report", label: "Copy report", icon: "copy", disabled: !dat, run: copyReport },
-    { id: "save-report", label: "Save report", icon: "file", disabled: !dat, run: () => saveReport("txt") },
-    { id: "save-report-csv", label: "Save report as CSV", icon: "table", disabled: !dat, run: () => saveReport("csv") },
+    { id: "export-fixdat", label: "Save a list of what's missing", title: "A DAT of the missing games (a fixdat), for other tools", icon: "download", disabled: !dat, run: fixdat },
+    { id: "copy-report", label: "Copy the report", icon: "copy", disabled: !dat, run: copyReport },
+    { id: "save-report", label: "Save the report", icon: "file", disabled: !dat, run: () => saveReport("txt") },
+    { id: "save-report-csv", label: "Save the report as CSV", icon: "table", disabled: !dat, run: () => saveReport("csv") },
     { sep: true },
-    { id: "add-game", label: "Add a game…", icon: "plus", disabled: !!s.library?.read_only, run: () => addGameDialog({ platform: sum?.dat.platform && sum.dat.platform !== "pc" ? sum.dat.platform : "" }) },
-    { id: "make-dat", label: "Make a DAT from a set…", icon: "stack", run: () => ui.set({ dialog: { type: "make-dat" } }) },
+    { id: "add-game", label: "Import a game file…", icon: "plus", disabled: !!s.library?.read_only, run: () => addGameDialog({ platform: sum?.dat.platform && sum.dat.platform !== "pc" ? sum.dat.platform : "" }) },
+    { id: "make-dat", label: "Make a DAT from a folder…", icon: "stack", run: () => ui.set({ dialog: { type: "make-dat" } }) },
     ...(isDesktop() ? [{ id: "import-dats", label: "Import DATs…", icon: "plus", run: () => importDats() }] : []),
   ];
 
@@ -234,19 +234,19 @@ export function Audit() {
   const canConvert = !!(sum && !s.library?.read_only && ui.get().platforms?.find((p) => p.id === sum.dat.platform)?.formats?.length);
   const convert = (games) => convertDialog({ dat, platform: sum.dat.platform, platformName: pName, games });
   const head = html`<${CommandBar} id="audit-head" title=${all ? "Audit: all systems" : pName ? `Audit: ${pName}` : "Audit"} count=${sum && !all ? `${sum.dat.name} (${sum.dat.version})` : null}
-    primary=${html`<span class="cmd-buttons">${sum && !all && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-organise" title="Sort this set by its DAT: copy, rename or move, with a preview and Undo"
+    primary=${html`<span class="cmd-buttons">${sum && !all && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-organise" title="Sort this system's games by its DAT: copy, rename or move, with a preview and Undo"
         onClick=${() => organiseDialog({ dat, platform: sum.dat.platform, platformName: pName })}>${Icon.stack(15)} Organise…</button>` : null}
-      ${canConvert && !all ? html`<button type="button" class="ghost compact" id="audit-convert" title="Convert this platform's games to another format (CHD, RVZ, CSO, ZIP), or extract them, with a preview and Undo"
+      ${canConvert && !all ? html`<button type="button" class="ghost compact" id="audit-convert" title="Convert this system's games to another format (CHD, RVZ, CSO, ZIP), or unpack them, with a preview and Undo"
         onClick=${() => convert(null)}>${Icon.convert(15)} Convert…</button>` : null}
       <button type="button" class=${sum ? "primary compact" : "ghost compact"} id="audit-scan" disabled=${!!ui.get().scanning || !!s.library?.read_only} onClick=${() => scan()}>${Icon.refresh(15)} Scan</button></span>`}
-    more=${{ id: "audit-menu", title: "Export fixdat, reports, make a DAT", items: menu }} />`;
+    more=${{ id: "audit-menu", title: "What's missing, reports, make a DAT", items: menu }} />`;
 
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   if (!data) return html`${head}<div class="pages"><p class="muted">Reading the audit…</p></div>`;
   if (data.error) return html`${head}<div class="pages"><p class="warn-note" role="alert">${data.error}</p></div>`;
   if (!sum) {
     return html`${head}<div class="pages"><div class="library-settings" id="audit-empty">
-      <p class="page-lead">${Icon.audit(18)} Check your folders with games against each system's full set: a DAT from No-Intro, Redump, TOSEC or your own.</p>
+      <p class="page-lead">${Icon.audit(18)} Check your games against each system's DAT, the list of every game there is: a DAT from No-Intro, Redump, TOSEC or your own.</p>
       <section class="ls-section">
         <h2>To start</h2>
         <ol class="coming-list">
@@ -257,7 +257,7 @@ export function Audit() {
         <div class="home-actions">
           <button type="button" class="primary" id="audit-starter" disabled=${!!s.library?.read_only} onClick=${() => starterDats()}>Get starter DATs…</button>
           ${isDesktop() ? html`<button type="button" class="ghost" id="audit-import" disabled=${!!s.library?.read_only} onClick=${() => importDats()}>Import DATs…</button>` : null}
-          <button type="button" class="ghost" disabled=${!!s.library?.read_only} onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a set…</button>
+          <button type="button" class="ghost" disabled=${!!s.library?.read_only} onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a folder…</button>
         </div>
       </section>
     </div></div>`;
@@ -273,13 +273,13 @@ export function Audit() {
     try {
       await api("arcade_set", { platform: sum.dat.platform, set_type: t });
       setTick((x) => x + 1);
-      toast(`${platformName} is kept as a ${t} set now. Files in the wrong ZIP are listed as misnamed: Rename these… puts them right.`, 8000);
+      toast(`${platformName} is kept as a ${t} set now. Files in the wrong ZIP are listed as misnamed: Rename to the DAT's names… puts them right.`, 8000);
     } catch (e) { toast(`Couldn't change the set type: ${e.message || e}`, 8000); }
   };
   return html`${head}<div class="pages audit-page" id="audit-page">
     <div class="audit-pick" id="audit-pick" data-platform=${sum.dat.platform}>
       ${data.dats.length > 1 ? html`<label class="field-inline"><span>DAT</span>
-        <select id="audit-dat" class="compact" value=${String(sum.dat.id)} disabled=${data.dats.length < 2} title=${data.dats.length < 2 ? "Import another DAT for this platform to choose between them" : "The DAT this platform is audited against (kept for Home too)"}
+        <select id="audit-dat" class="compact" value=${String(sum.dat.id)} disabled=${data.dats.length < 2} title=${data.dats.length < 2 ? "Import another DAT for this system to choose between them" : "The DAT this system is audited against (kept for Home too)"}
           onChange=${(e) => setDatId(Number(e.target.value))}>
           ${data.dats.map((d) => html`<option key=${d.id} value=${String(d.id)}>${d.name} (${d.version})</option>`)}
         </select></label>` : null}
@@ -294,7 +294,7 @@ export function Audit() {
       <p><b id="audit-have">${n("have")}</b> of <b id="audit-games">${n("games")}</b> games
         ${arc ? html` · <b id="audit-playable" title="Games had, with the BIOS sets and devices they need">${arc.playable}</b> playable
           · BIOS and devices <b id="audit-sets">${arc.sets_have} of ${arc.sets}</b>` : null}
-        · <span title="1G1R: titles (a game and its clones) you have at least one version of">One per title</span> <b id="audit-1g1r">${n("groups_have")} of ${n("groups")}</b>
+        ${" · "}<span title="1G1R: titles (a game and its clones) you have at least one version of">One per title</span> <b id="audit-1g1r">${n("groups_have")} of ${n("groups")}</b>
         ${n("by_crc") ? html` · <span class="muted" title="Files inside ZIPs matched by the checksum the ZIP records. Settings › Scanning › Scan ZIPs › Unpack and hash every file checks them in full.">${plural(n("by_crc"), "file", "files")} matched by the ZIP's checksum</span>` : null}</p>
       ${n("needs_tool") ? html`<p class="warn-note" id="audit-needs-tool">${plural(n("needs_tool"), "RVZ file waits", "RVZ files wait")} for dolphin-tool before ${n("needs_tool") === 1 ? "it" : "they"} can be checked. Set where it is in <a href=${routeHash("settings")}>Settings › Tools</a>, then scan.</p>` : null}
     </div>
@@ -308,7 +308,7 @@ export function Audit() {
         ${regions.map((r) => html`<option key=${r.region} value=${r.region}>${r.region} (${r.count.toLocaleString()})</option>`)}</select>` : null}
       ${games ? html`<${SortMenu} id="audit-sort" options=${SORTS} value=${sort} onChange=${setSort} />` : null}
       <span class="muted audit-help">${HELP[tab]}</span>
-      ${tab === "misnamed" && n("misnamed") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-rename" onClick=${() => renameMisnamed(dat, platformName)}>Rename these…</button>` : null}
+      ${tab === "misnamed" && n("misnamed") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-rename" onClick=${() => renameMisnamed(dat, platformName)}>Rename to the DAT's names…</button>` : null}
       ${tab === "duplicates" && n("duplicates") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-aside" onClick=${() => setAsideDuplicates(dat, platformName)}>Set aside duplicates…</button>` : null}
     </div>
     <${SearchNote} q=${q} found=${list.loading ? null : plural(list.total, "match", "matches")} onClear=${() => setQ("")} />

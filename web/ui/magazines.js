@@ -70,7 +70,7 @@ function ImportDialog({ paths }) {
     }
   };
   if (plan) {
-    return html`<${Dialog} title=${plan.title || plan.label} id="mag-import-dialog" wide=${true} onSubmit=${() => { close(); runPlan(plan).then(again); }} busy=${plan.short || !plan.ops} submitLabel="Bring them in"
+    return html`<${Dialog} title=${plan.title || plan.label} id="mag-import-dialog" wide=${true} onSubmit=${() => { close(); runPlan(plan).then(again); }} busy=${plan.short || !plan.ops} submitLabel="Import them"
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
       <p class="muted">Each goes into its magazine's folder in the library, <code>Magazines/${"<magazine>"}/</code>, named by its number and date, and listed in its magazine.json. Your files stay where they are.</p>
@@ -80,7 +80,7 @@ function ImportDialog({ paths }) {
   return html`<${Dialog} title="Import magazines" id="mag-import-dialog" wide=${true} onSubmit=${preview} busy=${busy || !items || !included} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
     ${!items ? html`<p class="muted" id="mag-reading">Reading the files${progress ? html` (${progress})` : null}…</p>` : !items.length ? html`<p class="muted" id="mag-none-found">No PDF, CBZ or CBR files there.</p>` : html`
       <ul class="ls-list pc-items mag-items" id="mag-items">${items.map((it) => html`<li key=${it.path} class="pc-item" data-name=${it.name} data-include=${it.include ? "yes" : "no"}>
-        <label class="check-row pc-item-include"><input type="checkbox" data-action="include" aria-label=${`Bring in ${it.name}`} checked=${it.include} onChange=${(e) => set(it.path, { include: e.target.checked })} /></label>
+        <label class="check-row pc-item-include"><input type="checkbox" data-action="include" aria-label=${`Import ${it.name}`} checked=${it.include} onChange=${(e) => set(it.path, { include: e.target.checked })} /></label>
         <div class="pc-item-main">
           <span class="pc-item-name" title=${it.path}>${it.name} <span class="muted">${size(it.size)}</span>${it.have ? html` <span class="pc-badge">Have it</span>` : null}</span>
           <span class="pc-item-edit">
@@ -89,8 +89,8 @@ function ImportDialog({ paths }) {
             <input type="text" class="compact mag-item-date" aria-label="Date (YYYY-MM)" placeholder="YYYY-MM" value=${it.date || ""} disabled=${!it.include} onInput=${(e) => set(it.path, { date: e.target.value || null })} />
           </span>
         </div></li>`)}</ul>
-      <label class="check-row"><input type="checkbox" id="mag-import-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> Always copy (no hardlinks)</label>
-      <p class="muted"><b>${plural(included, "issue", "issues")}</b> to bring in. The magazine, number and date come from each file's name: put them right before the preview.</p>`}
+      <label class="check-row"><input type="checkbox" id="mag-import-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> <span title="Hardlinks are a second name for the same file on the same drive: they take no space">Always copy (no hardlinks)</span></label>
+      <p class="muted"><b>${plural(included, "issue", "issues")}</b> to import. The magazine, number and date come from each file's name: put them right before the preview.</p>`}
   <//>`;
 }
 
@@ -157,7 +157,7 @@ export function Magazines() {
     if (!p) return;
     try {
       const r = await api("magazine_list_import", { path: p });
-      toast(`Added the list ${r.name}: ${plural(r.issues, "issue", "issues")}.`, 6000);
+      toast(`Imported the list ${r.name}: ${plural(r.issues, "issue", "issues")}.`, 6000);
       await reload();
     } catch (e) {
       toast(err(e), 8000);
@@ -175,8 +175,8 @@ export function Magazines() {
   const missingAll = mags.reduce((n, x) => n + (x.missing?.length || 0), 0);
   const more = () => [
     { id: "mag-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => importMagazines(true) },
-    { id: "mag-add-list", label: "Add a list…", icon: "audit", disabled: off || !isDesktop(), run: addList },
-    { id: "mag-save-missing", label: "Save the missing as a list", icon: "download", disabled: off || !missingAll, run: () => saveMissing() },
+    { id: "mag-add-list", label: "Import a list…", icon: "audit", disabled: off || !isDesktop(), run: addList },
+    { id: "mag-save-missing", label: "Save a list of what's missing", icon: "download", disabled: off || !missingAll, run: () => saveMissing() },
   ];
   const head = html`<${CommandBar} id="mag-head" title="Magazines" count=${data ? plural(mags.filter((x) => !x.none).length, "magazine", "magazines") : null}
     primary=${html`<button type="button" class="primary compact" id="mag-import" disabled=${off || !isDesktop()} onClick=${() => importMagazines()}>${Icon.inbox(15)} Import magazines…</button>`}
@@ -188,7 +188,7 @@ export function Magazines() {
   return html`${head}<div class="pages magazines-page" id="magazines-page">
     ${!mags.length ? html`<div class="library-settings" id="mag-empty">
       <p class="page-lead">Your magazines, each with its issues as PDF, CBZ or CBR files, their covers, and the issues you're missing.</p>
-      <p class="muted">Import magazines… reads a folder of them (the magazine, number and date of each come from its name), and brings them into the library's Magazines folder. Add a list… of the issues there are to see which you don't have.</p>
+      <p class="muted">Import magazines… reads a folder of them (the magazine, number and date of each come from its name), and imports them into the library's Magazines folder. Import a list… of the issues there are to see which you don't have.</p>
     </div>` : html`<div class="mag-layout">
       <div class="collection-main" id="mag-main" data-title=${m.title}>
         <div class="collection-top">
@@ -209,7 +209,7 @@ export function Magazines() {
         ${m.missing?.length ? html`<section class="ls-section" id="mag-missing"><h2>Missing</h2>
           <p class="muted">The issues the lists name that you don't have.</p>
           <ul class="ls-list">${m.missing.map((x) => html`<li key=${x.title} data-number=${x.number || ""}>${x.title}</li>`)}</ul>
-          <button type="button" class="ghost compact" id="mag-save-missing-one" disabled=${off} onClick=${() => saveMissing(m.title)}>${Icon.download(14)} Save as a list</button>
+          <button type="button" class="ghost compact" id="mag-save-missing-one" disabled=${off} onClick=${() => saveMissing(m.title)}>${Icon.download(14)} Save a list of what's missing</button>
         </section>` : null}
       </div>
     </div>`}
@@ -217,7 +217,7 @@ export function Magazines() {
       <p class="muted">What the magazines are checked against: a CSV of magazine, number and date, or a DAT whose games are issues (matched by their files, else by magazine and number). They're kept in _library/dats/magazines.</p>
       ${lists.length ? html`<ul class="ls-list">${lists.map((l) => html`<li key=${l.name} data-name=${l.name}><span>${l.name} <span class="muted">${plural(l.issues, "issue", "issues")}</span></span>
         <button type="button" class="ghost compact" disabled=${off} onClick=${() => removeList(l.name)}>Remove</button></li>`)}</ul>` : html`<p class="muted">None yet.</p>`}
-      <button type="button" class="ghost compact" id="mag-add-list-button" disabled=${off || !isDesktop()} onClick=${addList}>${Icon.audit(14)} Add a list…</button>
+      <button type="button" class="ghost compact" id="mag-add-list-button" disabled=${off || !isDesktop()} onClick=${addList}>${Icon.audit(14)} Import a list…</button>
     </section>
   </div>`;
 }

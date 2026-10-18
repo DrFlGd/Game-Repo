@@ -17,7 +17,7 @@ function libraryItems() {
   return [
     ...(isDesktop() ? [{ id: "show-library", label: "Show in folder", icon: "folder", run: showLibraryFolder }] : []),
     { id: "scan-full", label: "Scan, unpacking ZIPs", icon: "refresh", title: "Read every file inside ZIPs in full this time", run: () => scan(true) },
-    { id: "check-index", label: "Check the index", icon: "database", title: "Ask SQLite to check the index file on this computer", run: checkIndex },
+    { id: "check-index", label: "Check the index", icon: "database", title: "Check the app's database on this computer for damage", run: checkIndex },
     ...(isDesktop() ? [{ sep: true }, { id: "open-another", label: "Open another library…", icon: "folder", run: () => openLibrary() }] : []),
   ];
 }
@@ -28,12 +28,12 @@ const when = (iso) => (iso ? new Date(iso).toLocaleString() : "");
 function PlatformsCard({ home, off }) {
   const bars = home.platforms || [];
   return html`<section class="home-card home-wide" id="home-platforms">
-    <h2>Platforms</h2>
+    <h2>Systems</h2>
     ${bars.length ? html`<ul class="platform-bars">${bars.map((b) => html`<li key=${b.platform} data-platform=${b.platform}>
       <a class="pbar-name" href=${argHash("audit", b.platform)} onClick=${() => ctx.platform.store.prefs.set("gr-audit", { ...(ctx.platform.store.prefs.get("gr-audit", {}) || {}), platform: b.platform })}>${b.platform_name}</a>
       <span class="audit-bar" role="img" aria-label=${`${b.have} of ${b.games}`}><span style=${`width:${b.games ? (100 * b.have) / b.games : 0}%`}></span></span>
       <span class="pbar-count"><b>${b.have}</b> of ${b.games}</span>
-      <span class="muted pbar-1g1r" title="1G1R: groups of a game and its clones with at least one of them">1G1R ${b.groups_have} of ${b.groups}</span>
+      <span class="muted pbar-1g1r" title="1G1R: titles (a game and its clones) you have at least one version of">One per title ${b.groups_have} of ${b.groups}</span>
       <span class="muted pbar-dat" title=${b.dat_name}>${b.dat_name}</span>
     </li>`)}</ul>` : html`<p class="muted" id="home-no-dats">${home.dats ? "No DAT is in use yet." : "Import the DATs for your systems to see what you have and what's missing."}</p>`}
     <div class="home-actions">
@@ -75,7 +75,7 @@ function AttentionCard({ home, off }) {
       ${isDesktop() ? html` <button type="button" class="ghost" onClick=${() => repointRoot(r)}>Point it elsewhere…</button>` : null}</p>`)}
     ${loose.length ? html`<h3>Without a DAT</h3><ul class="ls-list" id="home-loose">${loose.map((l) => html`<li key=${l.platform || "none"}>
       <span>${l.platform_name || "No platform worked out"}</span><span class="muted">${plural(l.files, "file", "files")}</span></li>`)}</ul>
-      <small class="muted">Files whose platform has no DAT yet, or whose platform couldn't be worked out (set it on their folder in Settings).</small>` : null}
+      <small class="muted">Files whose system has no DAT yet, or whose system couldn't be worked out (set it on their folder in Import › Folders with games).</small>` : null}
   </section>`;
 }
 
@@ -86,7 +86,7 @@ export function Home() {
   if (s.firstRun && !lib) return html`<${FirstRun} />`;
   if (!lib) {
     return html`<${CommandBar} id="home-head" title="Game Repo" /><div class="home">
-      <p class="page-lead">Audit your ROM sets, build collections, bring in your PC games and keep each game's details in one library.</p>
+      <p class="page-lead">Import and audit your games, build collections of them and keep each game's details in one library.</p>
       ${s.error ? html`<p class="warn-note" role="alert">${s.error}</p>` : null}
       ${isDesktop() ? html`<div class="home-actions"><button type="button" class="primary" id="home-open-library" onClick=${() => openLibrary()}>Open a library…</button></div>` : null}
     </div>`;
@@ -94,7 +94,7 @@ export function Home() {
   const sc = s.scanning;
   const scanLabel = sc ? (sc.items ? `Scanning ${sc.item} of ${sc.items}` : `${sc.text || "Scanning"}…`) : "Scan";
   return html`<${CommandBar} id="home-head" title=${lib.name}
-      primary=${html`<button type="button" class="primary compact" id="home-scan-button" disabled=${!!sc || !!lib.read_only} title="Read what's new or changed in the folders with games"
+      primary=${html`<button type="button" class="primary compact" id="home-scan-button" disabled=${!!sc || !!lib.read_only} title="Scan the folders with games for what's new or changed"
         onClick=${() => scan()}>${Icon.refresh(15)} ${scanLabel}</button>`}
       more=${{ id: "library-menu", title: "Library: show in folder, check the index, open another library", items: libraryItems }} />
   <div class="home">
