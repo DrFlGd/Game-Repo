@@ -75,14 +75,50 @@ pub fn places(conn: Option<&rusqlite::Connection>, lib: &Library, platform: &str
         if conn.is_some() && systems == 1 && !mine {
             continue;
         }
+        // a folder named for a system is that system's, not every system's
+        match r.dir.file_name().and_then(|n| platforms::from_folder(&n.to_string_lossy())) {
+            Some(p) if p.id == platform => {
+                push(&mut out, r.dir.clone(), format!("A folder with games for {name}"), None);
+                continue;
+            }
+            Some(_) => continue,
+            None => {}
+        }
         // a folder there named for the system already, else the system's usual folder name
         let named = std::fs::read_dir(&r.dir).into_iter().flatten().flatten().filter(|e| e.path().is_dir())
             .find(|e| platforms::from_folder(&e.file_name().to_string_lossy()).is_some_and(|p| p.id == platform))
             .map(|e| e.path());
-        let dir = named.unwrap_or_else(|| r.dir.join(organise::safe_name(platforms::by_id(platform).and_then(|p| p.folders.first().copied()).unwrap_or(name.as_str()))));
+        let dir = named.unwrap_or_else(|| r.dir.join(organise::safe_name(&name)));
         push(&mut out, dir, format!("{name}'s folder in {}, a folder with games for every system", r.dir.display()), None);
     }
+    if out.is_empty() {
+        // a system with no folder yet gets one named for it, beside the other systems' folders
+        let base = systems_parent(&rs).unwrap_or_else(|| lib.root().to_path_buf());
+        let why = format!("A new folder for {name} in {}", base.display());
+        push(&mut out, base.join(organise::safe_name(&name)), why, Some(platform));
+    }
     out
+}
+
+/// The folder the systems' own folders are in, the usual one: Roms for Roms/GBA and
+/// Roms/GBA/Champion. A folder is a system's when it's named for one, or is set as one's.
+fn systems_parent(rs: &[roots::Root]) -> Option<PathBuf> {
+    let mut count: Vec<(PathBuf, usize)> = vec![];
+    for r in rs {
+        let top = r.dir.ancestors().filter(|a| a.file_name().is_some_and(|n| platforms::from_folder(&n.to_string_lossy()).is_some())).last();
+        let base = match top {
+            Some(t) => t.parent(),
+            None if r.platform.is_some() => r.dir.parent(),
+            None => None,
+        };
+        let Some(base) = base else { continue };
+        match count.iter_mut().find(|(d, _)| key(d) == key(base)) {
+            Some(c) => c.1 += 1,
+            None => count.push((base.to_path_buf(), 1)),
+        }
+    }
+    // the most, the first found on a tie
+    count.into_iter().rev().max_by_key(|c| c.1).map(|c| c.0)
 }
 
 /// The files a chosen file brings: a sheet its tracks (beside it).
@@ -281,6 +317,26 @@ pub fn identify_rom(lib: &Library, platform: &str, file: &Value, m: &Match) -> R
 mod tests {
     use super::*;
     use crate::library::tests::temp_dir;
+
+    #[test]
+    fn a_system_with_no_folder_gets_one_named_for_it_beside_the_others() {
+        let dir = temp_dir("add-game-new-system");
+        let lib = Library::open(dir.join("lib")).unwrap();
+        let ix = Index::open(&dir.join("index.sqlite"), &lib.id().unwrap()).unwrap();
+        let roms = dir.join("Roms");
+        let champion = roms.join("GB/Champion Collection");
+        for (d, platform) in [(roms.join("GBA"), Some("gba")), (champion.clone(), None), (roms.join("SNES"), None)] {
+            std::fs::create_dir_all(&d).unwrap();
+            roots::add(&lib, &d, platform).unwrap();
+        }
+        std::fs::write(champion.join("Delta (World).gb"), crate::audit::tests::rom(8, 1024)).unwrap();
+        crate::scan::scan(&ix, &lib, &crate::scan::Options::default(), &AtomicBool::new(false), &mut |_| {}).unwrap();
+        // the Game Boy's collection and the Super Nintendo's folder aren't the Game Gear's
+        let dirs = |p: &str| places(Some(ix.conn()), &lib, p).iter().map(|x| PathBuf::from(x["dir"].as_str().unwrap())).collect::<Vec<_>>();
+        assert_eq!(dirs("gamegear"), [roms.join("Sega Game Gear")]);
+        assert_eq!(dirs("snes"), [roms.join("SNES")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn a_rom_is_added_scanned_and_found_in_its_dat_or_identified() {

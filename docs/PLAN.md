@@ -3075,7 +3075,14 @@ choice.
    several systems' games, or none yet, or that system's games: a folder with games for
    every system that holds only another system's games is never offered.
 
-When a system has none of these, the review asks, with *Another folder…*. A folder outside
+   A folder with games for every system that is named for a system (`platforms::from_folder`,
+   such as *SNES*) is that system's: only that system's games go in it.
+4. When a system has none of these: a new folder named for the system (Jerred, v0.5.17:
+   "the app should create a folder for each system based on the system name"). It goes
+   beside the other systems' folders, in the folder most of them share (*Roms* for
+   *Roms/GBA* and *Roms/GB/Champion Collection*), else in the library folder.
+
+The review can always choose *Another folder…* instead. A folder outside
 every folder with games becomes one for its system (`Plan::new_roots`), and Undo takes it
 away again. The first step chooses *every system* or one system, and copy (hardlinked),
 always copy, or move. Files no DAT knows are grouped by folder, each taken as the system
