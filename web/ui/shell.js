@@ -11,6 +11,7 @@ import { Home } from "./home.js";
 import { Dialogs } from "./dialogs.js";
 import { Settings } from "./settings.js";
 import { About } from "./about.js";
+import { Help } from "./help.js";
 import { Coming, COMING } from "./coming.js";
 import { Audit } from "./audit.js";
 import { Collections } from "./collections.js";
@@ -29,6 +30,7 @@ function Main() {
   const blocked = useStore(ui, (s) => s.firstRun && !s.library);
   if (route === "settings" && !blocked) return html`<${Settings} />`;
   if (route === "about") return html`<${About} />`;
+  if (route === "help") return html`<${Help} />`;
   if (route === "library" && !blocked) return html`<${Browse} />`;
   if (route === "game" && !blocked) return html`<${GamePage} />`;
   if (route === "audit" && !blocked) return html`<${Audit} />`;

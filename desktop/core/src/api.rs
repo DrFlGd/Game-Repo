@@ -840,6 +840,7 @@ impl App {
                     "export" => "Exporting",
                     "import" => "Importing",
                     "add" => "Adding",
+                    "bring" => "Bringing in games",
                     "docs" => "Bringing in documents",
                     "metadata" => "Deleting metadata",
                     _ => "Organising",
@@ -855,6 +856,14 @@ impl App {
                         "import" => {
                             app.job_progress(&jid, json!({ "text": "Getting artwork" }));
                             r["art"] = json!(crate::pcgames::fetch_found_art(&lib, &|dir, art| crate::identify::fetch_art(dir, art, false), &cancel));
+                        }
+                        // the games brought in are scanned, so the full set has them
+                        "bring" => {
+                            let only: Vec<PathBuf> = plan.ops.iter().map(|o| PathBuf::from(&o.to)).filter(|p| p.exists()).collect();
+                            if !only.is_empty() {
+                                let opts = scan::Options { only: Some(only), ..Default::default() };
+                                scan::scan(&ix, &lib, &opts, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                            }
                         }
                         // what the added files are, once scanned
                         "add" => {
@@ -1685,6 +1694,20 @@ impl App {
                         let c = crate::subset::save(ix, &lib, &name, id.as_deref(), &games, made_from)?;
                         let w = collection::work_out(ix, &lib, &c)?;
                         Ok(json!({ "collection": c, "summary": w.summary() }))
+                    })
+                    .await?)
+            }
+            "collection_bring_plan" => {
+                let lib = self.library()?;
+                let games: Vec<(i64, Vec<PathBuf>)> = args["games"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|g| Some((g["id"].as_i64()?, g["files"].as_array()?.iter().filter_map(Value::as_str).map(PathBuf::from).collect()))).collect())
+                    .unwrap_or_default();
+                j(self
+                    .with_index(move |ix| {
+                        let plan = crate::subset::bring_plan(ix, &lib, &games, &AtomicBool::new(false))?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
                     })
                     .await?)
             }

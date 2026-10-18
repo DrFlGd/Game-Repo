@@ -38,6 +38,7 @@ const OWN = {
 
 export const Icon = {
   info: (s) => svg(html`<circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.01" />`, s),
+  help: (s) => svg(html`<circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.7M12 17v.01" />`, s),
   search: (s) => svg(skinned(html`<circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />`, OWN.search), s),
   grid: (s) => svg(html`<rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />`, s),
   list: (s) => svg(html`<rect x="3" y="4" width="5" height="4" rx="1" /><rect x="3" y="10" width="5" height="4" rx="1" /><rect x="3" y="16" width="5" height="4" rx="1" /><path d="M11 6h10M11 12h10M11 18h10" />`, s),

@@ -1860,3 +1860,19 @@ span.game-hero { height: 320px; font-size: 96px; }
 .about-built { margin: 4px 0 10px; }
 .about-built > summary { cursor: pointer; font-size: 13.5px; color: var(--graphite); }
 .about-built[open] > summary { margin-bottom: 6px; }
+
+/* Help (D54): the words, then the pages */
+.help-page { display: grid; gap: 12px; align-content: start; }
+.help-page > * { width: 100%; }
+.help-terms { display: grid; gap: 10px; margin: 0; }
+.help-terms > div { display: grid; grid-template-columns: minmax(140px, 220px) minmax(0, 1fr); gap: 4px 16px; scroll-margin-top: 12px; }
+.help-terms dt { font-weight: 600; }
+.help-terms dd { margin: 0; font-size: 13.5px; line-height: 1.5; }
+.help-section { padding: 8px 0; border-bottom: 1px solid var(--steel-2); }
+.help-section h3 { margin: 0 0 4px; font-size: 15px; }
+.help-section p { margin: 0 0 4px; font-size: 13.5px; }
+.help-section ul { margin: 0; padding-left: 20px; font-size: 13.5px; line-height: 1.5; }
+#help-search { width: min(260px, 50vw); }
+@media (max-width: 700px) {
+  .help-terms > div { grid-template-columns: minmax(0, 1fr); }
+}

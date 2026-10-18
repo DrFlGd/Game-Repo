@@ -161,6 +161,7 @@ function NewCollectionDialog({ way: given = "rules", again, onMade }) {
   const [datPath, setDatPath] = useState(again?.made_from?.kind === "dat" ? again.made_from.path || "" : "");
   const [review, setReview] = useState(null);
   const [off, setOff] = useState(new Set());
+  const [bring, setBring] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const named = (n) => setName((v) => v || n);
@@ -215,6 +216,14 @@ function NewCollectionDialog({ way: given = "rules", again, onMade }) {
       const games = review.systems.flatMap((x) => x.games).map((g) => g.id).filter((id) => !off.has(id));
       const r = await api("collection_from", { name: name.trim(), id: again?.id || null, games, made_from: review.made_from });
       ui.set((st) => ({ changes: (st.changes || 0) + 1 }));
+      const lacking = bring ? missing() : [];
+      if (lacking.length) {
+        // the games the full set lacks, brought in after a preview
+        const plan = await api("collection_bring_plan", { games: lacking.map((g) => ({ id: g.id, files: g.files })) });
+        onMade?.(r.collection, "games");
+        ui.set({ dialog: { type: "bring", plan } });
+        return;
+      }
       close();
       toast(again ? `Read ${again.name} again: ${plural(games.length, "game", "games")}.` : `Made ${r.collection.name}: ${plural(games.length, "game", "games")}, kept as its own DATs in the library.`, 8000);
       onMade?.(r.collection, "games");
@@ -223,8 +232,11 @@ function NewCollectionDialog({ way: given = "rules", again, onMade }) {
       setBusy(false);
     }
   };
+  // the games ticked that the full set doesn't have at all, with the files that are them
+  const missing = () => (review?.systems || []).flatMap((x) => x.games).filter((g) => !off.has(g.id) && g.status === "missing" && g.files?.length);
   if (review) {
     const picked = review.games - [...off].length;
+    const lacking = way === "folders" ? missing().length : 0;
     const tick = (id) => setOff((s0) => { const s1 = new Set(s0); s1.has(id) ? s1.delete(id) : s1.add(id); return s1; });
     const have = review.systems.reduce((n, x) => n + x.games.filter((g) => !off.has(g.id) && g.status === "have").length, 0);
     return html`<${Dialog} title=${again ? `Read ${again.name} again` : way === "dat" ? "The DAT's games" : "The folders' games"} id="subset-review" wide=${true} onSubmit=${make}
@@ -242,6 +254,8 @@ function NewCollectionDialog({ way: given = "rules", again, onMade }) {
       ${review.unknown.length ? html`<details class="field-block subset-unknown" id="subset-unknown"><summary>${plural(review.unknown.length, "file", "files")} not in any audit DAT</summary>
         <ul class="ls-list">${review.unknown.slice(0, 500).map((u, i) => html`<li key=${i} data-path=${u.path}><span class="op-to">${u.path}</span> <span class="muted">${u.why}</span></li>`)}</ul>
         <small class="muted">Import the DAT of a system they belong to on the Audit page, then read them again.</small></details>` : null}
+      ${lacking ? html`<label class="check-row bring-row"><input type="checkbox" id="subset-bring" checked=${bring} onChange=${(e) => setBring(e.target.checked)} />
+        <span>Also bring the ${plural(lacking, "game", "games")} your full set doesn't have into the library: copied into its folder with games and named as your audit DAT names ${lacking === 1 ? "it" : "them"} (with a preview first, and Undo)</span></label>` : null}
       <p class="muted">The collection is kept as DATs of its own (one per system, with your full sets' names and hashes) in the library. Its games are exported from your full sets; ${way === "dat" ? "the DAT" : "the folders"} aren't changed.</p>
     <//>`;
   }
@@ -268,6 +282,16 @@ function NewCollectionDialog({ way: given = "rules", again, onMade }) {
       </div>
       <small class="muted">It's read where it is and not imported: the Audit page's DATs stay your full sets.</small></div>` : null}
     ${again && !error ? html`<p class="muted">Reading ${madeFromText(again.made_from).replace(/^from /, "")}…</p>` : null}
+  <//>`;
+}
+
+/** The preview of bringing a collection's missing games into the library; Run starts it. */
+function BringDialog({ plan }) {
+  const nothing = !plan.ops;
+  return html`<${Dialog} title=${plan.title || "Bring the games into the library"} id="bring-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} submitLabel=${nothing ? "OK" : "Run"} cancelLabel=${nothing ? null : "Not now"}>
+    <${Preview} plan=${plan} />
+    ${nothing ? html`<p id="organise-nothing">Nothing to bring in: ${plan.left?.length ? "see what's left alone." : "your full set has them all."}</p>`
+      : html`<p class="muted">The files are hardlinked where the folder with games is on the same drive (they take no space), else copied, and checked; the folders you read aren't changed. The games are scanned afterwards, so your full set has them. It can be undone from the message afterwards or from Settings › History.</p>`}
   <//>`;
 }
 
@@ -364,6 +388,7 @@ function ExportDialog({ c, sum, plan: given, only, count }) {
 export function CollectionDialogs({ dialog }) {
   if (dialog.type === "collection-name") return html`<${NameDialog} ...${dialog} />`;
   if (dialog.type === "collection-new") return html`<${NewCollectionDialog} ...${dialog} />`;
+  if (dialog.type === "bring") return html`<${BringDialog} ...${dialog} />`;
   if (dialog.type === "add-games") return html`<${AddGamesDialog} ...${dialog} />`;
   if (dialog.type === "save-dats") return html`<${SaveDatsDialog} ...${dialog} />`;
   if (dialog.type === "export") return html`<${ExportDialog} key=${dialog.plan?.id || "new"} ...${dialog} />`;
