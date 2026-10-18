@@ -860,8 +860,8 @@ impl App {
                     "import" => "Importing",
                     "add" => "Adding",
                     "bring" => "Bringing in games",
-                    "docs" => "Bringing in documents",
-                    "magazines" => "Bringing in magazines",
+                    "docs" => "Importing documents",
+                    "magazines" => "Importing magazines",
                     "metadata" => "Deleting metadata",
                     _ => "Organising",
                 };
@@ -1713,6 +1713,7 @@ impl App {
                 let lib = self.library()?;
                 let id = arg(&args, "id").map_err(e2s)?.to_string();
                 let platform = args["platform"].as_str().filter(|p| !p.is_empty()).map(String::from);
+                let group = args["group"].as_str().map(String::from);
                 let removed = args["removed"].as_bool().unwrap_or(false);
                 let search = args["search"].as_str().unwrap_or("").to_string();
                 let by_size = args["sort"].as_str() == Some("size");
@@ -1721,7 +1722,40 @@ impl App {
                     .with_index(move |ix| {
                         let c = collection::load(&lib, &id)?;
                         let w = collection::work_out(ix, &lib, &c)?;
-                        Ok(collection::page(&w, platform.as_deref(), removed, &search, by_size, offset, limit))
+                        Ok(collection::page(&w, platform.as_deref(), group.as_deref(), removed, &search, by_size, offset, limit))
+                    })
+                    .await?)
+            }
+            // games left out, put back or added by hand, each in the group that has them (or,
+            // added, in `group`), as a step of its history (D67, D75)
+            "collection_hand" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let list = |k: &str| -> Vec<String> { args[k].as_array().map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default() };
+                let (out, back, add) = (list("leave_out"), list("put_back"), list("add"));
+                let group = args["group"].as_str().unwrap_or("").to_string();
+                j(self
+                    .with_index(move |ix| {
+                        let before = crate::history::before(ix, &lib, &id, "", "")?;
+                        let mut c = before.collection.clone();
+                        let w = collection::work_out(ix, &lib, &c)?;
+                        c.leave_out(&w, &out)?;
+                        c.put_back(&back);
+                        if !add.is_empty() {
+                            c.add_games(&group, &add)?;
+                        }
+                        // put back, a game the rules don't bring in is added by hand to its group
+                        if !back.is_empty() {
+                            let inside: std::collections::HashSet<String> = collection::work_out(ix, &lib, &c)?.games().map(collection::Game::key).collect();
+                            for k in back.iter().filter(|k| !inside.contains(*k)) {
+                                let g = w.group_of(k).and_then(|i| w.groups.get(i)).map(|g| g.id.clone()).unwrap_or_default();
+                                c.add_games(&g, std::slice::from_ref(k))?;
+                            }
+                        }
+                        let c = collection::save(&lib, c)?;
+                        crate::history::record(ix, &lib, before, "hand", None)?;
+                        let w = collection::work_out(ix, &lib, &c)?;
+                        Ok(json!({ "collection": c, "summary": w.summary() }))
                     })
                     .await?)
             }
@@ -1731,7 +1765,7 @@ impl App {
                 j(self
                     .with_index(move |ix| {
                         // each change is a step of its history (D67)
-                        let before = if c.id.is_empty() { None } else { Some(crate::history::before(ix, &lib, &c.id, "")?) };
+                        let before = if c.id.is_empty() { None } else { Some(crate::history::before(ix, &lib, &c.id, "", "")?) };
                         let c = collection::save(&lib, c)?;
                         let how = if before.is_none() { "made" } else { "" };
                         crate::history::record(ix, &lib, before.unwrap_or_else(|| crate::history::new(&c)), how, None)?;
@@ -1758,12 +1792,13 @@ impl App {
                 let lib = self.library()?;
                 let id = arg(&args, "id").map_err(e2s)?.to_string();
                 let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let group = args["group"].as_str().unwrap_or("").to_string();
                 let search = args["search"].as_str().unwrap_or("").to_string();
                 let limit = args["limit"].as_u64().unwrap_or(100) as usize;
                 j(self
                     .with_index(move |ix| {
                         let c = collection::load(&lib, &id)?;
-                        collection::candidates(ix, &lib, &c, &platform, &search, limit)
+                        collection::candidates(ix, &lib, &c, &group, &platform, &search, limit)
                     })
                     .await?)
             }
@@ -1813,22 +1848,35 @@ impl App {
                     })
                     .await?)
             }
+            // a collection, or (`id` and `group_name`) a new group of one, made from folders or
+            // a DAT; or (`id`, and `group`: "" is the first) one of its groups read again
             "collection_from" => {
                 let lib = self.library()?;
                 let name = args["name"].as_str().unwrap_or("").trim().to_string();
                 let id = args["id"].as_str().filter(|i| !i.is_empty()).map(String::from);
+                let group = args["group"].as_str().unwrap_or("").to_string();
+                let group_name = args["group_name"].as_str().unwrap_or("").trim().to_string();
                 if name.is_empty() && id.is_none() {
                     return Err("Give the collection a name.".into());
+                }
+                if id.is_some() && args["group_name"].is_string() && group_name.is_empty() {
+                    return Err("Give the group a name.".into());
                 }
                 let games: Vec<i64> = args["games"].as_array().map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default();
                 let made_from = args["made_from"].clone();
                 j(self
                     .with_index(move |ix| {
-                        // read again: a step of its history, with the DATs it had kept (D67)
-                        let before = match &id { Some(id) => Some(crate::history::before(ix, &lib, id, "read")?), None => None };
-                        let c = crate::subset::save(ix, &lib, &name, id.as_deref(), &games, made_from)?;
+                        // read again, or a group added: a step of its history, with the DATs it had kept (D67)
+                        let how = if group_name.is_empty() { "read" } else { "" };
+                        let before = match &id { Some(id) => Some(crate::history::before(ix, &lib, id, how, &group)?), None => None };
+                        let into = match &id {
+                            None => crate::subset::Target::New(&name),
+                            Some(id) if !group_name.is_empty() => crate::subset::Target::Group(id, &group_name),
+                            Some(id) => crate::subset::Target::Again(id, &group),
+                        };
+                        let c = crate::subset::save(ix, &lib, into, &games, made_from)?;
                         match before {
-                            Some(b) => crate::history::record(ix, &lib, b, "read", None)?,
+                            Some(b) => crate::history::record(ix, &lib, b, how, None)?,
                             None => crate::history::record(ix, &lib, crate::history::new(&c), "made", None)?,
                         };
                         let w = collection::work_out(ix, &lib, &c)?;
@@ -1868,10 +1916,15 @@ impl App {
                         export_id: None,
                         carry: Default::default(),
                         only: args["only"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect()).unwrap_or_default(),
+                        groups: args["groups"].as_str().unwrap_or("").to_string(),
                     },
                 };
                 if args["carry"].is_object() {
                     o.carry = serde_json::from_value(args["carry"].clone()).map_err(|e| e.to_string())?;
+                }
+                // an Update can place the groups another way
+                if let Some(g) = args["groups"].as_str().filter(|_| args["export"].is_string()) {
+                    o.groups = g.to_string();
                 }
                 j(self
                     .with_index(move |ix| {
@@ -1880,6 +1933,9 @@ impl App {
                         organise::save_pending(&data_dir, &plan)?;
                         let mut v = plan.summary();
                         v["present"] = json!(plan.present.len());
+                        // what the user must set up by hand (a group's own system in ES-DE, D75)
+                        v["notes"] = plan.export.as_ref().map(|e| e["notes"].clone()).unwrap_or_else(|| json!([]));
+                        v["groups"] = plan.export.as_ref().map(|e| e["groups"].clone()).unwrap_or(Value::Null);
                         Ok(v)
                     })
                     .await?)

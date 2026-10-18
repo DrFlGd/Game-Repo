@@ -1,10 +1,10 @@
 // Settings: the open library (name, folder, other libraries), its index on this
-// computer, the folders with games and how they're scanned and watched, the DAT
-// files, the systems (built-in and added), how games are named, the history of changes (Undo, set-aside files), the
-// look, and the app's version with a link to About. Storage formats and external tools
+// computer, how the folders with games are scanned and watched, the systems (built-in and added), how games are
+// named, the look, and the app's version with a link to About. Storage formats and external tools
 // (Phase 2b), PC games, Identify's sources and Steam (Phase 4), and the sources' accounts and keys
 // (Phase 5) have sections of their own, and so does Metadata (Phase 6b: which source each
-// detail is taken from, and the space the library's metadata takes).
+// detail is taken from, and the space the library's metadata takes). The folders with games and the DAT files are
+// on the Import page and the history of changes on its own (D71), from the sections exported here.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui, THEMES, SKINS, setTheme, setSkin } from "./state.js";
@@ -57,33 +57,42 @@ function IndexSettings({ index }) {
   </div>`;
 }
 
-/** Folders with games (kept in the library), and how scans read them (kept on this computer). */
-function FoldersSection({ lib }) {
+/** Folders with games (kept in the library), on the Import page (D73): games kept where they are. */
+export function RootsSection({ lib }) {
   const s = useStore(ui, (st) => ({ roots: st.roots, platforms: st.platforms }));
-  const [scanOpts, setScanOpts] = useState(null);
-  useEffect(() => { refreshGames(); scanSettings().then(setScanOpts).catch(() => {}); }, [lib.path]);
+  useEffect(() => { refreshGames(); }, [lib.path]);
   const roots = s.roots || [];
-  const change = async (patch) => setScanOpts(await setScanSettings(patch));
   const off = !!lib.read_only;
   return html`<section class="ls-section" id="settings-folders">
     <h2>Folders with games</h2>
-    <p class="muted">The folders your ROMs are in, anywhere on this computer or a network drive. Scanning reads them; nothing in them is changed. The list is kept in the library; a folder that's somewhere else on another computer can be pointed there.</p>
+    <p class="muted">Games you keep in folders of your own, on this computer or a network drive: they stay where they are, and are scanned and audited there. Nothing in them changes unless you organise it. The list is kept in the library; on another computer a folder can be pointed where it is there.</p>
     ${roots.length ? html`<ul class="ls-list root-list" id="roots">${roots.map((r) => html`<li key=${r.id} data-root=${r.id}>
       <span class="root-path"><span title=${r.dir}>${r.dir}</span>
         ${r.found ? null : html`<span class="warn-text">Not found on this computer</span>`}
         ${r.network ? html`<span class="muted root-note">A network drive: changes there are read when you scan.</span>` : null}</span>
-      <select class="compact" aria-label="Platform of the files no DAT knows" title="The platform of files in it that no DAT recognises (matched files take their DAT's)" value=${r.platform || ""} disabled=${off}
+      <select class="compact" aria-label="System of the files no DAT knows" title="The system of files in it that no DAT recognises (matched files take their DAT's)" value=${r.platform || ""} disabled=${off}
         onChange=${(e) => updateRoot(r.id, { platform: e.target.value || null })}>
-        <option value="">Platform: worked out</option>
+        <option value="">System: worked out</option>
         ${(s.platforms || []).map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
       </select>
       ${isDesktop() && !r.found ? html`<button type="button" class="ghost" disabled=${off} onClick=${() => repointRoot(r)}>Point it elsewhere…</button>` : null}
       ${isDesktop() && r.found ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label="Show in folder" onClick=${() => ctx.platform.library.openPath(r.dir)}>${Icon.folder(14)}</button>` : null}
       <button type="button" class="ghost" data-action="remove-root" disabled=${off} onClick=${() => confirmDialog({
         title: "Stop scanning this folder?", text: `${r.dir} leaves the list, with what scans found in it. Nothing in the folder is changed or deleted.`,
-        button: "Remove", run: () => removeRoot(r) })}>Remove</button>
+        button: "Remove", run: () => removeRoot(r) })}>Remove…</button>
     </li>`)}</ul>` : html`<p id="roots-none">No folders yet.</p>`}
     ${isDesktop() ? html`<div><button type="button" class="ghost" id="add-root" disabled=${off} onClick=${() => addRoot()}>Add a folder…</button></div>` : null}
+  </section>`;
+}
+
+/** How scans read the folders with games (kept on this computer). */
+function ScanSection({ lib }) {
+  const [scanOpts, setScanOpts] = useState(null);
+  useEffect(() => { scanSettings().then(setScanOpts).catch(() => {}); }, [lib.path]);
+  const change = async (patch) => setScanOpts(await setScanSettings(patch));
+  return html`<section class="ls-section" id="settings-scan">
+    <h2>Scanning</h2>
+    <p class="muted">How the folders with games (<a href=${routeHash("import")}>Import</a>) are read. Kept on this computer.</p>
     ${scanOpts ? html`
       <label class="field-block"><span>Scan ZIPs</span>
         <select id="scan-zips" class="compact" value=${scanOpts.full ? "full" : "trust"} onChange=${(e) => change({ full: e.target.value === "full" })}>
@@ -102,7 +111,7 @@ function FoldersSection({ lib }) {
 }
 
 /** The DAT files imported into the library, by platform and version. */
-function DatsSection({ lib }) {
+export function DatsSection({ lib }) {
   const dats = useStore(ui, (st) => st.dats) || [];
   const off = !!lib.read_only;
   const byPlatform = [];
@@ -123,12 +132,12 @@ function DatsSection({ lib }) {
         ${isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label="Show in folder" onClick=${() => reveal(`${lib.path}/${d.path}`)}>${Icon.folder(14)}</button>` : null}
         <button type="button" class="ghost" data-action="remove-dat" disabled=${off} onClick=${() => confirmDialog({
           title: "Remove this DAT?", text: `${d.name} (${d.version}) and its copy in the library are removed, with what was matched to it. Your ROMs aren't touched; you can import it again.`,
-          button: "Remove", run: () => removeDat(d) })}>Remove</button>
+          button: "Remove", run: () => removeDat(d) })}>Remove…</button>
       </li>`)}</ul></div>`) : html`<p id="dats-none">No DATs yet.</p>`}
     <div class="home-actions">
       ${isDesktop() ? html`<button type="button" class="ghost" id="import-dats" disabled=${off} onClick=${() => importDats()}>Import DATs…</button>` : null}
-      <button type="button" class="ghost" id="starter-dats" disabled=${off} title="The No-Intro cartridge DATs, from libretro's public copy" onClick=${() => starterDats()}>Get starter DATs…</button>
-      <button type="button" class="ghost" id="make-dat" disabled=${off} onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a set…</button>
+      <button type="button" class="ghost" id="starter-dats" disabled=${off} title="No-Intro's and Redump's DATs, from libretro's public copy" onClick=${() => starterDats()}>Get starter DATs…</button>
+      <button type="button" class="ghost" id="make-dat" disabled=${off} onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a folder…</button>
     </div>
   </section>`;
 }
@@ -165,9 +174,9 @@ function NamingSection({ lib }) {
   const off = !!lib.read_only;
   return html`<section class="ls-section" id="settings-naming">
     <h2>Naming</h2>
-    <p class="muted">How organised games are named, for each platform with a DAT. The DAT's own name (<code>{name}</code>) is what other collectors' tools expect; the fields below make shorter names. Existing files change only when you organise.</p>
+    <p class="muted">How organised games are named, for each system with a DAT. The DAT's own name (<code>{name}</code>) is what other collectors' tools expect; the fields below make shorter names. Existing files change only when you organise.</p>
     ${!platforms.length ? html`<p class="muted">Import a DAT first.</p>` : html`
-      <label class="field-inline"><span>Platform</span>
+      <label class="field-inline"><span>System</span>
         <select id="naming-platform" class="compact" value=${p} onChange=${(e) => setPlatform(e.target.value)}>
           ${platforms.map(([id, name]) => html`<option key=${id} value=${id}>${name}</option>`)}
         </select></label>
@@ -232,12 +241,12 @@ function MetadataSection({ lib }) {
           ${kindsShown.map((k) => html`<td class="num" key=${k}>${x.kinds[k] ? size(x.kinds[k]) : ""}</td>`)}<td class="num"><b>${size(x.total)}</b></td></tr>`)}</tbody>
       </table></div>` : null}`
       : sizes?.error ? html`<p class="warn-note" role="alert">${sizes.error}</p>` : null}
-    <div class="home-actions"><button type="button" class="ghost" id="meta-sizes-work" disabled=${sizes === "busy"} onClick=${work}>${sizes === "busy" ? "Working it out…" : sizes ? "Work it out again" : "Work it out"}</button></div>
+    <div class="home-actions"><button type="button" class="ghost" id="meta-sizes-work" disabled=${sizes === "busy"} onClick=${work}>${sizes === "busy" ? "Measuring…" : sizes ? "Measure again" : "Measure the space taken"}</button></div>
     <small class="muted">Details, each kind of picture and video, scraped manuals and your own documents, for each system. Delete metadata… on the Metadata page or a game's page frees it.</small>
   </section>`;
 }
 
-function HistorySection({ lib }) {
+export function HistorySection({ lib }) {
   const changes = useStore(ui, (st) => st.changes);
   const [list, setList] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -265,7 +274,7 @@ function HistorySection({ lib }) {
   const state = { done: "Done", undone: "Undone", interrupted: "Interrupted", running: "Running" };
   const off = !!lib.read_only;
   return html`<section class="ls-section" id="settings-history">
-    <h2>History</h2>
+    <h2>Changes to your files</h2>
     <p class="muted">The changes the app has made to your files, kept in the library (<code>_library/journal</code>). The newest can be undone. Files a change replaced are set aside in <code>.gamerepo-set-aside</code> at the top of their folder until you empty them.</p>
     ${list?.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
     ${list && !items.length ? html`<p id="history-none">No changes yet.</p>` : null}
@@ -273,10 +282,10 @@ function HistorySection({ lib }) {
       <span class="change-label"><span>${c.label}</span><span class="muted">${c.created?.replace("T", " ").slice(0, 16)} · ${plural(c.ops, "step", "steps")}${c.held ? ` · ${size(c.held)} set aside` : ""}</span></span>
       <span class=${c.state === "interrupted" ? "badge review" : "badge"}>${state[c.state] || c.state}</span>
       ${c.state === "interrupted" ? html`<button type="button" class="ghost" data-action="finish" disabled=${busy || off} onClick=${() => act(() => finishChange(c.id).then(() => "Finished it."))}>Finish</button>` : null}
-      ${c.can_undo ? html`<button type="button" class="ghost" data-action="undo" disabled=${busy || off} onClick=${() => act(() => undoChange(c.id))}>${c.state === "interrupted" ? "Put back" : "Undo"}</button>` : null}
-      ${c.held && c.state !== "running" ? html`<button type="button" class="ghost" data-action="empty" disabled=${busy || off} onClick=${() => empty(c)}>Empty</button>` : null}
+      ${c.can_undo ? html`<button type="button" class="ghost" data-action="undo" disabled=${busy || off} onClick=${() => act(() => undoChange(c.id))}>"Undo"</button>` : null}
+      ${c.held && c.state !== "running" ? html`<button type="button" class="ghost" data-action="empty" disabled=${busy || off} onClick=${() => empty(c)}>Empty…</button>` : null}
     </li>`)}</ul>` : null}
-    ${held ? html`<div class="home-actions"><button type="button" class="ghost" id="history-empty" disabled=${busy || off} onClick=${() => empty(null)}>Empty everything set aside (${size(held)})</button></div>` : null}
+    ${held ? html`<div class="home-actions"><button type="button" class="ghost" id="history-empty" disabled=${busy || off} onClick=${() => empty(null)}>Empty everything set aside (${size(held)})…</button></div>` : null}
   </section>`;
 }
 
@@ -397,7 +406,7 @@ export function Settings() {
         <ul class="ls-list" id="recent-libraries">${others.map((p) => html`<li key=${p}><span>${p}</span>
           <button type="button" class="ghost" onClick=${() => openLibrary(p)}>Open</button></li>`)}</ul>` : null}
     </section>
-    ${lib ? html`<${FoldersSection} lib=${lib} key=${`f-${lib.path}`} /><${DatsSection} lib=${lib} /><${SystemsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${LayoutsSection} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${MetadataSection} lib=${lib} key=${`m-${lib.path}`} /><${HistorySection} lib=${lib} />` : null}
+    ${lib ? html`<${ScanSection} lib=${lib} key=${`s-${lib.path}`} /><${SystemsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${LayoutsSection} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${MetadataSection} lib=${lib} key=${`m-${lib.path}`} />` : null}
     <${SourcesSettings} />
     <${SteamSettings} />
     <${ToolsSection} />

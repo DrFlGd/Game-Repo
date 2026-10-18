@@ -16,12 +16,12 @@ const PAGE = 100;
 export const MODES = [
   ["copy", "Copy to a folder", "Your files stay as they are; the sorted set is written to a folder you choose (hardlinked when it's on the same drive, so it takes no space)."],
   ["rename", "Rename where they are", "Files are renamed in their folders to their DAT names. Extra copies and replaced archives are set aside, not deleted."],
-  ["move", "Move into the library", "Files are moved into a folder for the platform in the library, named by the DAT. What they replace is set aside, not deleted."],
+  ["move", "Move into the library", "Files are moved into a folder for the system in the library, named by the DAT. What they replace is set aside, not deleted."],
 ];
 
 export const FORMATS = [
   ["keep", "As they are"],
-  ["zip", "A ZIP for each game (TorrentZip)"],
+  ["zip", "A ZIP for each game (TorrentZip: the same game gives the same file as other tools)"],
   ["loose", "Loose files"],
 ];
 
@@ -36,7 +36,7 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting", import: "Importing", add: "Adding", bring: "Bringing in games", docs: "Bringing in documents", magazines: "Bringing in magazines", metadata: "Deleting metadata" })[kind] || "Organising";
+const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing", add: "Adding", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", metadata: "Deleting metadata" })[kind] || "Organising";
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
 export const organiseDialog = (opts) => ui.set({ dialog: { type: "organise", ...opts } });
@@ -94,9 +94,9 @@ export async function offerInterrupted() {
     if (!c) return;
     const run = (fn) => fn(c.id).then((said) => toast(typeof said === "string" ? said : "Finished it.", 6000)).catch((e) => toast(e.message || String(e), 10000));
     toast(`A change didn't finish: ${c.label} (${c.done_ops} of ${plural(c.ops, "step", "steps")} done).`, {
-      ms: 30000, actions: [{ label: "Finish it", run: () => run(finishChange) }, ...(c.can_undo ? [{ label: "Put it back", run: () => run(undoChange) }] : [])],
+      ms: 30000, actions: [{ label: "Finish it", run: () => run(finishChange) }, ...(c.can_undo ? [{ label: "Undo", run: () => run(undoChange) }] : [])],
     });
-  } catch { /* Settings › History offers it too */ }
+  } catch { /* History offers it too */ }
 }
 
 /** Run a planned change, then say what it did, with Undo. Resolves with the job's result
@@ -112,7 +112,7 @@ export async function runPlan(plan) {
     const failed = r.failed?.length ? ` ${plural(r.failed.length, "step", "steps")} failed: ${r.failed[0].error}` : "";
     const art = r.art?.length ? ` Artwork for ${plural(r.art.length, "game", "games")}.` : "";
     const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}${art}`;
-    undoable(text, () => undoChange(r.id), 15000, [{ label: "History", run: () => { location.hash = "#/settings"; setTimeout(() => document.getElementById("settings-history")?.scrollIntoView(), 200); } }]);
+    undoable(text, () => undoChange(r.id), 8000, [{ label: "History", run: () => { location.hash = "#/history"; } }]);
     return r;
   } catch (e) {
     toast(`Couldn't finish it: ${e.message || e}`, 10000);
@@ -125,7 +125,7 @@ function Totals({ plan }) {
   return html`<div class="organise-totals" id="organise-totals">
     <p><b>${plan.kind === "magazines" ? plural(plan.games, "issue", "issues") : plural(plan.games, "game", "games")}</b> to ${plan.kind === "export" ? "export" : plan.kind === "bring" || plan.kind === "magazines" ? "bring in" : "change"}${plan.in_place ? html`, <span class="muted">${plan.in_place} already in place</span>` : null}.</p>
     ${plan.by_op.length ? html`<ul class="ls-list">${plan.by_op.map((o) => html`<li key=${o.op} data-op=${o.op}><span>${OPS[o.op] || o.op}: ${plan.kind === "folders" ? plural(o.count, "folder", "folders") : plural(o.count, "file", "files")}</span><span class="muted">${size(o.bytes)}</span></li>`)}</ul>` : null}
-    ${plan.set_aside ? html`<p class="muted">${plural(plan.set_aside, "file is", "files are")} set aside in <code>.gamerepo-set-aside</code> at the top of ${plan.set_aside === 1 ? "its" : "their"} folder, until you empty it (Settings › History).</p>` : null}
+    ${plan.set_aside ? html`<p class="muted">${plural(plan.set_aside, "file is", "files are")} set aside in <code>.gamerepo-set-aside</code> at the top of ${plan.set_aside === 1 ? "its" : "their"} folder, until you empty it (History).</p>` : null}
     ${plan.out ? html`<p class="muted">Into <span class="op-to" title=${plan.out}>${shortPath(plan.out, 3)}</span>${plan.new_root ? ", which becomes a folder with games" : ""}.</p>` : null}
     ${plan.space.filter((s) => s.short).map((s) => html`<p class="warn-note" role="alert" key=${s.drive}>Not enough space on ${s.drive}: ${size(s.needed)} needed, ${size(s.free)} free.</p>`)}
   </div>`;
@@ -199,9 +199,9 @@ export function OrganiseDialog({ dat, platform, platformName, plan: given }) {
       cancelLabel=${given ? "Cancel" : "Back"} onCancel=${given ? close : () => setPlan(null)}>
       <${Preview} plan=${plan} />
       ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.kind === "folders" ? "no game's library folder can be renamed (the preview says why)." : plan.kind === "metadata" ? "there's none of that to delete." : plan.in_place ? "everything is in place already." : "no files match this DAT yet."}</p>`
-        : plan.kind === "metadata" ? html`<p class="muted">The files are set aside in the library, not deleted, and the games' details are made again from what's left. Your own documents and what you've written yourself stay. The change can be undone from the message afterwards or from Settings › History, which also empties what was set aside.</p>`
-        : plan.kind === "folders" ? html`<p class="muted">Each game's folder in the library is renamed where it is, with what's in it (details, pictures, documents). The change can be undone from the message afterwards or from Settings › History.</p>`
-        : html`<p class="muted">Every file written is read back and checked before anything is set aside. The change can be undone from the message afterwards or from Settings › History.</p>`}
+        : plan.kind === "metadata" ? html`<p class="muted">The files are set aside in the library, not deleted, and the games' details are made again from what's left. Your own documents and what you've written yourself stay. The change can be undone from the message afterwards or from History, which also empties what was set aside.</p>`
+        : plan.kind === "folders" ? html`<p class="muted">Each game's folder in the library is renamed where it is, with what's in it (details, pictures, documents). The change can be undone from the message afterwards or from History.</p>`
+        : html`<p class="muted">Every file written is read back and checked before anything is set aside. The change can be undone from the message afterwards or from History.</p>`}
     <//>`;
   }
   const modeHelp = MODES.find(([m]) => m === mode)?.[2];
@@ -220,8 +220,8 @@ export function OrganiseDialog({ dat, platform, platformName, plan: given }) {
         ${FORMATS.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}
       </select>
       <small class="muted">ZIPs are written the TorrentZip way, so the same game gives the same bytes as other collectors' tools. Names follow Settings › Naming.</small></label>`}
-    <label class="check-row"><input type="checkbox" id="organise-partial" checked=${partial} onChange=${(e) => setPartial(e.target.checked)} /> Include partly-there games</label>
-    ${mode === "copy" ? html`<label class="check-row"><input type="checkbox" id="organise-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> Always copy (no hardlinks)</label>` : null}
+    <label class="check-row"><input type="checkbox" id="organise-partial" checked=${partial} onChange=${(e) => setPartial(e.target.checked)} /> Include games partly there</label>
+    ${mode === "copy" ? html`<label class="check-row"><input type="checkbox" id="organise-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> <span title="Hardlinks are a second name for the same file on the same drive: they take no space">Always copy (no hardlinks)</span></label>` : null}
     <p class="muted">Nothing changes until you've seen the preview and pressed Run.</p>
   <//>`;
 }
@@ -268,7 +268,7 @@ export function ConvertDialog({ dat, platform, platformName, games }) {
     return html`<${Dialog} title=${plan.title || plan.label} id="convert-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Run"}
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
-      ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.in_place ? "everything is in that format already." : "no files of these games are here."}</p>` : html`<p class="muted">Each result is read back and compared with the files it came from before anything is replaced. The change can be undone from the message afterwards or from Settings › History.</p>`}
+      ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.in_place ? "everything is in that format already." : "no files of these games are here."}</p>` : html`<p class="muted">Each result is read back and compared with the files it came from before anything is replaced. The change can be undone from the message afterwards or from History.</p>`}
     <//>`;
   }
   const disc = !!info.disc;
@@ -277,7 +277,7 @@ export function ConvertDialog({ dat, platform, platformName, games }) {
     <label class="field-block"><span class="field-label">To</span>
       <select id="convert-to" class="compact" value=${to} onChange=${(e) => setTo(e.target.value)}>
         ${formats.map((f) => html`<option key=${f} value=${f}>${CONVERT_FORMATS[f]?.[0] || f.toUpperCase()}</option>`)}
-        <option value="extract">${disc ? "Extract (cue/bin or ISO)" : "Loose files"}</option>
+        <option value="extract">${disc ? "Unpack (cue/bin or ISO)" : "Loose files"}</option>
       </select>
       <small class="muted" id="convert-help">${to === "extract" ? extractHelp : CONVERT_FORMATS[to]?.[1]}</small></label>
     <div class="field-block" role="radiogroup" aria-label="Where">

@@ -1,9 +1,9 @@
 {
   "format": 1,
   "id": "esde-card",
-  "version": 1,
+  "version": 2,
   "name": "ES-DE on Android or Linux",
-  "about": "An SD card for ES-DE on an Android or Linux device: the games in ROMs/, and ES-DE's gamelists and media in ES-DE/ on the card, to copy to the device's ES-DE folder or to point ES-DE's media folder at. BIOS files go in BIOS/, for RetroArch's system folder.",
+  "about": "An SD card for ES-DE on an Android or Linux device: the games in ROMs/, and ES-DE's gamelists and media in ES-DE/ on the card, to copy to the device's ES-DE folder or to point ES-DE's media folder at. BIOS files go in BIOS/, for RetroArch's system folder, and the collection (each of its groups) becomes an ES-DE custom collection in ES-DE/collections/.",
   "places": [
     {
       "id": "card",
@@ -13,7 +13,7 @@
   ],
   "systems": {},
   "games": {
-    "path": "{card}/ROMs/{folder}/{file}",
+    "path": "{card}/ROMs/{folder}/{group}/{file}",
     "style": "frontend"
   },
   "gamelist": {
@@ -31,34 +31,34 @@
   },
   "media": {
     "cover": {
-      "path": "{card}/ES-DE/downloaded_media/{folder}/covers/{stem}.{ext}"
+      "path": "{card}/ES-DE/downloaded_media/{folder}/covers/{group}/{stem}.{ext}"
     },
     "back": {
-      "path": "{card}/ES-DE/downloaded_media/{folder}/backcovers/{stem}.{ext}"
+      "path": "{card}/ES-DE/downloaded_media/{folder}/backcovers/{group}/{stem}.{ext}"
     },
     "box3d": {
-      "path": "{card}/ES-DE/downloaded_media/{folder}/3dboxes/{stem}.{ext}"
+      "path": "{card}/ES-DE/downloaded_media/{folder}/3dboxes/{group}/{stem}.{ext}"
     },
     "screenshot": {
-      "path": "{card}/ES-DE/downloaded_media/{folder}/screenshots/{stem}.{ext}"
+      "path": "{card}/ES-DE/downloaded_media/{folder}/screenshots/{group}/{stem}.{ext}"
     },
     "titlescreen": {
-      "path": "{card}/ES-DE/downloaded_media/{folder}/titlescreens/{stem}.{ext}"
+      "path": "{card}/ES-DE/downloaded_media/{folder}/titlescreens/{group}/{stem}.{ext}"
     },
     "marquee": {
-      "path": "{card}/ES-DE/downloaded_media/{folder}/marquees/{stem}.{ext}"
+      "path": "{card}/ES-DE/downloaded_media/{folder}/marquees/{group}/{stem}.{ext}"
     },
     "fanart": {
-      "path": "{card}/ES-DE/downloaded_media/{folder}/fanart/{stem}.{ext}"
+      "path": "{card}/ES-DE/downloaded_media/{folder}/fanart/{group}/{stem}.{ext}"
     },
     "physical": {
-      "path": "{card}/ES-DE/downloaded_media/{folder}/physicalmedia/{stem}.{ext}"
+      "path": "{card}/ES-DE/downloaded_media/{folder}/physicalmedia/{group}/{stem}.{ext}"
     },
     "video": {
-      "path": "{card}/ES-DE/downloaded_media/{folder}/videos/{stem}.{ext}"
+      "path": "{card}/ES-DE/downloaded_media/{folder}/videos/{group}/{stem}.{ext}"
     },
     "manual": {
-      "path": "{card}/ES-DE/downloaded_media/{folder}/manuals/{stem}.pdf"
+      "path": "{card}/ES-DE/downloaded_media/{folder}/manuals/{group}/{stem}.pdf"
     }
   },
   "text": {},
@@ -66,7 +66,11 @@
     "max": 640,
     "as": "keep"
   },
-  "collection": null,
+  "collection": "esde-cfg",
+  "es_de": "{card}/ES-DE",
+  "groups": {
+    "system": "{folder}-{group}"
+  },
   "bios": {
     "path": "{card}/BIOS/{bios_file}"
   }

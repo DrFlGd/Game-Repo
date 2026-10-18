@@ -24,7 +24,7 @@ const again = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
 
 const STATUS = {
   ready: ["New", "A new game, identified"],
-  look: ["Look at it", "Nothing inside named the game: check its title, or Identify it"],
+  look: ["Needs a look", "Nothing inside named the game: check its title, or Identify it"],
   have: ["Have it", "Every file is in the library already"],
   update: ["Goes into", "The same game is in the library: these files join it"],
 };
@@ -189,7 +189,7 @@ function ImportDialog({ paths, restore }) {
       ${games.length ? html`<div class="field-block" role="radiogroup" aria-label="How">
         <label class="check-row"><input type="radio" name="pc-import-mode" value="copy" checked=${mode === "copy"} onChange=${() => setMode("copy")} /> Copy (hardlinked when it's on the same drive, so it takes no space)</label>
         <label class="check-row"><input type="radio" name="pc-import-mode" value="move" checked=${mode === "move"} onChange=${() => setMode("move")} /> Move them into the library</label>
-        ${mode === "copy" ? html`<label class="check-row"><input type="checkbox" id="pc-import-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> Always copy (no hardlinks)</label>` : null}
+        ${mode === "copy" ? html`<label class="check-row"><input type="checkbox" id="pc-import-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> <span title="Hardlinks are a second name for the same file on the same drive: they take no space">Always copy (no hardlinks)</span></label>` : null}
       </div>
       <p class="muted"><b>${plural(included, "item", "items")}</b> to import. Nothing changes until you've seen the preview.</p>` : null}`}
   <//>`;
@@ -318,7 +318,7 @@ function AddGameDialog({ platform: given, files: givenFiles }) {
       <p class="muted">Once it's there the folder is scanned, and you'll see what its DAT says about it.</p>
     <//>`;
   }
-  return html`<${Dialog} title="Add a game" id="add-game-dialog" onSubmit=${preview} busy=${busy || !platform || !chosen.length || !into} error=${error} submitLabel=${busy ? "Reading…" : "Preview"}>
+  return html`<${Dialog} title="Import a game file" id="add-game-dialog" onSubmit=${preview} busy=${busy || !platform || !chosen.length || !into} error=${error} submitLabel=${busy ? "Reading…" : "Preview"}>
     <label class="field-block"><span class="field-label">System</span>
       <select id="add-platform" class="compact" value=${platform} onChange=${(e) => setPlatform(e.target.value)}>
         <option value="">Choose one</option>
@@ -356,7 +356,7 @@ function AddResultsDialog({ added }) {
       return { type: "add-results", added: { ...added, files: files.map((o) => (o.path === f.path ? { ...o, identity } : o)) } };
     },
   });
-  return html`<${Dialog} title=${`Added to ${added.platform_name}`} id="add-results-dialog" onSubmit=${close} submitLabel="Done" cancelLabel=${null}>
+  return html`<${Dialog} title=${`Imported into ${added.platform_name}`} id="add-results-dialog" onSubmit=${close} submitLabel="Done" cancelLabel=${null}>
     <ul class="ls-list" id="add-results">${files.map((f) => html`<li key=${f.path} data-matched=${f.game ? "yes" : "no"} data-named=${f.named ? "yes" : "no"}>
       <span class="identify-label"><span><b>${f.file}</b></span>
         <span class="muted">${f.game ? (f.named ? `${f.game}, named as its DAT says.` : `${f.game} in its DAT. Organise… (Rename these, on the Audit page's Misnamed list) gives it the DAT's name.`)
@@ -497,7 +497,7 @@ export function PcGames() {
     { id: "pc-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => importPc("files") },
     { id: "pc-import-folder", label: "Import a game's folder…", icon: "folder", disabled: off || !isDesktop(), run: () => importPc("folder") },
     { sep: true },
-    { id: "pc-settings", label: "PC games settings", icon: "cog", run: () => { location.hash = "#/settings"; setTimeout(() => document.getElementById("settings-pc")?.scrollIntoView(), 200); } },
+    { id: "pc-settings", label: "Settings › PC games", icon: "cog", run: () => { location.hash = "#/settings"; setTimeout(() => document.getElementById("settings-pc")?.scrollIntoView(), 200); } },
   ];
   const head = html`<${CommandBar} id="pc-head" title="PC games" count=${data?.games ? plural(games.length, "game", "games") : null}
     search=${games.length ? html`<input type="search" id="pc-search" class="compact" placeholder="Search the PC games" aria-label="Search the PC games" value=${q} onInput=${(e) => setQ(e.target.value)} />` : null}
@@ -510,7 +510,7 @@ export function PcGames() {
   if (data.error) return html`${head}<div class="pages"><p class="warn-note" role="alert">${data.error}</p></div>`;
   if (!games.length) {
     return html`${head}<div class="pages"><div class="library-settings" id="pc-empty">
-      <p class="page-lead">${Icon.monitor(18)} Bring installers, zipped games and game folders into one layout: each game in its own folder, with what it is and how it starts.</p>
+      <p class="page-lead">${Icon.monitor(18)} Import installers, zipped games and game folders into one layout: each game in its own folder, with what it is and how it starts.</p>
       <section class="ls-section">
         <h2>To start</h2>
         <p>Drop GOG installers, archives, disc images or game folders into an inbox folder and press Import…, or pick them.</p>

@@ -28,7 +28,7 @@ import { Icon } from "./icons.js";
 import { Inspector } from "./panels.js";
 
 const err = (e) => e.message || String(e);
-const PICTURES = { cover: "Box", back: "Back", box3d: "3D box", screenshot: "Screenshot", titlescreen: "Title screen", marquee: "Logo", fanart: "Fan art", physical: "Cartridge or disc", video: "Video", banner: "Banner", hero: "Hero", logo: "Logo", icon: "Icon" };
+const PICTURES = { cover: "Box front", back: "Back", box3d: "3D box", screenshot: "Screenshot", titlescreen: "Title screen", marquee: "Logo", fanart: "Fan art", physical: "Cartridge or disc", video: "Video", banner: "Banner", hero: "Hero", logo: "Logo", icon: "Icon" };
 const ORDER = ["cover", "box3d", "back", "screenshot", "titlescreen", "fanart", "physical", "marquee", "video", "hero", "banner", "logo", "icon"];
 const FIELDS = [["title", "Title"], ["year", "Year"], ["released", "Release date"], ["developer", "Developer"], ["publisher", "Publisher"], ["genres", "Genres"], ["players", "Players"], ["rating", "Rating"], ["description", "Description"]];
 const isVideo = (rel) => /\.(mp4|webm|mkv|avi)$/i.test(rel || "");
@@ -265,7 +265,7 @@ export function GamePage() {
     { sep: true },
     { id: "game-attach", label: "Attach documents…", icon: "file", disabled: off || !isDesktop() || !(dat || pc), run: () => attach() },
     // a PC game's own folder (PC/<Title> (<Year>)), else where its metadata is kept
-    { id: "game-reveal", label: "Show its folder", icon: "folder", disabled: !isDesktop() || !(g?.pc?.dir || g?.folder_path || g?.dir), run: () => reveal(g.pc?.dir || g.folder_path || g.dir) },
+    { id: "game-reveal", label: "Show in folder", icon: "folder", disabled: !isDesktop() || !(g?.pc?.dir || g?.folder_path || g?.dir), run: () => reveal(g.pc?.dir || g.folder_path || g.dir) },
     { sep: true },
     { id: "game-add", label: "Add to a collection…", icon: "collection", disabled: off || !dat, run: () => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } }) },
   ];
@@ -286,7 +286,7 @@ export function GamePage() {
       if (!cur.removed.includes(g.key)) cur.removed = [...cur.removed, g.key];
       await api("collection_save", { collection: cur });
       ui.set((x) => ({ changes: (x.changes || 0) + 1 }));
-      toast(`Took ${g.title} out of ${c.name}.`, 6000);
+      toast(`Left ${g.title} out of ${c.name}.`, 6000);
     } catch (e) {
       toast(`Couldn't change ${c.name}: ${err(e)}`, 8000);
     }
@@ -336,9 +336,9 @@ export function GamePage() {
     </section>`}
     ${dat ? html`<section class="ls-section" id="game-collections"><h2>Collections</h2>
       ${g.collections?.length ? html`<ul class="ls-list">${g.collections.map((c) => html`<li key=${c.id} data-id=${c.id}><a href=${routeHash("collections")}>${c.name}</a>
-        <button type="button" class="ghost compact" disabled=${off} title=${`Take it out of ${c.name}`} onClick=${() => removeFrom(c)}>Take out</button></li>`)}</ul>` : html`<p class="muted">In none.</p>`}
+        <button type="button" class="ghost compact" disabled=${off} title=${`Leave it out of ${c.name}`} onClick=${() => removeFrom(c)}>Leave out</button></li>`)}</ul>` : html`<p class="muted">In none.</p>`}
       <button type="button" class="ghost compact" id="game-add" disabled=${off} onClick=${() => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } })}>${Icon.collection(14)} Add to a collection…</button>
     </section>` : null}
   </div>
-  <${Inspector} page="game" label="Media" tabs=${[{ id: "media", label: "Media", icon: "image", body: html`<${MediaPane} g=${g} off=${off || busy} onChoose=${choose} />` }]} /></div>`;
+  <${Inspector} page="game" label="Media" open=${false} tabs=${[{ id: "media", label: "Media", icon: "image", body: html`<${MediaPane} g=${g} off=${off || busy} onChoose=${choose} />` }]} /></div>`;
 }

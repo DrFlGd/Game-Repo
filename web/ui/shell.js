@@ -23,6 +23,8 @@ import { Bios } from "./bios.js";
 import { Layouts } from "./layouts.js";
 import { Browse } from "./browse.js";
 import { GamePage } from "./gamepage.js";
+import { ImportPage } from "./importpage.js";
+import { History } from "./history.js";
 import { loadIndex } from "./library.js";
 import { ContextMenu, onWindowKey } from "./actions.js";
 
@@ -41,6 +43,8 @@ function Main() {
   if (route === "documents" && !blocked) return html`<${Documents} />`;
   if (route === "magazines" && !blocked) return html`<${Magazines} />`;
   if (route === "bios" && !blocked) return html`<${Bios} />`;
+  if (route === "import" && !blocked) return html`<${ImportPage} />`;
+  if (route === "history" && !blocked) return html`<${History} />`;
   if (route === "layouts" && !blocked) return html`<${Layouts} />`;
   if (COMING[route] && !blocked) return html`<${Coming} key=${route} page=${route} />`;
   return html`<${Home} />`;

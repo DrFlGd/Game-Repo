@@ -796,7 +796,7 @@ pub fn plan(ix: &Index, lib: &Library, items: &[Item], mode: &str, always_copy: 
     let conn = ix.conn();
     let items: Vec<&Item> = items.iter().filter(|i| i.include).collect();
     if items.is_empty() {
-        bail!("Choose at least one document to bring in.");
+        bail!("Choose at least one document to import.");
     }
     // each target folder: its manifest, the names taken, the ops, and the game's game.json if it's new
     struct Target {
@@ -876,8 +876,8 @@ pub fn plan(ix: &Index, lib: &Library, items: &[Item], mode: &str, always_copy: 
         id: organise::new_id(),
         created: now(),
         kind: "docs".into(),
-        label: format!("Brought in {n} document{}", if n == 1 { "" } else { "s" }),
-        title: format!("Bring in {n} document{}", if n == 1 { "" } else { "s" }),
+        label: format!("Imported {n} document{}", if n == 1 { "" } else { "s" }),
+        title: format!("Import {n} document{}", if n == 1 { "" } else { "s" }),
         dat: Value::Null,
         platform: String::new(),
         mode: mode.into(),

@@ -1,9 +1,9 @@
 {
   "format": 1,
   "id": "esde",
-  "version": 1,
+  "version": 2,
   "name": "ES-DE",
-  "about": "ES-DE on this computer: each system's games in its folder in ES-DE's ROMs folder, its gamelist and media in ES-DE's own folder, and the collection as an ES-DE custom collection.",
+  "about": "ES-DE on this computer: each system's games in its folder in ES-DE's ROMs folder, its gamelist and media in ES-DE's own folder, and the collection (each of its groups) as an ES-DE custom collection.",
   "places": [
     {
       "id": "roms",
@@ -26,7 +26,7 @@
   ],
   "systems": {},
   "games": {
-    "path": "{roms}/{folder}/{file}",
+    "path": "{roms}/{folder}/{group}/{file}",
     "style": "frontend"
   },
   "gamelist": {
@@ -44,34 +44,34 @@
   },
   "media": {
     "cover": {
-      "path": "{media}/{folder}/covers/{stem}.{ext}"
+      "path": "{media}/{folder}/covers/{group}/{stem}.{ext}"
     },
     "back": {
-      "path": "{media}/{folder}/backcovers/{stem}.{ext}"
+      "path": "{media}/{folder}/backcovers/{group}/{stem}.{ext}"
     },
     "box3d": {
-      "path": "{media}/{folder}/3dboxes/{stem}.{ext}"
+      "path": "{media}/{folder}/3dboxes/{group}/{stem}.{ext}"
     },
     "screenshot": {
-      "path": "{media}/{folder}/screenshots/{stem}.{ext}"
+      "path": "{media}/{folder}/screenshots/{group}/{stem}.{ext}"
     },
     "titlescreen": {
-      "path": "{media}/{folder}/titlescreens/{stem}.{ext}"
+      "path": "{media}/{folder}/titlescreens/{group}/{stem}.{ext}"
     },
     "marquee": {
-      "path": "{media}/{folder}/marquees/{stem}.{ext}"
+      "path": "{media}/{folder}/marquees/{group}/{stem}.{ext}"
     },
     "fanart": {
-      "path": "{media}/{folder}/fanart/{stem}.{ext}"
+      "path": "{media}/{folder}/fanart/{group}/{stem}.{ext}"
     },
     "physical": {
-      "path": "{media}/{folder}/physicalmedia/{stem}.{ext}"
+      "path": "{media}/{folder}/physicalmedia/{group}/{stem}.{ext}"
     },
     "video": {
-      "path": "{media}/{folder}/videos/{stem}.{ext}"
+      "path": "{media}/{folder}/videos/{group}/{stem}.{ext}"
     },
     "manual": {
-      "path": "{media}/{folder}/manuals/{stem}.pdf"
+      "path": "{media}/{folder}/manuals/{group}/{stem}.pdf"
     }
   },
   "text": {},
@@ -80,5 +80,9 @@
     "as": "keep"
   },
   "collection": "esde-cfg",
+  "es_de": "{esde}",
+  "groups": {
+    "system": "{folder}-{group}"
+  },
   "bios": null
 }

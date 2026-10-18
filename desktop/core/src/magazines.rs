@@ -283,7 +283,7 @@ pub fn plan(lib: &Library, items: &[Item], always_copy: bool) -> Result<Plan> {
     lib.writable()?;
     let items: Vec<&Item> = items.iter().filter(|i| i.include).collect();
     if items.is_empty() {
-        bail!("Choose at least one issue to bring in.");
+        bail!("Choose at least one issue to import.");
     }
     struct Target {
         dir: PathBuf,
@@ -334,8 +334,8 @@ pub fn plan(lib: &Library, items: &[Item], always_copy: bool) -> Result<Plan> {
         id: organise::new_id(),
         created: now(),
         kind: "magazines".into(),
-        label: format!("Brought in {n} magazine issue{}", if n == 1 { "" } else { "s" }),
-        title: format!("Bring in {n} magazine issue{}", if n == 1 { "" } else { "s" }),
+        label: format!("Imported {n} magazine issue{}", if n == 1 { "" } else { "s" }),
+        title: format!("Import {n} magazine issue{}", if n == 1 { "" } else { "s" }),
         dat: Value::Null,
         platform: String::new(),
         mode: "copy".into(),

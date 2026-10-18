@@ -11,9 +11,10 @@ import { Icon } from "./icons.js";
 import { typing } from "./actions.js";
 import { useMedia, NARROW } from "./chrome.js";
 
-/** The page's list: { route, title, icon, count, items: [{ id, label, sub, count, href }],
- *  current, all: { label, href, count } (an entry above the items for all of them),
- *  actions: [{ id, label, icon, run, disabled }] }, or null. */
+/** The page's list: { route, title, icon, count, items: [{ id, label, sub, count, href,
+ *  children }], current, all: { label, href, count } (an entry above the items for all of
+ *  them), actions: [{ id, label, icon, run, disabled }] }, or null. An item's `children`
+ *  ([{ id, label, count, run }], a collection's groups) are listed indented under it. */
 export const sidePanel = createStore({ spec: null });
 
 /** Show `spec` as the page's list while the page is shown. */
@@ -53,7 +54,10 @@ function Rows({ spec, onPicked }) {
     ${spec.items.map((x) => html`<li class="nav-row" key=${x.id}>
       <a class=${`nav-link panel-link${spec.current === x.id ? " active" : ""}`} href=${x.href} data-id=${x.id} aria-current=${spec.current === x.id ? "page" : null} title=${x.sub ? `${x.label}: ${x.sub}` : x.label} onClick=${onPicked}>
         <span class="panel-link-text"><span class="nav-label">${x.label}</span>${x.sub ? html`<span class="panel-sub">${x.sub}</span>` : null}</span>
-        ${x.count != null ? html`<span class="nav-count">${x.count}</span>` : null}</a></li>`)}
+        ${x.count != null ? html`<span class="nav-count">${x.count}</span>` : null}</a></li>
+      ${(x.children || []).map((k) => html`<li class="nav-row panel-child-row" key=${`${x.id}/${k.id}`} style="--depth:1">
+        <a class="nav-link panel-child" href=${x.href} data-id=${k.id} title=${k.label} onClick=${(e) => { e.preventDefault(); k.run?.(); onPicked?.(); }}>
+          <span class="nav-label">${k.label}</span>${k.count != null ? html`<span class="nav-count">${k.count}</span>` : null}</a></li>`)}`)}
   </ul>`;
 }
 

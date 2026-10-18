@@ -10,7 +10,7 @@ use crate::collection::{self, Collection, Game, Rules};
 use crate::dat;
 use crate::hash::{self, Hashes};
 use crate::index::Index;
-use crate::library::{Library, APP_DIR};
+use crate::library::Library;
 use crate::organise::{self, key};
 use crate::platforms;
 use anyhow::{bail, Context, Result};
@@ -266,26 +266,42 @@ pub fn review(ix: &Index, lib: &Library, found: &[Found]) -> Result<Value> {
 
 /// Where a collection's own DATs are kept.
 pub fn dats_dir(lib: &Library, id: &str) -> Result<PathBuf> {
-    crate::library::valid_id(id)?;
-    Ok(lib.root().join(APP_DIR).join("collections").join(id))
+    collection::own_dir(lib, id, "")
 }
 
-/// Save the games chosen (DAT game ids of the audit DATs) as a collection made from
-/// folders or a DAT: a new one named `name`, or (`id`) the one read again, whose DATs are
-/// replaced. `made_from` says what it was read from.
-pub fn save(ix: &Index, lib: &Library, name: &str, id: Option<&str>, games: &[i64], made_from: Value) -> Result<Collection> {
+/// What the games read from folders or a DAT are saved as.
+pub enum Target<'a> {
+    /// A new collection, by name
+    New(&'a str),
+    /// A collection's group (by collection id and group id; "" is the first) read again,
+    /// whose DATs are replaced
+    Again(&'a str, &'a str),
+    /// A new group of a collection (by collection id and the group's name, D75)
+    Group(&'a str, &'a str),
+}
+
+/// Save the games chosen (DAT game ids of the audit DATs) as a collection, or a group of
+/// one, made from folders or a DAT, kept as DATs of its own. `made_from` says what it was
+/// read from.
+pub fn save(ix: &Index, lib: &Library, into: Target, games: &[i64], made_from: Value) -> Result<Collection> {
     lib.writable()?;
     if games.is_empty() {
-        bail!("None of the games was found in your audit DATs, so there's nothing to make a collection of.");
+        bail!("None of the games was found in your audited games, so there's nothing to make a collection of.");
     }
     let conn = ix.conn();
-    let mut c = match id {
-        Some(id) => collection::load(lib, id)?,
-        None => collection::save(lib, Collection {
-            id: String::new(), name: name.into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None,
-            made_from: None, created: String::new(), modified: String::new(),
-        })?,
+    let (mut c, group) = match into {
+        Target::Again(id, g) => (collection::load(lib, id)?, g.to_string()),
+        Target::New(name) => (collection::save(lib, Collection { name: name.into(), ..Default::default() })?, String::new()),
+        Target::Group(id, name) => {
+            let mut c = collection::load(lib, id)?;
+            let g = c.add_group(name, Rules::default());
+            // (named and given an id that's its own)
+            let c = collection::save(lib, c)?;
+            let g = c.groups.iter().find(|x| x.id == g).or(c.groups.last()).map(|x| x.id.clone()).unwrap_or_default();
+            (c, g)
+        }
     };
+    let group_name = c.group(&group).map(|g| g.name).unwrap_or_default();
     // the games, by system
     let mut q = conn.prepare("SELECT g.id, g.name, COALESCE(g.title, ''), COALESCE(g.regions, ''), d.platform FROM dat_games g JOIN dats d ON d.id = g.dat_id WHERE g.id = ?1")?;
     let mut by: BTreeMap<String, Vec<Game>> = BTreeMap::new();
@@ -295,7 +311,7 @@ pub fn save(ix: &Index, lib: &Library, name: &str, id: Option<&str>, games: &[i6
             id: gid, platform, name: gname, title, regions, status: String::new(), manual: false, size: 0, dat_size: 0,
         });
     }
-    let dir = dats_dir(lib, &c.id)?;
+    let dir = collection::own_dir(lib, &c.id, &group)?;
     // the DATs it had are replaced
     for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
         if e.path().extension().is_some_and(|x| x == "dat") {
@@ -306,26 +322,28 @@ pub fn save(ix: &Index, lib: &Library, name: &str, id: Option<&str>, games: &[i6
     let mut files = vec![];
     for (platform, list) in &by {
         let sys = platforms::name_of(platform);
-        let dname = format!("{} - {sys}", c.name);
+        let dname = if group_name.is_empty() || group_name == c.name { format!("{} - {sys}", c.name) } else { format!("{} - {group_name} - {sys}", c.name) };
         let refs: Vec<&Game> = list.iter().collect();
         let text = collection::dat_xml(conn, &dname, &format!("{} ({} games of {sys}, made by Game Repo)", c.name, list.len()), &refs)?;
         let p = dir.join(format!("{}.dat", collection::safe(&dname)));
         std::fs::write(&p, text).with_context(|| format!("couldn't write {}", p.display()))?;
         files.push(lib.relative(&p).unwrap_or_else(|| p.display().to_string()));
     }
-    c.rules = Rules {
-        platforms: by.keys().cloned().collect(),
-        include: "all".into(),
-        one_per_title: false,
-        only_regions: false,
-        languages: vec![],
-        exclude: vec![],
-        search: String::new(),
-        from_dats: vec![],
-        from_files: files,
-        ..c.rules
-    };
-    c.made_from = Some(made_from);
+    c.change_group(&group, |g| {
+        g.rules = Rules {
+            platforms: by.keys().cloned().collect(),
+            include: "all".into(),
+            one_per_title: false,
+            only_regions: false,
+            languages: vec![],
+            exclude: vec![],
+            search: String::new(),
+            from_dats: vec![],
+            from_files: files,
+            ..g.rules.clone()
+        };
+        g.made_from = Some(made_from);
+    })?;
     collection::save(lib, c)
 }
 
@@ -345,7 +363,7 @@ pub fn bring_plan(ix: &Index, lib: &Library, games: &[(i64, Vec<PathBuf>)], canc
     for (id, files) in games {
         let (game, platform, roms, first_rom): (String, String, i64, Option<String>) = q.query_row([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).with_context(|| format!("There's no DAT game {id}."))?;
         let Some(place) = crate::addgame::places(lib, &platform).into_iter().find_map(|p| p["path"].as_str().map(PathBuf::from)) else {
-            left.push(json!({ "path": format!("{} › {game}", platforms::name_of(&platform)), "why": format!("There's no folder with games for {} to bring it into: add one on the Audit page.", platforms::name_of(&platform)) }));
+            left.push(json!({ "path": format!("{} › {game}", platforms::name_of(&platform)), "why": format!("There's no folder with games for {} to import it into: add one on the Import page.", platforms::name_of(&platform)) }));
             continue;
         };
         // one file of a game of one ROM, or an archive holding it; every file of a game of several
@@ -393,8 +411,8 @@ pub fn bring_plan(ix: &Index, lib: &Library, games: &[(i64, Vec<PathBuf>)], canc
     let places: HashSet<String> = ops.iter().filter_map(|o| Path::new(&o.to).parent().map(|p| p.display().to_string())).collect();
     Ok(organise::Plan {
         id: organise::new_id(), created: crate::library::now(), kind: "bring".into(),
-        label: format!("Brought {count} game{} into the library", if count == 1 { "" } else { "s" }),
-        title: format!("Bring {count} game{} into the library", if count == 1 { "" } else { "s" }),
+        label: format!("Imported {count} game{} into the library", if count == 1 { "" } else { "s" }),
+        title: format!("Import {count} game{} into the library", if count == 1 { "" } else { "s" }),
         dat: Value::Null, platform: String::new(), mode: "copy".into(), format: "keep".into(),
         out: if places.len() == 1 { places.into_iter().next() } else { None },
         space: organise::space_needed(&ops), ops, games: count, in_place: 0, conflicts: vec![], duplicates: vec![], left, new_root: None, present: vec![], export: None,
@@ -433,7 +451,7 @@ mod tests {
         assert_eq!(r["unknown"][0]["path"], "Best of GB/notes.txt");
         // saved: its own DAT, which the collection takes its games from
         let ids: Vec<i64> = gb["games"].as_array().unwrap().iter().map(|g| g["id"].as_i64().unwrap()).collect();
-        let c = save(&ix, &lib, "Best of GB", None, &ids, json!({ "folders": [sub.display().to_string()] })).unwrap();
+        let c = save(&ix, &lib, Target::New("Best of GB"), &ids, json!({ "folders": [sub.display().to_string()] })).unwrap();
         assert_eq!(c.rules.from_files.len(), 1);
         assert!(lib.root().join(&c.rules.from_files[0]).is_file());
         let w = collection::work_out(&ix, &lib, &c).unwrap();
@@ -449,14 +467,25 @@ mod tests {
         let r = review(&ix, &lib, &read_dat(&dir.join("mine.dat")).unwrap()).unwrap();
         assert_eq!((r["games"].as_u64(), r["unknown"][0]["path"].as_str()), (Some(1), Some("mystery")), "{r}");
         // read again with fewer games: its DAT is replaced
-        let c = save(&ix, &lib, "", Some(&c.id), &ids[..1], json!({ "dat": "mine.dat" })).unwrap();
+        let c = save(&ix, &lib, Target::Again(&c.id, ""), &ids[..1], json!({ "dat": "mine.dat" })).unwrap();
         assert_eq!(collection::work_out(&ix, &lib, &c).unwrap().games().count(), 1);
+        // a group of it made from the folder: its own DATs in its own folder, named for it,
+        // and the game the first group has isn't repeated in it
+        let c = save(&ix, &lib, Target::Group(&c.id, "From the folder"), &ids, json!({ "folders": [sub.display().to_string()] })).unwrap();
+        let g = &c.groups[0];
+        assert_eq!((g.name.as_str(), g.made_from.is_some()), ("From the folder", true));
+        assert!(g.rules.from_files[0].contains(&format!("{}/{}/", c.id, g.id)) && g.rules.from_files[0].ends_with("Best of GB - From the folder - Game Boy.dat"), "{:?}", g.rules.from_files);
+        assert_eq!(c.rules.from_files.len(), 1, "the first group's DATs as they were");
+        let w = collection::work_out(&ix, &lib, &c).unwrap();
+        assert_eq!((w.systems[0].games.len(), w.systems[1].games.len(), w.games().count()), (1, 2, 3));
         // a copy has its own DATs; deleting the first takes its DATs, not the copy's
         let copy = collection::save(&lib, Collection { id: String::new(), name: "Copy".into(), ..c.clone() }).unwrap();
         assert!(copy.rules.from_files[0].contains(&copy.id), "{:?}", copy.rules.from_files);
+        assert!(copy.groups[0].rules.from_files[0].contains(&format!("{}/{}/", copy.id, copy.groups[0].id)), "{:?}", copy.groups[0].rules.from_files);
+        assert!(lib.root().join(&copy.groups[0].rules.from_files[0]).is_file());
         collection::delete(&lib, &c.id).unwrap();
         assert!(!dats_dir(&lib, &c.id).unwrap().exists());
-        assert_eq!(collection::work_out(&ix, &lib, &copy).unwrap().games().count(), 1);
+        assert_eq!(collection::work_out(&ix, &lib, &copy).unwrap().games().count(), 3);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

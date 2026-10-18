@@ -292,8 +292,9 @@ function TableHead({ q, set }) {
     aria-sort=${sort && q.sort === sort ? (q.desc ? "descending" : "ascending") : null}>${sort ? html`<button type="button" class="lib-sort" data-sort=${sort} onClick=${() => set({ sort, desc: q.sort === sort ? !q.desc : false })}>${label}${q.sort === sort ? (q.desc ? " ▾" : " ▴") : ""}</button>` : label}</span>`)}</div>`;
 }
 
-/** The grid, list or table, drawing only what's in view. */
-export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMenu, scrollRef }) {
+/** The grid, list or table, drawing only what's in view. `jump` ({ value }, a new object
+ *  each time) scrolls to the heading of the group with that value. */
+export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMenu, scrollRef, jump }) {
   const [box, setBox] = useState({ w: 800, h: 600, top: 0 });
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -314,6 +315,12 @@ export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMen
   const colW = view === "grid" ? (inner - gap * (cols - 1)) / cols : inner;
   const rowH = view === "grid" ? Math.round(colW * 1.38) + 52 + gap : view === "list" ? 58 : 34;
   const { segs, height } = useMemo(() => layout(games.total, q.group ? games.groups : null, cols, rowH, 44), [games.total, games.groups, cols, rowH, q.group]);
+  // (once for each jump: the sections can be laid out again as the games come in)
+  const jumped = useRef(null);
+  useEffect(() => {
+    const s = jump && jump !== jumped.current && segs.find((x) => String(x.g.value) === String(jump.value));
+    if (s && scrollRef.current) { scrollRef.current.scrollTop = s.top; jumped.current = jump; }
+  }, [jump, segs]);
   const from = box.top - box.h, to = box.top + box.h * 2;
   const drawn = [];
   const wanted = new Set();
@@ -651,9 +658,11 @@ export function Browse() {
     { head: "Cover size" },
     ...Object.keys(SIZES).map((k) => ({ id: `size-${k}`, label: k[0].toUpperCase() + k.slice(1), icon: px === k ? "check" : null, run: () => pickSize(k), disabled: view !== "grid" ? "In the grid" : false })),
     { sep: true },
+    { id: "lib-import", label: "Import…", icon: "inbox", run: () => { location.hash = routeHash("import"); } },
+    { sep: true },
     { id: "lib-save", label: "Save as a collection…", icon: "collection", disabled: off || !filtered(q) ? (off ? true : "Choose some filters first") : false, run: () => ui.set({ dialog: { type: "lib-save", q } }) },
     { id: "lib-scrape-shown", label: `Scrape the ${plural(games.total, "game", "games")} shown…`, icon: "scrape", disabled: off || !games.total, run: async () => { const list = (await api("browse_keys", { query: q })).filter((g) => g.dat_game); if (list.length) scrapeDialog({ platform: list[0].platform, platformName: "", games: list.map((g) => g.dat_game), gameName: plural(list.length, "game", "games") }); } },
-    { id: "lib-rename-folders", label: "Rename games' library folders to their DAT names…", icon: "edit", disabled: off, run: renameFolders },
+    { id: "lib-rename-folders", label: "Rename game folders to the DAT's names…", icon: "edit", disabled: off, run: renameFolders },
   ];
   const search = html`<input type="search" id="lib-search" data-search="1" class="compact" placeholder="Search titles, developers, descriptions" aria-label="Search the library" value=${box} onInput=${(e) => setBox(e.target.value)} />`;
   const tools = html`<${ViewSwitch} id="lib-view" views=${VIEWS} value=${view} onChange=${pickView} />
@@ -669,7 +678,8 @@ export function Browse() {
     return html`${head}<div class="pages"><div class="library-settings" id="lib-empty">
       <p class="page-lead">${Icon.grid(18)} Every game the library holds, across its systems, by its pictures and details.</p>
       <section class="ls-section"><h2>To start</h2>
-        <p>Add a folder with games and import a DAT for its system (<a href=${routeHash("audit")}>Audit</a>), or import PC games (<a href=${routeHash("pc")}>PC games</a>). Scraping (<a href=${routeHash("metadata")}>Metadata</a>) brings their pictures and details.</p></section>
+        <p>Import your games and a DAT for each system: a folder you keep them in, games to copy into the library, or PC games. Scraping (<a href=${routeHash("metadata")}>Metadata</a>) brings their pictures and details.</p>
+        <div class="home-actions"><a class="primary button-link" id="lib-import-first" href=${routeHash("import")}>Import…</a></div></section>
     </div></div>`;
   }
   const keyOf = one ? one.key : null;

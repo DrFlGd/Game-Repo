@@ -245,6 +245,14 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 .collection-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .collection-tools input[type="search"] { flex: 1 1 160px; min-width: 120px; width: auto; }
 .collection-scroll { min-height: 320px; }
+/* a collection's groups (D75): under it in the ribbon, a section each on its Rules tab */
+.panel-child { padding: 4px 8px; font-size: 13px; color: var(--graphite); }
+.panel-child:hover { color: var(--ink); }
+.collection-hint { display: inline-flex; align-items: center; color: var(--graphite); cursor: help; }
+.collection-hint:focus-visible { outline: 2px solid var(--focus); border-radius: 50%; }
+.group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.group-head h2 { margin-right: auto; }
+.export-groups { display: grid; gap: 4px; border: 0; padding: 0; margin: 0; }
 /* Choose icon… */
 .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; max-height: 46vh; overflow: auto; padding: 2px; }
 .icon-choice { display: grid; justify-items: center; gap: 4px; padding: 8px 4px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); background: var(--white); font-size: 11.5px; font-weight: 600; }
@@ -1422,6 +1430,9 @@ svg g[data-sk] { display: none; }
 
 /* ---- Game Repo: the pages still to come (Phase 0) ----------------------- */
 .nav-link.off { opacity: .45; }
+/* a page under another (D72): indented, a little smaller */
+.nav-child .nav-link { padding-left: 26px; font-size: 13px; }
+.sidebar.collapsed .nav-child .nav-link { padding-left: 8px; }
 .coming-page .page-lead { display: flex; gap: 10px; align-items: center; }
 .coming-page .page-lead .icon { flex: none; color: var(--tool); }
 .coming-list { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 70ch; }
@@ -1450,6 +1461,13 @@ svg g[data-sk] { display: none; }
 .audit-totals p { margin: 0; }
 .audit-totals .audit-bar { height: 10px; }
 .audit-tabs { flex-wrap: wrap; width: fit-content; max-width: 100%; }
+.audit-tab-groups { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.audit-tab-group { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.audit-tab-label { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--graphite); }
+.audit-table .audit-row { cursor: default; }
+.audit-table .audit-row:focus { outline: 2px solid var(--accent-edge); outline-offset: -2px; }
+.audit-open { color: inherit; text-decoration: none; }
+.audit-open:hover { text-decoration: underline; }
 .audit-tabs button[aria-selected="true"] { background: var(--ink); color: var(--white); }
 .tab-count { font-variant-numeric: tabular-nums; opacity: .75; margin-left: 4px; }
 .audit-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 13px; }
@@ -1753,6 +1771,8 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 
 /* BIOS files (Phase 5b) */
 .bios-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bios-page .audit-tools { margin-bottom: 10px; }
+.lt-layouts .lt-head { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--graphite); padding: 10px 8px 2px; }
 .bios-system { border: 1px solid var(--steel-2); border-radius: var(--radius-s); background: var(--white); }
 .bios-system > summary { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 8px 12px; cursor: pointer; }
 .bios-system > summary strong { flex: 1 1 14em; }
@@ -1918,7 +1938,11 @@ span.game-hero { display: grid; place-items: center; font-size: 96px; }
 .scrape-more > summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
 .scrape-more[open] { display: grid; gap: 10px; }
 .lib-panel-empty { align-content: start; padding-top: 48px; }
-@media (min-width: 1251px) { .lib-page:has(> .lib-panel-empty) { grid-template-columns: 230px minmax(0, 1fr) 220px; } }
+/* no game picked: no panel, the games take its room (UI pass 3) */
+.lib-page:has(> .lib-panel-empty) { grid-template-columns: 230px minmax(0, 1fr); }
+.lib-panel-empty { display: none; }
+@media (max-width: 1250px) { .lib-page:has(> .lib-panel-empty) { grid-template-columns: 210px minmax(0, 1fr); } }
+@media (max-width: 760px) { .lib-page:has(> .lib-panel-empty) { grid-template-columns: minmax(0, 1fr); } }
 .lt-back { justify-self: start; font-size: 13px; }
 .lt-add-more > summary { cursor: pointer; }
 .lt-add-more[open] > summary { margin-bottom: 6px; }
@@ -1944,3 +1968,10 @@ span.game-hero { display: grid; place-items: center; font-size: 96px; }
 /* Phase 7: what an arcade game needs to run */
 .audit-needs { font-size: 12.5px; color: var(--warn-ink); overflow-wrap: anywhere; }
 .audit-samples { font-size: 12px; overflow-wrap: anywhere; }
+
+/* Import (UI pass 3, D73): a card per kind of thing, then the folders with games and the DATs */
+.import-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin: 4px 0 20px; }
+.import-card { border: 1px solid var(--steel-2); border-radius: var(--radius-m); background: var(--white); padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
+.import-card h2 { display: flex; align-items: center; gap: 8px; font-size: 15px; margin: 0; }
+.import-card p { margin: 0; font-size: 13px; }
+.import-card .home-actions { margin-top: 6px; }
