@@ -299,7 +299,7 @@ function AddGameDialog({ platform: given, files: givenFiles }) {
     setBusy(true);
     setError("");
     try {
-      setPlan(await api("add_plan", { files: chosen, platform, into, mode }));
+      setPlan(await api("add_plan", { files: chosen, platform, into, mode: mode === "move" ? "move" : "copy", always_copy: mode === "always" }));
     } catch (e) {
       setError(err(e));
     } finally {
@@ -333,14 +333,15 @@ function AddGameDialog({ platform: given, files: givenFiles }) {
     ${platform ? html`<div class="field-block"><span class="field-label">Into</span>
       <div class="pick-row">
         <select id="add-into" class="compact" value=${into} onChange=${(e) => setInto(e.target.value)}>
-          ${places.map((p) => html`<option key=${p.dir} value=${p.dir}>${p.dir}${p.platform ? "" : " (every system)"}</option>`)}
+          ${places.map((p) => html`<option key=${p.dir} value=${p.dir} title=${p.why}>${p.dir}</option>`)}
           ${into && !places.some((p) => p.dir === into) ? html`<option value=${into}>${into}</option>` : null}
         </select>
         ${isDesktop() ? html`<button type="button" class="ghost" id="add-pick-into" onClick=${pickInto}>Another folder…</button>` : null}
       </div>
       ${!places.length ? html`<small class="muted">There's no folder with games for this system yet: the folder you choose becomes one.</small>` : null}</div>` : null}
     <div class="field-block" role="radiogroup" aria-label="How">
-      <label class="check-row"><input type="radio" name="add-mode" value="copy" checked=${mode === "copy"} onChange=${() => setMode("copy")} /> Copy it (the original stays)</label>
+      <label class="check-row"><input type="radio" name="add-mode" value="copy" checked=${mode === "copy"} onChange=${() => setMode("copy")} /> Copy it, hardlinked on the same drive (the original stays)</label>
+      <label class="check-row"><input type="radio" name="add-mode" value="always" checked=${mode === "always"} onChange=${() => setMode("always")} /> Copy it, always (a full copy, even on the same drive)</label>
       <label class="check-row"><input type="radio" name="add-mode" value="move" checked=${mode === "move"} onChange=${() => setMode("move")} /> Move it</label>
     </div>
   <//>`;

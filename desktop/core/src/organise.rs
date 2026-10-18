@@ -102,6 +102,10 @@ pub struct Plan {
     /// A folder with games added for the output (mode 3), when it isn't in one
     #[serde(default)]
     pub new_root: Option<String>,
+    /// More folders with games added, each for its system: `[folder, system]` (an import
+    /// into several systems' new folders)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub new_roots: Vec<[String; 2]>,
     /// Targets there already with the right contents: `{ game, to }` (an export keeps them)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub present: Vec<Value>,
@@ -127,7 +131,7 @@ impl Plan {
             "format": self.format, "out": self.out, "games": self.games, "in_place": self.in_place,
             "ops": self.ops.len(), "by_op": by_op.iter().map(|(k, (n, b))| json!({ "op": k, "count": n, "bytes": b })).collect::<Vec<_>>(),
             "set_aside": set_aside, "conflicts": self.conflicts.len(), "duplicates": self.duplicates.len(), "left": self.left.len(),
-            "space": self.space, "short": self.space.iter().any(|s| s["short"] == true), "new_root": self.new_root,
+            "space": self.space, "short": self.space.iter().any(|s| s["short"] == true), "new_root": self.new_root, "new_roots": self.new_roots,
             "layout_name": self.export.as_ref().and_then(|e| e.get("layout_name")).cloned(),
         })
     }
@@ -751,7 +755,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             id, created: now(), kind: "organise".into(), label, title,
             dat: json!({ "id": d.id, "name": d.name, "version": d.version }), platform: d.platform.clone(),
             mode: mode.clone(), format: format.clone(), out: out.as_ref().map(|o| o.display().to_string()),
-            ops: vec![], games: 0, in_place: 0, conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root,
+            ops: vec![], games: 0, in_place: 0, conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root, new_roots: vec![],
             present: vec![], export: None,
         },
         taken: HashSet::new(),
@@ -1123,7 +1127,7 @@ pub fn plan_duplicates(ix: &Index, lib: &Library, dat_id: i64) -> Result<Plan> {
         label: format!("Set aside {} duplicates", platforms::name_of(&d.platform)), title: String::new(),
         dat: json!({ "id": d.id, "name": d.name, "version": d.version }), platform: d.platform.clone(),
         mode: "aside".into(), format: "keep".into(), out: None, ops: vec![], games: 0, in_place: 0,
-        conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, present: vec![], export: None,
+        conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, new_roots: vec![], present: vec![], export: None,
     };
     let mut kept: HashSet<(i64, Option<String>)> = HashSet::new();
     let mut extra: Vec<&Cand> = vec![];
@@ -1830,11 +1834,11 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
         }
         crate::config::write_json(&path, &serde_json::to_value(plan)?)?;
     }
-    if let Some(dir) = &plan.new_root {
+    for (dir, platform) in plan.new_root.iter().map(|d| (d, &plan.platform)).chain(plan.new_roots.iter().map(|[d, p]| (d, p))) {
         let dir = PathBuf::from(dir);
         std::fs::create_dir_all(&dir)?;
         if in_root(&roots::list(lib), &dir.join("x")).is_none() {
-            roots::add(lib, &dir, Some(&plan.platform))?;
+            roots::add(lib, &dir, Some(platform.as_str()).filter(|p| !p.is_empty()))?;
             let conn = ix.conn();
             for r in roots::list(lib) {
                 conn.execute("INSERT OR IGNORE INTO roots (id, path, platform) VALUES (?1, ?2, ?3)", params![r.id, r.path, r.platform])?;
@@ -2032,7 +2036,7 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
         }
     }
     // and the folder with games it added, if it's empty again
-    if let Some(dir) = plan.new_root.as_ref().map(PathBuf::from) {
+    for dir in plan.new_root.iter().chain(plan.new_roots.iter().map(|[d, _]| d)).map(PathBuf::from) {
         if !dir.exists() || std::fs::read_dir(&dir).is_ok_and(|mut rd| rd.next().is_none()) {
             let _ = std::fs::remove_dir(&dir);
             if let Some(r) = roots::list(lib).into_iter().find(|r| key(&r.dir) == key(&dir)) {

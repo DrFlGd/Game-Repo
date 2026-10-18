@@ -45,6 +45,7 @@ import functools
 import hashlib
 import http.server
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -1044,20 +1045,32 @@ async def main():
             await pg.click("#subset-review button[type=submit]")
             await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Wanted'")
             # collecting copies nothing (D71): the game the library lacks comes in from Import
+            # with a file no DAT knows beside it, taken as its folder's system; copied in full
+            (wanted / "homebrew.gb").write_bytes(b"a homebrew game nobody listed")
             await pg.click('.sidebar a[href="#/import"]')
             await pg.click("#import-games")
             pick(wanted)
             await pg.click("#import-add-folder")
             await pg.wait_for_selector("#import-folders li")
+            systems_offered = await pg.eval_on_selector_all("#import-system option", "els => els.map(e => e.textContent)")
+            await pg.check('#import-mode input[value="always"]')
             await pg.click("#import-games-dialog button[type=submit]")
             await pg.wait_for_selector("#import-games-review", timeout=30000)
             offered = await pg.eval_on_selector_all("#import-games-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
+            unknown_as = await pg.input_value('#import-games-unknown li[data-folder="Wanted"] select')
+            await pg.wait_for_selector('#import-places li[data-platform="gb"][data-dir]:not([data-dir=""])')
+            place = await pg.get_attribute('#import-places li[data-platform="gb"]', "data-dir")
+            await pg.screenshot(path=str(out / "23d-import-review.png"))
             await pg.click("#import-games-review button[type=submit]")
             await pg.wait_for_selector("#bring-dialog #organise-totals")
             await pg.screenshot(path=str(out / "23d-bring-in.png"))
             await pg.click("#bring-dialog button[type=submit]")
-            said = await toast_text(pg, "Imported 1 game into the library")
+            said = await toast_text(pg, "Imported 2 games into the library")
             brought = [x for x in (fx / "Roms").rglob("Alpha (Europe).gb") if ".gamerepo-set-aside" not in x.parts]
+            check("Import offers every system or one, and copy, always copy or move; each system's games go to the folder its games are in, and a file no DAT knows to its folder's system",
+                  systems_offered[0].startswith("Every system") and "Game Boy" in systems_offered and unknown_as == "gb" and len(brought) == 1
+                  and brought[0].parent == Path(place) and (Path(place) / "homebrew.gb").is_file() and os.stat(brought[0]).st_nlink == 1,
+                  (systems_offered[:3], unknown_as, place, brought))
             await pg.click('.sidebar a[href="#/collections"]')
             await pg.click('#collection-panel-list .panel-link:has-text("Wanted")')
             await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Wanted' && document.querySelector('#collection-have')?.textContent === '1'", timeout=30000)
@@ -1227,8 +1240,8 @@ async def main():
             await pg.click("#add-game-dialog button[type=submit]")
             await pg.wait_for_selector("#add-results li", timeout=30000)
             row = await pg.inner_text("#add-results li")
-            check("Add a game… copies a ROM into a folder with games, scans it and says which DAT game it is",
-                  "Alpha (Europe)" in row and (fx / "Roms/alpha-eu.gb").is_file() and (downloads / "alpha-eu.gb").is_file(), row)
+            check("Add a game… copies a ROM into the folder its system's games are in, scans it and says which DAT game it is",
+                  "Alpha (Europe)" in row and (fx / "Roms/Game Boy/alpha-eu.gb").is_file() and (downloads / "alpha-eu.gb").is_file(), row)
             await pg.screenshot(path=str(out / "27-add-game.png"))
             await pg.click("#add-results-dialog button[type=submit]")
 

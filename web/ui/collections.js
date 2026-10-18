@@ -309,7 +309,7 @@ function NewCollectionDialog({ way: given = "rules", again, group: into, onMade 
       ${review.unknown.length ? html`<details class="field-block subset-unknown" id="subset-unknown"><summary>${plural(review.unknown.length, "file", "files")} not in any audit DAT</summary>
         <ul class="ls-list">${review.unknown.slice(0, 500).map((u, i) => html`<li key=${i} data-path=${u.path}><span class="op-to">${u.path}</span> <span class="muted">${u.why}</span></li>`)}</ul>
         <small class="muted">Import the DAT of a system they belong to on the Audit page, then read them again.</small></details>` : null}
-      ${lacking ? html`<p class="muted bring-row" id="subset-lacking">${plural(lacking, "game", "games")} in the folders ${lacking === 1 ? "isn't" : "aren't"} in your audited games yet: <a href=${routeHash("import")} onClick=${close}>Import › Games to copy into the library</a> brings ${lacking === 1 ? "it" : "them"} in.</p>` : null}
+      ${lacking ? html`<p class="muted bring-row" id="subset-lacking">${plural(lacking, "game", "games")} in the folders ${lacking === 1 ? "isn't" : "aren't"} in your audited games yet: <a href=${routeHash("import")} onClick=${close}>Import › Games into the library</a> brings ${lacking === 1 ? "it" : "them"} in.</p>` : null}
       <p class="muted">The ${what} is kept as DATs of its own (one per system, with the Audit page's DATs' names and hashes) in the library. Its games are exported from your audited games; ${way === "dat" ? "the DAT" : "the folders"} aren't changed.</p>
     <//>`;
   }

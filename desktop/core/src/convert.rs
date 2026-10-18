@@ -224,7 +224,7 @@ fn new_plan(lib: &Library, d: &audit::DatRef, kind: &str, (label, title): (Strin
         dat: json!({ "id": d.id, "name": d.name, "version": d.version }), platform: d.platform.clone(),
         mode: if out.is_some() { "copy".into() } else { "in-place".into() }, format: to.into(),
         out: out.map(|o| o.display().to_string()), ops: vec![], games: 0, in_place: 0,
-        conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, present: vec![], export: None,
+        conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, new_roots: vec![], present: vec![], export: None,
     }
 }
 

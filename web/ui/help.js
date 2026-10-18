@@ -66,7 +66,7 @@ export const PAGES = [
     "An export can carry the magazines into a Magazines folder (What it carries in the Export dialog).",
   ]],
   ["import", "Import", "Everything that comes into the library, in one place.", [
-    "Games to copy into the library: From a folder… reads a folder, matches its files against your DATs and copies the games the library lacks into a folder with games, named as their DAT says; One game… for a single ROM or disc.",
+    "Games into the library: From a folder… reads folders (every system's games, or one system's), matches their files against your DATs and copies or moves the games the library lacks into each system's own folder with games, named as their DAT says. It asks where a system's games go when it has no folder yet, and which system files no DAT knows belong to. One game… is for a single ROM or disc.",
     "PC games, BIOS files, documents and magazines, each with its own button.",
     "Folders with games: games you keep where they are, scanned and audited there. DAT files: Import DATs…, Get starter DATs… and Make a DAT from a folder…, and the DATs you have.",
   ]],

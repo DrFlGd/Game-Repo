@@ -348,7 +348,7 @@ pub fn plan(lib: &Library, items: &[Item], always_copy: bool) -> Result<Plan> {
         conflicts: vec![],
         duplicates: vec![],
         left: vec![],
-        new_root: None,
+        new_root: None, new_roots: vec![],
         present: vec![],
         export: None,
     })

@@ -859,7 +859,7 @@ impl App {
                     "export" => "Exporting",
                     "import" => "Importing",
                     "add" => "Adding",
-                    "bring" => "Bringing in games",
+                    "bring" => "Importing games",
                     "docs" => "Importing documents",
                     "magazines" => "Importing magazines",
                     "metadata" => "Deleting metadata",
@@ -1461,7 +1461,8 @@ impl App {
             }
             "add_places" => {
                 let lib = self.library()?;
-                j(json!(addgame::places(&lib, arg(&args, "platform").map_err(e2s)?)))
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                j(self.with_index(move |ix| Ok(json!(addgame::places(Some(ix.conn()), &lib, &platform)))).await?)
             }
             "add_plan" => {
                 let lib = self.library()?;
@@ -1886,13 +1887,17 @@ impl App {
             }
             "collection_bring_plan" => {
                 let lib = self.library()?;
-                let games: Vec<(i64, Vec<PathBuf>)> = args["games"]
-                    .as_array()
-                    .map(|a| a.iter().filter_map(|g| Some((g["id"].as_i64()?, g["files"].as_array()?.iter().filter_map(Value::as_str).map(PathBuf::from).collect()))).collect())
-                    .unwrap_or_default();
+                let paths = |v: &Value| -> Vec<PathBuf> { v.as_array().map(|a| a.iter().filter_map(Value::as_str).map(PathBuf::from).collect()).unwrap_or_default() };
+                let imp = crate::subset::Import {
+                    games: args["games"].as_array().map(|a| a.iter().filter_map(|g| Some((g["id"].as_i64()?, paths(&g["files"])))).collect()).unwrap_or_default(),
+                    files: args["files"].as_array().map(|a| a.iter().filter_map(|g| Some((g["platform"].as_str()?.to_string(), paths(&g["files"])))).collect()).unwrap_or_default(),
+                    places: args["places"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), PathBuf::from(v.as_str()?.trim())))).collect()).unwrap_or_default(),
+                    mode: args["mode"].as_str().unwrap_or("copy").to_string(),
+                    always_copy: args["always_copy"].as_bool().unwrap_or(false),
+                };
                 j(self
                     .with_index(move |ix| {
-                        let plan = crate::subset::bring_plan(ix, &lib, &games, &AtomicBool::new(false))?;
+                        let plan = crate::subset::bring_plan(ix, &lib, &imp, &AtomicBool::new(false))?;
                         organise::save_pending(&data_dir, &plan)?;
                         Ok(plan.summary())
                     })
