@@ -2837,6 +2837,25 @@ Jerred's list after Phase 8, built as one PR before the joint UI review.
 7. *Grid of tabs on a collection* (Games, Source, Size, Exported to, History) plus the
    In it / Left out tabs: two rows of tabs; Left out could be a filter of the games view.
 
+### Scraping threads and the game picture (built 2026-10-18, D70)
+
+Jerred asked during the joint review: his ScreenScraper account allows several threads, and
+the game page's picture changed size with every picture picked from the strip under it.
+
+- **ScreenScraper threads** (`scrapers.rs`, `scrape.rs`). Before a scrape that asks
+  ScreenScraper, `ss_configure` reads the account's `ssuserInfos.php` (never from the
+  cache): `maxthreads` (at most 16, fewer if Settings › Sources' *Threads at once* says
+  so) and `maxrequestspermin`, which sets the gap between requests' starts (a tenth under
+  the rate; else 1.2 s shared between the threads). `Slot` holds the count of requests in
+  flight at the threads. The scrape asks that many games at once (scoped threads, each
+  game's sources in their order), then keeps their answers one after another on the main
+  thread, so progress, the review list and the index are written as before; a game's
+  pictures are fetched that many at a time (`fetch_all`). 429s and "maximum threads"
+  still back off. *Check* says how many threads the account allows.
+- **The game's picture is one square box** (`.game-hero`): `aspect-ratio: 1` at the
+  column's width (at most 520 px), the picture or video scaled inside it with
+  `object-fit: contain`, so picking another doesn't move the page.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -2971,7 +2990,7 @@ Jerred's list after Phase 8, built as one PR before the joint UI review.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D70). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field.
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D71). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 

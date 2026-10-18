@@ -1844,8 +1844,9 @@ html.drop-over .game-page, html.drop-over .meta-panel { outline: 2px dashed var(
 .game-page > * { max-width: 1180px; }
 .game-top { display: grid; grid-template-columns: minmax(240px, 420px) minmax(0, 1fr); gap: 24px; align-items: start; margin-bottom: 18px; }
 .game-gallery { display: grid; gap: 8px; }
-.game-hero { width: 100%; max-height: 520px; object-fit: contain; border-radius: var(--radius-m); background: var(--thumb-bg); }
-span.game-hero { height: 320px; font-size: 96px; }
+/* one square box whatever is shown in it, so picking another picture doesn't move the page */
+.game-hero { display: block; width: 100%; max-width: 520px; aspect-ratio: 1; height: auto; object-fit: contain; border-radius: var(--radius-m); background: var(--thumb-bg); }
+span.game-hero { display: grid; place-items: center; font-size: 96px; }
 .game-strip { display: flex; flex-wrap: wrap; gap: 6px; }
 .game-strip button { padding: 2px; width: 64px; height: 64px; border-radius: var(--radius-s); background: var(--white); }
 .game-strip button[aria-selected="true"] { border-color: var(--accent-edge); box-shadow: inset 0 0 0 1px var(--accent-edge); }

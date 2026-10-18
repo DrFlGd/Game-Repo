@@ -261,21 +261,17 @@ pub fn apply(ix: &Index, lib: &Library, g: &DatGame, found: &[Match], o: &Option
             obj.remove("review");
         }
     }
-    let mut got = 0;
+    // what to fetch, kind by kind: the chosen source's, and every source's for the kinds
+    // that keep them all; then all of it at once (as many as ScreenScraper's threads)
+    let mut kinds: Vec<(&String, Vec<&Match>)> = vec![];
     for kind in &o.media {
-        if cancel.load(Ordering::Relaxed) {
-            break;
-        }
         let def = chosen_from(o, found, kind);
         if kind == "manual" {
             let Some(m) = def else { continue };
             if docs::has_users(&dir, "manual") || (!replace && docs::has_scraped(&dir, "manual")) {
                 continue;
             }
-            if let Some((bytes, ext)) = scrapers::fetch(&m.art[kind], kind) {
-                docs::save_scraped(lib, &dir, "manual", identify::source_name(&m.source), &m.source, &ext, &bytes)?;
-                got += 1;
-            }
+            kinds.push((kind, vec![m]));
             continue;
         }
         let every = o.variants.iter().any(|k| k == kind);
@@ -291,11 +287,27 @@ pub fn apply(ix: &Index, lib: &Library, g: &DatGame, found: &[Match], o: &Option
             }
         }
         let have = sources::names(&dir, &v, kind);
-        for m in want {
-            if !replace && have.contains(&m.source) {
-                continue;
+        want.retain(|m| replace || !have.contains(&m.source));
+        kinds.push((kind, want));
+    }
+    let list: Vec<(&str, &str)> = if cancel.load(Ordering::Relaxed) { vec![] } else { kinds.iter().flat_map(|(k, ms)| ms.iter().map(|m| (m.art[k.as_str()].as_str(), k.as_str()))).collect() };
+    let mut fetched = scrapers::fetch_all(&list).into_iter();
+    let mut got = 0;
+    for (kind, want) in &kinds {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        let kind = *kind;
+        let def = chosen_from(o, found, kind);
+        if kind == "manual" {
+            if let (Some(m), Some(Some((bytes, ext)))) = (want.first(), fetched.next()) {
+                docs::save_scraped(lib, &dir, "manual", identify::source_name(&m.source), &m.source, &ext, &bytes)?;
+                got += 1;
             }
-            let Some((bytes, ext)) = scrapers::fetch(&m.art[kind], kind) else { continue };
+            continue;
+        }
+        for m in want {
+            let Some(Some((bytes, ext))) = fetched.next() else { continue };
             std::fs::create_dir_all(dir.join("media"))?;
             sources::store(&dir, &v, kind, &m.source, &ext, &bytes)?;
             got += 1;
@@ -360,35 +372,76 @@ pub fn run(ix: &Index, lib: &Library, cfg: &AppConfig, data_dir: &Path, o: &Opti
     let mut off: HashSet<String> = HashSet::new();
     let mut errors: BTreeMap<String, String> = BTreeMap::new();
     let mut stopped = false;
-    for (i, id) in games.iter().enumerate() {
-        if cancel.load(Ordering::Relaxed) {
-            stopped = true;
-            break;
-        }
-        let g = meta::dat_game(ix.conn(), *id)?;
-        progress(json!({ "item": i + 1, "items": games.len(), "name": g.name }));
-        if o.existing == "skip" {
-            if let Some(f) = meta::folder_of(ix.conn(), &g)? {
-                let dir = lib.resolve(&f)?;
-                let v = meta::read_game(&dir);
-                if v["details"].as_object().is_some_and(|d| !d.is_empty()) || !meta::media_kinds(&dir).is_empty() {
-                    skipped += 1;
-                    continue;
+    // ScreenScraper's threads: that many games asked about at once, then put in their
+    // folders one after another (only the asking is at once)
+    let threads = if o.sources.iter().any(|s| s == "screenscraper") && !games.is_empty() { scrapers::ss_configure(cfg, data_dir) } else { 1 };
+    let mut next = 0;
+    'all: while next < games.len() {
+        let mut batch: Vec<(usize, DatGame)> = vec![];
+        while next < games.len() && batch.len() < threads {
+            if cancel.load(Ordering::Relaxed) {
+                stopped = true;
+                break 'all;
+            }
+            let i = next;
+            next += 1;
+            let g = meta::dat_game(ix.conn(), games[i])?;
+            if o.existing == "skip" {
+                if let Some(f) = meta::folder_of(ix.conn(), &g)? {
+                    let dir = lib.resolve(&f)?;
+                    let v = meta::read_game(&dir);
+                    if v["details"].as_object().is_some_and(|d| !d.is_empty()) || !meta::media_kinds(&dir).is_empty() {
+                        progress(json!({ "item": i + 1, "items": games.len(), "name": g.name }));
+                        skipped += 1;
+                        continue;
+                    }
                 }
             }
+            batch.push((i, g));
+        }
+        if batch.is_empty() {
+            continue;
         }
         if o.sources.iter().all(|s| off.contains(s)) {
             break;
         }
-        let asked = ask(cfg, data_dir, &o, &g, &mut off, &mut errors);
-        if !asked.found.is_empty() {
-            found_n += 1;
-            pics += apply(ix, lib, &g, &asked.found, &o, cancel)?;
-        } else if !asked.candidates.is_empty() {
-            look += 1;
-            keep_review(ix, lib, &g, &asked.candidates)?;
+        let answers: Vec<(Asked, HashSet<String>, BTreeMap<String, String>)> = if batch.len() == 1 {
+            let (mut off1, mut err1) = (off.clone(), BTreeMap::new());
+            vec![(ask(cfg, data_dir, &o, &batch[0].1, &mut off1, &mut err1), off1, err1)]
         } else {
-            none += 1;
+            std::thread::scope(|sc| {
+                let hs: Vec<_> = batch
+                    .iter()
+                    .map(|(_, g)| {
+                        let (o, off) = (&o, off.clone());
+                        sc.spawn(move || {
+                            let (mut off, mut errs) = (off, BTreeMap::new());
+                            (ask(cfg, data_dir, o, g, &mut off, &mut errs), off, errs)
+                        })
+                    })
+                    .collect();
+                hs.into_iter().map(|h| h.join().unwrap_or_else(|_| (Asked { found: vec![], candidates: vec![] }, HashSet::new(), BTreeMap::new()))).collect()
+            })
+        };
+        for ((i, g), (asked, off1, err1)) in batch.iter().zip(answers) {
+            off.extend(off1);
+            for (k, e) in err1 {
+                errors.entry(k).or_insert(e);
+            }
+            progress(json!({ "item": i + 1, "items": games.len(), "name": g.name }));
+            if cancel.load(Ordering::Relaxed) {
+                stopped = true;
+                break 'all;
+            }
+            if !asked.found.is_empty() {
+                found_n += 1;
+                pics += apply(ix, lib, g, &asked.found, &o, cancel)?;
+            } else if !asked.candidates.is_empty() {
+                look += 1;
+                keep_review(ix, lib, g, &asked.candidates)?;
+            } else {
+                none += 1;
+            }
         }
     }
     // the manuals kept, listed with the documents
@@ -485,6 +538,8 @@ pub(crate) mod tests {
             ] } } });
         let pdf = [b"%PDF-1.4\n".to_vec(), vec![b' '; 200]].concat();
         let routes = vec![
+            // the account: three threads at once
+            ("ssuserInfos.php".to_string(), br#"{"response":{"ssuser":{"id":"me","maxthreads":"3","maxrequestspermin":"600"}}}"#.to_vec()),
             (format!("crc={crc}"), ss.to_string().into_bytes()),
             ("/media/cover.png".to_string(), png(600, 400)),
             ("/media/shot.png".to_string(), png(320, 240)),
@@ -506,7 +561,7 @@ pub(crate) mod tests {
         let base = serve(routes.clone());
         let ss = ss.to_string().replace("BASE", &base);
         let mut routes = routes;
-        routes[0].1 = ss.into_bytes();
+        routes[1].1 = ss.into_bytes();
         let base = serve(routes);
         let mut cfg = AppConfig::default();
         for (k, u) in [("screenscraper", "/ss"), ("igdb", "/igdb"), ("twitch", "/tw"), ("igdb_images", "/img"), ("thegamesdb", "/tgdb")] {
@@ -521,10 +576,18 @@ pub(crate) mod tests {
     fn a_systems_games_are_scraped_by_hash_and_by_name_and_the_unsure_need_a_look() {
         let (dir, lib, ix) = crate::collection::tests::fixture("scrape");
         let data = dir.join("data");
-        let cfg = sources();
+        let mut cfg = sources();
         let o = Options { platform: "gb".into(), sources: vec!["screenscraper".into(), "igdb".into(), "thegamesdb".into()], ..Default::default() };
         let cancel = AtomicBool::new(false);
-        let r = run(&ix, &lib, &cfg, &data, &o, &cancel, &mut |_| {}).unwrap();
+        let mut items = vec![];
+        let r = run(&ix, &lib, &cfg, &data, &o, &cancel, &mut |p| items.push(p["item"].as_u64().unwrap())).unwrap();
+        // asked three games at a time, as the account allows, and each game said once, in order
+        assert_eq!(scrapers::ss_configure(&cfg, &data), 3);
+        assert_eq!(items, (1..=8).collect::<Vec<u64>>());
+        // fewer, if Settings says so
+        cfg.source_keys.get_mut("screenscraper").unwrap().insert("threads".into(), "2".into());
+        assert_eq!(scrapers::ss_configure(&cfg, &data), 2);
+        cfg.source_keys.get_mut("screenscraper").unwrap().remove("threads");
         // eight games on disk: Alpha (Europe) by its hash (and by name), the other Alpha and the three Betas by name, Delta unsure
         assert_eq!((r["games"].as_u64(), r["found"].as_u64(), r["look"].as_u64()), (Some(8), Some(5), Some(1)), "{r}");
         // TheGamesDB has no key: said once, the others still asked

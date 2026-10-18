@@ -9,7 +9,9 @@
 //! them (ES-DE, Skyscraper, RomM) and TheGamesDB's own server source; each source's
 //! address can be changed in config.json `source_urls` for the tests. Every answer is
 //! kept on this computer for a week (`<data dir>/scrape-cache/`), and each source is
-//! asked at its own pace.
+//! asked at its own pace. ScreenScraper is asked by as many threads at once as the
+//! account allows (`ssuserInfos`' `maxthreads`, or fewer as Settings › Sources says), each
+//! request still spaced to its `maxrequestspermin` ([`ss_configure`]).
 
 use crate::config::AppConfig;
 use crate::identify::{encode, url, year_of, Candidate};
@@ -20,13 +22,13 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 /// The fields each source needs in Settings › Sources: (source, [(field, label, secret)]).
 pub const KEYS: &[(&str, &[(&str, &str, bool)])] = &[
-    ("screenscraper", &[("user", "User name", false), ("password", "Password", true), ("devid", "Developer id", false), ("devpassword", "Developer password", true)]),
+    ("screenscraper", &[("user", "User name", false), ("password", "Password", true), ("devid", "Developer id", false), ("devpassword", "Developer password", true), ("threads", "Threads at once (blank: as many as your account allows)", false)]),
     ("igdb", &[("client_id", "Client id", false), ("client_secret", "Client secret", true)]),
     ("thegamesdb", &[("apikey", "API key", true)]),
 ];
@@ -149,9 +151,97 @@ fn gap_of(source: &str) -> Duration {
     }
     match source {
         "igdb" => Duration::from_millis(260),
-        "screenscraper" => Duration::from_millis(1200),
+        "screenscraper" => Duration::from_millis(SS_GAP_MS.load(Ordering::Relaxed)),
         _ => Duration::from_millis(1000),
     }
+}
+
+/// How many requests ScreenScraper may have open at once, and the time between two of
+/// them starting: one, and 1.2 seconds, until [`ss_configure`] reads the account.
+static SS_THREADS: AtomicUsize = AtomicUsize::new(1);
+static SS_GAP_MS: AtomicU64 = AtomicU64::new(1200);
+static SS_OPEN: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+
+/// One of ScreenScraper's threads, held while a request is open.
+struct Slot;
+
+impl Slot {
+    fn take() -> Slot {
+        let (m, c) = &SS_OPEN;
+        let mut open = m.lock().unwrap();
+        while *open >= SS_THREADS.load(Ordering::Relaxed).max(1) {
+            open = c.wait(open).unwrap();
+        }
+        *open += 1;
+        Slot
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let (m, c) = &SS_OPEN;
+        *m.lock().unwrap() -= 1;
+        c.notify_one();
+    }
+}
+
+/// How many threads a scrape asks ScreenScraper with.
+pub fn threads() -> usize {
+    SS_THREADS.load(Ordering::Relaxed).max(1)
+}
+
+/// What a ScreenScraper account allows: (threads, requests a minute), from `ssuserInfos`.
+fn ss_allows(v: &Value) -> (Option<usize>, Option<u64>) {
+    let u = &v["response"]["ssuser"];
+    let n = |k: &str| text(&u[k]).and_then(|t| t.parse::<u64>().ok()).filter(|n| *n > 0);
+    (n("maxthreads").map(|n| n as usize), n("maxrequestspermin"))
+}
+
+/// Read the account (when ScreenScraper is to be asked) and set how many threads ask it
+/// and how far apart their requests start: the account's `maxthreads` (at most 16, or
+/// fewer if Settings › Sources says so) and `maxrequestspermin`. Returns the threads.
+pub fn ss_configure(cfg: &AppConfig, data_dir: &Path) -> usize {
+    SS_THREADS.store(1, Ordering::Relaxed);
+    SS_GAP_MS.store(1200, Ordering::Relaxed);
+    if needs(cfg, "screenscraper").is_some() {
+        return 1;
+    }
+    // the account as it is now, not as it was kept
+    let fresh = data_dir.join("scrape-cache-account");
+    let _ = std::fs::remove_dir_all(&fresh);
+    let (allowed, per_min) = ss_get(cfg, &fresh, "ssuserInfos.php", &[]).ok().flatten().map(|v| ss_allows(&v)).unwrap_or((None, None));
+    let _ = std::fs::remove_dir_all(&fresh);
+    let wanted = key(cfg, "screenscraper", "threads").and_then(|t| t.parse::<usize>().ok()).filter(|n| *n > 0);
+    let n = match (allowed, wanted) {
+        (Some(a), Some(w)) => a.min(w),
+        (Some(a), None) => a,
+        (None, _) => 1,
+    }
+    .clamp(1, 16);
+    // a little under the account's rate, else 1.2 seconds shared between the threads
+    let gap = match per_min {
+        Some(r) => (60_000 / r) * 11 / 10,
+        None => 1200 / n as u64,
+    };
+    SS_THREADS.store(n, Ordering::Relaxed);
+    SS_GAP_MS.store(gap.max(50), Ordering::Relaxed);
+    n
+}
+
+/// Fetch several pictures at once (as many as ScreenScraper's threads), in order.
+pub fn fetch_all(list: &[(&str, &str)]) -> Vec<Option<(Vec<u8>, String)>> {
+    let n = threads();
+    if n <= 1 || list.len() <= 1 {
+        return list.iter().map(|(u, k)| fetch(u, k)).collect();
+    }
+    let mut out = vec![];
+    for part in list.chunks(n) {
+        std::thread::scope(|s| {
+            let hs: Vec<_> = part.iter().map(|(u, k)| s.spawn(move || fetch(u, k))).collect();
+            out.extend(hs.into_iter().map(|h| h.join().ok().flatten()));
+        });
+    }
+    out
 }
 
 /// An HTTP answer: its status and body.
@@ -244,8 +334,11 @@ fn ss_get(cfg: &AppConfig, data_dir: &Path, page: &str, params: &[(&str, String)
     }
     let u = format!("{}/{page}?{q}", url(cfg, "screenscraper"));
     for attempt in 0..3 {
+        let slot = Slot::take();
         pace("screenscraper", gap_of("screenscraper"));
-        let a = request("GET", &u, &[], 8 << 20)?;
+        let a = request("GET", &u, &[], 8 << 20);
+        drop(slot);
+        let a = a?;
         let text = String::from_utf8_lossy(&a.body[..a.body.len().min(400)]).to_string();
         // errors come as French text, before or instead of JSON
         if text.contains("Erreur de login") || a.status == 403 {
@@ -813,7 +906,11 @@ pub fn check(cfg: &AppConfig, data_dir: &Path, source: &str) -> Result<String> {
     let _ = std::fs::remove_dir_all(&fresh);
     match source {
         "screenscraper" => {
-            ss_get(cfg, &fresh, "ssuserInfos.php", &[])?;
+            let v = ss_get(cfg, &fresh, "ssuserInfos.php", &[])?;
+            let _ = std::fs::remove_dir_all(&fresh);
+            if let (Some(n), _) = v.as_ref().map(ss_allows).unwrap_or((None, None)) {
+                return Ok(format!("ScreenScraper answered: your account can scrape {n} game{} at once.", if n == 1 { "" } else { "s" }));
+            }
         }
         "igdb" => {
             igdb_token(cfg, true)?;
@@ -831,10 +928,14 @@ pub fn check(cfg: &AppConfig, data_dir: &Path, source: &str) -> Result<String> {
 /// the game's documents; the rest to its media folder.
 pub fn fetch(u: &str, kind: &str) -> Option<(Vec<u8>, String)> {
     let source = if u.contains("screenscraper") { "screenscraper" } else { "media" };
-    if source == "screenscraper" {
+    let slot = (source == "screenscraper").then(|| {
+        let s = Slot::take();
         pace("screenscraper", gap_of("screenscraper"));
-    }
-    let a = request("GET", u, &[], 400 << 20).ok()?;
+        s
+    });
+    let a = request("GET", u, &[], 400 << 20);
+    drop(slot);
+    let a = a.ok()?;
     if a.status >= 400 || a.body.len() < 80 || a.ctype.starts_with("text/") {
         return None;
     }
