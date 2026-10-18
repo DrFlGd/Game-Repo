@@ -754,11 +754,16 @@ async def main():
             await pg.wait_for_selector(f'#lib-games [data-key="gb/{names[0]}"]')
             await leave_out(names[0])
             await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n - 1", arg=len(names))
-            await pg.click('#collection-tabs [data-tab="out"]')
-            await pg.wait_for_selector(f'#collection-out .audit-row[data-name="{names[0]}"] [data-action="put-back"]')
+            # In it / Left out by hand: a filter of the one games view (finding 6)
+            await pg.select_option("#collection-show", "out")
+            await pg.click(f'#collection-result[data-show="out"] #lib-games [data-key="gb/{names[0]}"]')
+            await pg.wait_for_selector("#bar-put-back")
+            shown_out = await pg.eval_on_selector_all("#lib-games [data-key]", "els => els.map(e => e.dataset.key)")
+            await pg.keyboard.press("Escape")
             stored = json.loads(next((library / "_library/collections").glob("*.json")).read_text())
             check("a game is left out by hand, and listed with Put back (changes made quickly are all kept)",
-                  stored["removed"] == [f"gb/{names[0]}"] and stored["rules"]["one_per_title"] is True and stored["rules"]["include"] == "have", (stored["removed"], stored["rules"]))
+                  stored["removed"] == [f"gb/{names[0]}"] and stored["rules"]["one_per_title"] is True and stored["rules"]["include"] == "have" and shown_out == [f"gb/{names[0]}"],
+                  (stored["removed"], stored["rules"], shown_out))
             # its history (D67): each change a step, newest first; the leave-out undone, then made again
             await pg.click('#collection-view [data-view="history"]')
             await pg.wait_for_selector("#collection-history-list li")
@@ -774,7 +779,7 @@ async def main():
             await pg.click('#collection-view [data-view="rules"]')
             check("a collection takes its games' updates and DLC by default", await pg.is_checked("#rule-addons"))
             await pg.click('#collection-view [data-view="games"]')
-            await pg.click('#collection-tabs [data-tab="in"]')
+            await pg.select_option("#collection-show", "in")
             await pg.wait_for_selector(f'#lib-games [data-key="gb/{names[0]}"]')
             await leave_out(names[0])
             await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n - 1", arg=len(names))
@@ -846,10 +851,11 @@ async def main():
                   f"{len(kept)} games" in totals and len(exported) == len(kept) and gamelist.count("<game>") == len(kept) and len(cfg.splitlines()) == len(kept),
                   (totals, said, exported, gamelist[:200], cfg))
 
-            await pg.click('#collection-tabs [data-tab="out"]')
-            await pg.click(f'#collection-out .audit-row[data-name="{names[0]}"] [data-action="put-back"]')
+            await pg.select_option("#collection-show", "out")
+            await pg.click(f'#collection-result[data-show="out"] #lib-games [data-key="gb/{names[0]}"]')
+            await pg.click("#bar-put-back")
             await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n", arg=len(names))
-            await pg.click('#collection-tabs [data-tab="in"]')
+            await pg.select_option("#collection-show", "in")
             await pg.click('#collection-view [data-view="exports"]')
             await pg.wait_for_selector('#exports li[data-target="esde"]')
             await pg.click('#exports li[data-target="esde"] [data-action="update"]')
@@ -872,6 +878,63 @@ async def main():
                   stored.get("size_limit") == 32_000_000_000 and "to spare" in await pg.inner_text("#collection-fit"), stored.get("size_limit"))
             await pg.click('#collection-view [data-view="exports"]')
             await pg.screenshot(path=str(out / "23-exports.png"), full_page=True)
+
+            # collection groups (D75): a group added from the ⋯ menu, by rules, after the first
+            coll_file = next((library / "_library/collections").glob("*.json"))
+            await pg.click("#collection-menu")
+            await pg.click('#context-menu [data-action="collection-add-group"]')
+            await pg.wait_for_selector("#collection-new-group")
+            group_ways = await pg.eval_on_selector_all("#collection-way .way", "els => els.map(e => e.dataset.way)")
+            submit_label = await pg.inner_text("#collection-new-dialog button[type=submit]")
+            await pg.fill("#collection-name", "Every one")
+            await pg.click("#collection-new-dialog button[type=submit]")
+            await pg.wait_for_selector("#collection-group-1 #rule-1-include")
+            await pg.select_option("#rule-1-include", "all")
+            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent > n", arg=len(names))
+            total = int(await pg.inner_text("#collection-games"))
+            stored = json.loads(coll_file.read_text())
+            heads = await pg.eval_on_selector_all("#collection-main .collection-group h2", "els => els.map(e => e.textContent)")
+            check("Add a group… offers the New collection dialog's ways, and the group by rules is kept after the first, with its own rules",
+                  group_ways == ["rules", "folders", "dat"] and submit_label == "Add the group" and heads == ["Best Of", "Every one"]
+                  and [g["name"] for g in stored.get("groups", [])] == ["Every one"] and stored["groups"][0]["rules"]["include"] == "all"
+                  and stored["groups"][0]["rules"]["platforms"] == ["gb"] and stored["rules"]["include"] == "have", (group_ways, submit_label, heads, stored.get("groups")))
+            # the games view: a section for each group, with its name and count, none twice
+            await pg.click('#collection-view [data-view="games"]')
+            await pg.wait_for_function("() => document.querySelectorAll('#lib-games .lib-group').length === 2")
+            await pg.wait_for_timeout(300)
+            sections = await pg.eval_on_selector_all("#lib-games .lib-group", "els => els.map(e => [e.querySelector('h2').textContent, parseInt(e.querySelector('.muted').textContent)])")
+            keys = await coll_names()
+            check("a collection's games are a section for each group, with its name and count, and no game is in two",
+                  [n for n, _ in sections] == ["Best Of", "Every one"] and sections[0][1] == len(names) and sum(n for _, n in sections) == total
+                  and len(keys) == len(set(keys)) == total, (sections, total, len(keys)))
+            await pg.screenshot(path=str(out / "23e-collection-groups.png"))
+            # under the collection in the ribbon, each group with its count; one opens its section
+            children = await pg.eval_on_selector_all("#collection-panel-list .panel-child", "els => els.map(e => e.innerText.replace(/\\s+/g, ' ').trim())")
+            await pg.click('#collection-panel-list .panel-child:has-text("Every one")')
+            await pg.wait_for_selector('#lib-games .lib-group[data-group="1"]')
+            check("the ribbon lists the current collection's groups under it, with their counts",
+                  children == [f"Best Of {len(names)}", f"Every one {total - len(names)}"] and await pg.text_content("#collection-group-count") == "2 groups", children)
+            # Export offers where the groups go (ES-DE: collections, subfolders or systems of their own)
+            await pg.click("#collection-export")
+            await pg.wait_for_selector("#export-groups")
+            placings = await pg.eval_on_selector_all("#export-groups [data-placing]", "els => els.map(e => e.dataset.placing)")
+            chosen_placing = await pg.eval_on_selector("#export-groups input:checked", "e => e.value")
+            await pg.click("#export-dialog-cancel")
+            check("Export asks where a collection's groups go when the layout can place them, collections only by default",
+                  placings == ["collections", "subfolders", "systems"] and chosen_placing == "collections", (placings, chosen_placing))
+            # renamed, then removed: the collection as it was
+            await pg.click('#collection-view [data-view="rules"]')
+            await pg.click('#collection-group-1 [data-action="group-rename"]')
+            await pg.fill("#collection-name", "All the rest")
+            await pg.click("#collection-name-dialog button[type=submit]")
+            await pg.wait_for_function("() => document.querySelector('#collection-group-1 h2')?.textContent === 'All the rest'")
+            renamed = [g["name"] for g in json.loads(coll_file.read_text()).get("groups", [])]
+            await pg.click('#collection-group-1 [data-action="group-remove"]')
+            await pg.click("#confirm-dialog button[type=submit]")
+            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n && !document.querySelector('#collection-group-1')", arg=len(names))
+            gone = json.loads(coll_file.read_text())
+            check("a group can be renamed and removed, and the collection is as it was without it",
+                  renamed == ["All the rest"] and "groups" not in gone and gone["name"] == "Best Of" and await pg.query_selector("#collection-groups-none") is not None, (renamed, gone.get("groups")))
 
             # the Collections rework (D49, D50): a collection from a folder of a subset kept
             # elsewhere, matched by hash; from another tool's DAT; Export these…

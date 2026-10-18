@@ -292,8 +292,9 @@ function TableHead({ q, set }) {
     aria-sort=${sort && q.sort === sort ? (q.desc ? "descending" : "ascending") : null}>${sort ? html`<button type="button" class="lib-sort" data-sort=${sort} onClick=${() => set({ sort, desc: q.sort === sort ? !q.desc : false })}>${label}${q.sort === sort ? (q.desc ? " ▾" : " ▴") : ""}</button>` : label}</span>`)}</div>`;
 }
 
-/** The grid, list or table, drawing only what's in view. */
-export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMenu, scrollRef }) {
+/** The grid, list or table, drawing only what's in view. `jump` ({ value }, a new object
+ *  each time) scrolls to the heading of the group with that value. */
+export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMenu, scrollRef, jump }) {
   const [box, setBox] = useState({ w: 800, h: 600, top: 0 });
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -314,6 +315,12 @@ export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMen
   const colW = view === "grid" ? (inner - gap * (cols - 1)) / cols : inner;
   const rowH = view === "grid" ? Math.round(colW * 1.38) + 52 + gap : view === "list" ? 58 : 34;
   const { segs, height } = useMemo(() => layout(games.total, q.group ? games.groups : null, cols, rowH, 44), [games.total, games.groups, cols, rowH, q.group]);
+  // (once for each jump: the sections can be laid out again as the games come in)
+  const jumped = useRef(null);
+  useEffect(() => {
+    const s = jump && jump !== jumped.current && segs.find((x) => String(x.g.value) === String(jump.value));
+    if (s && scrollRef.current) { scrollRef.current.scrollTop = s.top; jumped.current = jump; }
+  }, [jump, segs]);
   const from = box.top - box.h, to = box.top + box.h * 2;
   const drawn = [];
   const wanted = new Set();

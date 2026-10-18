@@ -149,13 +149,16 @@ fn picture_path(folder: &Option<String>, picture: &Option<String>, stamp: i64) -
 }
 
 /// Rebuild a system's rows: every game of the DAT it's audited against but its updates and
-/// DLC (they're counted with their game, D66), and the games no DAT knows that Add a game…
-/// kept for it.
-fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<i64>) -> Result<()> {
+/// DLC (they're counted with their game, D66), then those of the DATs a collection's group
+/// takes its games from in place of it (`others`, D75) that the first hasn't by name, and
+/// the games no DAT knows that Add a game… kept for it.
+fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<i64>, others: &[i64]) -> Result<()> {
     let mut rows: Vec<Row> = vec![];
     let mut used: HashSet<String> = HashSet::new();
     let addons = crate::addons::have_by_base(conn, lib, platform)?;
-    if let Some(dat) = dat {
+    let mut named: HashSet<String> = HashSet::new();
+    for (nth, dat) in dat.into_iter().chain(others.iter().copied()).enumerate() {
+        let start = rows.len();
         let addon_dat = conn.query_row("SELECT name FROM dats WHERE id = ?1", [dat], |r| r.get::<_, String>(0)).map(|n| crate::addons::is_addon_dat(&n))?;
         let sql = format!(
             "WITH {GAMES},
@@ -197,6 +200,10 @@ fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<
             if !addon_dat && crate::addons::kind_of(&name, false).is_some() {
                 continue;
             }
+            // (a game of another DAT by a name the system's has is that game)
+            if nth > 0 && named.contains(&name) {
+                continue;
+            }
             let have_addons = addons.get(&name).copied().unwrap_or(0);
             if let Some(f) = &folder {
                 used.insert(f.clone());
@@ -233,7 +240,7 @@ fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<
         for have_only in [false, true] {
             let mut best: HashMap<i64, usize> = HashMap::new();
             for (i, (group, k)) in ranks.iter().enumerate() {
-                if have_only && !rows[i].have {
+                if have_only && !rows[start + i].have {
                     continue;
                 }
                 match best.get(group) {
@@ -244,10 +251,11 @@ fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<
                 }
             }
             let chosen: HashSet<usize> = best.into_values().collect();
-            for (i, r) in rows.iter_mut().enumerate() {
+            for (i, r) in rows[start..].iter_mut().enumerate() {
                 if have_only { r.best_have = chosen.contains(&i) } else { r.best_all = chosen.contains(&i) }
             }
         }
+        named.extend(rows[start..].iter().map(|r| r.name.clone()));
     }
     // a DAT can list two different games under one name (`dat::parse` keeps both when
     // their files differ, as libretro's copies do): the later ones by the DAT's order get
@@ -343,8 +351,9 @@ fn rebuild_pc(conn: &Connection, lib: &Library) -> Result<()> {
     write_rows(conn, "pc", &rows)
 }
 
-/// What a system's rows depend on, so they're rebuilt only when it changes.
-fn stamp(conn: &Connection, lib: &Library, platform: &str) -> Result<(String, Option<i64>)> {
+/// What a system's rows depend on, so they're rebuilt only when it changes: with the
+/// DATs collections' groups take its games from (`named`, D75), which it returns too.
+fn stamp(conn: &Connection, lib: &Library, platform: &str, named: &[String]) -> Result<(String, Option<i64>, Vec<i64>)> {
     if platform == "pc" {
         let mut parts = vec![];
         for e in std::fs::read_dir(pcgames::folder(lib)).into_iter().flatten().flatten() {
@@ -359,9 +368,10 @@ fn stamp(conn: &Connection, lib: &Library, platform: &str) -> Result<(String, Op
         parts.sort();
         let media: i64 = conn.query_row("SELECT COUNT(*) FROM docs WHERE platform = 'pc'", [], |r| r.get(0))?;
         let shown: usize = pcgames::list(lib).iter().map(|e| pcgames::media(lib, &e.game.id).len()).sum();
-        return Ok((format!("{FORMAT}|{}|{media}|{shown}", parts.join(",")), None));
+        return Ok((format!("{FORMAT}|{}|{media}|{shown}", parts.join(",")), None, vec![]));
     }
     let dat = audit::primary_dat(conn, lib, platform)?;
+    let groups = collection::group_dats(conn, lib, platform, named)?;
     let matched: (i64, i64) = match dat {
         Some(d) => conn.query_row(
             "SELECT COUNT(*), COALESCE(SUM(m.file_id), 0) FROM dat_roms r JOIN matches m ON m.rom_id = r.id WHERE r.dat_id = ?1",
@@ -384,7 +394,7 @@ fn stamp(conn: &Connection, lib: &Library, platform: &str) -> Result<(String, Op
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     let hand = lib.meta()["addons"][platform].to_string();
-    Ok((format!("{FORMAT}|{dat:?}|{matched:?}|{games:?}|{pics}|{docs:?}|{others:?}|{hand}"), dat))
+    Ok((format!("{FORMAT}|{dat:?}|{matched:?}|{games:?}|{pics}|{docs:?}|{others:?}|{hand}|{groups:?}"), dat, groups))
 }
 
 /// Bring the library's rows up to date: each system whose games, files, game folders or
@@ -397,9 +407,10 @@ pub fn refresh(ix: &Index, lib: &Library) -> Result<Vec<String>> {
         .query_map([crate::bios::ID], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?;
     systems.push("pc".into());
+    let named = collection::group_dat_names(lib);
     let mut done = vec![];
     for p in &systems {
-        let (st, dat) = stamp(conn, lib, p)?;
+        let (st, dat, others) = stamp(conn, lib, p, &named)?;
         let key = format!("library:{p}");
         let old: Option<String> = conn.query_row("SELECT value FROM index_meta WHERE key = ?1", [&key], |r| r.get(0)).optional()?;
         if old.as_deref() == Some(st.as_str()) {
@@ -408,7 +419,7 @@ pub fn refresh(ix: &Index, lib: &Library) -> Result<Vec<String>> {
         // IMMEDIATE: a rebuild reads before it writes, and a deferred transaction can't
         // take the write lock once another connection (a job's) has written in between
         let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
-        if p == "pc" { rebuild_pc(&tx, lib)? } else { rebuild_system(&tx, lib, p, dat)? }
+        if p == "pc" { rebuild_pc(&tx, lib)? } else { rebuild_system(&tx, lib, p, dat, &others)? }
         tx.execute("INSERT INTO index_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![key, st])?;
         tx.commit()?;
         done.push(p.clone());
@@ -456,10 +467,15 @@ pub struct Query {
     pub look: bool,
     /// Only a collection's games (its id)
     pub collection: String,
+    /// With `collection`, only its group's games (by id; "" is the first, D75)
+    pub collection_group: Option<String>,
+    /// With `collection`, the games left out of it by hand instead of those in it
+    pub left_out: bool,
     /// title | system | year (oldest first) | rating (highest first) | size (biggest first) | date (newest first)
     pub sort: String,
     pub desc: bool,
-    /// system | genre (its first) | decade | developer | publisher (sorted by it first; each row says its group)
+    /// system | genre (its first) | decade | developer | publisher | collection (with
+    /// `collection`, its groups in order, D75) (sorted by it first; each row says its group)
     pub group: String,
     pub offset: i64,
     pub limit: i64,
@@ -583,16 +599,51 @@ fn group_col(group: &str) -> Option<&'static str> {
     }
 }
 
+/// A collection's games a query asks for (those in it, of one group, or those left out by
+/// hand), and its groups' names with their games, in order. None: no collection.
+fn collection_keys(ix: &Index, lib: &Library, q: &Query) -> Result<Option<(Vec<String>, Vec<(String, Vec<String>)>)>> {
+    if q.collection.is_empty() {
+        return Ok(None);
+    }
+    let c = collection::load(lib, &q.collection)?;
+    let w = collection::work_out(ix, lib, &c)?;
+    let mut groups: Vec<(String, Vec<String>)> = w.groups.iter().map(|g| (g.name.clone(), vec![])).collect();
+    for s in &w.systems {
+        if q.collection_group.as_ref().is_some_and(|id| w.groups.get(s.group).is_none_or(|g| g.id != *id)) {
+            continue;
+        }
+        let games = if q.left_out { &s.removed } else { &s.games };
+        if let Some(g) = groups.get_mut(s.group) {
+            g.1.extend(games.iter().map(collection::Game::key));
+        }
+    }
+    let keys = groups.iter().flat_map(|g| g.1.iter().cloned()).collect();
+    Ok(Some((keys, groups)))
+}
+
+/// A SQL string literal (for a list too long or too changing for a prepared statement's own).
+fn literal(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
 /// The games a query finds, a page at a time, with how many there are and (with
 /// `facets`) each filter's values and counts.
 pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
     let conn = ix.conn();
-    let keys = if q.collection.is_empty() {
-        None
-    } else {
-        let c = collection::load(lib, &q.collection)?;
-        let w = collection::work_out(ix, lib, &c)?;
-        Some(w.games().map(|g| g.key()).collect::<Vec<_>>())
+    let of = collection_keys(ix, lib, q)?;
+    let keys = of.as_ref().map(|(k, _)| k.clone());
+    // a collection's groups, each a section (D75): which one a game is in, by its place
+    let by_collection = match (&of, q.group.as_str()) {
+        (Some((_, groups)), "collection") => {
+            let arms: Vec<String> = groups
+                .iter()
+                .enumerate()
+                .filter(|(_, g)| !g.1.is_empty())
+                .map(|(i, g)| format!("WHEN l.key IN (SELECT value FROM json_each({})) THEN {i}", literal(&serde_json::to_string(&g.1).unwrap_or_default())))
+                .collect();
+            Some(if arms.is_empty() { "NULL".to_string() } else { format!("(CASE {} END)", arms.join(" ")) })
+        }
+        _ => None,
     };
     let (w, p) = where_of(q, &keys, "");
     let total: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM library l WHERE {w}"), params_from_iter(p.iter()), |r| r.get(0))?;
@@ -607,9 +658,9 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
         "date" => format!("l.date_sort {d}, l.sort {d}, l.id {d}"),
         _ => format!("l.sort {d}, l.id {d}"),
     };
-    let (order, group) = match group_col(&q.group) {
-        Some(g) => (format!("{g} IS NULL, {g}, {order}"), g),
-        None => (order, "NULL"),
+    let (order, group) = match by_collection.as_deref().or(group_col(&q.group)) {
+        Some(g) => (format!("{g} IS NULL, {g}, {order}"), g.to_string()),
+        None => (order, "NULL".to_string()),
     };
     let mut pp = p.clone();
     pp.push(Sql::Integer(q.limit.clamp(1, 1000)));
@@ -648,6 +699,11 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
             it["group_name"] = json!(system_name(it["platform"].as_str().unwrap_or("")));
         }
     }
+    if let (Some((_, groups)), "collection") = (&of, q.group.as_str()) {
+        for it in &mut items {
+            it["group_name"] = json!(it["group"].as_u64().and_then(|i| groups.get(i as usize)).map(|g| g.0.clone()));
+        }
+    }
     let mut out = json!({ "total": total, "offset": q.offset.max(0), "items": items });
     if group != "NULL" && q.offset <= 0 {
         // the groups in the list's order, with their counts, so the page can lay them out
@@ -656,7 +712,11 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
             .query_map(params_from_iter(p.iter()), |r| {
                 let v: Sql = r.get(0)?;
                 let value = match v { Sql::Text(t) => json!(t), Sql::Integer(n) => json!(n), _ => Value::Null };
-                let name = if q.group == "system" { json!(system_name(value.as_str().unwrap_or(""))) } else { Value::Null };
+                let name = match q.group.as_str() {
+                    "system" => json!(system_name(value.as_str().unwrap_or(""))),
+                    "collection" => json!(of.as_ref().and_then(|(_, g)| g.get(value.as_u64().unwrap_or(u64::MAX) as usize)).map(|g| g.0.clone())),
+                    _ => Value::Null,
+                };
                 Ok(json!({ "value": value, "name": name, "count": r.get::<_, i64>(1)? }))
             })?
             .collect::<rusqlite::Result<_>>()?;
@@ -806,10 +866,7 @@ fn facets(conn: &Connection, q: &Query, keys: &Option<Vec<String>>) -> Result<Va
 /// action needs: its DAT game and system.
 pub fn keys(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
     let conn = ix.conn();
-    let keys = match q.collection.as_str() {
-        "" => None,
-        id => Some(collection::work_out(ix, lib, &collection::load(lib, id)?)?.games().map(|g| g.key()).collect::<Vec<_>>()),
-    };
+    let keys = collection_keys(ix, lib, q)?.map(|(k, _)| k);
     let (w, p) = where_of(q, &keys, "");
     let v: Vec<Value> = conn
         .prepare(&format!("SELECT l.key, l.dat_game, l.platform, l.kind, l.name FROM library l WHERE {w} ORDER BY l.sort, l.id"))?
@@ -853,7 +910,8 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
     let mut v = match (kind.as_str(), dat_game) {
         ("dat", Some(id)) => {
             let mut v = meta::game(ix, lib, id)?;
-            v["dat_id"] = json!(audit::primary_dat(conn, lib, &platform)?);
+            // its DAT: the system's audit DAT, or the one a collection's group takes it from (D75)
+            v["dat_id"] = json!(conn.query_row("SELECT dat_id FROM dat_games WHERE id = ?1", [id], |r| r.get::<_, i64>(0)).optional()?.or(audit::primary_dat(conn, lib, &platform)?));
             let name: String = conn.query_row("SELECT name FROM library WHERE key = ?1", [key], |r| r.get(0))?;
             v["addons"] = crate::addons::of_game(conn, lib, &platform, &name)?;
             v
@@ -1114,7 +1172,7 @@ mod tests {
         // a collection's games only
         let mut rules = collection::Rules::default();
         rules.platforms = vec!["gb".into()];
-        let c = collection::Collection { id: String::new(), name: "Mine".into(), rules, added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new() };
+        let c = collection::Collection { id: String::new(), name: "Mine".into(), rules, added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new(), ..Default::default() };
         let c = collection::save(&lib, c).unwrap();
         assert_eq!(ask(&ix, &lib, |q| q.collection = c.id.clone())["total"], 4);
         // paging
@@ -1170,7 +1228,7 @@ mod tests {
         rules.platforms = vec!["gb".into()];
         rules.details.genre = vec!["Puzzle".into()];
         rules.details.decade = vec![1990];
-        let c = collection::Collection { id: String::new(), name: "Puzzles".into(), rules, added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new() };
+        let c = collection::Collection { id: String::new(), name: "Puzzles".into(), rules, added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new(), ..Default::default() };
         let names = |c: &collection::Collection| collection::work_out(&ix, &lib, c).unwrap().games().map(|g| g.name.clone()).collect::<Vec<_>>();
         assert_eq!(names(&c), ["Delta (World)"]);
         edit(&ix, &lib, "gb/Epsilon (Japan) (En,Ja)", "genres", Some(&json!(["Puzzle"]))).unwrap();

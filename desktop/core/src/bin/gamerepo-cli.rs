@@ -101,14 +101,15 @@ under <dir>/config and <dir>/data instead of the app's own folders.
         [--search <text>] [--from-dat <DAT name>]... [--size-limit <64GB|none>]
                              make a collection (collection edit <id> … changes one);
                              a size limit in GB is a card's (64GB: 64,000,000,000 bytes)
-  collection show <id>       its games, by system, and its size on disk
+  collection show <id>       its games, by group and system, and its size on disk
   collection dats <id> [--out <dir>]
-                             save it as DATs, one per system
+                             save it as DATs, one per system of each group
   collection delete <id>
   export <collection id> --out <dir> [--to esde|folder] [--esde <ES-DE folder>]
         [--layout <id> --place <place>=<dir>...]
         [--always-copy] [--full-names] [--dry-run] [--fields <a,b>|all]
         [--media <a,b>|all] [--manuals] [--docs] [--bios] [--image-size <pixels>]
+        [--groups collections|subfolders|systems]
                              export a collection to ES-DE's ROMs folder (with its
                              gamelists and a custom collection when --esde is given),
                              to a folder, or in any layout (layouts lists them, with
@@ -116,9 +117,12 @@ under <dir>/config and <dir>/data instead of the app's own folders.
                              hardlinked where it can be, checked; --fields, --media,
                              --manuals, --docs and --bios carry the games' details,
                              pictures, documents and their systems' BIOS files,
-                             --image-size makes the pictures smaller
+                             --image-size makes the pictures smaller; --groups puts a
+                             collection's groups after the first in their systems'
+                             folders (the default), in folders of their own there, or
+                             (ES-DE) in systems of their own; each is a collection too
   exports                    the exports made
-  export update <export id> [--dry-run]
+  export update <export id> [--dry-run] [--groups …]
                              export it again: new games added, those gone set aside
   export check <export id>   read the export's files back against the DATs
   export forget <export id>  forget an export (its files stay)
@@ -781,11 +785,21 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             if let Some(limit) = c["collection"]["size_limit"].as_u64() {
                 println!("Size limit {}: {}", bytes(limit), if size <= limit { format!("fits, {} to spare", bytes(limit - size)) } else { format!("over by {}", bytes(size - limit)) });
             }
-            for s in sum["systems"].as_array().into_iter().flatten() {
-                println!("{}: {} games ({} you have), {}", s["name"].as_str().unwrap_or(""), s["games"], s["have"], bytes(s["size"].as_u64().unwrap_or(0)));
-            }
-            for g in games["items"].as_array().into_iter().flatten() {
-                println!("  {:<6} {}", g["status"].as_str().unwrap_or(""), g["key"].as_str().unwrap_or(""));
+            let groups = sum["groups"].as_array().cloned().unwrap_or_default();
+            for (i, gr) in groups.iter().enumerate() {
+                // a collection of groups (D75): each one's systems under it
+                let indent = if groups.len() > 1 {
+                    println!("{}: {} games ({} you have), {}", gr["name"].as_str().unwrap_or(""), gr["games"], gr["have"], bytes(gr["size"].as_u64().unwrap_or(0)));
+                    "  "
+                } else {
+                    ""
+                };
+                for s in gr["systems"].as_array().into_iter().flatten() {
+                    println!("{indent}{}: {} games ({} you have), {}", s["name"].as_str().unwrap_or(""), s["games"], s["have"], bytes(s["size"].as_u64().unwrap_or(0)));
+                }
+                for g in games["items"].as_array().into_iter().flatten().filter(|g| g["group"] == gr["id"] || (i == 0 && g["group"].is_null())) {
+                    println!("{indent}  {:<6} {}", g["status"].as_str().unwrap_or(""), g["key"].as_str().unwrap_or(""));
+                }
             }
             Ok(())
         }
@@ -823,8 +837,9 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
         ("export", what) => {
             let dry = a.rest.iter().any(|x| x == "--dry-run");
             let plan = if what == "update" {
+                let groups = a.flag("--groups");
                 let id = a.rest.iter().find(|x| !x.starts_with("--")).cloned().context("export update needs the export's id (exports lists them)")?;
-                invoke(&app, "export_plan", json!({ "export": id })).await?
+                invoke(&app, "export_plan", json!({ "export": id, "groups": groups })).await?
             } else if what.is_empty() {
                 bail!("export needs a collection's id (collections lists them)")
             } else {
@@ -848,8 +863,14 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
                     "image_size": a.flag("--image-size").map(|n| n.parse::<u32>()).transpose().context("--image-size is a number of pixels")?.unwrap_or(0),
                     "bios": a.rest.iter().any(|x| x == "--bios"),
                 });
-                invoke(&app, "export_plan", json!({ "collection": what, "layout": layout, "places": places, "target": target, "out": out, "esde": esde, "always_copy": always_copy, "short_names": short_names, "carry": carry })).await?
+                let groups = a.flag("--groups").unwrap_or_default();
+                invoke(&app, "export_plan", json!({ "collection": what, "layout": layout, "places": places, "target": target, "out": out, "esde": esde, "always_copy": always_copy, "short_names": short_names, "carry": carry, "groups": groups })).await?
             };
+            if !json_out {
+                for n in plan["notes"].as_array().into_iter().flatten() {
+                    println!("{}", n.as_str().unwrap_or(""));
+                }
+            }
             show_and_run(&app, plan, dry, json_out).await
         }
         ("layouts", _) => {

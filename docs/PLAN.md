@@ -3004,6 +3004,61 @@ Built as designed above, with these differences:
   folder*; *Rename to DAT names* → *Rename to the DAT's names*. Help's terms and pages
   are rewritten in the menu's order.
 
+### Collection groups notes (built 2026-10-18, D75)
+
+Built as D75 says, with these choices:
+
+- **The data.** A collection keeps its own fields as its first group and gains `groups`
+  (each `{ id, name, rules, added, removed, made_from }`) and `group_name` (the first
+  group's name, when it isn't the collection's). An app from before reads a collection of
+  groups as its first group; a collection from before is one group. Group names are unique
+  within a collection; ids are made by `save`. `Rules.dats` names DATs a group takes its
+  games from in place of each system's audit DAT (the Library gets rows for their games
+  the audit DAT lacks by name). Groups are worked out in order and a game (by key) is in
+  the first that picks it, or that left it out by hand, unless a later group has it added
+  by hand. A group from folders or a DAT keeps its own DATs in
+  `_library/collections/<id>/<group>/`.
+- **Hand edits** go through `collection_hand` (`leave_out`, `put_back`, `add` with a
+  `group`): left out goes on the list of the group that has the game, put back comes off
+  every group's, and a game put back that no rule brings in is added by hand to its group.
+  Each is a step of the history (D67), as is adding, changing or removing a group; Undo
+  of a group's change keeps the hand edits made since.
+- **Save as DATs** writes `<Collection> - <System>.dat` for the first group and
+  `<Collection> - <Group> - <System>.dat` for each other.
+- **Export.** Every export puts all of a system's games in its system's folder (the
+  default, *Collections only*). Each group is an ES-DE custom collection
+  (`custom-<Collection> - <Group>.cfg`, with ES-DE's `%ROMPATH%` when the export is to
+  ES-DE's ROMs folder, else the games' folder), a Pegasus collection (merged with the
+  same name across systems' files) or a RetroArch playlist (`<Collection> - <Group>.lpl`).
+  LaunchBox and Playnite get no group lists yet. The ES-DE layouts (`esde`, `esde-card`,
+  now version 2) also offer *Subfolders* (their games' and pictures' paths have
+  `{group}`: nothing for the first group, the group's name for the others) and *Separate
+  systems* (`groups.system`, `{folder}-{group}`: `roms/snes-translations/`, its gamelist
+  and pictures beside, named "Super Nintendo - Translations"). For a separate system the
+  export copies its system's `<system>` entry from ES-DE's `custom_systems/es_systems.xml`
+  or the one ES-DE ships with into `custom_systems/es_systems.xml`, when the layout's new
+  `es_de` says where ES-DE's settings are; when it can't, the preview's notes say what to
+  set up. A layout's `placements` are what it can do; the Export dialog asks only when
+  the collection has groups and the layout can do more than one, and the choice is kept
+  in the export record, so Update places them the same way (`--groups` on the CLI's
+  `export` and `export update`). Other built-in layouts are unchanged, so the device
+  layouts offer collections only for now.
+- **`{group}`** is a token of the system's (layouts.rs and the editor's token list): a
+  token with an empty value is left out with its path part, so `{folder}/{group}/{file}`
+  is `gb/Alpha.gb` for the first group.
+- **The page.** Each group is a section of the games view (the Library's grouping, by
+  `group: "collection"`), the ribbon lists the current collection's groups under it with
+  their counts (`children` in `useSidePanel`; one jumps to its section), and the Rules tab
+  has a section per group with Rename…, Remove… (removing the first makes the next the
+  first), its source and its rules. *Add a group…* (the ⋯ menu and the Rules tab) uses the
+  New collection dialog's three ways. *In it* / *Left out by hand* is a filter of the one
+  games view (finding 6), with Put back in the selection bar, and the hint is a tooltip.
+- **Wording** (collections only): *Add a folder…* → *Choose a folder…*; *Make it* → *Make
+  the collection*; *Read* → *Read the DAT* or *Scan the folders*; the empty page's buttons
+  say *New collection by rules…*, *from folders…*, *from a DAT…*; *your full sets* → *your
+  audited games* or *the Audit page's DATs*; the export's *Run* → *Export*; *Rules on top*
+  → *More rules*; *Forget* → *Forget…*. The tab stays *Source*.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been

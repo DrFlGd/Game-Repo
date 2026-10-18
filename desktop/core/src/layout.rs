@@ -3,6 +3,8 @@
 //! paths made of tokens. The built-in ones ship with the app (`desktop/core/layouts/`)
 //! and are changed only by saving a copy; the user's own are `_library/layouts/<id>.json`.
 //! A path starts from a *place* the Export dialog asks for (`{card}`, `{roms}`…).
+//! A collection's groups (D75) are placed by `{group}` (a folder of their own in the
+//! system's) or by `groups.system` (a system of their own), as the Export dialog chooses.
 
 use crate::config;
 use crate::library::{Library, APP_DIR};
@@ -58,8 +60,16 @@ pub struct Layout {
     pub documents: Option<Out>,
     pub bios: Option<Out>,
     pub pictures: Pictures,
-    /// `esde-cfg`: the collection as an ES-DE custom collection
+    /// `esde-cfg`: the collection as an ES-DE custom collection (one for each of its groups)
     pub collection: Option<String>,
+    /// ES-DE's own folder (`{esde}`, `{card}/ES-DE`): where the custom collections go, and
+    /// where a group placed as a system of its own is set up (`custom_systems/`); none:
+    /// `{esde}`, if the layout has that place
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub es_de: Option<String>,
+    /// How a collection's groups after the first can be placed besides as collections (D75)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub groups: Option<GroupsOut>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub copied_from: Option<Value>,
     #[serde(flatten)]
@@ -124,6 +134,17 @@ pub struct Games {
     pub extra: Map<String, Value>,
 }
 
+/// Where a collection's groups after the first go when they're systems of their own (D75).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GroupsOut {
+    /// The folder of a group as a system of its own, beside its system's (`{folder}-{group}`,
+    /// where `{group}` is the group's name in lower case with hyphens); empty: they can't be
+    pub system: String,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Gamelist {
@@ -181,8 +202,10 @@ pub const GAMELISTS: &[&str] = &["es-xml", "pegasus", "retroarch", "launchbox"];
 /// The tokens a path can use, by what it's for. `playlist` is the name RetroArch knows a
 /// system by: the layout's name for it when it gives one, else its No-Intro or Redump
 /// name; `label` is a game's title as the layout's list finds its pictures by it
-/// (`export::label`: RetroArch's thumbnails, LaunchBox's images).
-const SYSTEM_TOKENS: &[&str] = &["folder", "system", "system_name", "dat_name", "playlist"];
+/// (`export::label`: RetroArch's thumbnails, LaunchBox's images). `group` is the folder of
+/// a collection's group after the first when the export places groups in folders of their
+/// own (its name), else nothing, and a part that comes to nothing is left out (D75).
+const SYSTEM_TOKENS: &[&str] = &["folder", "system", "system_name", "dat_name", "playlist", "group"];
 const GAME_TOKENS: &[&str] = &["file", "stem", "title", "label"];
 
 /// A problem with a layout: where (`media.cover`) and what, in plain words.
@@ -224,6 +247,20 @@ impl Layout {
         self.places.iter().filter(|p| p.from.is_none())
     }
 
+    /// How it can place a collection's groups after the first (D75): `collections` (in
+    /// their systems' folders, listed as collections), `subfolders` (its games' path has
+    /// `{group}`), `systems` (`groups.system`).
+    pub fn placements(&self) -> Vec<&'static str> {
+        let mut v = vec!["collections"];
+        if self.games.path.contains("{group}") {
+            v.push("subfolders");
+        }
+        if self.groups.as_ref().is_some_and(|g| !g.system.trim().is_empty()) {
+            v.push("systems");
+        }
+        v
+    }
+
     /// Every path the layout has: (where it is, the path).
     fn paths(&self) -> Vec<(String, &str)> {
         let mut v = vec![("games.path".to_string(), self.games.path.as_str())];
@@ -241,6 +278,9 @@ impl Layout {
         }
         if let Some(b) = &self.bios {
             v.push(("bios".into(), b.path.as_str()));
+        }
+        if let Some(e) = &self.es_de {
+            v.push(("es_de".into(), e.as_str()));
         }
         for p in &self.places {
             if let Some(f) = &p.from {
@@ -277,6 +317,7 @@ impl Layout {
             "id": self.id, "name": self.name, "about": self.about, "builtin": self.builtin,
             "places": self.asked().map(|p| json!({ "id": p.id, "label": p.label, "example": p.example, "note": p.note, "optional": p.optional, "device": p.device })).collect::<Vec<_>>(),
             "carries": self.carries(), "pictures": self.pictures.max, "gamelist": self.gamelist.is_some(), "collection": self.collection.is_some(),
+            "placements": self.placements(),
             "copied_from": self.copied_from.as_ref().map(|c| json!({ "id": c["id"], "name": base.as_ref().map(|b| b.name.clone()), "newer": newer })),
         })
     }
@@ -338,7 +379,9 @@ pub fn expand(path: &str, places: &BTreeMap<String, PathBuf>, vars: &Vars) -> Re
             if name == "bios_file" && part == "{bios_file}" {
                 raw = Some(value.clone());
             } else {
-                s.push_str(&safe_name(value));
+                if !value.is_empty() {
+                    s.push_str(&safe_name(value));
+                }
             }
             rest = &rest[b + 1..];
         }
@@ -350,6 +393,8 @@ pub fn expand(path: &str, places: &BTreeMap<String, PathBuf>, vars: &Vars) -> Re
                     out.push(safe_name(seg));
                 }
             }
+            // (a part that comes to nothing, `{group}` for a first group, is left out)
+            None if s.is_empty() => {}
             None => out.push(s),
         }
     }
@@ -366,25 +411,90 @@ pub fn system_vars(l: &Layout, system: &str) -> Option<Vars> {
     v.insert("system_name", l.system_name(system));
     v.insert("playlist", l.given_name(system).unwrap_or_else(|| dat.clone()));
     v.insert("dat_name", dat);
+    v.insert("group", String::new());
+    Some(v)
+}
+
+/// A group's name as part of a system's folder name (`groups.system`'s `{group}`): lower
+/// case, with hyphens for anything but letters and digits ("translations").
+pub fn group_slug(name: &str) -> String {
+    let s: String = name.trim().chars().map(|c| if c.is_alphanumeric() { c.to_lowercase().next().unwrap_or(c) } else { '-' }).collect();
+    let s = s.split('-').filter(|p| !p.is_empty()).collect::<Vec<_>>().join("-");
+    if s.is_empty() { "group".into() } else { s }
+}
+
+/// The tokens for a group placed as a system of its own (`groups.system`): its system's,
+/// with its own folder ("snes-translations") and name ("Super Nintendo - Translations").
+pub fn group_system_vars(l: &Layout, system: &str, group: &str) -> Option<Vars> {
+    let mut v = system_vars(l, system)?;
+    let tmpl = l.groups.as_ref().map(|g| g.system.trim().to_string()).filter(|s| !s.is_empty())?;
+    let mut with = v.clone();
+    with.insert("group", group_slug(group));
+    let mut folder = String::new();
+    let mut rest = tmpl.as_str();
+    while let Some(a) = rest.find('{') {
+        let b = rest[a..].find('}')? + a;
+        folder.push_str(&rest[..a]);
+        folder.push_str(with.get(&rest[a + 1..b])?);
+        rest = &rest[b + 1..];
+    }
+    folder.push_str(rest);
+    let folder = safe_name(&folder);
+    if folder.is_empty() {
+        return None;
+    }
+    v.insert("system_name", format!("{} - {}", v["system_name"], group.trim()));
+    v.insert("folder", folder);
     Some(v)
 }
 
 /// The games' folder for a system (the games' path without its `/{file}`).
 pub fn games_dir(l: &Layout, system: &str, places: &BTreeMap<String, PathBuf>) -> Result<Option<PathBuf>> {
     let Some(vars) = system_vars(l, system) else { return Ok(None) };
+    games_dir_of(l, &vars, places)
+}
+
+/// The games' folder for a system's tokens (a group's, D75).
+pub fn games_dir_of(l: &Layout, vars: &Vars, places: &BTreeMap<String, PathBuf>) -> Result<Option<PathBuf>> {
     let dir = l.games.path.trim().replace('\\', "/");
     let dir = dir.strip_suffix("/{file}").ok_or_else(|| anyhow!("The layout's games path must end in /{{file}}."))?;
-    expand(dir, places, &vars)
+    expand(dir, places, vars)
 }
 
 /// Where a system's updates, DLC and patches go: the layout's `games.addons`, else the
 /// games' own folder (D66).
 pub fn addons_dir(l: &Layout, system: &str, places: &BTreeMap<String, PathBuf>) -> Result<Option<PathBuf>> {
-    let Some(path) = l.games.addons.as_deref().filter(|p| !p.trim().is_empty()) else { return games_dir(l, system, places) };
     let Some(vars) = system_vars(l, system) else { return Ok(None) };
+    addons_dir_of(l, &vars, places)
+}
+
+/// Where the updates, DLC and patches go for a system's tokens (a group's, D75).
+pub fn addons_dir_of(l: &Layout, vars: &Vars, places: &BTreeMap<String, PathBuf>) -> Result<Option<PathBuf>> {
+    let Some(path) = l.games.addons.as_deref().filter(|p| !p.trim().is_empty()) else { return games_dir_of(l, vars, places) };
     let path = path.trim().replace('\\', "/");
     let dir = path.strip_suffix("/{file}").ok_or_else(|| anyhow!("The layout's add-ons path must end in /{{file}}."))?;
-    expand(dir, places, &vars)
+    expand(dir, places, vars)
+}
+
+/// ES-DE's own folder for an export: the layout's `es_de`, else its `{esde}` place, for
+/// a layout writing ES-DE's custom collections. None: it isn't known (D75).
+pub fn es_de_dir(l: &Layout, places: &BTreeMap<String, PathBuf>) -> Option<PathBuf> {
+    match l.es_de.as_deref().filter(|e| !e.trim().is_empty()) {
+        Some(e) => expand(e, places, &Vars::new()).ok().flatten(),
+        None if l.collection.as_deref() == Some("esde-cfg") || l.groups.is_some() => places.get("esde").cloned(),
+        None => None,
+    }
+}
+
+/// The folder the games' path starts from, before its first token (`{roms}`,
+/// `{card}/ROMs`): ES-DE's ROMs folder, for a layout whose ES-DE has no setting for it.
+pub fn games_root(l: &Layout, places: &BTreeMap<String, PathBuf>) -> Option<PathBuf> {
+    let (place, parts) = split(&l.games.path).ok()?;
+    let mut d = places.get(&place)?.clone();
+    for p in parts.iter().take_while(|p| !p.contains('{')) {
+        d.push(p);
+    }
+    Some(d)
 }
 
 /// The place the games go under (the games' path's first part).
@@ -519,6 +629,8 @@ pub fn check(l: &Layout) -> Vec<Problem> {
         match what {
             "games" => allowed.push("file"),
             "gamelist" => {}
+            // a folder, the same for every system
+            "es_de" => allowed.clear(),
             "bios" => allowed.push("bios_file"),
             "documents" => allowed.extend(GAME_TOKENS.iter().chain(&["doc_file"])),
             _ => {
@@ -556,7 +668,7 @@ pub fn check(l: &Layout) -> Vec<Problem> {
                 }
             }
         }
-        if parts.is_empty() {
+        if parts.is_empty() && what != "es_de" {
             say(&at, "It needs a file name after the place.".into());
             continue;
         }
@@ -628,6 +740,23 @@ pub fn check(l: &Layout) -> Vec<Problem> {
     match l.collection.as_deref() {
         None | Some("esde-cfg") => {}
         Some(c) => say("collection", format!("There's no kind of collection file called {c} (esde-cfg).")),
+    }
+    // a group's own system: a folder's name, with the group's in it
+    if let Some(g) = l.groups.as_ref().filter(|g| !g.system.trim().is_empty()) {
+        let s = g.system.trim();
+        match tokens(s) {
+            Err(e) => say("groups.system", e),
+            Ok(t) => {
+                if let Some(bad) = t.iter().find(|n| !SYSTEM_TOKENS.contains(&n.as_str())) {
+                    say("groups.system", format!("{{{bad}}} isn't known here (it can use {}).", SYSTEM_TOKENS.iter().map(|a| format!("{{{a}}}")).collect::<Vec<_>>().join(", ")));
+                } else if !t.iter().any(|n| n == "group") {
+                    say("groups.system", "It needs {group}, so each group's system is its own.".into());
+                }
+            }
+        }
+        if s.contains(['/', '\\']) {
+            say("groups.system", "It's a folder's name, without / or \\.".into());
+        }
     }
     for (s, out) in &l.systems {
         let f = match out {

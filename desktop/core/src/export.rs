@@ -4,6 +4,10 @@
 //! copy (planned, previewed, journalled, undone), with every file hardlinked or copied
 //! and checked. Each export is remembered in `_library/exports/<id>.json` with the files
 //! it placed, so *Update* adds what's new and sets aside only what it placed before.
+//! A collection's groups (D75) all go in their systems' folders and each becomes a
+//! custom collection or playlist where the frontend has them; an ES-DE layout can instead
+//! put a group after the first in a folder of its own in its system's, or make it a
+//! system of its own (`Options::groups`).
 
 use crate::archive;
 use crate::collection;
@@ -48,6 +52,10 @@ pub struct Options {
     /// Only these of the collection's games ("system/name", or "system/*" for all of a
     /// system's); empty: all of them (D50, Export these…)
     pub only: Vec<String>,
+    /// Where the collection's groups after the first go (D75): `collections` (empty: in
+    /// their systems' folders, as collections only), `subfolders` (a folder of their own in
+    /// the system's, the layout's `{group}`), `systems` (systems of their own)
+    pub groups: String,
 }
 
 impl Options {
@@ -144,6 +152,7 @@ pub fn options_of(lib: &Library, id: &str) -> Result<Options> {
         export_id: Some(id.into()),
         carry: serde_json::from_value(e["carry"].clone()).unwrap_or_default(),
         only: e["only"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect()).unwrap_or_default(),
+        groups: e["groups"].as_str().unwrap_or("").to_string(),
         ..Default::default()
     })
 }
@@ -226,7 +235,100 @@ fn text_op(game: &str, to: &Path, top: &Path, text: String, note: &str) -> Op {
     Op { op: "text".into(), game: game.into(), to: to.display().to_string(), from, size: text.len() as u64, names: vec![text], aside: vec![], note: Some(note.into()) }
 }
 
-/// Plan an export (nothing is written).
+/// Where an export puts one group's games of a system (D75).
+struct Unit {
+    platform: String,
+    /// The group (its place in the worked-out collection's groups)
+    group: usize,
+    /// The layout's tokens for it: its system's, with `{group}` for a folder of its own,
+    /// or its own `{folder}` as a system of its own
+    vars: layout::Vars,
+    /// Where its games go
+    folder: PathBuf,
+    /// The games' folder its gamelist names them from (its system's, or its own)
+    base: PathBuf,
+    /// Its folder from there ("Translations"; empty: that folder)
+    sub: String,
+}
+
+impl Unit {
+    /// A game's entry as its gamelist names it, from the gamelist's folder.
+    fn listed(&self, entry: &str) -> String {
+        if self.sub.is_empty() { entry.to_string() } else { format!("{}/{entry}", self.sub) }
+    }
+}
+
+/// What a group is called as a collection, playlist or DAT: the collection's name, with
+/// the group's after it when that's another.
+pub fn group_title(collection: &str, group: &str) -> String {
+    if group.trim().is_empty() || group.trim() == collection.trim() { collection.to_string() } else { format!("{collection} - {group}") }
+}
+
+/// Where ES-DE's own list of systems may be, to copy a system's entry from: its custom
+/// one first, then those it ships with (beside a portable ES-DE, or installed).
+fn es_systems_files(es: &Path) -> Vec<PathBuf> {
+    let mut v = vec![es.join("custom_systems").join("es_systems.xml")];
+    for top in [Some(es), es.parent()].into_iter().flatten() {
+        for os in ["windows", "linux", "macos", "android", "unix"] {
+            v.push(top.join("resources").join("systems").join(os).join("es_systems.xml"));
+        }
+    }
+    v.push(PathBuf::from("/usr/share/es-de/resources/systems/linux/es_systems.xml"));
+    v.push(PathBuf::from("/usr/local/share/es-de/resources/systems/linux/es_systems.xml"));
+    v
+}
+
+/// A `<system>` of an es_systems.xml, by its `<name>`.
+fn es_system_block(text: &str, name: &str) -> Option<(usize, usize)> {
+    let mut from = 0;
+    while let Some(a) = text[from..].find("<system>").map(|a| a + from) {
+        let b = text[a..].find("</system>").map(|b| a + b + "</system>".len())?;
+        let block = &text[a..b];
+        let n = block.split("<name>").nth(1).and_then(|s| s.split("</name>").next()).map(|s| xml_unescape(s.trim()));
+        if n.as_deref() == Some(name) {
+            return Some((a, b));
+        }
+        from = b;
+    }
+    None
+}
+
+/// ES-DE's custom es_systems.xml with a system for each group placed as one of its own
+/// (`systems`: its name, full name, path and its system's name), each copied from its
+/// system's entry (the custom one's, else the one ES-DE ships with) with its own name and
+/// path. Returns the file (None: nothing changes) and the systems it couldn't copy.
+fn merge_es_systems(es: &Path, systems: &[(String, String, String, String)]) -> (Option<String>, Vec<(String, String)>) {
+    let at = es.join("custom_systems").join("es_systems.xml");
+    let old = std::fs::read_to_string(&at).ok();
+    let mut text = old.clone().unwrap_or_else(|| "<?xml version=\"1.0\"?>\n<systemList>\n</systemList>\n".into());
+    let sources: Vec<String> = es_systems_files(es).iter().filter_map(|p| std::fs::read_to_string(p).ok()).collect();
+    let mut missing = vec![];
+    for (name, full, path, parent) in systems {
+        let found = std::iter::once(&text).chain(&sources).find_map(|t| es_system_block(t, parent).map(|(a, b)| t[a..b].to_string()));
+        let Some(block) = found else {
+            missing.push((name.clone(), parent.clone()));
+            continue;
+        };
+        let set = |b: &str, tag: &str, v: &str| -> String {
+            let (open, close) = (format!("<{tag}>"), format!("</{tag}>"));
+            match (b.find(&open), b.find(&close)) {
+                (Some(x), Some(y)) if x < y => format!("{}{open}{}{}", &b[..x], xml_escape(v), &b[y..]),
+                _ => b.replacen("<system>", &format!("<system>\n        {open}{}{close}", xml_escape(v)), 1),
+            }
+        };
+        let block = set(&set(&set(&block, "name", name), "fullname", full), "path", path);
+        match es_system_block(&text, name) {
+            Some((a, b)) => text.replace_range(a..b, &block),
+            None => match text.rfind("</systemList>") {
+                Some(at) => text.insert_str(at, &format!("    {block}\n")),
+                None => text = format!("<?xml version=\"1.0\"?>\n<systemList>\n    {block}\n</systemList>\n"),
+            },
+        }
+    }
+    let changed = old.as_deref() != Some(text.as_str()) && missing.len() < systems.len();
+    (changed.then_some(text), missing)
+}
+
 /// The systems' games that `only` names (all of them when it names none).
 fn only_these(systems: &[collection::System], only: &[String]) -> Vec<collection::System> {
     if only.is_empty() {
@@ -307,27 +409,69 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     let mut plan = Plan {
         id: organise::new_id(), created: now(), kind: "export".into(), label, title,
         dat: json!({ "id": null, "name": c.name, "version": "" }),
-        platform: if systems.len() == 1 { systems[0].platform.clone() } else { String::new() },
+        platform: if systems.iter().all(|s| s.platform == systems[0].platform) && !systems.is_empty() { systems[0].platform.clone() } else { String::new() },
         mode: "copy".into(), format: "keep".into(), out: Some(out.display().to_string()),
         ops: vec![], games: 0, in_place: 0, conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None,
         present: vec![], export: None,
     };
     let mut wanted: Vec<Value> = vec![];
-    // each system's entries in its folder: (the file or folder there, game, title)
-    let mut entries: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
-    // each system's games folder, and its games' DAT ids by name
-    let mut folders: BTreeMap<String, PathBuf> = BTreeMap::new();
+    // how the groups after the first are placed (D75)
+    let mut notes: Vec<String> = vec![];
+    let placing = match o.groups.as_str() {
+        "" | "collections" => "collections",
+        p if l.placements().contains(&p) => p,
+        p => {
+            if w.groups.len() > 1 {
+                notes.push(format!("The layout {} can't place groups {}, so each group's games are in their systems' folders.", l.name, if p == "systems" { "as systems of their own" } else { "in folders of their own" }));
+            }
+            "collections"
+        }
+    };
+    // where each group's games of each system go
+    let mut units: Vec<Unit> = vec![];
+    let mut unit_of: HashMap<(usize, String), usize> = HashMap::new();
+    for s in &systems {
+        if s.games.is_empty() || unit_of.contains_key(&(s.group, s.platform.clone())) {
+            continue;
+        }
+        let Some(svars) = layout::system_vars(&l, &s.platform) else { continue };
+        let Some(base) = layout::games_dir_of(&l, &svars, &places)? else { continue };
+        let gname = w.groups.get(s.group).map(|g| g.name.clone()).unwrap_or_default();
+        let (vars, own) = match placing {
+            "subfolders" if s.group > 0 => {
+                let mut v = svars.clone();
+                v.insert("group", gname.clone());
+                (v, false)
+            }
+            "systems" if s.group > 0 => match layout::group_system_vars(&l, &s.platform, &gname) {
+                Some(v) => (v, true),
+                None => (svars.clone(), false),
+            },
+            _ => (svars.clone(), false),
+        };
+        let Some(folder) = layout::games_dir_of(&l, &vars, &places)? else { continue };
+        let (base, sub) = if own { (folder.clone(), String::new()) } else { (base.clone(), rel_to(&base, &folder).unwrap_or_default()) };
+        unit_of.insert((s.group, s.platform.clone()), units.len());
+        units.push(Unit { platform: s.platform.clone(), group: s.group, vars, folder, base, sub });
+    }
+    // each unit's entries in its folder: (the file or folder there, game, title)
+    let mut entries: BTreeMap<usize, Vec<(String, String, String)>> = BTreeMap::new();
+    let mut seen_entry: HashSet<(usize, String)> = HashSet::new();
+    // its games' DAT ids by name
     let mut ids: HashMap<(String, String), i64> = HashMap::new();
+    let mut left_out: HashSet<String> = HashSet::new();
     for s in &systems {
         if s.games.is_empty() {
             continue;
         }
-        let Some(folder) = layout::games_dir(&l, &s.platform, &places)? else {
-            plan.left.push(json!({ "path": platforms::name_of(&s.platform), "why": format!("The layout {} leaves this system out (the device doesn't run it).", l.name) }));
+        let Some(&u) = unit_of.get(&(s.group, s.platform.clone())) else {
+            if left_out.insert(s.platform.clone()) {
+                plan.left.push(json!({ "path": platforms::name_of(&s.platform), "why": format!("The layout {} leaves this system out (the device doesn't run it).", l.name) }));
+            }
             continue;
         };
+        let folder = units[u].folder.clone();
         let names: Vec<String> = s.games.iter().map(|g| g.name.clone()).collect();
-        folders.insert(s.platform.clone(), folder.clone());
         for g in &s.games {
             ids.insert((s.platform.clone(), g.name.clone()), g.id);
         }
@@ -340,7 +484,6 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         })?;
         let mut placed: HashSet<String> = HashSet::new();
         let titles: HashMap<&str, &str> = s.games.iter().map(|g| (g.name.as_str(), if g.title.is_empty() { g.name.as_str() } else { g.title.as_str() })).collect();
-        let mut seen_entry: HashSet<String> = HashSet::new();
         let mut want = |game: &str, to: &str, placed: &mut HashSet<String>| {
             placed.insert(game.to_string());
             wanted.push(json!({ "path": to, "game": game, "system": s.platform, "dat": s.dat_id }));
@@ -348,9 +491,9 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             let listed = titles.contains_key(game);
             if let Some(rel) = rel_to(&folder, Path::new(to)).filter(|_| listed) {
                 let entry = rel.split('/').next().unwrap_or(&rel).to_string();
-                if seen_entry.insert(entry.clone()) {
+                if seen_entry.insert((u, entry.clone())) {
                     let title = if o.short_names { titles.get(game).copied().unwrap_or(game) } else { game };
-                    entries.entry(s.platform.clone()).or_default().push((entry, game.to_string(), title.to_string()));
+                    entries.entry(u).or_default().push((entry, game.to_string(), title.to_string()));
                 }
             }
         };
@@ -385,7 +528,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         if by_dat.is_empty() {
             continue;
         }
-        let Some(to) = layout::addons_dir(&l, &s.platform, &places)? else { continue };
+        let Some(to) = layout::addons_dir_of(&l, &units[u].vars, &places)? else { continue };
         for (dat_id, names) in by_dat {
             let sub = organise::plan(ix, lib, &organise::Options {
                 dat_id, mode: "copy".into(), out: Some(to.clone()), format: "keep".into(),
@@ -411,14 +554,14 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     // what it carries: each game's pictures, manual, documents and text, its details and
     // tagged pictures for the gamelist, and the systems' BIOS files
     let gamelist = l.gamelist.as_ref();
-    let mut details: HashMap<(String, String), Vec<(String, String)>> = HashMap::new();
+    let mut details: HashMap<(usize, String), Vec<(String, String)>> = HashMap::new();
     let mut files: Vec<(PathBuf, PathBuf, &str, String, String)> = vec![];
     let mut texts: Vec<(PathBuf, String, String, String)> = vec![];
     let pic_as = l.pictures.as_.as_str();
     if o.carry.wants_game_files() {
-        for (system, list) in &entries {
-            let Some(folder) = folders.get(system) else { continue };
-            let Some(svars) = layout::system_vars(&l, system) else { continue };
+        for (u, list) in &entries {
+            let (unit, system) = (&units[*u], &units[*u].platform);
+            let (folder, svars) = (&unit.folder, &unit.vars);
             for (entry, game, title) in list {
                 let Some(id) = ids.get(&(system.clone(), game.clone())) else { continue };
                 let g = crate::meta::dat_game(conn, *id)?;
@@ -457,7 +600,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                     v.insert("ext", ext);
                     v.insert("kind", kind.clone());
                     let Some(to) = layout::expand(&out_of.path, &places, &v)? else { continue };
-                    if let Some(t) = out_of.tag.as_ref().and_then(|tag| tagged(list_kind, tag, folder, &top_of(&to), &to)) {
+                    if let Some(t) = out_of.tag.as_ref().and_then(|tag| tagged(list_kind, tag, &unit.base, &top_of(&to), &to)) {
                         tags.push(t);
                     }
                     files.push((src, to, "media", game.clone(), system.clone()));
@@ -469,7 +612,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                         v.insert("kind", "manual".into());
                         v.insert("doc_file", src.file_name().unwrap_or_default().to_string_lossy().into_owned());
                         if let Some(to) = layout::expand(&out_of.path, &places, &v)? {
-                            if let Some(t) = out_of.tag.as_ref().and_then(|tag| tagged(list_kind, tag, folder, &top_of(&to), &to)) {
+                            if let Some(t) = out_of.tag.as_ref().and_then(|tag| tagged(list_kind, tag, &unit.base, &top_of(&to), &to)) {
                                 tags.push(t);
                             }
                             files.push((src, to, "manual", game.clone(), system.clone()));
@@ -504,7 +647,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                     }
                 }
                 if !tags.is_empty() {
-                    details.insert((system.clone(), entry.to_lowercase()), tags);
+                    details.insert((*u, entry.to_lowercase()), tags);
                 }
             }
         }
@@ -512,7 +655,8 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     // the BIOS files the exported systems need, those the library has
     if o.carry.bios {
         if let Some(out_of) = &l.bios {
-            for system in folders.keys() {
+            let exported: std::collections::BTreeSet<&String> = units.iter().map(|u| &u.platform).collect();
+            for system in exported {
                 let Some(svars) = layout::system_vars(&l, system) else { continue };
                 for (name, src) in crate::bios::found_for(conn, lib, system)? {
                     let mut v = svars.clone();
@@ -590,39 +734,70 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         drop.push(f.clone());
     }
     // each system's gamelist (entries added for games that have none, details and pictures set)
+    // the games as RetroArch will see them: on the device, or where they're written
+    let games_top = layout::games_place(&l).and_then(|p| places.get(&p)).cloned().unwrap_or_else(|| out.clone());
+    let device = l.places.iter().find(|p| p.device).and_then(|p| places.get(&p.id)).cloned();
+    let seen_as = |file: &Path| -> String {
+        match (&device, rel_to(&games_top, file)) {
+            (Some(d), Some(rel)) => format!("{}/{rel}", d.to_string_lossy().trim_end_matches(['/', '\\'])),
+            _ => file.display().to_string(),
+        }
+    };
+    // each group's games, by title, as a collection (ES-DE's, Pegasus') or a playlist
+    let mut by_group: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for u in entries.keys() {
+        by_group.entry(units[*u].group).or_default().push(*u);
+    }
+    let title_of = |g: usize| group_title(&c.name, &w.groups.get(g).map(|x| x.name.clone()).unwrap_or_default());
     if let Some(gl) = gamelist {
         let mut platforms_added: Vec<String> = vec![];
-        for (system, list) in &entries {
-            let Some(vars) = layout::system_vars(&l, system) else { continue };
-            let Some(at) = layout::expand(&gl.path, &places, &vars)? else { continue };
-            let Some(folder) = folders.get(system) else { continue };
-            let mine: HashMap<String, Vec<(String, String)>> = details.iter().filter(|((s, _), _)| s == system).map(|((_, e), v)| (e.clone(), v.clone())).collect();
-            let old = std::fs::read_to_string(&at).ok();
+        // the units each gamelist lists (a group in a folder of its system's is in its list)
+        let mut lists: Vec<(PathBuf, Vec<usize>)> = vec![];
+        for u in entries.keys() {
+            let Some(at) = layout::expand(&gl.path, &places, &units[*u].vars)? else { continue };
+            match lists.iter_mut().find(|(a, _)| key(a) == key(&at)) {
+                Some((_, us)) => us.push(*u),
+                None => lists.push((at, vec![*u])),
+            }
+        }
+        for (at, us) in &lists {
+            let first = &units[us[0]];
+            let (vars, system) = (&first.vars, &first.platform);
+            // its entries from the gamelist's folder, with the games' files and details
+            let mut list: Vec<(String, String, String)> = vec![];
+            let mut files_of: Vec<PathBuf> = vec![];
+            let mut mine: HashMap<String, Vec<(String, String)>> = HashMap::new();
+            let mut groups_here: Vec<(String, Vec<String>)> = vec![];
+            for u in us {
+                let unit = &units[*u];
+                for (entry, game, title) in &entries[u] {
+                    let e = unit.listed(entry);
+                    if let Some(d) = details.get(&(*u, entry.to_lowercase())) {
+                        mine.insert(e.to_lowercase(), d.clone());
+                    }
+                    let t = title_of(unit.group);
+                    match groups_here.iter_mut().find(|(n, _)| *n == t) {
+                        Some((_, v)) => v.push(e.clone()),
+                        None => groups_here.push((t, vec![e.clone()])),
+                    }
+                    files_of.push(unit.folder.join(entry));
+                    list.push((e, game.clone(), title.clone()));
+                }
+            }
+            let old = std::fs::read_to_string(at).ok();
             let (text, note) = match gl.kind.as_str() {
-                "pegasus" => (merge_pegasus(old.as_deref(), &vars, &l, system, list, &mine), "The system's metadata.pegasus.txt: an entry for each game exported, with the details chosen; entries for other games are kept."),
+                "pegasus" => (merge_pegasus(old.as_deref(), vars, &l, system, &list, &mine, &groups_here), "The system's metadata.pegasus.txt: an entry for each game exported, with the details chosen, and the collection's groups as Pegasus collections; entries for other games are kept."),
                 "retroarch" => {
-                    // the games as RetroArch will see them: on the device, or where they're written
-                    let games_top = layout::games_place(&l).and_then(|p| places.get(&p)).cloned().unwrap_or_else(|| out.clone());
-                    let device = l.places.iter().find(|p| p.device).and_then(|p| places.get(&p.id));
-                    let paths: Vec<(String, String)> = list
-                        .iter()
-                        .map(|(entry, _, title)| {
-                            let file = folder.join(entry);
-                            let path = match (device, rel_to(&games_top, &file)) {
-                                (Some(d), Some(rel)) => format!("{}/{rel}", d.to_string_lossy().trim_end_matches(['/', '\\'])),
-                                _ => file.display().to_string(),
-                            };
-                            (path, title.clone())
-                        })
-                        .collect();
-                    (merge_playlist(old.as_deref(), &vars["playlist"], &paths), "The system's RetroArch playlist: an entry for each game exported; entries for other games are kept.")
+                    let paths: Vec<(String, String, String)> = list.iter().zip(&files_of).map(|((_, _, title), file)| (seen_as(file), title.clone(), vars["playlist"].clone())).collect();
+                    (merge_playlist(old.as_deref(), &paths), "The system's RetroArch playlist: an entry for each game exported; entries for other games are kept.")
                 }
                 "launchbox" => {
-                    let top = top_of(&at);
+                    let top = top_of(at);
                     let rows: Vec<(String, String, Vec<(String, String)>)> = list
                         .iter()
-                        .map(|(entry, _, title)| {
-                            let app = rel_to(&top, &folder.join(entry)).unwrap_or_else(|| entry.clone()).replace('/', "\\");
+                        .zip(&files_of)
+                        .map(|((entry, _, title), file)| {
+                            let app = rel_to(&top, file).unwrap_or_else(|| entry.clone()).replace('/', "\\");
                             (app, title.clone(), mine.get(&entry.to_lowercase()).cloned().unwrap_or_default())
                         })
                         .collect();
@@ -631,10 +806,27 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                     }
                     (merge_launchbox(old.as_deref(), &vars["folder"], &rows), "The platform's list in LaunchBox: an entry for each game exported, with the details chosen; the rest of it is kept, and the list as it was is set aside.")
                 }
-                _ => (merge_gamelist(old.as_deref(), list, &mine), "The system's list of games: entries are added for the games exported, with the details and pictures chosen; the rest of it is kept."),
+                _ => (merge_gamelist(old.as_deref(), &list, &mine), "The system's list of games: entries are added for the games exported, with the details and pictures chosen; the rest of it is kept."),
             };
             if let Some(text) = text {
-                plan.ops.push(text_op("", &at, &top_of(&at), text, note));
+                plan.ops.push(text_op("", at, &top_of(at), text, note));
+            }
+        }
+        // RetroArch: each group as a playlist of its own too, beside the systems'
+        if gl.kind == "retroarch" {
+            if let Some(dir) = lists.first().and_then(|(at, _)| at.parent()) {
+                for (g, us) in &by_group {
+                    let paths: Vec<(String, String, String)> = us
+                        .iter()
+                        .flat_map(|u| entries[u].iter().map(move |(entry, _, title)| (*u, entry, title)))
+                        .map(|(u, entry, title)| (seen_as(&units[u].folder.join(entry)), title.clone(), units[u].vars["playlist"].clone()))
+                        .collect();
+                    let at = dir.join(format!("{}.lpl", safe_name(&title_of(*g))));
+                    let old = std::fs::read_to_string(&at).ok();
+                    if let Some(text) = merge_playlist(old.as_deref(), &paths) {
+                        plan.ops.push(text_op("", &at, &top_of(&at), text, "The collection's group as a RetroArch playlist of its own."));
+                    }
+                }
             }
         }
         // LaunchBox lists its platforms in Data/Platforms.xml
@@ -648,28 +840,71 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             }
         }
     }
-    // the collection as ES-DE's custom collection
+    // ES-DE's ROMs folder: its setting, else (ES-DE's folder beside the games, on a card)
+    // where the games' path starts, else where ES-DE looks by itself
+    let es = layout::es_de_dir(&l, &places);
+    let roms = es.as_ref().map(|es| {
+        layout::es_setting(es, "ROMDirectory").unwrap_or_else(|| match (layout::games_root(&l, &places), l.es_de.as_deref().and_then(layout::place_of)) {
+            (Some(r), Some(p)) if layout::games_place(&l).as_deref() == Some(p.as_str()) => r,
+            _ => rom_dir(es),
+        })
+    });
+    let rom_path = |folder: &Path, entry: &str| -> String {
+        match roms.as_ref().and_then(|r| rel_to(r, folder)) {
+            Some(r) if r.is_empty() => format!("%ROMPATH%/{entry}"),
+            Some(r) => format!("%ROMPATH%/{r}/{entry}"),
+            None => folder.join(entry).to_string_lossy().replace('\\', "/"),
+        }
+    };
+    // the collection as ES-DE's custom collections, one for each group
     if l.collection.as_deref() == Some("esde-cfg") {
-        if let Some(es) = places.get("esde") {
-            let roms = rom_dir(es);
-            let games_place = layout::games_place(&l).and_then(|p| places.get(&p)).cloned().unwrap_or_else(|| out.clone());
-            let in_roms = key(&games_place).trim_end_matches('/') == key(&roms).trim_end_matches('/');
-            let mut lines = vec![];
-            for (system, list) in &entries {
-                let Some(folder) = folders.get(system) else { continue };
-                for (entry, _, _) in list {
-                    let rel = rel_to(&games_place, folder).filter(|_| in_roms);
-                    lines.push(match rel {
-                        Some(r) => format!("%ROMPATH%/{r}/{entry}"),
-                        None => folder.join(entry).to_string_lossy().replace('\\', "/"),
-                    });
+        if let Some(es) = &es {
+            for (g, us) in &by_group {
+                let lines: Vec<String> = us.iter().flat_map(|u| entries[u].iter().map(|(entry, _, _)| rom_path(&units[*u].folder, entry))).collect();
+                let at = es.join("collections").join(format!("custom-{}.cfg", safe_name(&title_of(*g))));
+                let text = lines.iter().map(|l| format!("{l}\n")).collect::<String>();
+                let note = if w.groups.len() > 1 { "The collection's group, as ES-DE's custom collection." } else { "The collection, as ES-DE's custom collection." };
+                if !lines.is_empty() && std::fs::read_to_string(&at).ok().as_deref() != Some(text.as_str()) {
+                    plan.ops.push(text_op("", &at, es, text, note));
                 }
             }
-            let at = es.join("collections").join(format!("custom-{}.cfg", safe_name(&c.name)));
-            let text = lines.iter().map(|l| format!("{l}\n")).collect::<String>();
-            if !lines.is_empty() && std::fs::read_to_string(&at).ok().as_deref() != Some(text.as_str()) {
-                plan.ops.push(text_op("", &at, es, text, "The collection, as ES-DE's custom collection."));
+        }
+    }
+    // a group as a system of its own: ES-DE is told of it in its custom es_systems.xml
+    if placing == "systems" {
+        let own: Vec<&Unit> = entries.keys().map(|u| &units[*u]).filter(|u| u.group > 0).collect();
+        let wanted_systems: Vec<(String, String, String, String)> = own
+            .iter()
+            .filter_map(|u| {
+                let parent = l.folder(&u.platform)?;
+                let path = match roms.as_ref().and_then(|r| rel_to(r, &u.folder)) {
+                    Some(r) => format!("%ROMPATH%/{r}"),
+                    None => u.folder.to_string_lossy().replace('\\', "/"),
+                };
+                Some((u.vars["folder"].clone(), u.vars["system_name"].clone(), path, parent))
+            })
+            .collect();
+        let tell = |name: &str, parent: &str, path: &str| {
+            format!("ES-DE needs a system called {name} for the games in {path}: in ES-DE's custom_systems/es_systems.xml, add a copy of the {parent} system from ES-DE's own es_systems.xml, with the name {name} and the path {path}.")
+        };
+        match &es {
+            Some(es) if !wanted_systems.is_empty() => {
+                let (text, missing) = merge_es_systems(es, &wanted_systems);
+                let at = es.join("custom_systems").join("es_systems.xml");
+                if let Some(text) = text {
+                    plan.ops.push(text_op("", &at, es, text, "ES-DE's own systems: one for each group exported as a system of its own, copied from its system's."));
+                }
+                for (name, parent) in missing {
+                    let path = wanted_systems.iter().find(|s| s.0 == name).map(|s| s.2.clone()).unwrap_or_default();
+                    notes.push(tell(&name, &parent, &path));
+                }
             }
+            None => {
+                for (name, _, path, parent) in &wanted_systems {
+                    notes.push(tell(name, parent, path));
+                }
+            }
+            _ => {}
         }
     }
     plan.space = organise::space_needed(&plan.ops);
@@ -681,8 +916,8 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     plan.export = Some(json!({
         "id": export_id, "collection": c.id, "name": c.name, "layout": l.id, "layout_name": l.name, "target": l.id, "places": asked,
         "out": out.display().to_string(), "esde": places.get("esde").map(|e| e.display().to_string()),
-        "always_copy": o.always_copy, "short_names": o.short_names, "carry": o.carry, "only": o.only,
-        "first": first, "files": wanted, "drop": drop, "total": total, "limit": c.size_limit,
+        "always_copy": o.always_copy, "short_names": o.short_names, "carry": o.carry, "only": o.only, "groups": placing,
+        "first": first, "files": wanted, "drop": drop, "total": total, "limit": c.size_limit, "notes": notes,
     }));
     Ok(plan)
 }
@@ -858,15 +1093,21 @@ fn pegasus_value(v: &str) -> String {
 
 /// A system's metadata.pegasus.txt with an entry for each game exported (Game Repo's
 /// entries for them written again, with the details chosen), its collection named when
-/// the file is new, and the entries for other files kept. None: nothing changes.
-fn merge_pegasus(old: Option<&str>, vars: &layout::Vars, l: &layout::Layout, system: &str, list: &[(String, String, String)], details: &HashMap<String, Vec<(String, String)>>) -> Option<String> {
+/// the file is new, the collection's groups as collections of their own (`groups`: each
+/// one's title and files here, which Pegasus puts together with the same collection's in
+/// other systems' files, D75), and the entries for other files kept. None: nothing changes.
+fn merge_pegasus(old: Option<&str>, vars: &layout::Vars, l: &layout::Layout, system: &str, list: &[(String, String, String)], details: &HashMap<String, Vec<(String, String)>>, groups: &[(String, Vec<String>)]) -> Option<String> {
     let ours: HashSet<String> = list.iter().map(|(e, _, _)| e.to_lowercase()).collect();
+    let titles: HashSet<String> = groups.iter().map(|(t, _)| t.trim().to_lowercase()).collect();
     let text = old.unwrap_or("").replace("\r\n", "\n");
-    // the file's entries, split where a line starts a game (`game:`)
+    // the file's entries, split where a line starts a game (`game:`) or, after the
+    // system's own, a collection (`collection:`)
     let mut head: Vec<&str> = vec![];
     let mut blocks: Vec<Vec<&str>> = vec![];
+    let starts = |line: &str, k: &str| line.trim_start().to_lowercase().starts_with(k) && !line.starts_with([' ', '\t']);
     for line in text.lines() {
-        if line.trim_start().to_lowercase().starts_with("game:") && !line.starts_with([' ', '\t']) {
+        let later_collection = starts(line, "collection:") && (!blocks.is_empty() || head.iter().any(|h| starts(h, "collection:")));
+        if starts(line, "game:") || later_collection {
             blocks.push(vec![line]);
         } else if let Some(b) = blocks.last_mut() {
             b.push(line);
@@ -899,8 +1140,17 @@ fn merge_pegasus(old: Option<&str>, vars: &layout::Vars, l: &layout::Layout, sys
         out.push_str(head.join("\n").trim_end());
         out.push_str("\n\n");
     }
+    // the groups' collections, written again
+    let collection_of = |b: &[&str]| b.first().and_then(|l| l.split_once(':')).filter(|(k, _)| k.trim().eq_ignore_ascii_case("collection")).map(|(_, v)| v.trim().to_lowercase());
+    for (title, files) in groups {
+        out.push_str(&format!("collection: {}\nfiles:\n", pegasus_value(title)));
+        for f in files {
+            out.push_str(&format!("  {f}\n"));
+        }
+        out.push('\n');
+    }
     for b in &blocks {
-        if file_of(b).is_some_and(|f| ours.contains(&f)) {
+        if file_of(b).is_some_and(|f| ours.contains(&f)) || collection_of(b).is_some_and(|t| titles.contains(&t)) {
             continue;
         }
         out.push_str(b.join("\n").trim_end());
@@ -917,17 +1167,18 @@ fn merge_pegasus(old: Option<&str>, vars: &layout::Vars, l: &layout::Layout, sys
     (old.map(|o| o.replace("\r\n", "\n")).as_deref() != Some(out.as_str())).then_some(out)
 }
 
-/// A system's RetroArch playlist (its JSON form) with an entry for each game exported
-/// (`paths`: the game as RetroArch will open it, its label); entries for other files are
-/// kept as they are. None: nothing changes.
-fn merge_playlist(old: Option<&str>, playlist: &str, paths: &[(String, String)]) -> Option<String> {
+/// A RetroArch playlist (its JSON form: a system's, or a collection's group's) with an
+/// entry for each game exported (`paths`: the game as RetroArch will open it, its label,
+/// its system's name in RetroArch's database); entries for other files are kept as they
+/// are. None: nothing changes.
+fn merge_playlist(old: Option<&str>, paths: &[(String, String, String)]) -> Option<String> {
     let mut v: Value = old.and_then(|o| serde_json::from_str(o).ok()).filter(Value::is_object).unwrap_or_else(|| {
         json!({ "version": "1.5", "default_core_path": "", "default_core_name": "", "label_display_mode": 0,
                 "right_thumbnail_mode": 0, "left_thumbnail_mode": 0, "sort_mode": 0, "items": [] })
     });
     let norm = |p: &str| p.replace('\\', "/").to_lowercase();
     let mut items: Vec<Value> = v["items"].as_array().cloned().unwrap_or_default();
-    for (path, title) in paths {
+    for (path, title, playlist) in paths {
         let item = json!({ "path": path, "label": title, "core_path": "DETECT", "core_name": "DETECT", "crc32": "DETECT", "db_name": format!("{playlist}.lpl") });
         match items.iter_mut().find(|i| i["path"].as_str().is_some_and(|p| norm(p) == norm(path))) {
             Some(i) => {
@@ -1109,7 +1360,7 @@ pub fn record(lib: &Library, plan: &Plan, undone: bool) -> Result<()> {
     let mut v = json!({
         "id": id, "collection": e["collection"], "name": e["name"], "layout": e["layout"], "layout_name": e["layout_name"], "places": e["places"],
         "target": e["target"], "out": e["out"], "esde": e["esde"],
-        "always_copy": e["always_copy"], "short_names": e["short_names"], "carry": e["carry"], "only": e["only"],
+        "always_copy": e["always_copy"], "short_names": e["short_names"], "carry": e["carry"], "only": e["only"], "groups": e["groups"],
         "created": old["created"].as_str().map(String::from).unwrap_or_else(now), "updated": now(), "change": plan.id,
         "files": files.into_values().collect::<Vec<_>>(),
     });
@@ -1279,7 +1530,22 @@ pub fn preview(l: &layout::Layout, sample: &Value) -> Value {
         }
     }
     if l.collection.as_deref() == Some("esde-cfg") {
-        push(&mut items, places.get("esde").map(|e| e.join("collections").join("custom-<collection>.cfg")), "collection", "collection", "The collection, as ES-DE's custom collection", "", "", false);
+        push(&mut items, layout::es_de_dir(l, &places).map(|e| e.join("collections").join("custom-<collection>.cfg")), "collection", "collection", "The collection (each of its groups), as ES-DE's custom collection", "", "", false);
+    }
+    // a group after the first, in a folder of its own in its system's, or as a system of its own (D75)
+    if let Some(s) = sample["systems"].as_array().and_then(|a| a.first()) {
+        let system = s["system"].as_str().unwrap_or("");
+        if let Some(mut v) = layout::system_vars(l, system).filter(|_| l.placements().contains(&"subfolders")) {
+            v.insert("group", "Group".into());
+            if let Ok(Some(d)) = layout::games_dir_of(l, &v, &places) {
+                items.push(json!({ "path": shown(&d), "kind": "group", "at": "games.path", "what": "A group's games, in a folder of their own (when the export chooses it)", "system": system, "game": "", "faint": true, "dir": true }));
+            }
+        }
+        if let Some(v) = layout::group_system_vars(l, system, "Group") {
+            if let Ok(Some(d)) = layout::games_dir_of(l, &v, &places) {
+                items.push(json!({ "path": shown(&d), "kind": "group", "at": "groups.system", "what": "A group's games, as a system of its own (when the export chooses it)", "system": system, "game": "", "faint": true, "dir": true }));
+            }
+        }
     }
     // the same file twice (two kinds, or two games, with one name)
     let clash: HashSet<String> = {
@@ -1440,7 +1706,7 @@ mod tests {
     use crate::collection::{Collection, Rules};
 
     fn collection(lib: &Library, f: impl FnOnce(&mut Rules)) -> Collection {
-        let mut c = Collection { id: String::new(), name: "Best Of".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new() };
+        let mut c = Collection { id: String::new(), name: "Best Of".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new(), ..Default::default() };
         c.rules.platforms = vec!["gb".into()];
         f(&mut c.rules);
         collection::save(lib, c).unwrap()
@@ -1545,6 +1811,150 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The Best Of collection with a second group, "Favs", of the Favourites DAT's games
+    /// (My Delta, which you have, and Zeta, which you don't), and ES-DE's folders for it.
+    fn grouped(dir: &Path, lib: &Library) -> (Collection, PathBuf, PathBuf) {
+        let mut c = collection(lib, |_| {});
+        c.add_group("Favs", Rules { platforms: vec!["gb".into()], include: "all".into(), dats: vec!["Favourites".into()], ..Rules::default() });
+        let c = collection::save(lib, c).unwrap();
+        let (es, roms) = (dir.join("ES-DE"), dir.join("ES-ROMs"));
+        std::fs::create_dir_all(es.join("settings")).unwrap();
+        std::fs::write(es.join("settings").join("es_settings.xml"), format!("<?xml version=\"1.0\"?>\n<string name=\"ROMDirectory\" value=\"{}\" />\n", roms.display())).unwrap();
+        (c, es, roms)
+    }
+
+    #[test]
+    fn a_collections_groups_go_in_their_systems_folders_and_each_is_an_es_de_collection() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-groups");
+        let (c, es, roms) = grouped(&dir, &lib);
+        alpha_with_media(&ix, &lib);
+        let carry = Carry { media: vec!["cover".into()], ..Default::default() };
+        let o = Options { collection: c.id.clone(), layout: "esde".into(), places: [("roms".into(), roms.clone()), ("esde".into(), es.clone())].into(), carry, ..Default::default() };
+        let p = run(&ix, &lib, &o);
+        // every game in its system's folder (Zeta isn't in the library)
+        assert_eq!(tree(&roms), ["gb/Alpha (Europe).gb", "gb/Beta (Europe) (Rev 1).gb", "gb/Delta (World).gb", "gb/Epsilon (Japan) (En,Ja).gb", "gb/My Delta.gb"]);
+        assert!(p.left.iter().any(|l| l["path"].as_str().is_some_and(|x| x.ends_with("Zeta (Japan)"))), "{:?}", p.left);
+        // each group as a custom collection of its own
+        let first = std::fs::read_to_string(es.join("collections/custom-Best Of.cfg")).unwrap();
+        assert_eq!(first.lines().count(), 4);
+        assert_eq!(std::fs::read_to_string(es.join("collections/custom-Best Of - Favs.cfg")).unwrap(), "%ROMPATH%/gb/My Delta.gb\n");
+        let gl = std::fs::read_to_string(es.join("gamelists/gb/gamelist.xml")).unwrap();
+        assert!(gl.contains("<path>./My Delta.gb</path>") && gl.contains("<path>./Alpha (Europe).gb</path>"), "{gl}");
+        // ({group} is nothing for them: the pictures where they've always been)
+        assert!(tree(&es).contains(&"downloaded_media/gb/covers/Alpha (Europe).png".to_string()), "{:?}", tree(&es));
+        let rec = load(&lib, list(&lib)[0]["id"].as_str().unwrap()).unwrap();
+        assert_eq!(rec["groups"], "collections");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_group_can_be_a_folder_of_its_own_in_its_systems_with_its_pictures_beside() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-group-folders");
+        let (c, es, roms) = grouped(&dir, &lib);
+        // a picture for My Delta, so its place in ES-DE's media shows
+        let fav: i64 = ix.conn().query_row("SELECT g.id FROM dat_games g JOIN dats d ON d.id = g.dat_id WHERE d.name = 'Favourites' AND g.name = 'My Delta'", [], |r| r.get(0)).unwrap();
+        let gdir = crate::meta::ensure_folder(&ix, &lib, &crate::meta::dat_game(ix.conn(), fav).unwrap()).unwrap();
+        std::fs::create_dir_all(gdir.join("media")).unwrap();
+        std::fs::write(gdir.join("media").join("cover.png"), crate::scrape::tests::png(4, 4)).unwrap();
+        crate::meta::sync(&ix, &lib).unwrap();
+        let carry = Carry { media: vec!["cover".into()], ..Default::default() };
+        let o = Options { collection: c.id.clone(), layout: "esde".into(), places: [("roms".into(), roms.clone()), ("esde".into(), es.clone())].into(), carry, groups: "subfolders".into(), ..Default::default() };
+        run(&ix, &lib, &o);
+        let t = tree(&roms);
+        assert!(t.contains(&"gb/Favs/My Delta.gb".to_string()) && t.contains(&"gb/Delta (World).gb".to_string()) && t.len() == 5, "{t:?}");
+        // the system's gamelist names it in its folder; ES-DE's pictures mirror that folder
+        let gl = std::fs::read_to_string(es.join("gamelists/gb/gamelist.xml")).unwrap();
+        assert!(gl.contains("<path>./Favs/My Delta.gb</path>"), "{gl}");
+        assert!(tree(&es).contains(&"downloaded_media/gb/covers/Favs/My Delta.png".to_string()), "{:?}", tree(&es));
+        assert_eq!(std::fs::read_to_string(es.join("collections/custom-Best Of - Favs.cfg")).unwrap(), "%ROMPATH%/gb/Favs/My Delta.gb\n");
+        // remembered for Update, which can place them another way
+        let eid = list(&lib)[0]["id"].as_str().unwrap().to_string();
+        assert_eq!(options_of(&lib, &eid).unwrap().groups, "subfolders");
+        let mut again = options_of(&lib, &eid).unwrap();
+        again.groups = "collections".into();
+        let p = plan(&ix, &lib, &again).unwrap();
+        assert!(p.ops.iter().any(|o| o.op == "aside" && o.to.ends_with("My Delta.gb")) && p.ops.iter().any(|o| o.to.ends_with("gb/My Delta.gb") && o.op != "aside"), "{:?}", p.ops.iter().map(|o| (&o.op, &o.to)).collect::<Vec<_>>());
+        // a layout without {group} in its games' path can't: the groups stay in their systems' folders, and it says so
+        let card = dir.join("Card");
+        let p = plan(&ix, &lib, &Options { collection: c.id.clone(), layout: "knulli".into(), places: on("card", &card), groups: "subfolders".into(), ..Default::default() }).unwrap();
+        assert!(p.export.as_ref().unwrap()["notes"][0].as_str().unwrap().contains("can't place groups in folders of their own"), "{:?}", p.export);
+        assert!(p.ops.iter().any(|o| o.to.replace('\\', "/").ends_with("gb/My Delta.gb")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_group_can_be_a_system_of_its_own_set_up_for_es_de_or_said_what_to_set_up() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-group-systems");
+        let (c, es, roms) = grouped(&dir, &lib);
+        let o = Options { collection: c.id.clone(), layout: "esde".into(), places: [("roms".into(), roms.clone()), ("esde".into(), es.clone())].into(), groups: "systems".into(), ..Default::default() };
+        // ES-DE's own list of systems isn't to be found: nothing is written for it, and the preview says what to do
+        let p = plan(&ix, &lib, &o).unwrap();
+        let notes = p.export.as_ref().unwrap()["notes"].clone();
+        assert!(notes[0].as_str().unwrap().contains("ES-DE needs a system called gb-favs") && notes[0].as_str().unwrap().contains("%ROMPATH%/gb-favs"), "{notes}");
+        assert!(!p.ops.iter().any(|o| o.to.ends_with("es_systems.xml")));
+        // with ES-DE's systems (a stand-in for those it ships with), the group's is copied from its system's
+        let shipped = es.join("resources/systems/linux");
+        std::fs::create_dir_all(&shipped).unwrap();
+        std::fs::write(shipped.join("es_systems.xml"), "<?xml version=\"1.0\"?>\n<systemList>\n    <system>\n        <name>gb</name>\n        <fullname>Nintendo Game Boy</fullname>\n        <path>%ROMPATH%/gb</path>\n        <extension>.gb .GB .zip .ZIP</extension>\n        <command label=\"Gambatte\">%EMULATOR_RETROARCH% -L %CORE_RETROARCH%/gambatte_libretro.so %ROM%</command>\n        <platform>gb</platform>\n        <theme>gb</theme>\n    </system>\n</systemList>\n").unwrap();
+        let p = run(&ix, &lib, &o);
+        assert_eq!(p.export.as_ref().unwrap()["notes"], json!([]));
+        let t = tree(&roms);
+        assert!(t.contains(&"gb-favs/My Delta.gb".to_string()) && t.contains(&"gb/Delta (World).gb".to_string()) && !t.iter().any(|f| f.starts_with("gb/My")), "{t:?}");
+        let sys = std::fs::read_to_string(es.join("custom_systems/es_systems.xml")).unwrap();
+        for s in ["<name>gb-favs</name>", "<fullname>Game Boy - Favs</fullname>", "<path>%ROMPATH%/gb-favs</path>", "gambatte_libretro.so", "<theme>gb</theme>"] {
+            assert!(sys.contains(s), "{s} in {sys}");
+        }
+        assert!(!sys.contains("<name>gb</name>"), "only the group's system: {sys}");
+        assert!(std::fs::read_to_string(es.join("gamelists/gb-favs/gamelist.xml")).unwrap().contains("<path>./My Delta.gb</path>"));
+        assert_eq!(std::fs::read_to_string(es.join("collections/custom-Best Of - Favs.cfg")).unwrap(), "%ROMPATH%/gb-favs/My Delta.gb\n");
+        // exported again: the same, its system once
+        let eid = list(&lib)[0]["id"].as_str().unwrap().to_string();
+        let again = plan(&ix, &lib, &options_of(&lib, &eid).unwrap()).unwrap();
+        assert!(again.ops.is_empty(), "{:?}", again.ops.iter().map(|o| (&o.op, &o.to)).collect::<Vec<_>>());
+        // a layout that knows no ES-DE folder of its own (a copy without one, and no {esde}): it says what to set up
+        let mut l = layout::get(None, "esde-card").unwrap();
+        l.es_de = None;
+        l.collection = None;
+        l.name = "Mine".into();
+        let mine = layout::save(&lib, &layout::to_json(&l), true).unwrap();
+        let card = dir.join("Card");
+        let p = plan(&ix, &lib, &Options { collection: c.id.clone(), layout: mine.id.clone(), places: on("card", &card), groups: "systems".into(), ..Default::default() }).unwrap();
+        assert!(p.export.as_ref().unwrap()["notes"][0].as_str().unwrap().contains("ES-DE needs a system called gb-favs"), "{:?}", p.export);
+        assert!(p.ops.iter().any(|o| o.to.replace('\\', "/").ends_with("ROMs/gb-favs/My Delta.gb")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_group_token_is_known_left_out_when_it_is_nothing_and_checked() {
+        let places: BTreeMap<String, PathBuf> = [("roms".to_string(), PathBuf::from("/r"))].into();
+        let mut v = layout::Vars::new();
+        v.insert("folder", "snes".into());
+        v.insert("group", String::new());
+        assert_eq!(layout::expand("{roms}/{folder}/{group}/x.sfc", &places, &v).unwrap(), Some(PathBuf::from("/r/snes/x.sfc")));
+        v.insert("group", "Translations".into());
+        assert_eq!(layout::expand("{roms}/{folder}/{group}/x.sfc", &places, &v).unwrap(), Some(PathBuf::from("/r/snes/Translations/x.sfc")));
+        let esde = layout::get(None, "esde").unwrap();
+        assert_eq!(esde.placements(), ["collections", "subfolders", "systems"]);
+        assert_eq!(layout::get(None, "pegasus").unwrap().placements(), ["collections"]);
+        assert_eq!(layout::group_system_vars(&esde, "snes", "My Translations").unwrap()["folder"], "snes-my-translations");
+        assert!(layout::check(&esde).is_empty());
+        let mut bad = esde.clone();
+        bad.groups = Some(layout::GroupsOut { system: "{folder}-x".into(), ..Default::default() });
+        assert!(layout::check(&bad).iter().any(|p| p.at == "groups.system"));
+        bad.groups = Some(layout::GroupsOut { system: "{folder}-{groups}".into(), ..Default::default() });
+        assert!(layout::check(&bad).iter().any(|p| p.at == "groups.system"));
+        bad.groups = None;
+        bad.games.path = "{roms}/{folder}/{group}/{groupx}/{file}".into();
+        assert!(layout::check(&bad).iter().any(|p| p.at == "games.path" && p.message.contains("{groupx}")));
+        // the editor's preview shows where a group would go
+        let pv = preview(&esde, &json!({ "systems": [{ "system": "gb", "games": [] }] }));
+        let groups: Vec<&str> = pv["items"].as_array().unwrap().iter().filter(|i| i["kind"] == "group").map(|i| i["path"].as_str().unwrap()).collect();
+        assert_eq!(groups, ["roms/gb-group", "roms/gb/Group"]);
+    }
+
     #[test]
     fn a_disc_game_of_several_files_is_a_folder_for_es_de_and_named_for_a_plain_folder() {
         let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -1571,7 +1981,7 @@ mod tests {
         roots::add(&lib, &src, Some("psx")).unwrap();
         crate::scan::scan(&ix, &lib, &crate::scan::Options::default(), &AtomicBool::new(false), &mut |_| {}).unwrap();
         crate::dat::import(&ix, &lib, &dir.join("psx.dat"), &serde_json::Map::new()).unwrap();
-        let mut c = Collection { id: String::new(), name: "Discs".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new() };
+        let mut c = Collection { id: String::new(), name: "Discs".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new(), ..Default::default() };
         c.rules.platforms = vec!["psx".into()];
         let c = collection::save(&lib, c).unwrap();
         let roms = dir.join("ROMs");

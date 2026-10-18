@@ -25,17 +25,18 @@ export const KINDS = {
 const FIELDS = { description: "Description", developer: "Developer", publisher: "Publisher", released: "Release date", genres: "Genres", players: "Players", rating: "Rating" };
 
 /** The tokens each part of a layout can use, and what they stand for. */
-const SYSTEM_TOKENS = ["folder", "system", "system_name", "dat_name"];
+const SYSTEM_TOKENS = ["folder", "system", "system_name", "dat_name", "group"];
 const GAME_TOKENS = ["file", "stem", "title"];
 const TOKEN_HELP = {
   folder: "the system's folder in this layout", system: "the system's id (gb)", system_name: "the firmware's name for the system", dat_name: "the system's DAT name",
   file: "the game's file or folder", stem: "its name without the extension", title: "the game's title", ext: "the picture's own extension",
   kind: "the kind of picture", doc_file: "the document's own name", bios_file: "the BIOS file's name, with its folder",
+  group: "a collection's group's folder, when the export puts groups in folders of their own (nothing for the first group; in a group's own system, its name in lower case)",
 };
 function tokensFor(at) {
   const what = at.split(".")[0];
   if (what === "games") return [...SYSTEM_TOKENS, "file"];
-  if (what === "gamelist") return SYSTEM_TOKENS;
+  if (what === "gamelist" || what === "groups") return SYSTEM_TOKENS;
   if (what === "bios") return [...SYSTEM_TOKENS, "bios_file"];
   if (what === "documents") return [...SYSTEM_TOKENS, ...GAME_TOKENS, "ext", "doc_file"];
   return [...SYSTEM_TOKENS, ...GAME_TOKENS, "ext", "kind", ...(at === "media.manual" ? ["doc_file"] : [])];
@@ -51,6 +52,9 @@ function partOf(l, at) {
   return null;
 }
 
+/** Where a group placed as a system of its own goes, as the inspector edits it. */
+const GROUP_SYSTEM = "{folder}-{group}";
+
 /** What a part of the layout is, in words. */
 function partName(at) {
   const [a, b] = at.split(".");
@@ -62,6 +66,7 @@ function partName(at) {
   if (a === "bios") return "BIOS files";
   if (a === "systems") return "A system's folder";
   if (a === "collection") return "The collection file";
+  if (a === "groups") return "A group as a system of its own";
   return at;
 }
 
@@ -103,7 +108,7 @@ function TreeNode({ node, depth, places, chosen, onChoose, open, setOpen }) {
     <div class=${`lt-row${active ? " active" : ""}`} style=${`--lt-depth:${depth}`}>
       ${folder ? html`<button type="button" class="lt-fold" aria-label=${shut ? "Open" : "Close"} aria-expanded=${shut ? "false" : "true"} onClick=${() => setOpen({ ...open, [node.path]: shut })}>${shut ? "▸" : "▾"}</button>` : html`<span class="lt-fold"></span>`}
       <button type="button" class="lt-name" disabled=${!it} title=${it ? `${it.what}: change it on the right` : null} onClick=${() => it && onChoose(it)}>
-        <span class="lt-icon" aria-hidden="true">${Icon[depth === 0 ? "archive" : folder ? "folder" : it?.kind === "media" ? "image" : it?.kind === "game" ? "gamepad" : "file"](14)}</span>
+        <span class="lt-icon" aria-hidden="true">${Icon[depth === 0 ? "archive" : folder || it?.kind === "group" ? "folder" : it?.kind === "media" ? "image" : it?.kind === "game" ? "gamepad" : "file"](14)}</span>
         <span class="lt-file">${label}</span>
         ${it ? html`<span class="muted lt-what">${it.what}${it.faint ? " · none of these games has one" : ""}${it.clash ? " · the same file as another" : ""}</span>` : null}
       </button>
@@ -160,9 +165,16 @@ function Inspector({ draft, at, preview, setDraft, choose }) {
       ${showProblems}
     </div>`;
   }
+  if (at === "groups.system") {
+    const v = draft.groups?.system ?? "";
+    return html`<div class="lt-inspect" id="lt-inspect" data-at=${at}><h3>${partName(at)}</h3>
+      <p class="muted">When the Export dialog's Separate systems is chosen, each of a collection's groups after the first is a system of its own beside its system's, in this folder (${GROUP_SYSTEM}: <code>snes-translations</code>). Empty: the layout doesn't offer it.</p>
+      <${PathField} id="lt-groups-system" at=${at} value=${v} example=${example} onChange=${(x) => set((l) => { if (x.trim()) l.groups = { ...(l.groups || {}), system: x }; else delete l.groups; })} />
+      ${showProblems}</div>`;
+  }
   if (at === "collection") {
     return html`<div class="lt-inspect" id="lt-inspect" data-at=${at}><h3>The collection file</h3>
-      <label class="check-row"><input type="checkbox" id="lt-collection" checked=${draft.collection === "esde-cfg"} onChange=${(e) => set((l) => { l.collection = e.target.checked ? "esde-cfg" : null; })} /> Write the collection as an ES-DE custom collection (in <code>{esde}/collections/</code>)</label></div>`;
+      <label class="check-row"><input type="checkbox" id="lt-collection" checked=${draft.collection === "esde-cfg"} onChange=${(e) => set((l) => { l.collection = e.target.checked ? "esde-cfg" : null; })} /> Write the collection as an ES-DE custom collection, one for each of its groups (in <code>${draft.es_de || "{esde}"}/collections/</code>)</label></div>`;
   }
   const part = at ? partOf(draft, at) : null;
   if (part) {
