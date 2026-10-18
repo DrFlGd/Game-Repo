@@ -1875,7 +1875,7 @@ mod tests {
         let mut again = options_of(&lib, &eid).unwrap();
         again.groups = "collections".into();
         let p = plan(&ix, &lib, &again).unwrap();
-        assert!(p.ops.iter().any(|o| o.op == "aside" && o.to.ends_with("My Delta.gb")) && p.ops.iter().any(|o| o.to.ends_with("gb/My Delta.gb") && o.op != "aside"), "{:?}", p.ops.iter().map(|o| (&o.op, &o.to)).collect::<Vec<_>>());
+        assert!(p.ops.iter().any(|o| o.op == "aside" && o.to.ends_with("My Delta.gb")) && p.ops.iter().any(|o| o.to.replace('\\', "/").ends_with("gb/My Delta.gb") && o.op != "aside"), "{:?}", p.ops.iter().map(|o| (&o.op, &o.to)).collect::<Vec<_>>());
         // a layout without {group} in its games' path can't: the groups stay in their systems' folders, and it says so
         let card = dir.join("Card");
         let p = plan(&ix, &lib, &Options { collection: c.id.clone(), layout: "knulli".into(), places: on("card", &card), groups: "subfolders".into(), ..Default::default() }).unwrap();
