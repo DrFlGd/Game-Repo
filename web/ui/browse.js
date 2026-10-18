@@ -123,15 +123,15 @@ function Values({ id, name, values, chosen, onToggle, label = (v) => v.name || S
   </details>`;
 }
 
+/** A filter of "at least" values (players, rating) as one drop-down, with how many games each has. */
 function AtLeast({ id, name, values, value, onChange, label }) {
   if (!values?.some((v) => v.count) && !value) return null;
-  return html`<details class="lib-filter" id=${`filter-${id}`} open>
-    <summary>${name}${value ? html` <span class="lib-filter-on">1</span>` : null}</summary>
-    <ul class="lib-values">
-      <li><label class="check-row"><input type="radio" name=${`f-${id}`} checked=${!value} onChange=${() => onChange(0)} /><span class="lib-value">Any</span></label></li>
-      ${values.map((v) => html`<li key=${v.value}><label class="check-row" data-value=${v.value}><input type="radio" name=${`f-${id}`} checked=${value === v.value} onChange=${() => onChange(v.value)} />
-        <span class="lib-value">${label(v.value)}</span><span class="lib-count">${v.count.toLocaleString()}</span></label></li>`)}
-    </ul></details>`;
+  return html`<label class="lib-filter lib-filter-select field-block" id=${`filter-${id}`}>
+    <span class="field-label">${name}${value ? html` <span class="lib-filter-on">1</span>` : null}</span>
+    <select class="compact" id=${`filter-${id}-select`} value=${String(value || 0)} onChange=${(e) => onChange(Number(e.target.value))}>
+      <option value="0">Any</option>
+      ${values.map((v) => html`<option key=${v.value} value=${String(v.value)}>${label(v.value)} (${v.count.toLocaleString()})</option>`)}
+    </select></label>`;
 }
 
 function Filters({ q, facets, set, collections }) {

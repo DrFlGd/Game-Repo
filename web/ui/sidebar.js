@@ -6,7 +6,7 @@ import { ui } from "./state.js";
 import { routeHash } from "./context.js";
 import { Icon } from "./icons.js";
 import { COMING } from "./coming.js";
-import { NavHead, ThemeButton, useMedia, NARROW } from "./chrome.js";
+import { NavHead, useMedia, NARROW } from "./chrome.js";
 
 function NavLink({ route, label, icon, current, note = null, off = false }) {
   const active = current === route;
@@ -44,7 +44,6 @@ export function Sidebar() {
         <${NavLink} route="settings" label="Settings" icon="cog" current=${s.route} />
         <${NavLink} route="help" label="Help" icon="help" current=${s.route} />
         <${NavLink} route="about" label="About" icon="info" current=${s.route} />
-        <${ThemeButton} />
       </ul>
     </nav>`;
 }

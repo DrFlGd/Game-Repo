@@ -75,11 +75,6 @@ export function applyTheme() {
   document.documentElement.dataset.theme = resolvedTheme();
   window.dispatchEvent(new CustomEvent("gr-theme"));
 }
-/** The menu's theme button goes through the same choices as Settings, in order. */
-export const nextTheme = (theme) => THEMES[(THEMES.findIndex(([v]) => v === theme) + 1) % THEMES.length][0];
-export function cycleTheme() {
-  setTheme(nextTheme(ui.get().theme));
-}
 export function setTheme(theme) {
   setPref({ theme });
   applyTheme();

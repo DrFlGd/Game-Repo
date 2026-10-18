@@ -25,6 +25,10 @@ const BUILT_IN: &[&str] = &[
     include_str!("../layouts/knulli.json"),
     include_str!("../layouts/rocknix.json"),
     include_str!("../layouts/muos.json"),
+    include_str!("../layouts/retroarch.json"),
+    include_str!("../layouts/pegasus.json"),
+    include_str!("../layouts/launchbox.json"),
+    include_str!("../layouts/playnite.json"),
     include_str!("../layouts/folder.json"),
 ];
 
@@ -82,6 +86,10 @@ pub struct Place {
     /// ES-DE's setting that names it instead, when set (`MediaDirectory`)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub es_setting: Option<String>,
+    /// A path on the device the export is for (`/storage/roms`), not a folder here: what a
+    /// list names the games by (RetroArch's playlists, D62); nothing is written under it
+    #[serde(skip_serializing_if = "is_false")]
+    pub device: bool,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -115,7 +123,9 @@ pub struct Games {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Gamelist {
-    /// `es-xml`: EmulationStation's gamelist.xml
+    /// `es-xml`: EmulationStation's gamelist.xml; `pegasus`: Pegasus' metadata.pegasus.txt
+    /// (D63); `retroarch`: a RetroArch playlist (D62); `launchbox`: a LaunchBox platform's
+    /// XML file (D64)
     pub kind: String,
     pub path: String,
     /// The tag each detail goes in (meta::FIELDS' keys)
@@ -161,9 +171,15 @@ pub fn media_kinds() -> Vec<&'static str> {
 /// The details `text` can write.
 pub const TEXT_KINDS: &[&str] = &["description"];
 
-/// The tokens a path can use, by what it's for.
-const SYSTEM_TOKENS: &[&str] = &["folder", "system", "system_name", "dat_name"];
-const GAME_TOKENS: &[&str] = &["file", "stem", "title"];
+/// The kinds of list a layout can write (`gamelist.kind`).
+pub const GAMELISTS: &[&str] = &["es-xml", "pegasus", "retroarch", "launchbox"];
+
+/// The tokens a path can use, by what it's for. `playlist` is the name RetroArch knows a
+/// system by: the layout's name for it when it gives one, else its No-Intro or Redump
+/// name; `label` is a game's title as the layout's list finds its pictures by it
+/// (`export::label`: RetroArch's thumbnails, LaunchBox's images).
+const SYSTEM_TOKENS: &[&str] = &["folder", "system", "system_name", "dat_name", "playlist"];
+const GAME_TOKENS: &[&str] = &["file", "stem", "title", "label"];
 
 /// A problem with a layout: where (`media.cover`) and what, in plain words.
 #[derive(Clone, Debug, Serialize)]
@@ -185,9 +201,13 @@ impl Layout {
 
     /// The layout's name for a system (muOS's catalogue name), else the app's.
     pub fn system_name(&self, system: &str) -> String {
+        self.given_name(system).unwrap_or_else(|| platforms::name_of(system))
+    }
+
+    fn given_name(&self, system: &str) -> Option<String> {
         match self.systems.get(system) {
-            Some(Some(SystemOut::Named { name: Some(n), .. })) if !n.trim().is_empty() => n.clone(),
-            _ => platforms::name_of(system),
+            Some(Some(SystemOut::Named { name: Some(n), .. })) if !n.trim().is_empty() => Some(n.clone()),
+            _ => None,
         }
     }
 
@@ -251,7 +271,7 @@ impl Layout {
         };
         json!({
             "id": self.id, "name": self.name, "about": self.about, "builtin": self.builtin,
-            "places": self.asked().map(|p| json!({ "id": p.id, "label": p.label, "example": p.example, "note": p.note, "optional": p.optional })).collect::<Vec<_>>(),
+            "places": self.asked().map(|p| json!({ "id": p.id, "label": p.label, "example": p.example, "note": p.note, "optional": p.optional, "device": p.device })).collect::<Vec<_>>(),
             "carries": self.carries(), "pictures": self.pictures.max, "gamelist": self.gamelist.is_some(), "collection": self.collection.is_some(),
             "copied_from": self.copied_from.as_ref().map(|c| json!({ "id": c["id"], "name": base.as_ref().map(|b| b.name.clone()), "newer": newer })),
         })
@@ -340,6 +360,7 @@ pub fn system_vars(l: &Layout, system: &str) -> Option<Vars> {
     v.insert("folder", folder);
     v.insert("system", system.to_string());
     v.insert("system_name", l.system_name(system));
+    v.insert("playlist", l.given_name(system).unwrap_or_else(|| dat.clone()));
     v.insert("dat_name", dat);
     Some(v)
 }
@@ -354,7 +375,12 @@ pub fn games_dir(l: &Layout, system: &str, places: &BTreeMap<String, PathBuf>) -
 
 /// The place the games go under (the games' path's first part).
 pub fn games_place(l: &Layout) -> Option<String> {
-    split(&l.games.path).ok().map(|x| x.0)
+    place_of(&l.games.path)
+}
+
+/// The place a path starts from (`{launchbox}/Data/…` is `launchbox`).
+pub fn place_of(path: &str) -> Option<String> {
+    split(path).ok().map(|x| x.0)
 }
 
 /// The places' folders for an export: those asked for, then those worked out from them
@@ -363,6 +389,10 @@ pub fn resolve_places(l: &Layout, given: &BTreeMap<String, PathBuf>) -> Result<B
     let mut out: BTreeMap<String, PathBuf> = BTreeMap::new();
     for p in l.asked() {
         match given.get(&p.id).filter(|d| !d.as_os_str().is_empty()) {
+            // a path on the device, as it's written there
+            Some(d) if p.device => {
+                out.insert(p.id.clone(), d.clone());
+            }
             Some(d) if d.is_absolute() => {
                 out.insert(p.id.clone(), d.clone());
             }
@@ -460,6 +490,10 @@ pub fn check(l: &Layout) -> Vec<Problem> {
             say(&at, format!("There's no place called {{{place}}}."));
             continue;
         }
+        if l.place(&place).is_some_and(|p| p.device) {
+            say(&at, format!("{{{place}}} is a path on the device, so nothing can be written under it."));
+            continue;
+        }
         if at.starts_with("places.") {
             if l.place(&place).is_some_and(|p| p.from.is_some()) {
                 say(&at, "A place worked out from another must start from one that's asked for.".into());
@@ -524,8 +558,8 @@ pub fn check(l: &Layout) -> Vec<Problem> {
             }
             "bios" if !has("bios_file") => say(&at, "It needs {bios_file}.".into()),
             "documents" if !has("doc_file") => say(&at, "It needs {doc_file}, the document's own name.".into()),
-            "media" | "text" | "documents" if !(has("stem") || has("file") || has("title")) => {
-                say(&at, "It needs {stem}, {file} or {title}, so each game's is its own.".into());
+            "media" | "text" | "documents" if !(has("stem") || has("file") || has("title") || has("label")) => {
+                say(&at, "It needs {stem}, {file}, {title} or {label}, so each game's is its own.".into());
             }
             _ => {}
         }
@@ -536,16 +570,19 @@ pub fn check(l: &Layout) -> Vec<Problem> {
             say(&at, format!("It's the same path as {other}, so one would replace the other."));
         }
     }
-    // a gamelist's tagged pictures are under the games' folder (EmulationStation's paths start there)
+    // a gamelist's tagged pictures are under the games' folder (EmulationStation's and
+    // Pegasus' paths start there; LaunchBox's start at its own folder)
     if let Some(g) = &l.gamelist {
-        if g.kind != "es-xml" {
-            say("gamelist.kind", format!("There's no kind of gamelist called {} (es-xml).", g.kind));
+        if !GAMELISTS.contains(&g.kind.as_str()) {
+            say("gamelist.kind", format!("There's no kind of gamelist called {} ({}).", g.kind, GAMELISTS.join(", ")));
         }
+        // Pegasus' keys have dots (assets.boxFront)
+        let tag_ok = |t: &str| if g.kind == "pegasus" { t.split('.').all(valid_tag) } else { valid_tag(t) };
         for (k, tag) in &g.fields {
             if !meta::FIELDS.iter().any(|f| f.0 == k) {
                 say(&format!("gamelist.fields.{k}"), format!("There's no detail called {k}."));
             }
-            if !valid_tag(tag) {
+            if !tag_ok(tag) {
                 say(&format!("gamelist.fields.{k}"), format!("{tag} isn't a tag (letters, digits, - and _)."));
             }
         }
@@ -553,10 +590,14 @@ pub fn check(l: &Layout) -> Vec<Problem> {
         let dir = dir.strip_suffix("/{file}").unwrap_or(&dir).to_lowercase();
         for (k, o) in l.media.iter().filter(|(_, o)| o.tag.is_some()) {
             let tag = o.tag.as_deref().unwrap_or("");
-            if !valid_tag(tag) {
+            if g.kind == "retroarch" {
+                say(&format!("media.{k}"), "A RetroArch playlist names no pictures (RetroArch finds them by the game's label).".into());
+                continue;
+            }
+            if !tag_ok(tag) {
                 say(&format!("media.{k}"), format!("{tag} isn't a tag (letters, digits, - and _)."));
             }
-            if !o.path.trim().replace('\\', "/").to_lowercase().starts_with(&format!("{dir}/")) {
+            if g.kind != "launchbox" && !o.path.trim().replace('\\', "/").to_lowercase().starts_with(&format!("{dir}/")) {
                 say(&format!("media.{k}"), "A picture written into the gamelist must be in the games' folder or under it.".into());
             }
         }
@@ -759,7 +800,7 @@ mod tests {
     #[test]
     fn the_built_in_layouts_read_and_pass_their_check() {
         let b = built_in();
-        assert_eq!(b.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), ["esde", "esde-card", "knulli", "rocknix", "muos", "folder"]);
+        assert_eq!(b.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), ["esde", "esde-card", "knulli", "rocknix", "muos", "retroarch", "pegasus", "launchbox", "playnite", "folder"]);
         for l in &b {
             assert_eq!(check(l).iter().map(|p| format!("{}: {}", p.at, p.message)).collect::<Vec<_>>(), Vec::<String>::new(), "{}", l.id);
         }
@@ -798,7 +839,7 @@ mod tests {
         l.gamelist.as_mut().unwrap().fields.insert("description".into(), "my desc".into());
         let p: Vec<(String, String)> = check(&l).into_iter().map(|p| (p.at, p.message)).collect();
         let at = |a: &str| p.iter().filter(|(x, _)| x == a).map(|(_, m)| m.as_str()).collect::<Vec<_>>().join(" | ");
-        assert!(at("media.cover").contains("{stem}, {file} or {title}"), "{p:?}");
+        assert!(at("media.cover").contains("{stem}, {file}, {title} or {label}"), "{p:?}");
         assert!(at("media.screenshot").contains("no place called {sd}"), "{p:?}");
         assert!(at("media.marquee").contains(".."), "{p:?}");
         assert!(at("media.poster").contains("no kind of picture"), "{p:?}");
@@ -832,7 +873,7 @@ mod tests {
         let mut v2 = to_json(&back);
         v2["about"] = json!("Mine.");
         assert_eq!(save(&lib, &v2, false).unwrap().id, "knulli-mine");
-        assert_eq!(list(Some(&lib)).len(), 7);
+        assert_eq!(list(Some(&lib)).len(), BUILT_IN.len() + 1);
         // shared and brought back in: a new id, since this one is taken
         let f = d.join("shared.json");
         write_file(Some(&lib), "knulli-mine", &f).unwrap();

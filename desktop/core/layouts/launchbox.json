@@ -1,0 +1,253 @@
+{
+  "format": 1,
+  "id": "launchbox",
+  "version": 1,
+  "name": "LaunchBox",
+  "about": "LaunchBox (and Big Box): the games in LaunchBox's Games folder, each platform's list in its Data folder, and the pictures, videos and manuals where LaunchBox looks for them. Close LaunchBox and Big Box first; the lists it had are set aside, so Undo puts them back.",
+  "places": [
+    {
+      "id": "launchbox",
+      "label": "LaunchBox's folder",
+      "example": "C:\\Users\\you\\LaunchBox",
+      "note": "The folder with LaunchBox.exe."
+    }
+  ],
+  "systems": {
+    "nes": {
+      "folder": "Nintendo Entertainment System",
+      "name": "Nintendo Entertainment System"
+    },
+    "fds": {
+      "folder": "Nintendo Famicom Disk System",
+      "name": "Nintendo Famicom Disk System"
+    },
+    "snes": {
+      "folder": "Super Nintendo Entertainment System",
+      "name": "Super Nintendo Entertainment System"
+    },
+    "n64": {
+      "folder": "Nintendo 64",
+      "name": "Nintendo 64"
+    },
+    "gb": {
+      "folder": "Nintendo Game Boy",
+      "name": "Nintendo Game Boy"
+    },
+    "gbc": {
+      "folder": "Nintendo Game Boy Color",
+      "name": "Nintendo Game Boy Color"
+    },
+    "gba": {
+      "folder": "Nintendo Game Boy Advance",
+      "name": "Nintendo Game Boy Advance"
+    },
+    "nds": {
+      "folder": "Nintendo DS",
+      "name": "Nintendo DS"
+    },
+    "virtualboy": {
+      "folder": "Nintendo Virtual Boy",
+      "name": "Nintendo Virtual Boy"
+    },
+    "pokemini": {
+      "folder": "Nintendo Pokemon Mini",
+      "name": "Nintendo Pokemon Mini"
+    },
+    "genesis": {
+      "folder": "Sega Genesis",
+      "name": "Sega Genesis"
+    },
+    "mastersystem": {
+      "folder": "Sega Master System",
+      "name": "Sega Master System"
+    },
+    "gamegear": {
+      "folder": "Sega Game Gear",
+      "name": "Sega Game Gear"
+    },
+    "sega32x": {
+      "folder": "Sega 32X",
+      "name": "Sega 32X"
+    },
+    "sg-1000": {
+      "folder": "Sega SG-1000",
+      "name": "Sega SG-1000"
+    },
+    "atari2600": {
+      "folder": "Atari 2600",
+      "name": "Atari 2600"
+    },
+    "atari5200": {
+      "folder": "Atari 5200",
+      "name": "Atari 5200"
+    },
+    "atari7800": {
+      "folder": "Atari 7800",
+      "name": "Atari 7800"
+    },
+    "atarilynx": {
+      "folder": "Atari Lynx",
+      "name": "Atari Lynx"
+    },
+    "atarijaguar": {
+      "folder": "Atari Jaguar",
+      "name": "Atari Jaguar"
+    },
+    "pcengine": {
+      "folder": "NEC TurboGrafx-16",
+      "name": "NEC TurboGrafx-16"
+    },
+    "ngp": {
+      "folder": "SNK Neo Geo Pocket",
+      "name": "SNK Neo Geo Pocket"
+    },
+    "ngpc": {
+      "folder": "SNK Neo Geo Pocket Color",
+      "name": "SNK Neo Geo Pocket Color"
+    },
+    "wonderswan": {
+      "folder": "WonderSwan",
+      "name": "WonderSwan"
+    },
+    "wonderswancolor": {
+      "folder": "WonderSwan Color",
+      "name": "WonderSwan Color"
+    },
+    "colecovision": {
+      "folder": "ColecoVision",
+      "name": "ColecoVision"
+    },
+    "intellivision": {
+      "folder": "Mattel Intellivision",
+      "name": "Mattel Intellivision"
+    },
+    "vectrex": {
+      "folder": "GCE Vectrex",
+      "name": "GCE Vectrex"
+    },
+    "psx": {
+      "folder": "Sony Playstation",
+      "name": "Sony Playstation"
+    },
+    "ps2": {
+      "folder": "Sony Playstation 2",
+      "name": "Sony Playstation 2"
+    },
+    "psp": {
+      "folder": "Sony PSP",
+      "name": "Sony PSP"
+    },
+    "saturn": {
+      "folder": "Sega Saturn",
+      "name": "Sega Saturn"
+    },
+    "segacd": {
+      "folder": "Sega CD",
+      "name": "Sega CD"
+    },
+    "dreamcast": {
+      "folder": "Sega Dreamcast",
+      "name": "Sega Dreamcast"
+    },
+    "pcenginecd": {
+      "folder": "NEC TurboGrafx-CD",
+      "name": "NEC TurboGrafx-CD"
+    },
+    "neogeocd": {
+      "folder": "SNK Neo Geo CD",
+      "name": "SNK Neo Geo CD"
+    },
+    "3do": {
+      "folder": "3DO Interactive Multiplayer",
+      "name": "3DO Interactive Multiplayer"
+    },
+    "pcfx": {
+      "folder": "NEC PC-FX",
+      "name": "NEC PC-FX"
+    },
+    "atarijaguarcd": {
+      "folder": "Atari Jaguar CD",
+      "name": "Atari Jaguar CD"
+    },
+    "cdimono1": {
+      "folder": "Philips CD-i",
+      "name": "Philips CD-i"
+    },
+    "gc": {
+      "folder": "Nintendo GameCube",
+      "name": "Nintendo GameCube"
+    },
+    "wii": {
+      "folder": "Nintendo Wii",
+      "name": "Nintendo Wii"
+    },
+    "xbox": {
+      "folder": "Microsoft Xbox",
+      "name": "Microsoft Xbox"
+    },
+    "mame": {
+      "folder": "Arcade",
+      "name": "Arcade"
+    },
+    "fbneo": {
+      "folder": "FinalBurn Neo",
+      "name": "FinalBurn Neo"
+    }
+  },
+  "games": {
+    "path": "{launchbox}/Games/{folder}/{file}",
+    "style": "frontend"
+  },
+  "gamelist": {
+    "kind": "launchbox",
+    "path": "{launchbox}/Data/Platforms/{folder}.xml",
+    "fields": {
+      "description": "Notes",
+      "developer": "Developer",
+      "publisher": "Publisher",
+      "released": "ReleaseDate",
+      "genres": "Genre",
+      "players": "MaxPlayers",
+      "rating": "CommunityStarRating"
+    }
+  },
+  "media": {
+    "cover": {
+      "path": "{launchbox}/Images/{folder}/Box - Front/{label}-01.{ext}"
+    },
+    "back": {
+      "path": "{launchbox}/Images/{folder}/Box - Back/{label}-01.{ext}"
+    },
+    "box3d": {
+      "path": "{launchbox}/Images/{folder}/Box - 3D/{label}-01.{ext}"
+    },
+    "screenshot": {
+      "path": "{launchbox}/Images/{folder}/Screenshot - Gameplay/{label}-01.{ext}"
+    },
+    "titlescreen": {
+      "path": "{launchbox}/Images/{folder}/Screenshot - Game Title/{label}-01.{ext}"
+    },
+    "marquee": {
+      "path": "{launchbox}/Images/{folder}/Clear Logo/{label}-01.{ext}"
+    },
+    "fanart": {
+      "path": "{launchbox}/Images/{folder}/Fanart - Background/{label}-01.{ext}"
+    },
+    "physical": {
+      "path": "{launchbox}/Images/{folder}/Cart - Front/{label}-01.{ext}"
+    },
+    "video": {
+      "path": "{launchbox}/Videos/{folder}/{label}-01.{ext}",
+      "tag": "VideoPath"
+    },
+    "manual": {
+      "path": "{launchbox}/Manuals/{folder}/{label}-01.pdf",
+      "tag": "ManualPath"
+    }
+  },
+  "text": {},
+  "pictures": {
+    "max": 0,
+    "as": "keep"
+  }
+}

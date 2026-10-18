@@ -253,7 +253,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     }
     let places = layout::resolve_places(&l, &o.place_dirs())?;
     for (id, dir) in &places {
-        if l.place(id).is_some_and(|p| p.from.is_some()) {
+        if l.place(id).is_some_and(|p| p.from.is_some() || p.device) {
             continue;
         }
         if key(dir).starts_with(&key(&lib.root().join(APP_DIR))) {
@@ -272,7 +272,11 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     }
     // the first place asked for is the export's own folder (its label and what's tidied)
     let out = l.asked().next().and_then(|p| places.get(&p.id)).cloned().ok_or_else(|| anyhow!("Choose where the games go."))?;
-    let tops: Vec<PathBuf> = places.values().cloned().collect();
+    let tops: Vec<PathBuf> = places.iter().filter(|(id, _)| !l.place(id).is_some_and(|p| p.device)).map(|(_, d)| d.clone()).collect();
+    let list_kind = l.gamelist.as_ref().map(|g| g.kind.as_str()).unwrap_or("");
+    if list_kind == "launchbox" && launchbox_running() {
+        bail!("LaunchBox is running: close it (and Big Box), then export.");
+    }
     let top_of = |p: &Path| -> PathBuf { tops.iter().filter(|t| rel_to(t, p).is_some()).max_by_key(|t| t.as_os_str().len()).cloned().unwrap_or_else(|| out.clone()) };
     let record = match &o.export_id {
         Some(id) => Some(load(lib, id)?),
@@ -392,10 +396,13 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                 vars.insert("file", entry.clone());
                 vars.insert("stem", stem.clone());
                 vars.insert("title", gj["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(title).to_string());
+                // the name the list gives it (its title or full name, as chosen)
+                let lbl = self::label(list_kind, title);
+                vars.insert("label", lbl);
                 let mut tags: Vec<(String, String)> = vec![];
                 if let Some(gl) = gamelist {
                     if !o.carry.fields.is_empty() {
-                        tags = gamelist_fields(&gj["details"], &o.carry.fields, &gl.fields);
+                        tags = gamelist_fields(&gl.kind, &gj["details"], &o.carry.fields, &gl.fields);
                     }
                 }
                 for kind in &o.carry.media {
@@ -415,10 +422,8 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                     v.insert("ext", ext);
                     v.insert("kind", kind.clone());
                     let Some(to) = layout::expand(&out_of.path, &places, &v)? else { continue };
-                    if let (Some(tag), Some(rel)) = (&out_of.tag, rel_to(folder, &to)) {
-                        if gamelist.is_some() {
-                            tags.push((tag.clone(), format!("./{rel}")));
-                        }
+                    if let Some(t) = out_of.tag.as_ref().and_then(|tag| tagged(list_kind, tag, folder, &top_of(&to), &to)) {
+                        tags.push(t);
                     }
                     files.push((src, to, "media", game.clone(), system.clone()));
                 }
@@ -429,10 +434,8 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                         v.insert("kind", "manual".into());
                         v.insert("doc_file", src.file_name().unwrap_or_default().to_string_lossy().into_owned());
                         if let Some(to) = layout::expand(&out_of.path, &places, &v)? {
-                            if let (Some(tag), Some(rel)) = (&out_of.tag, rel_to(folder, &to)) {
-                                if gamelist.is_some() {
-                                    tags.push((tag.clone(), format!("./{rel}")));
-                                }
+                            if let Some(t) = out_of.tag.as_ref().and_then(|tag| tagged(list_kind, tag, folder, &top_of(&to), &to)) {
+                                tags.push(t);
                             }
                             files.push((src, to, "manual", game.clone(), system.clone()));
                         }
@@ -545,13 +548,60 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     }
     // each system's gamelist (entries added for games that have none, details and pictures set)
     if let Some(gl) = gamelist {
+        let mut platforms_added: Vec<String> = vec![];
         for (system, list) in &entries {
             let Some(vars) = layout::system_vars(&l, system) else { continue };
             let Some(at) = layout::expand(&gl.path, &places, &vars)? else { continue };
+            let Some(folder) = folders.get(system) else { continue };
             let mine: HashMap<String, Vec<(String, String)>> = details.iter().filter(|((s, _), _)| s == system).map(|((_, e), v)| (e.clone(), v.clone())).collect();
             let old = std::fs::read_to_string(&at).ok();
-            if let Some(text) = merge_gamelist(old.as_deref(), list, &mine) {
-                plan.ops.push(text_op("", &at, &top_of(&at), text, "The system's list of games: entries are added for the games exported, with the details and pictures chosen; the rest of it is kept."));
+            let (text, note) = match gl.kind.as_str() {
+                "pegasus" => (merge_pegasus(old.as_deref(), &vars, &l, system, list, &mine), "The system's metadata.pegasus.txt: an entry for each game exported, with the details chosen; entries for other games are kept."),
+                "retroarch" => {
+                    // the games as RetroArch will see them: on the device, or where they're written
+                    let games_top = layout::games_place(&l).and_then(|p| places.get(&p)).cloned().unwrap_or_else(|| out.clone());
+                    let device = l.places.iter().find(|p| p.device).and_then(|p| places.get(&p.id));
+                    let paths: Vec<(String, String)> = list
+                        .iter()
+                        .map(|(entry, _, title)| {
+                            let file = folder.join(entry);
+                            let path = match (device, rel_to(&games_top, &file)) {
+                                (Some(d), Some(rel)) => format!("{}/{rel}", d.to_string_lossy().trim_end_matches(['/', '\\'])),
+                                _ => file.display().to_string(),
+                            };
+                            (path, title.clone())
+                        })
+                        .collect();
+                    (merge_playlist(old.as_deref(), &vars["playlist"], &paths), "The system's RetroArch playlist: an entry for each game exported; entries for other games are kept.")
+                }
+                "launchbox" => {
+                    let top = top_of(&at);
+                    let rows: Vec<(String, String, Vec<(String, String)>)> = list
+                        .iter()
+                        .map(|(entry, _, title)| {
+                            let app = rel_to(&top, &folder.join(entry)).unwrap_or_else(|| entry.clone()).replace('/', "\\");
+                            (app, title.clone(), mine.get(&entry.to_lowercase()).cloned().unwrap_or_default())
+                        })
+                        .collect();
+                    if !platforms_added.contains(&vars["folder"]) {
+                        platforms_added.push(vars["folder"].clone());
+                    }
+                    (merge_launchbox(old.as_deref(), &vars["folder"], &rows), "The platform's list in LaunchBox: an entry for each game exported, with the details chosen; the rest of it is kept, and the list as it was is set aside.")
+                }
+                _ => (merge_gamelist(old.as_deref(), list, &mine), "The system's list of games: entries are added for the games exported, with the details and pictures chosen; the rest of it is kept."),
+            };
+            if let Some(text) = text {
+                plan.ops.push(text_op("", &at, &top_of(&at), text, note));
+            }
+        }
+        // LaunchBox lists its platforms in Data/Platforms.xml
+        if gl.kind == "launchbox" && !platforms_added.is_empty() {
+            if let Some(lb) = layout::place_of(&gl.path).and_then(|p| places.get(&p)) {
+                let at = lb.join("Data").join("Platforms.xml");
+                let old = std::fs::read_to_string(&at).ok();
+                if let Some(text) = launchbox_platforms(old.as_deref(), &platforms_added) {
+                    plan.ops.push(text_op("", &at, &top_of(&at), text, "LaunchBox's list of platforms, with the new ones added."));
+                }
             }
         }
     }
@@ -647,6 +697,11 @@ fn merge_gamelist(old: Option<&str>, list: &[(String, String, String)], details:
 
 /// A `<game>` block with `<tag>` set to `value` (replaced if it's there, else added before `</game>`).
 fn set_tag(block: &str, tag: &str, value: &str) -> String {
+    set_tag_in(block, "game", tag, value)
+}
+
+/// A `<element>` block with `<tag>` set to `value`.
+fn set_tag_in(block: &str, element: &str, tag: &str, value: &str) -> String {
     let (open, close, empty) = (format!("<{tag}>"), format!("</{tag}>"), format!("<{tag}/>"));
     let new = format!("{open}{}{close}", xml_escape(value));
     if let Some(a) = block.find(&open) {
@@ -657,13 +712,13 @@ fn set_tag(block: &str, tag: &str, value: &str) -> String {
     if let Some(a) = block.find(&empty) {
         return format!("{}{new}{}", &block[..a], &block[a + empty.len()..]);
     }
-    let at = block.rfind("</game>").unwrap_or(block.len());
+    let at = block.rfind(&format!("</{element}>")).unwrap_or(block.len());
     format!("{}\t{new}\n\t{}", block[..at].trim_end_matches(['\t', ' ']), &block[at..])
 }
 
 /// A gamelist's fields from a game's details: (tag, value), for those chosen, in the
-/// tags the layout gives them.
-fn gamelist_fields(d: &Value, chosen: &[String], tags: &BTreeMap<String, String>) -> Vec<(String, String)> {
+/// tags the layout gives them and written as its kind of list writes them.
+fn gamelist_fields(kind: &str, d: &Value, chosen: &[String], tags: &BTreeMap<String, String>) -> Vec<(String, String)> {
     let mut v = vec![];
     let tag = |k: &str| chosen.iter().any(|c| c == k).then(|| tags.get(k).cloned()).flatten();
     let s = |k: &str| d[k].as_str().map(str::trim).filter(|x| !x.is_empty()).map(String::from);
@@ -674,12 +729,24 @@ fn gamelist_fields(d: &Value, chosen: &[String], tags: &BTreeMap<String, String>
     }
     if let Some(t) = tag("rating") {
         if let Some(r) = d["rating"].as_f64().filter(|r| *r > 0.0) {
-            v.push((t, format!("{:.2}", r.min(1.0))));
+            let r = r.min(1.0);
+            v.push((t, match kind {
+                "pegasus" => format!("{}%", (r * 100.0).round()),
+                // LaunchBox's community rating is out of five
+                "launchbox" => format!("{:.1}", r * 5.0),
+                _ => format!("{r:.2}"),
+            }));
         }
     }
     if let Some(t) = tag("released") {
         if let Some(x) = s("released").and_then(|r| esde_date(&r)) {
-            v.push((t, x));
+            // YYYYMMDDT000000 for EmulationStation, else YYYY-MM-DD (LaunchBox's with a time)
+            let iso = format!("{}-{}-{}", &x[..4], &x[4..6], &x[6..8]);
+            v.push((t, match kind {
+                "pegasus" => iso,
+                "launchbox" => format!("{iso}T00:00:00"),
+                _ => x,
+            }));
         }
     }
     for k in ["developer", "publisher", "players"] {
@@ -696,10 +763,214 @@ fn gamelist_fields(d: &Value, chosen: &[String], tags: &BTreeMap<String, String>
             _ => String::new(),
         };
         if !g.is_empty() {
-            v.push((t, g));
+            v.push((t, if kind == "launchbox" { g.replace(", ", "; ") } else { g }));
         }
     }
     v
+}
+
+/// A game's title as a list finds its pictures by it: RetroArch's thumbnails with
+/// `&*/:`<>?\|` as `_`, LaunchBox's images with `<>:"/\|?*'` as `_`.
+pub fn label(kind: &str, title: &str) -> String {
+    let bad = if kind == "launchbox" { "<>:\"/\\|?*'" } else { "&*/:`<>?\\|" };
+    title.chars().map(|c| if bad.contains(c) { '_' } else { c }).collect()
+}
+
+/// A picture or manual named in a game's entry: (tag, its path as the list writes it):
+/// from the games' folder for EmulationStation (`./…`) and Pegasus, from LaunchBox's own
+/// folder for LaunchBox (with `\\`).
+fn tagged(kind: &str, tag: &str, games: &Path, top: &Path, to: &Path) -> Option<(String, String)> {
+    match kind {
+        "es-xml" => rel_to(games, to).map(|r| (tag.to_string(), format!("./{r}"))),
+        "pegasus" => rel_to(games, to).map(|r| (tag.to_string(), r)),
+        "launchbox" => rel_to(top, to).map(|r| (tag.to_string(), r.replace('/', "\\"))),
+        _ => None,
+    }
+}
+
+/// Whether LaunchBox or Big Box is running (their lists can't be written while they are).
+fn launchbox_running() -> bool {
+    #[cfg(windows)]
+    {
+        ["LaunchBox.exe", "BigBox.exe"].iter().any(|exe| {
+            crate::tools::command(Path::new("tasklist"))
+                .args(["/FI", &format!("IMAGENAME eq {exe}"), "/NH"])
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase().contains(&exe.to_lowercase()))
+                .unwrap_or(false)
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// A Pegasus value: one line, or more with each after the first indented (an empty line as `.`).
+fn pegasus_value(v: &str) -> String {
+    let mut lines = v.trim().lines().map(str::trim_end);
+    let first = lines.next().unwrap_or("").to_string();
+    lines.fold(first, |acc, l| format!("{acc}\n  {}", if l.trim().is_empty() { "." } else { l }))
+}
+
+/// A system's metadata.pegasus.txt with an entry for each game exported (Game Repo's
+/// entries for them written again, with the details chosen), its collection named when
+/// the file is new, and the entries for other files kept. None: nothing changes.
+fn merge_pegasus(old: Option<&str>, vars: &layout::Vars, l: &layout::Layout, system: &str, list: &[(String, String, String)], details: &HashMap<String, Vec<(String, String)>>) -> Option<String> {
+    let ours: HashSet<String> = list.iter().map(|(e, _, _)| e.to_lowercase()).collect();
+    let text = old.unwrap_or("").replace("\r\n", "\n");
+    // the file's entries, split where a line starts a game (`game:`)
+    let mut head: Vec<&str> = vec![];
+    let mut blocks: Vec<Vec<&str>> = vec![];
+    for line in text.lines() {
+        if line.trim_start().to_lowercase().starts_with("game:") && !line.starts_with([' ', '\t']) {
+            blocks.push(vec![line]);
+        } else if let Some(b) = blocks.last_mut() {
+            b.push(line);
+        } else {
+            head.push(line);
+        }
+    }
+    let file_of = |b: &[&str]| {
+        b.iter().find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            (["file", "files"].contains(&k.trim().to_lowercase().as_str())).then(|| v.trim().trim_start_matches("./").to_lowercase())
+        })
+    };
+    let mut out = String::new();
+    if head.iter().all(|l| l.trim().is_empty()) {
+        // the platform's own extensions, and those of the files exported (zip, chd…)
+        let mut exts: Vec<String> = platforms::by_id(system).map(|p| p.exts.iter().map(|e| e.to_string()).collect()).unwrap_or_default();
+        for (entry, _, _) in list {
+            let e = platforms::ext_of(entry);
+            if !e.is_empty() && !exts.contains(&e) && !entry.ends_with('/') {
+                exts.push(e);
+            }
+        }
+        out.push_str(&format!("collection: {}\nshortname: {}\n", l.system_name(system), vars["folder"]));
+        if !exts.is_empty() {
+            out.push_str(&format!("extensions: {}\n", exts.join(", ")));
+        }
+        out.push('\n');
+    } else {
+        out.push_str(head.join("\n").trim_end());
+        out.push_str("\n\n");
+    }
+    for b in &blocks {
+        if file_of(b).is_some_and(|f| ours.contains(&f)) {
+            continue;
+        }
+        out.push_str(b.join("\n").trim_end());
+        out.push_str("\n\n");
+    }
+    for (entry, _, title) in list {
+        out.push_str(&format!("game: {}\nfile: {entry}\n", pegasus_value(title)));
+        for (k, v) in details.get(&entry.to_lowercase()).into_iter().flatten() {
+            out.push_str(&format!("{k}: {}\n", pegasus_value(v)));
+        }
+        out.push('\n');
+    }
+    let out = format!("{}\n", out.trim_end());
+    (old.map(|o| o.replace("\r\n", "\n")).as_deref() != Some(out.as_str())).then_some(out)
+}
+
+/// A system's RetroArch playlist (its JSON form) with an entry for each game exported
+/// (`paths`: the game as RetroArch will open it, its label); entries for other files are
+/// kept as they are. None: nothing changes.
+fn merge_playlist(old: Option<&str>, playlist: &str, paths: &[(String, String)]) -> Option<String> {
+    let mut v: Value = old.and_then(|o| serde_json::from_str(o).ok()).filter(Value::is_object).unwrap_or_else(|| {
+        json!({ "version": "1.5", "default_core_path": "", "default_core_name": "", "label_display_mode": 0,
+                "right_thumbnail_mode": 0, "left_thumbnail_mode": 0, "sort_mode": 0, "items": [] })
+    });
+    let norm = |p: &str| p.replace('\\', "/").to_lowercase();
+    let mut items: Vec<Value> = v["items"].as_array().cloned().unwrap_or_default();
+    for (path, title) in paths {
+        let item = json!({ "path": path, "label": title, "core_path": "DETECT", "core_name": "DETECT", "crc32": "DETECT", "db_name": format!("{playlist}.lpl") });
+        match items.iter_mut().find(|i| i["path"].as_str().is_some_and(|p| norm(p) == norm(path))) {
+            Some(i) => {
+                if let (Some(o), Some(n)) = (i.as_object_mut(), item.as_object()) {
+                    // what RetroArch learnt of it (its core, once run) is kept
+                    o.insert("label".into(), n["label"].clone());
+                    o.insert("db_name".into(), n["db_name"].clone());
+                }
+            }
+            None => items.push(item),
+        }
+    }
+    v["items"] = Value::Array(items);
+    let text = format!("{}\n", serde_json::to_string_pretty(&v).unwrap_or_default());
+    (old != Some(text.as_str())).then_some(text)
+}
+
+/// A LaunchBox platform's XML file with a `<Game>` for each game exported (`rows`: its
+/// file as a path from LaunchBox's folder, its title, its details and pictures' tags):
+/// one there already for the same file has those set, the rest of it kept; other games
+/// are kept. None: nothing changes.
+fn merge_launchbox(old: Option<&str>, platform: &str, rows: &[(String, String, Vec<(String, String)>)]) -> Option<String> {
+    let norm = |p: &str| xml_unescape(p.trim()).replace('/', "\\").to_lowercase();
+    let text = old.unwrap_or("").to_string();
+    let mut have: HashSet<String> = HashSet::new();
+    let mut out = String::new();
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find("<Game>") {
+        let Some(end) = rest[at..].find("</Game>").map(|e| at + e + "</Game>".len()) else { break };
+        out.push_str(&rest[..at]);
+        let mut block = rest[at..end].to_string();
+        let path = block.split("<ApplicationPath>").nth(1).and_then(|s| s.split("</ApplicationPath>").next()).map(norm).unwrap_or_default();
+        if let Some((_, title, fields)) = rows.iter().find(|r| norm(&r.0) == path) {
+            block = set_tag_in(&block, "Game", "Title", title);
+            for (tag, value) in fields {
+                block = set_tag_in(&block, "Game", tag, value);
+            }
+            have.insert(path);
+        }
+        out.push_str(&block);
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    let add: String = rows
+        .iter()
+        .filter(|(app, _, _)| !have.contains(&norm(app)))
+        .map(|(app, title, fields)| {
+            let mut g = format!("  <Game>\n    <ID>{}</ID>\n    <Title>{}</Title>\n    <ApplicationPath>{}</ApplicationPath>\n    <Platform>{}</Platform>\n",
+                launchbox_id(platform, app), xml_escape(title), xml_escape(app), xml_escape(platform));
+            for (tag, value) in fields {
+                g.push_str(&format!("    <{tag}>{}</{tag}>\n", xml_escape(value)));
+            }
+            g + "  </Game>\n"
+        })
+        .collect();
+    let merged = if add.is_empty() {
+        out
+    } else if let Some(at) = out.rfind("</LaunchBox>") {
+        format!("{}{add}{}", &out[..at], &out[at..])
+    } else if out.contains("<LaunchBox />") || out.contains("<LaunchBox/>") {
+        out.replacen("<LaunchBox />", &format!("<LaunchBox>\n{add}</LaunchBox>"), 1).replacen("<LaunchBox/>", &format!("<LaunchBox>\n{add}</LaunchBox>"), 1)
+    } else {
+        format!("<?xml version=\"1.0\" standalone=\"yes\"?>\n<LaunchBox>\n{add}</LaunchBox>\n")
+    };
+    (old != Some(merged.as_str())).then_some(merged)
+}
+
+/// LaunchBox's Data/Platforms.xml with a `<Platform>` for each of `names` it hasn't got.
+fn launchbox_platforms(old: Option<&str>, names: &[String]) -> Option<String> {
+    let text = old.unwrap_or("");
+    let has = |n: &str| text.contains(&format!("<Name>{}</Name>", xml_escape(n)));
+    let add: String = names.iter().filter(|n| !has(n)).map(|n| format!("  <Platform>\n    <Name>{}</Name>\n  </Platform>\n", xml_escape(n))).collect();
+    if add.is_empty() {
+        return None;
+    }
+    Some(match text.rfind("</LaunchBox>") {
+        Some(at) => format!("{}{add}{}", &text[..at], &text[at..]),
+        None => format!("<?xml version=\"1.0\" standalone=\"yes\"?>\n<LaunchBox>\n{add}</LaunchBox>\n"),
+    })
+}
+
+/// A game's id in LaunchBox (a GUID), the same each time for the same platform and file.
+fn launchbox_id(platform: &str, app: &str) -> String {
+    use sha1::Digest;
+    let h = hex::encode(sha1::Sha1::digest(format!("{platform}\n{}", app.to_lowercase()).as_bytes()));
+    format!("{}-{}-5{}-{}-{}", &h[..8], &h[8..12], &h[13..16], &h[16..20], &h[20..32])
 }
 
 /// A release date as ES-DE writes it (`YYYYMMDDT000000`), from "1994-03-19", "1994" or "24 Feb, 1994".
@@ -1431,6 +1702,78 @@ mod tests {
         assert!(paths.contains(&"card/roms/gb/images/Alpha (Europe)-thumb.png") && paths.contains(&"card/roms/gb/gamelist.xml"), "{paths:?}");
         let faint: Vec<&Value> = pv["items"].as_array().unwrap().iter().filter(|i| i["at"] == "media.video").collect();
         assert!(faint.iter().all(|i| i["faint"] == true), "no game has a video: {faint:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retroarch_pegasus_and_launchbox_get_their_lists_and_pictures_and_keep_entries_of_their_own() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-frontends");
+        let c = collection(&lib, |_| {});
+        alpha_with_media(&ix, &lib);
+        let carry = Carry { fields: vec!["description".into(), "developer".into()], media: vec!["cover".into(), "screenshot".into()], manuals: true, ..Default::default() };
+        // RetroArch: a playlist named as its database names the system, the games as the
+        // device sees them, an entry of its own kept, thumbnails as PNG by label
+        let (roms, ra) = (dir.join("RA-ROMs"), dir.join("RetroArch"));
+        std::fs::create_dir_all(ra.join("playlists")).unwrap();
+        let theirs = json!({ "version": "1.5", "items": [{ "path": "/storage/roms/gb/Mine.gb", "label": "Mine", "core_path": "/cores/gambatte.so", "core_name": "Gambatte" }] });
+        std::fs::write(ra.join("playlists/Nintendo - Game Boy.lpl"), serde_json::to_string(&theirs).unwrap()).unwrap();
+        let places: BTreeMap<String, PathBuf> = [("roms".into(), roms.clone()), ("retroarch".into(), ra.clone()), ("device".into(), PathBuf::from("/storage/roms"))].into();
+        let p = run(&ix, &lib, &Options { collection: c.id.clone(), layout: "retroarch".into(), places, carry: carry.clone(), ..Default::default() });
+        let lpl: Value = serde_json::from_str(&std::fs::read_to_string(ra.join("playlists/Nintendo - Game Boy.lpl")).unwrap()).unwrap();
+        let items = lpl["items"].as_array().unwrap();
+        assert_eq!(items[0]["core_name"], "Gambatte", "{lpl}");
+        let alpha = items.iter().find(|i| i["path"] == "/storage/roms/gb/Alpha (Europe).gb").unwrap_or_else(|| panic!("{lpl}"));
+        assert_eq!((alpha["label"].as_str(), alpha["core_path"].as_str(), alpha["db_name"].as_str()), (Some("Alpha (Europe)"), Some("DETECT"), Some("Nintendo - Game Boy.lpl")));
+        let t = kept(&ra);
+        assert!(t.contains(&"thumbnails/Nintendo - Game Boy/Named_Boxarts/Alpha (Europe).png".to_string()) && t.contains(&"thumbnails/Nintendo - Game Boy/Named_Snaps/Alpha (Europe).png".to_string()), "{t:?}");
+        assert!(kept(&roms).contains(&"gb/Alpha (Europe).gb".to_string()));
+        organise::undo(&ix, &lib, &p.id, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&std::fs::read_to_string(ra.join("playlists/Nintendo - Game Boy.lpl")).unwrap()).unwrap(), theirs, "Undo puts the playlist back");
+        assert_eq!(label("retroarch", "Q*bert: The Game?"), "Q_bert_ The Game_");
+        // Pegasus: the collection's file beside the games, an entry of another game's kept
+        let peg = dir.join("Pegasus");
+        std::fs::create_dir_all(peg.join("gb")).unwrap();
+        std::fs::write(peg.join("gb/metadata.pegasus.txt"), "collection: My Game Boy\nshortname: gb\n\ngame: Mine\nfile: Mine.gb\ndeveloper: Me\n").unwrap();
+        run(&ix, &lib, &Options { collection: c.id.clone(), layout: "pegasus".into(), places: on("roms", &peg), carry: carry.clone(), short_names: true, ..Default::default() });
+        let meta = std::fs::read_to_string(peg.join("gb/metadata.pegasus.txt")).unwrap();
+        assert!(meta.starts_with("collection: My Game Boy\n") && meta.contains("game: Mine\nfile: Mine.gb\ndeveloper: Me"), "{meta}");
+        assert!(meta.contains("game: Alpha\nfile: Alpha (Europe).gb\n") && meta.contains("description: A & B\n") && meta.contains("developer: Dev Co\n") && meta.contains("assets.manual: media/Alpha (Europe)/manual.pdf"), "{meta}");
+        let t = kept(&peg);
+        assert!(t.contains(&"gb/media/Alpha (Europe)/boxFront.png".to_string()) && t.contains(&"gb/media/Alpha (Europe)/screenshot.jpg".to_string()), "{t:?}");
+        // run again: the same file, not a second entry
+        let eid = list(&lib)[0]["id"].as_str().unwrap().to_string();
+        let again = plan(&ix, &lib, &options_of(&lib, &eid).unwrap()).unwrap();
+        assert!(again.ops.is_empty(), "{:?}", again.ops.iter().map(|o| (&o.op, &o.to)).collect::<Vec<_>>());
+        // LaunchBox: the platform's XML, Platforms.xml, images in LaunchBox's names, the manual's path
+        let lb = dir.join("LaunchBox");
+        std::fs::create_dir_all(lb.join("Data/Platforms")).unwrap();
+        std::fs::write(lb.join("Data/Platforms.xml"), "<?xml version=\"1.0\" standalone=\"yes\"?>\n<LaunchBox>\n  <Platform>\n    <Name>Sega Genesis</Name>\n  </Platform>\n</LaunchBox>\n").unwrap();
+        run(&ix, &lib, &Options { collection: c.id.clone(), layout: "launchbox".into(), places: on("launchbox", &lb), carry: carry.clone(), short_names: true, ..Default::default() });
+        let x = std::fs::read_to_string(lb.join("Data/Platforms/Nintendo Game Boy.xml")).unwrap();
+        for f in ["<Title>Alpha</Title>", "<ApplicationPath>Games\\Nintendo Game Boy\\Alpha (Europe).gb</ApplicationPath>", "<Platform>Nintendo Game Boy</Platform>", "<Notes>A &amp; B</Notes>", "<Developer>Dev Co</Developer>", "<ManualPath>Manuals\\Nintendo Game Boy\\Alpha-01.pdf</ManualPath>"] {
+            assert!(x.contains(f), "{f} in {x}");
+        }
+        let plats = std::fs::read_to_string(lb.join("Data/Platforms.xml")).unwrap();
+        assert!(plats.contains("<Name>Sega Genesis</Name>") && plats.contains("<Name>Nintendo Game Boy</Name>"), "{plats}");
+        let t = kept(&lb);
+        for f in ["Games/Nintendo Game Boy/Alpha (Europe).gb", "Images/Nintendo Game Boy/Box - Front/Alpha-01.png", "Images/Nintendo Game Boy/Screenshot - Gameplay/Alpha-01.jpg", "Manuals/Nintendo Game Boy/Alpha-01.pdf"] {
+            assert!(t.contains(&f.to_string()), "{f} in {t:?}");
+        }
+        // a game edited in LaunchBox keeps what LaunchBox wrote; exported again it isn't added twice
+        let edited = x.replace("<Title>Alpha</Title>", "<Title>Alpha</Title>\n    <Favorite>true</Favorite>");
+        std::fs::write(lb.join("Data/Platforms/Nintendo Game Boy.xml"), &edited).unwrap();
+        let eid = list(&lib)[0]["id"].as_str().unwrap().to_string();
+        run(&ix, &lib, &options_of(&lib, &eid).unwrap());
+        let x2 = std::fs::read_to_string(lb.join("Data/Platforms/Nintendo Game Boy.xml")).unwrap();
+        assert_eq!(x2, edited);
+        assert_eq!(x2.matches("<Game>").count(), x.matches("<Game>").count(), "each game once: {x2}");
+        assert_eq!(label("launchbox", "Tom's: Quest"), "Tom_s_ Quest");
+        // Playnite: a folder per platform for its scanner, nothing else
+        let pn = dir.join("Playnite");
+        run(&ix, &lib, &Options { collection: c.id.clone(), layout: "playnite".into(), places: on("roms", &pn), carry, ..Default::default() });
+        let t = kept(&pn);
+        assert!(t.contains(&"Nintendo Game Boy/Alpha (Europe).gb".to_string()) && t.iter().all(|f| f.starts_with("Nintendo Game Boy/") && f.ends_with(".gb")), "{t:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
