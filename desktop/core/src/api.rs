@@ -1636,6 +1636,58 @@ impl App {
                     })
                     .await?)
             }
+            // a collection from folders or from a DAT (D49): read, review, then make it
+            "collection_read_folders" => {
+                let lib = self.library()?;
+                let paths: Vec<PathBuf> = args["paths"].as_array().map(|a| a.iter().filter_map(|p| p.as_str()).map(str::trim).filter(|p| !p.is_empty()).map(PathBuf::from).collect()).unwrap_or_default();
+                if paths.is_empty() {
+                    return Err("Pick a folder to read.".into());
+                }
+                if let Some(p) = paths.iter().find(|p| !p.is_dir()) {
+                    return Err(format!("{} isn't a folder.", p.display()));
+                }
+                self.not_running("Reading folders")?;
+                j(self.spawn_job("Reading folders", move |app, jid, cancel| {
+                    let found = crate::subset::read_folders(&paths, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    if cancel.load(Ordering::Relaxed) {
+                        bail!("Stopped.");
+                    }
+                    app.job_progress(&jid, json!({ "text": "Matching them to your audit DATs" }));
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    let mut v = crate::subset::review(&ix, &lib, &found)?;
+                    v["made_from"] = json!({ "kind": "folders", "paths": paths, "read": library::now() });
+                    Ok(v)
+                }))
+            }
+            "collection_read_dat" => {
+                let lib = self.library()?;
+                let path = PathBuf::from(arg(&args, "path").map_err(e2s)?.trim());
+                j(self
+                    .with_index(move |ix| {
+                        let found = crate::subset::read_dat(&path)?;
+                        let mut v = crate::subset::review(ix, &lib, &found)?;
+                        v["made_from"] = json!({ "kind": "dat", "path": path, "read": library::now() });
+                        Ok(v)
+                    })
+                    .await?)
+            }
+            "collection_from" => {
+                let lib = self.library()?;
+                let name = args["name"].as_str().unwrap_or("").trim().to_string();
+                let id = args["id"].as_str().filter(|i| !i.is_empty()).map(String::from);
+                if name.is_empty() && id.is_none() {
+                    return Err("Give the collection a name.".into());
+                }
+                let games: Vec<i64> = args["games"].as_array().map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default();
+                let made_from = args["made_from"].clone();
+                j(self
+                    .with_index(move |ix| {
+                        let c = crate::subset::save(ix, &lib, &name, id.as_deref(), &games, made_from)?;
+                        let w = collection::work_out(ix, &lib, &c)?;
+                        Ok(json!({ "collection": c, "summary": w.summary() }))
+                    })
+                    .await?)
+            }
             "export_defaults" => j(export::esde_default()),
             "export_plan" => {
                 let lib = self.library()?;
@@ -1653,6 +1705,7 @@ impl App {
                         short_names: args["short_names"].as_bool().unwrap_or(true),
                         export_id: None,
                         carry: Default::default(),
+                        only: args["only"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect()).unwrap_or_default(),
                     },
                 };
                 if args["carry"].is_object() {

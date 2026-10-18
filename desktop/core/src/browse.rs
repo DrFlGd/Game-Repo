@@ -1048,7 +1048,7 @@ mod tests {
         // a collection's games only
         let mut rules = collection::Rules::default();
         rules.platforms = vec!["gb".into()];
-        let c = collection::Collection { id: String::new(), name: "Mine".into(), rules, added: vec![], removed: vec![], size_limit: None, created: String::new(), modified: String::new() };
+        let c = collection::Collection { id: String::new(), name: "Mine".into(), rules, added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new() };
         let c = collection::save(&lib, c).unwrap();
         assert_eq!(ask(&ix, &lib, |q| q.collection = c.id.clone())["total"], 4);
         // paging
@@ -1104,7 +1104,7 @@ mod tests {
         rules.platforms = vec!["gb".into()];
         rules.details.genre = vec!["Puzzle".into()];
         rules.details.decade = vec![1990];
-        let c = collection::Collection { id: String::new(), name: "Puzzles".into(), rules, added: vec![], removed: vec![], size_limit: None, created: String::new(), modified: String::new() };
+        let c = collection::Collection { id: String::new(), name: "Puzzles".into(), rules, added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new() };
         let names = |c: &collection::Collection| collection::work_out(&ix, &lib, c).unwrap().games().map(|g| g.name.clone()).collect::<Vec<_>>();
         assert_eq!(names(&c), ["Delta (World)"]);
         edit(&ix, &lib, "gb/Epsilon (Japan) (En,Ja)", "genres", Some(&json!(["Puzzle"]))).unwrap();

@@ -648,13 +648,18 @@ async def main():
             await pg.click('.sidebar a[href="#/collections"]')
             await pg.wait_for_selector("#collections-empty")
             await pg.click("#collections-first")
+            ways = await pg.eval_on_selector_all("#collection-way .way", "els => els.map(e => e.dataset.way)")
             await pg.fill("#collection-name", "Best Of")
-            await pg.click("#collection-name-dialog button[type=submit]")
+            await pg.click("#collection-new-dialog button[type=submit]")
             await pg.wait_for_selector("#collection-rules")
+            check("New collection offers by rules, from folders or from a DAT, and one by rules opens on its rules", ways == ["rules", "folders", "dat"], ways)
             await pg.check('#rule-platforms input[value="gb"]')
-            await pg.wait_for_function("() => document.querySelector('#collection-system-sizes') === null && document.querySelector('#collection-list')?.dataset.total > 0")
+            await pg.wait_for_function("() => +document.querySelector('#collection-games')?.textContent > 0")
+            await pg.click('#collection-view [data-view="games"]')
+            await pg.wait_for_function("() => document.querySelector('#collection-systems') === null && document.querySelector('#collection-list')?.dataset.total > 0")
             await pg.wait_for_timeout(300)
             names = await pg.eval_on_selector_all("#collection-list .audit-row", "els => els.map(e => e.dataset.name)")
+            await pg.click('#collection-view [data-view="rules"]')
             games_now = lambda: pg.evaluate("() => +document.querySelector('#collection-games').textContent")
             await pg.select_option("#rule-include", "all")
             await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent > n", arg=len(names))
@@ -669,6 +674,7 @@ async def main():
             await pg.check("#rule-1g1r")
             await pg.select_option("#rule-include", "have")
             await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n", arg=len(names))
+            await pg.click('#collection-view [data-view="games"]')
             await pg.wait_for_selector(f'#collection-list .audit-row[data-name="{names[0]}"] [data-action="leave-out"]')
             await pg.click(f'#collection-list .audit-row[data-name="{names[0]}"] [data-action="leave-out"]')
             await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n - 1", arg=len(names))
@@ -683,8 +689,10 @@ async def main():
 
             # its properties: games, systems, size on disk; a size limit; the biggest games first
             await pg.wait_for_function("(n) => document.querySelectorAll('#collection-list .audit-row').length === n", arg=len(kept))
-            disk = await pg.evaluate("() => +document.querySelector('#prop-size').dataset.bytes")
             each = await pg.eval_on_selector_all("#collection-list .game-size", "els => els.map(e => +e.dataset.bytes)")
+            await pg.click('#collection-view [data-view="size"]')
+            await pg.wait_for_selector("#collection-props")
+            disk = await pg.evaluate("() => +document.querySelector('#prop-size').dataset.bytes")
             props = await pg.inner_text("#collection-props")
             check("Properties shows the games, systems and size on disk (the sum of its games')",
                   disk > 0 and disk == sum(each) and str(len(kept)) in props and "Systems" in props, (disk, each, props))
@@ -695,12 +703,14 @@ async def main():
             stored = json.loads(next((library / "_library/collections").glob("*.json")).read_text())
             check("a size limit is kept with the collection, and one too small says by how much it's over",
                   stored.get("size_limit") == 100 and "Over by" in await pg.inner_text("#collection-fit"), stored.get("size_limit"))
+            await pg.screenshot(path=str(out / "21b-collection-properties.png"))
+            over_line = await pg.inner_text("#collection-fit-line")
+            await pg.click('#collection-view [data-view="games"]')
             await pg.select_option("#collection-sort", "size")
             await pg.wait_for_timeout(300)
             by_size = await pg.eval_on_selector_all("#collection-list .game-size", "els => els.map(e => +e.dataset.bytes)")
-            check("the games can be listed biggest first", by_size == sorted(by_size, reverse=True) and len(by_size) == len(kept), by_size)
-            await pg.eval_on_selector("#collection-properties", "e => e.scrollIntoView()")
-            await pg.screenshot(path=str(out / "21b-collection-properties.png"))
+            check("the games can be listed biggest first, and the line above says it's over its limit",
+                  by_size == sorted(by_size, reverse=True) and len(by_size) == len(kept) and "over its" in over_line, (by_size, over_line))
             await pg.select_option("#collection-sort", "name")
 
             await pg.click("#collection-dats")
@@ -739,6 +749,7 @@ async def main():
             await pg.click(f'#collection-list .audit-row[data-name="{names[0]}"] [data-action="put-back"]')
             await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n", arg=len(names))
             await pg.click('#collection-tabs [data-tab="in"]')
+            await pg.click('#collection-view [data-view="exports"]')
             await pg.wait_for_selector('#exports li[data-target="esde"]')
             await pg.click('#exports li[data-target="esde"] [data-action="update"]')
             await pg.wait_for_selector("#organise-totals")
@@ -752,12 +763,101 @@ async def main():
             await pg.click('#exports li[data-target="esde"] [data-action="check"]')
             said = await toast_text(pg, "as they should be")
             check("Check reads the export back against the DATs", f"All {len(exported_after)} files are as they should be" in said, said)
+            await pg.click('#collection-view [data-view="size"]')
             await pg.select_option("#collection-limit", "32")
             await pg.wait_for_selector('#collection-fit[data-over="false"]')
             stored = json.loads(next((library / "_library/collections").glob("*.json")).read_text())
             check("a card's size is its label's (32 GB card: 32,000,000,000 bytes), and the collection fits",
                   stored.get("size_limit") == 32_000_000_000 and "to spare" in await pg.inner_text("#collection-fit"), stored.get("size_limit"))
+            await pg.click('#collection-view [data-view="exports"]')
             await pg.screenshot(path=str(out / "23-exports.png"), full_page=True)
+
+            # the Collections rework (D49, D50): a collection from a folder of a subset kept
+            # elsewhere, matched by hash; from another tool's DAT; Export these…
+            subset = home / "Subsets" / "Handheld picks"
+            (subset / "more").mkdir(parents=True)
+            seen, picks_ = set(), []
+            for f in sorted((fx / "Roms").rglob("*.gb")):
+                if ".gamerepo-set-aside" in f.parts or f.name == "alpha-eu.gb":
+                    continue
+                h = hashlib.sha1(f.read_bytes()).hexdigest()
+                if h not in seen:
+                    seen.add(h)
+                    picks_.append(f)
+                if len(picks_) == 2:
+                    break
+            shutil.copy(picks_[0], subset / "first pick.gb")
+            shutil.copy(picks_[1], subset / "more" / "second.gb")
+            (subset / "readme.txt").write_text("my picks")
+            await pg.click("#collection-new")
+            await pg.check('#collection-way input[value="folders"]')
+            pick(subset)
+            await pg.click("#new-add-folder")
+            await pg.wait_for_selector("#new-folders li")
+            await pg.click("#collection-new-dialog button[type=submit]")
+            await pg.wait_for_selector("#subset-review", timeout=30000)
+            found = await pg.eval_on_selector_all("#subset-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
+            unknown = await pg.eval_on_selector_all("#subset-unknown li", "els => els.map(e => e.dataset.path)")
+            named = await pg.input_value("#collection-name")
+            await pg.screenshot(path=str(out / "23b-collection-from-folders.png"))
+            check("From folders reads a folder kept elsewhere and finds its games in the full set by hash, whatever the files are called",
+                  len(found) == 2 and all(st == "have" for _, st in found) and unknown == ["Handheld picks/readme.txt"] and named == "Handheld picks", (found, unknown, named))
+            await pg.click("#subset-review button[type=submit]")
+            await toast_text(pg, "Made Handheld picks")
+            await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Handheld picks' && +document.querySelector('#collection-games').textContent === 2")
+            made = next(x for x in (json.loads(f.read_text()) for f in (library / "_library/collections").glob("*.json")) if x["name"] == "Handheld picks")
+            own = library / made["rules"]["from_files"][0] if made["rules"].get("from_files") else None
+            side = await pg.eval_on_selector_all("#collection-side-list .collection-item", "els => els.map(e => e.innerText)")
+            check("it's kept as its own DAT in the library, listed on the left with how it was made",
+                  own is not None and own.is_file() and own.read_text().count("<game ") == 2 and made["made_from"]["kind"] == "folders"
+                  and any("Handheld picks" in x and "from Handheld picks" in x for x in side), (made.get("rules"), side))
+            await pg.screenshot(path=str(out / "23c-collection-made.png"), full_page=True)
+            # Export these: one game ticked, to a plain folder
+            first = found[0][0]
+            await pg.check(f'#collection-list .audit-row[data-name="{first}"] .game-tick')
+            await pg.wait_for_selector('#collection-picked[data-count="1"]')
+            await pg.click("#collection-export-these")
+            await pg.wait_for_selector("#export-part")
+            await pg.select_option("#export-layout", "folder")
+            part = home / "Part"
+            await pg.fill("#export-place-out", str(part))
+            await pg.click("#export-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-totals")
+            await pg.click("#export-dialog button[type=submit]")
+            await toast_text(pg, "Exported Handheld picks")
+            got = sorted(x.name for x in part.rglob("*") if x.is_file()) if part.is_dir() else []
+            rec = next((x for x in (json.loads(f.read_text()) for f in (library / "_library/exports").glob("*.json")) if x.get("name") == "Handheld picks"), {})
+            check("Export these… exports only the games ticked, from the full set, and the export remembers them",
+                  len(got) == 1 and got[0].startswith(first) and rec.get("only") == [f"gb/{first}"], (got, rec.get("only")))
+            # from a DAT another tool made, with names of its own
+            gb2 = hashlib.sha1(picks_[1].read_bytes()).hexdigest()
+            crc2 = f"{zlib.crc32(picks_[1].read_bytes()):08x}"
+            mine = home / "my list.dat"
+            mine.write_text(f'<?xml version="1.0"?>\n<datafile><header><name>My list</name></header>'
+                            f'<game name="the second one"><rom name="x.gb" size="{picks_[1].stat().st_size}" crc="{crc2}" sha1="{gb2}"/></game>'
+                            f'<game name="nobody knows"><rom name="y.gb" size="3" crc="01020304"/></game></datafile>\n')
+            await pg.click("#collection-new")
+            await pg.check('#collection-way input[value="dat"]')
+            await pg.fill("#new-dat-path", str(mine))
+            await pg.click("#collection-new-dialog button[type=submit]")
+            await pg.wait_for_selector("#subset-review")
+            found_dat = await pg.eval_on_selector_all("#subset-systems li", "els => els.map(e => e.dataset.name)")
+            unknown_dat = await pg.eval_on_selector_all("#subset-unknown li", "els => els.map(e => e.dataset.path)")
+            await pg.click("#subset-review button[type=submit]")
+            await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'my list'")
+            audit_dats = [x.read_text() for x in (library / "_library/dats").rglob("*.dat")]
+            check("From a DAT reads it in place and finds its games by hash, not by name, and it isn't made an audit DAT",
+                  len(found_dat) == 1 and found_dat[0] in [n for n, _ in found] and unknown_dat == ["nobody knows"]
+                  and not any("<name>My list</name>" in t for t in audit_dats), (found_dat, unknown_dat))
+            await pg.click('#collection-view [data-view="rules"]')
+            await pg.wait_for_selector("#collection-made-from")
+            await pg.click("#collection-read-again")
+            await pg.wait_for_selector("#subset-review")
+            await pg.click("#subset-review button[type=submit]")
+            await toast_text(pg, "Read my list again")
+            check("Read it again… reads the DAT again and keeps the collection", (await pg.inner_text("#collection-games")) == "1")
+            await pg.click('#collection-side-list .collection-item:has-text("Best Of")')
+            await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Best Of'")
 
             # Phase 4: PC games. The inbox (set in Settings), Import… with its review list
             # (one found by its goggame file, one by a search of the sources), the preview,

@@ -63,6 +63,7 @@ pub mod scrapers;
 pub mod sources;
 pub mod starter;
 pub mod steam;
+pub mod subset;
 pub mod systems;
 pub mod tools;
 pub mod torrentzip;

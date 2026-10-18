@@ -2343,6 +2343,47 @@ proposed. One PR, in three steps:
   Phase 7 or with it), Home's *Next* strip, the Theme control shown twice (menu and
   Settings), and the Library's Players filter as a list.
 
+### Collections rework design (written 2026-10-18)
+
+Jerred keeps subsets of his full sets as separate folders (a best-of, a handheld's
+card, a friend's list) and wants them as collections instead: point at the folders,
+capture the subset as a DAT, then review it and export part or all of it from the
+full set, so only the full set needs keeping.
+
+- **D49 (agreed 2026-10-18).** The Audit page's DATs are the complete lists (No-Intro,
+  Redump, the full sets). A collection is always a subset of them, made one of three
+  ways: **by rules** (as now), **from folders**, or **from a DAT**. A DAT read for a
+  collection never becomes one of a system's audit DATs.
+- **From folders.** *New collection › From folders…* takes one folder, a folder of
+  folders, or several, from anywhere (they're not added as folders with games). Their
+  files are read as a scan reads them (ZIP CRCs trusted as D16 says, 7z, RAR and disc
+  images read in full) and matched by hash (SHA1, else CRC32 and size, with and without
+  headers) against each system's audit DAT. The review lists, by system, the games
+  matched (and whether the full set has them), and the files no audit DAT knows; the
+  collection takes the matched games.
+- **From a DAT.** *New collection › From a DAT…* reads a DAT file in place and matches
+  its games' ROMs the same way, by hash, so a list made by another tool, with other
+  names, still finds the games.
+- **Kept as DATs.** A collection made from folders or a DAT is kept as DATs of its own,
+  one per system, in `_library/collections/<id>/`, written with the full set's names
+  and hashes (so RomVault, igir and clrmamepro can use them). Its rules point at them
+  (`from_files`) with every game in the DAT, no 1G1R and nothing left out by flags, so
+  it's worked out as any collection is and matched by name or hash, surviving renamed
+  files and newer DATs. `made_from` remembers the folders or the DAT, for *Read them
+  again…*, which replaces its DATs after the same review. Its rules can still be edited
+  (say, 1G1R on top), and games added or left out by hand as before.
+- **D50 (proposed).** **The Collections page**: the collections listed down the left
+  (name, games, how it was made); the one chosen opens on its games, with a tab per
+  system, its size against its limit in one line above, and tabs for *Rules* (or *Made
+  from*, for a folder or DAT one) and *Exports*. Games and whole systems can be ticked:
+  *Export these…* exports only those (`only` in the export, remembered so *Update*
+  keeps to the same part), *Export…* the whole collection.
+- **D51 (proposed).** After a collection from folders is saved, *Set aside these
+  folders…* offers to set the subset folders aside (D20's hidden folder on the same
+  drive, a change with a preview and Undo), but only the files whose games the full set
+  has: anything the full set lacks is kept where it is. Nothing is touched unless asked
+  (D5).
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -2477,7 +2518,7 @@ proposed. One PR, in three steps:
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D49).
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D52). D49–D51 are in "Collections rework design".
 
 ---
 

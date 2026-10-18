@@ -44,6 +44,10 @@ pub struct Rules {
     pub search: String,
     /// Only games in these DATs (by DAT name), by name or by a ROM's hashes
     pub from_dats: Vec<String>,
+    /// Only games in these DAT files of its own (library paths; a collection made from
+    /// folders or a DAT keeps them in `_library/collections/<id>/`, D49), the same way
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub from_files: Vec<String>,
     /// Only games with these details (the Library page's filters, Phase 6)
     #[serde(skip_serializing_if = "Details::is_empty")]
     pub details: Details,
@@ -88,6 +92,7 @@ impl Default for Rules {
             exclude: DEFAULT_EXCLUDE.iter().map(|s| s.to_string()).collect(),
             search: String::new(),
             from_dats: vec![],
+            from_files: vec![],
             details: Details::default(),
         }
     }
@@ -109,6 +114,10 @@ pub struct Collection {
     /// What it should fit in, in bytes (an SD card's size, say); none: no limit
     #[serde(default)]
     pub size_limit: Option<u64>,
+    /// What a collection made from folders or a DAT was read from (`folders`, or `dat`),
+    /// for *Read them again…* (D49)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub made_from: Option<Value>,
     #[serde(default)]
     pub created: String,
     #[serde(default)]
@@ -162,6 +171,19 @@ pub fn save(lib: &Library, mut c: Collection) -> Result<Collection> {
     if c.id.is_empty() {
         c.id = new_id(&c.name);
         c.created = now();
+        // a copy of one made from folders or a DAT gets copies of its DATs: each
+        // collection's own DATs go when it's deleted
+        let own = dir(lib).join(&c.id);
+        for f in c.rules.from_files.iter_mut() {
+            let Ok(from) = lib.resolve(f) else { continue };
+            if from.parent().and_then(Path::parent) != Some(dir(lib).as_path()) || !from.is_file() {
+                continue;
+            }
+            std::fs::create_dir_all(&own)?;
+            let to = own.join(from.file_name().unwrap_or_default());
+            std::fs::copy(&from, &to).with_context(|| format!("couldn't copy {}", from.display()))?;
+            *f = lib.relative(&to).unwrap_or_else(|| to.display().to_string());
+        }
     }
     c.modified = now();
     let p = path(lib, &c.id)?;
@@ -177,6 +199,11 @@ pub fn save(lib: &Library, mut c: Collection) -> Result<Collection> {
 pub fn delete(lib: &Library, id: &str) -> Result<()> {
     lib.writable()?;
     std::fs::remove_file(path(lib, id)?).map_err(|_| anyhow!("There's no collection {id}."))?;
+    // and its own DATs, if it was made from folders or a DAT
+    let own = dir(lib).join(id);
+    if own.is_dir() {
+        std::fs::remove_dir_all(own)?;
+    }
     Ok(())
 }
 
@@ -307,14 +334,19 @@ pub fn work_out(ix: &Index, lib: &Library, c: &Collection) -> Result<Arc<Worked>
         crate::browse::refresh(ix, lib)?;
         conn.query_row("SELECT COALESCE(group_concat(value, ','), '') FROM index_meta WHERE key LIKE 'library:%'", [], |r| r.get(0))?
     };
+    // its own DAT files, by size and time
+    let files: Vec<String> = c.rules.from_files.iter().map(|f| {
+        let m = lib.resolve(f).ok().and_then(|p| std::fs::metadata(p).ok());
+        format!("{f}:{:?}:{:?}", m.as_ref().map(|m| m.len()), m.and_then(|m| m.modified().ok()))
+    }).collect();
     // (its name and size limit don't change its games)
-    let key = format!("{}|{}|{:?}|{:?}|{}|{dats:?}|{library}", ix.path().display(), serde_json::to_string(&c.rules)?, c.added, c.removed, audit::generation(conn)?);
+    let key = format!("{}|{}|{:?}|{:?}|{}|{dats:?}|{library}|{files:?}", ix.path().display(), serde_json::to_string(&c.rules)?, c.added, c.removed, audit::generation(conn)?);
     if let Some((k, w)) = LAST.lock().unwrap().as_ref() {
         if *k == key {
             return Ok(w.clone());
         }
     }
-    let w = Arc::new(work_out_fresh(conn, c, &dats)?);
+    let w = Arc::new(work_out_fresh(conn, lib, c, &dats)?);
     *LAST.lock().unwrap() = Some((key, w.clone()));
     Ok(w)
 }
@@ -326,11 +358,29 @@ struct Sources {
     crc: HashSet<(String, i64)>,
 }
 
-fn sources(conn: &Connection, names: &[String], missing: &mut Vec<String>) -> Result<Option<Sources>> {
-    if names.is_empty() {
+fn sources(conn: &Connection, lib: &Library, names: &[String], files: &[String], missing: &mut Vec<String>) -> Result<Option<Sources>> {
+    if names.is_empty() && files.is_empty() {
         return Ok(None);
     }
     let mut s = Sources { names: HashSet::new(), sha1: HashSet::new(), crc: HashSet::new() };
+    for f in files {
+        let read = lib.resolve(f).ok().filter(|p| p.is_file()).and_then(|p| crate::dat::read_file(&p).ok());
+        let Some(read) = read else {
+            missing.push(f.rsplit('/').next().unwrap_or(f).to_string());
+            continue;
+        };
+        for g in read.into_iter().flat_map(|d| d.games) {
+            for rom in &g.roms {
+                if let Some(h) = &rom.sha1 {
+                    s.sha1.insert(h.clone());
+                }
+                if let (Some(c), Some(z)) = (&rom.crc32, rom.size) {
+                    s.crc.insert((c.clone(), z as i64));
+                }
+            }
+            s.names.insert(g.name);
+        }
+    }
     for n in names {
         let ids: Vec<i64> = conn
             .prepare("SELECT id FROM dats WHERE name = ?1 AND current = 1")?
@@ -366,10 +416,10 @@ pub(crate) fn revision_key(s: &str) -> Vec<u64> {
         .collect()
 }
 
-fn work_out_fresh(conn: &Connection, c: &Collection, dats: &[(String, Option<i64>)]) -> Result<Worked> {
+fn work_out_fresh(conn: &Connection, lib: &Library, c: &Collection, dats: &[(String, Option<i64>)]) -> Result<Worked> {
     let r = &c.rules;
     let mut w = Worked::default();
-    let src = sources(conn, &r.from_dats, &mut w.missing_dats)?;
+    let src = sources(conn, lib, &r.from_dats, &r.from_files, &mut w.missing_dats)?;
     let exclude: HashSet<&str> = r.exclude.iter().map(String::as_str).collect();
     let langs: HashSet<String> = r.languages.iter().map(|l| l.to_ascii_lowercase()).collect();
     let search = r.search.trim().to_lowercase();
@@ -589,7 +639,7 @@ pub fn dat_xml(conn: &Connection, name: &str, description: &str, games: &[&Game]
 }
 
 /// File names without the characters Windows refuses.
-fn safe(s: &str) -> String {
+pub(crate) fn safe(s: &str) -> String {
     let s: String = s.chars().map(|c| if "<>:\"/\\|?*".contains(c) || c.is_control() { '_' } else { c }).collect();
     s.trim().trim_end_matches('.').chars().take(150).collect()
 }
@@ -677,7 +727,7 @@ pub(crate) mod tests {
     }
 
     fn with(f: impl FnOnce(&mut Rules)) -> Collection {
-        let mut c = Collection { id: String::new(), name: "Test".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, created: String::new(), modified: String::new() };
+        let mut c = Collection { id: String::new(), name: "Test".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new() };
         c.rules.platforms = vec!["gb".into()];
         f(&mut c.rules);
         c
