@@ -639,8 +639,46 @@ pub fn home(ix: &Index, lib: &Library) -> Result<Value> {
     let dats: i64 = conn.query_row("SELECT COUNT(*) FROM dats", [], |r| r.get(0))?;
     Ok(json!({
         "platforms": bars, "loose": loose, "roots": roots, "files": files, "unhashed": unhashed, "dats": dats, "needs_tool": needs_tool,
-        "last_scan": crate::scan::last(ix)?,
+        "last_scan": crate::scan::last(ix)?, "next": next(ix, lib, &bars)?,
     }))
+}
+
+/// What to do next, for Home's *Next* strip: files to put right on the Audit page, games
+/// whose details need a look, systems you have games of that aren't scraped yet, and
+/// systems missing BIOS files. Each says what, how many, and the page it's done on.
+fn next(ix: &Index, lib: &Library, bars: &[Value]) -> Result<Vec<Value>> {
+    let conn = ix.conn();
+    let mut v = vec![];
+    for b in bars {
+        let n = b["attention"].as_i64().unwrap_or(0);
+        if n > 0 {
+            v.push(json!({ "kind": "misnamed", "system": b["platform"], "count": n, "page": "audit",
+                           "text": format!("{} in {} to put right", if n == 1 { "1 file".to_string() } else { format!("{n} files") }, b["platform_name"].as_str().unwrap_or("")) }));
+        }
+    }
+    let look: i64 = conn.query_row("SELECT COUNT(*) FROM meta_games WHERE review = 1", [], |r| r.get(0))?;
+    if look > 0 {
+        v.push(json!({ "kind": "look", "count": look, "page": "library?look=1",
+                       "text": format!("{} whose details need a look", if look == 1 { "1 game".to_string() } else { format!("{look} games") }) }));
+    }
+    for b in bars {
+        let (p, have) = (b["platform"].as_str().unwrap_or(""), b["have"].as_i64().unwrap_or(0));
+        let scraped: i64 = conn.query_row("SELECT COUNT(*) FROM meta_games WHERE platform = ?1 AND details > 0", [p], |r| r.get(0))?;
+        if have > 0 && scraped == 0 && !platforms::is_arcade(p) {
+            v.push(json!({ "kind": "scrape", "system": p, "count": have, "page": "metadata",
+                           "text": format!("{} isn't scraped yet", b["platform_name"].as_str().unwrap_or("")) }));
+        }
+    }
+    let bios_dats: i64 = conn.query_row("SELECT COUNT(*) FROM dats WHERE current = 1 AND platform = ?1", [crate::bios::ID], |r| r.get(0))?;
+    if bios_dats > 0 {
+        let b = crate::bios::summary(ix, lib)?;
+        let short = b["systems"].as_array().map(|a| a.iter().filter(|s| s["yours"] == true && s["missing"].as_i64().unwrap_or(0) > 0).count()).unwrap_or(0);
+        if short > 0 {
+            v.push(json!({ "kind": "bios", "count": short, "page": "bios",
+                           "text": format!("BIOS files missing for {}", if short == 1 { "1 system".to_string() } else { format!("{short} systems") }) }));
+        }
+    }
+    Ok(v)
 }
 
 #[cfg(test)]

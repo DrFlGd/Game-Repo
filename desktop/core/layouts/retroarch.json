@@ -1,0 +1,61 @@
+{
+  "format": 1,
+  "id": "retroarch",
+  "version": 1,
+  "name": "RetroArch",
+  "about": "RetroArch: each system's games in a folder of their own, a playlist per system named as RetroArch's database names it, and the box art, screenshots and title screens as its thumbnails. RetroArch chooses the core for each game.",
+  "places": [
+    {
+      "id": "roms",
+      "label": "The games' folder",
+      "example": "C:\\Users\\you\\ROMs"
+    },
+    {
+      "id": "retroarch",
+      "label": "RetroArch's folder",
+      "example": "C:\\RetroArch-Win64",
+      "note": "The folder with retroarch.exe (or retroarch.cfg): the playlists go in its playlists folder and the pictures in its thumbnails folder."
+    },
+    {
+      "id": "device",
+      "label": "Where the games' folder is on the device",
+      "example": "/storage/roms",
+      "optional": true,
+      "device": true,
+      "note": "When the games are for another device (an SD card), the path RetroArch sees there. Left empty, the playlists name the games where they're written."
+    }
+  ],
+  "systems": {
+    "pcengine": { "folder": "pcengine", "name": "NEC - PC Engine - TurboGrafx 16" },
+    "pcenginecd": { "folder": "pcenginecd", "name": "NEC - PC Engine CD - TurboGrafx-CD" },
+    "segacd": { "folder": "segacd", "name": "Sega - Mega-CD - Sega CD" },
+    "3do": { "folder": "3do", "name": "The 3DO Company - 3DO" },
+    "pcfx": { "folder": "pcfx", "name": "NEC - PC-FX" },
+    "fbneo": { "folder": "fbneo", "name": "FBNeo - Arcade Games" }
+  },
+  "games": {
+    "path": "{roms}/{folder}/{file}",
+    "style": "frontend"
+  },
+  "gamelist": {
+    "kind": "retroarch",
+    "path": "{retroarch}/playlists/{playlist}.lpl",
+    "fields": {}
+  },
+  "media": {
+    "cover": {
+      "path": "{retroarch}/thumbnails/{playlist}/Named_Boxarts/{label}.{ext}"
+    },
+    "screenshot": {
+      "path": "{retroarch}/thumbnails/{playlist}/Named_Snaps/{label}.{ext}"
+    },
+    "titlescreen": {
+      "path": "{retroarch}/thumbnails/{playlist}/Named_Titles/{label}.{ext}"
+    }
+  },
+  "text": {},
+  "pictures": {
+    "max": 0,
+    "as": "png"
+  }
+}

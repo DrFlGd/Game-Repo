@@ -1,10 +1,8 @@
-// The parts around the main view: the menu's head and theme button, and the status bar.
+// The parts around the main view: the menu's head and the status bar (the theme is chosen in Settings › Appearance).
 import { html, useEffect, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
-import { ui, setPref, cycleTheme, resolvedTheme, nextTheme, THEMES } from "./state.js";
+import { ui, setPref } from "./state.js";
 import { Icon } from "./icons.js";
-
-const themeName = (t) => (t === "system" ? "System" : THEMES.find(([v]) => v === t)?.[1].replace(/ \(.*\)$/, "") || t);
 
 export function useMedia(query) {
   const [on, setOn] = useState(() => matchMedia(query).matches);
@@ -40,20 +38,6 @@ export function NavHead() {
     <button type="button" class="ghost topicon nav-burger" aria-label=${narrow ? "Close the menu" : nav.collapsed ? "Expand navigation" : "Collapse navigation"} aria-expanded=${nav.open ? "true" : "false"} title="Expand or collapse navigation" onClick=${toggleNav}>${Icon.menu(18)}</button>
     <a class="brand" href="#/" title="Home"><${Mark} /><span class="nav-label">Game Repo</span></a>
   </div>`;
-}
-
-/** The theme button at the foot of the menu: the same four choices as Settings, in turn. */
-export function ThemeButton() {
-  const theme = useStore(ui, (s) => s.theme);
-  const [, force] = useState(0);
-  useEffect(() => { const f = () => force((n) => n + 1); window.addEventListener("gr-theme", f); return () => window.removeEventListener("gr-theme", f); }, []);
-  const cur = resolvedTheme();
-  const next = nextTheme(theme);
-  const icon = theme === "system" ? Icon.auto(15) : cur === "light" ? Icon.sun(15) : cur === "dark" ? Icon.moon(15) : Icon.night(15);
-  const now = theme === "system" ? `Follow the system (${cur})` : themeName(theme);
-  return html`<li class="nav-row"><span class="nav-toggle-space"></span>
-    <button type="button" class="nav-link nav-theme" id="theme-toggle" data-theme=${theme} aria-label=${`Theme: ${now}. Switch to ${themeName(next)}`} title=${`Theme: ${now}. Click for ${themeName(next)}.`}
-      onClick=${cycleTheme}><span class="nav-icon">${icon}</span><span class="nav-label">Theme: ${themeName(theme)}</span></button></li>`;
 }
 
 function Elapsed({ since }) {

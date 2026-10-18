@@ -313,7 +313,8 @@ function ExportDialog({ c, sum, plan: given, only, count }) {
   const [places, setPlaces] = useState(() => savedPlaces(saved, saved.layout || saved.target || "esde"));
   const [defaults, setDefaults] = useState({});
   const [alwaysCopy, setAlwaysCopy] = useState(false);
-  const [shortNames, setShortNames] = useState(true);
+  // RetroArch finds its thumbnails (and downloads them) by the full name
+  const [shortNames, setShortNames] = useState(() => (saved.layout || saved.target) !== "retroarch");
   const [carry, setCarry] = useState({ ...NO_CARRY, ...(saved.carry || {}) });
   const [plan, setPlan] = useState(given || null);
   const [busy, setBusy] = useState(false);
@@ -334,6 +335,7 @@ function ExportDialog({ c, sum, plan: given, only, count }) {
     const next = layouts.find((x) => x.id === id);
     setLayout(id);
     setPlaces(savedPlaces(saved, id));
+    setShortNames(id !== "retroarch");
     if (next) setCarry((v) => ({ ...v, image_size: next.pictures || 0 }));
   };
   const pick = (p) => async () => {
@@ -374,9 +376,9 @@ function ExportDialog({ c, sum, plan: given, only, count }) {
       <small class="muted" id="export-help">${l?.about || ""} <a href=${routeHash("layouts")} id="export-edit-layouts" onClick=${close}>Export layouts…</a></small></label>
     ${(l?.places || []).map((p) => html`<div class="field-block" key=${`${layout}-${p.id}`} data-place=${p.id}><span class="field-label">${p.label}${p.optional ? " (optional)" : ""}</span>
       <div class="pick-row"><input type="text" id=${`export-place-${p.id}`} placeholder=${p.example ? `e.g. ${p.example}` : ""} value=${shown(p)} onInput=${(e) => setPlaces((v) => ({ ...v, [p.id]: e.target.value }))} />
-        ${isDesktop() ? html`<button type="button" class="ghost" id=${`export-place-${p.id}-pick`} onClick=${pick(p)}>Choose…</button>` : null}</div>
+        ${isDesktop() && !p.device ? html`<button type="button" class="ghost" id=${`export-place-${p.id}-pick`} onClick=${pick(p)}>Choose…</button>` : null}</div>
       ${p.note ? html`<small class="muted">${p.note}</small>` : null}</div>`)}
-    ${l?.gamelist ? html`<label class="check-row"><input type="checkbox" id="export-short" checked=${shortNames} onChange=${(e) => setShortNames(e.target.checked)} /> Name games in the gamelist by their title (Alpha), not the full name (Alpha (USA))</label>` : null}
+    ${l?.gamelist ? html`<label class="check-row"><input type="checkbox" id="export-short" checked=${shortNames} onChange=${(e) => setShortNames(e.target.checked)} /> Name games in the gamelist by their title (Alpha), not the full name (Alpha (USA))${layout === "retroarch" ? html` <small class="muted">(RetroArch's thumbnails are named by the full name)</small>` : null}</label>` : null}
     ${l ? html`<${CarryChoices} value=${carry} onChange=${setCarry} carries=${l.carries} layout=${l} />` : null}
     <label class="check-row"><input type="checkbox" id="export-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> Always copy (no hardlinks)</label>
     ${only?.length ? html`<p class="muted" id="export-part">Only the ${plural(count, "game", "games")} ticked. Update… keeps to them.</p>` : null}

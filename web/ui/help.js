@@ -39,6 +39,7 @@ export const TERMS = [
 export const PAGES = [
   ["home", "Home", "Where your library stands: how complete each system is against its full set, and what to do next.", [
     "Open a library…, Add a folder… with games, Import DATs… or Get starter DATs…: the first steps, in order.",
+    "Next: files to put right, games whose details need a look, systems not scraped yet and missing BIOS files, each a link to the page it's done on.",
   ]],
   ["library", "Library", "Every game in the library, across systems, by its pictures and details.", [
     "Filter by system, genre, decade, players and more, search, and sort or group the list.",
@@ -60,7 +61,7 @@ export const PAGES = [
     "Tick games or whole systems and Export these…, or Export… the whole collection; Update… and Check an export from its tab.",
     "Leave a game out by hand, or add one; set a size limit for a card; Save as DATs… for RomVault, clrmamepro or igir.",
   ]],
-  ["layouts", "Export layouts", "Where an export puts things for ES-DE, a device's firmware or a folder.", [
+  ["layouts", "Export layouts", "Where an export puts things for ES-DE, RetroArch, Pegasus, LaunchBox, Playnite, a device's firmware or a folder.", [
     "See a layout as a folder tree with a collection's games, change it, and Save as new…; edit its JSON, or bring one in.",
   ]],
   ["pc", "PC games", "Your PC games, each in its own folder with what it is and how it starts.", [

@@ -7,7 +7,7 @@
 Checks: the interface loads in the real app (the desktop platform, not the plain
 web page), the first start asks where the library goes and, taking the
 suggestion, makes it at ~/Game Repo (with only _library/ in it), the
-settings page shows it, and the theme button reaches night. Exits non-zero on any failure.
+settings page shows it, and the theme setting reaches night. Exits non-zero on any failure.
 """
 import argparse
 import json
@@ -152,14 +152,12 @@ try:
             failures.append(f"index not made outside the library: {report['index_path']}")
     shot("01-settings")
 
-    # theme button: light -> dark -> night
-    for _ in range(3):
-        if d.execute_script("return document.documentElement.dataset.theme") == "night":
-            break
-        d.execute_script("document.querySelector('#theme-toggle').click()")
+    # the theme, chosen in Settings › Appearance
+    d.execute_script("const s = document.querySelector('#theme-select'); s.value = 'night'; s.dispatchEvent(new Event('change', { bubbles: true }))")
+    time.sleep(0.3)
     report["theme"] = d.execute_script("return document.documentElement.dataset.theme")
     if report["theme"] != "night":
-        failures.append(f"theme button never reached night: {report['theme']}")
+        failures.append(f"the theme setting didn't reach night: {report['theme']}")
     time.sleep(0.5)
     shot("02-night")
     errors = d.execute_script("return (window.__errors || []).slice(0, 20)")

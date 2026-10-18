@@ -1,5 +1,5 @@
-// Home: the place to start. Each platform's completeness against its DAT, the
-// last scan and what needs attention (docs/PLAN.md, 3.7). (The index on this
+// Home: the place to start. What to do next, each platform's completeness against
+// its DAT, the last scan and what needs attention (docs/PLAN.md, 3.7). (The index on this
 // computer is in Settings › Library, what's coming in About.) Also the first-start screen, which asks where the
 // library should go.
 import { html, useEffect } from "../lib/html.js";
@@ -40,6 +40,21 @@ function PlatformsCard({ home, off }) {
       ${bars.length ? null : html`<button type="button" class="primary" id="home-starter" disabled=${off} title=${off ? "This library is open read-only" : null} onClick=${() => starterDats()}>Get starter DATs…</button>`}
       <a class="ghost button-link" href=${routeHash("audit")}>Open the audit</a>
     </div>
+  </section>`;
+}
+
+/** Next: what to do now, each linking to the page it's done on (nothing when there's nothing to do). */
+function NextStrip({ home }) {
+  const items = home.next || [];
+  if (!items.length) return null;
+  const go = (n) => () => {
+    const p = ctx.platform.store.prefs;
+    if (n.page === "audit") p.set("gr-audit", { ...(p.get("gr-audit", {}) || {}), platform: n.system, tab: "misnamed" });
+    if (n.page === "metadata") p.set("gr-meta", { ...(p.get("gr-meta", {}) || {}), platform: n.system });
+  };
+  return html`<section class="home-next" id="home-next" aria-label="Next">
+    <h2>Next</h2>
+    <ul>${items.map((n, i) => html`<li key=${i} data-kind=${n.kind}><a href=${routeHash(n.page)} onClick=${go(n)}>${n.text}</a></li>`)}</ul>
   </section>`;
 }
 
@@ -86,6 +101,7 @@ export function Home() {
     ${s.error ? html`<p class="warn-note" role="alert">${s.error}</p>` : null}
     ${lib.read_only ? html`<p class="warn-note" role="alert">${lib.read_only}</p>` : null}
     ${s.home?.error ? html`<p class="warn-note" role="alert">${s.home.error}</p>` : null}
+    ${s.home && !s.home.error ? html`<${NextStrip} home=${s.home} />` : null}
     <div class="home-grid">
       ${s.home && !s.home.error ? html`<${PlatformsCard} home=${s.home} off=${!!lib.read_only} /><${AttentionCard} home=${s.home} off=${!!lib.read_only} />` : null}
     </div>

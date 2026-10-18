@@ -192,7 +192,7 @@ called.*
   | 4 | ScreenScraper (Skraper's source) | every system, by ROM hash first | the user's account; the app's developer id, which ScreenScraper grants on request | 5 |
   | 5 | IGDB | every system | the user's own Twitch developer app (free) | 5 (from 8) |
   | 6 | TheGamesDB | every system | an API key (free, on request) | 5 (from 8) |
-  | 7 | MobyGames | every system | an API key; no longer free | 8 |
+  | 7 | MobyGames | every system | an API key; no longer free | dropped (Jerred, 2026-10-18) |
 
   The order a user sees is a Settings choice (D8); a source without its key is offered
   greyed out with a link to Settings.
@@ -625,7 +625,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **5b** | Device profiles | Export a collection to an SD card in the layout of muOS, Knulli, ROCKNIX, or ES-DE on Android or Linux (3.10, D18, D29): each firmware's ROM folders, gamelists and media, within the card's size limit. Layouts are JSON files the user can copy and change, in a visual editor (D36). Each system's BIOS files as a set of their own, audited and exported with the games (D40). Built on Phase 3's export and Phase 5's media. |
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
-| **8** | More targets and providers | RetroArch playlists, Pegasus, Playnite, LaunchBox exports; MobyGames; automatic DAT updates where allowed; Linux build if wanted; magazines (3.8, D31). |
+| **8** | More targets, add-ons, magazines | RetroArch playlists, Pegasus, Playnite and LaunchBox exports (8a); updates, DLC and patches with their base game (D56) and a collection's history (D52) (8b); magazines (3.8, D31) (8c). MobyGames dropped (Jerred, 2026-10-18). |
 | **9** | Serve to devices | The app as a server on the home network (3.10): browse and download from a browser, a read-only WebDAV view, device profiles for Android, Linux and handheld firmwares, and sync of a collection to a device with verification. Needs Phase 3's collections and export; can move ahead of 4–8. |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
@@ -1835,7 +1835,7 @@ it, and saves it as a new layout.
     ROCKNIX and Batocera read), with the tag each detail goes in; a picture with a `tag`
     is written into the entry too, as a path relative to the gamelist (`./images/…`).
     ES-DE's own layout tags none, since ES-DE finds them by name. `null`: no gamelist
-    (muOS). Other kinds (Pegasus, RetroArch playlists) come with Phase 8's exports.
+    (muOS). Phase 8a adds `pegasus`, `retroarch` and `launchbox` ("Phase 8a notes").
   - **`media`**: where each kind of picture (meta::MEDIA), the video and the manual go;
     a kind left out isn't offered. **`text`**: details written as text files (muOS's
     description, `{ "description": { "path": "…/text/{stem}.txt" } }`).
@@ -2565,6 +2565,148 @@ D57–D61 as written, with these choices:
   own (exports are non-merged, so it doesn't arise), and an arcade machine's CHD isn't
   checked with chdman.
 
+### Phase 8 design (written 2026-10-18; Jerred agreed the scope)
+
+Jerred's scope for Phase 8 (2026-10-18): the RetroArch, Pegasus, Playnite and LaunchBox
+exports, the magazine collection (D31), updates, DLC and patches tied to their base game
+(D56), a collection's history with Undo (D52), and the three items the UI pass left for
+later. MobyGames is dropped. A UI review by Jerred and Claude follows Phase 8: Claude
+writes its findings, Jerred adds his, and one UI pass is built from them.
+
+It's built and released in three parts, each tested before the next: **8a** the exports
+and the UI items, **8b** updates and DLC with the collection history, **8c** magazines.
+
+**8a: more export targets**
+
+Each is a built-in export layout (D36–D38), so it can be copied and changed like the
+others; the layout format gains the kinds of list each one writes.
+
+- **D62 RetroArch playlists.** Layout `retroarch`: each system's games in
+  `{roms}/{folder}/`, a playlist per system in `{retroarch}/playlists/<playlist>.lpl`
+  (RetroArch's JSON playlist), and pictures in
+  `{retroarch}/thumbnails/<playlist>/Named_Boxarts|Named_Snaps|Named_Titles/<label>.png`.
+  `<playlist>` is the No-Intro or Redump name of the system, the name RetroArch's own
+  database and thumbnail server use ("Nintendo - Game Boy"), so its scanner, its
+  achievements and its own thumbnail downloads agree. `<label>` is the game's title with
+  `&*/:`<>?\|` written as `_`, the way RetroArch looks for it; pictures are written as PNG.
+  Each entry's core is left to RetroArch (`DETECT`). The paths in a playlist are where the
+  games will be when RetroArch runs: a layout place, *Where the games are on the device*,
+  set for an SD card (`/storage/roms` and so on), else where they're written. Entries in a
+  playlist that Game Repo didn't write are kept.
+- **D63 Pegasus.** Layout `pegasus`: each system's games in `{roms}/{folder}/` with a
+  `metadata.pegasus.txt` beside them: the collection (its name, short name and file
+  extensions) and an entry per game (title, file, developer, publisher, genre, players,
+  release, rating, description). Pictures go where Pegasus finds them by itself,
+  `media/<file name without its extension>/boxFront.<ext>` (and `boxBack`, `screenshot`,
+  `titlescreen`, `logo`, `marquee`, `background`, `video`). Entries in the file for games
+  Game Repo didn't export are kept.
+- **D64 LaunchBox.** Layout `launchbox`, written into LaunchBox's own folder: games in
+  `Games/<platform>/`, each platform's `Data/Platforms/<platform>.xml` with a `<Game>` per
+  game (title, its file as a path from LaunchBox's folder, details, its manual), the
+  platform added to `Data/Platforms.xml` when it's new, and pictures in LaunchBox's names
+  (`Images/<platform>/Box - Front/<title>-01.<ext>`, `Box - Back`, `Screenshot - Gameplay`,
+  `Screenshot - Game Title`, `Clear Logo`, `Fanart - Background`, `Box - 3D`), videos in
+  `Videos/<platform>/` and manuals in `Manuals/<platform>/`. `<platform>` is LaunchBox's
+  name for the system ("Nintendo Game Boy"), listed in the layout's `systems`. As with
+  Steam (D24), it's written only while LaunchBox and Big Box are closed, the XML files are
+  backed up first, and a game already there (by its file) is updated, not added twice.
+- **D65 Playnite** (asked of Jerred 2026-10-18). Playnite keeps its library in a database
+  only Playnite writes, so no file Game Repo writes can add games to it with their details
+  and pictures. The options are a folder laid out for Playnite's own *emulated games*
+  scanner (Playnite then finds the games and fetches their details itself), a small
+  Playnite add-on that reads a Game Repo export (a separate project, in C#), or leaving
+  Playnite out. Proposed: the folder now (layout `playnite`, a folder per system named as
+  Playnite's platforms are), the add-on later if wanted.
+- **The UI items left from the UI pass.** Home gets a *Next* strip: the games that need a
+  look, the systems not scraped yet, the BIOS files missing and the audits with misnamed
+  files, each linking to its page, and nothing when there's nothing to do. The theme has
+  one switch, in Settings › Appearance with the skin (the menu's theme button goes). The
+  Library's Players filter becomes one drop-down.
+
+**8b: updates and DLC, and a collection's history**
+
+- **D66 Updates, DLC and patches** (D56, Jerred 2026-10-17). An *add-on* is a DAT game
+  that's an update, DLC or patch: its DAT says so in its name (No-Intro's "(Updates and
+  DLC)", or "Updates", "DLC", "Patches"), or its own name has an `(Update)`, `(vX.Y)` with
+  update, `(DLC)` or `(Patch)` tag. Each add-on belongs to a base game: the game in the
+  system's other DATs with the same title (the name without its tags) and region, then the
+  same languages; one that matches none belongs to no game until it's linked by hand. Links
+  made or broken by hand are kept in library.json `addons`. Add-ons are audited with their
+  own DAT as now. They aren't games of their own anywhere else: the Library shows the base
+  game once, with how many updates and DLC you have, and a filter for it; a game's page
+  lists its add-ons with what you have, their versions, and *Link to another game…*; a
+  collection takes its games' add-ons with them (a rule, *With their updates and DLC*, on
+  by default); an export copies them beside their game (a layout's `addons` path, by
+  default the games' own), without entries of their own in its list. A PC game's patches
+  (`PC/<Title> (<Year>)/patches/`, D6) are shown under the same heading.
+- **D67 A collection's history** (D52, Jerred 2026-10-18). Every change to what's in a
+  collection is a step kept in `_library/collections/<id>.json` `history` (the newest
+  500): when, how (by hand, a rules change, *Read them again…*, an undo), the games it
+  added and left out, and, for a rules change, the rules before it; for *Read them
+  again…*, the DATs before it are kept in `_library/collections/<id>/history/`. A
+  **History** tab on the collection lists the steps, newest first, with what each did.
+  *Undo* on a step puts it back: a step by hand puts back or leaves out the same games
+  (any step can be undone, the newest first if they touch the same games), a rules change
+  or *Read them again…* goes back to the rules or DATs before it, and only the newest of
+  those can be undone. An undo is a step of its own, so it can be undone too.
+
+**8c: magazines**
+
+- **D68 Magazines** (D31, Jerred 2026-10-17). A **Magazines** page in the menu, kept like
+  PC games: a folder per magazine, `Magazines/<Title>/`, with `magazine.json` (its
+  publisher, the issues and each issue's number, date, file and cover) and its issues'
+  files, PDF, CBZ or CBR, named `<Title> <number> (<YYYY-MM>).<ext>`.
+  - **Import magazines…** reads a folder (or several), works out each file's magazine,
+    number and date from its name ("Nintendo Power 012 (1990-05)", "EGM_045_Apr1993"),
+    and shows them in a review list to put right, then copies them in (hardlinked on the
+    same drive, D5), as an Organise change with Undo.
+  - **Covers** are the first page: a CBZ's or CBR's first picture, or a PDF's first page
+    when it's a scan (one picture to the page); otherwise none until a picture is dropped
+    on the issue.
+  - **Audited against a list**: a DAT whose games are issues (matched by hash, else by
+    magazine and number), or a list of magazine, number and date as CSV, kept in
+    `_library/dats/magazines/`; the page shows each magazine's issues you have and those
+    missing, and the missing ones can be saved as a list.
+  - **Read** in the document viewer: PDFs as now, CBZ and CBR a page at a time. Their text
+    (PDFs that have it) is searched with the documents, and the Documents page can show
+    only magazines.
+  - **Exported** with the plain folder layout (a folder per magazine, its issues and
+    covers), ticked as part of a collection's export.
+
+Not in Phase 8: MobyGames (dropped by Jerred, 2026-10-18), DAT updates fetched by
+themselves, and a Linux build (D3).
+
+### Phase 8a notes (built 2026-10-18)
+
+D62–D64 as written; D65 as Jerred chose it (2026-10-18, *Folder for its scanner*). The
+choices made in the build:
+- **The layout format** gains three kinds of list (`layout::GAMELISTS`: `es-xml`,
+  `pegasus`, `retroarch`, `launchbox`), a place that's a path on the device
+  (`"device": true`: not a folder here, nothing written under it, no *Choose…* in the
+  Export dialog), and two tokens: `{playlist}` (the layout's name for a system when it
+  gives one, else its No-Intro or Redump name) and `{label}` (the name the list gives the
+  game, with the characters RetroArch or LaunchBox can't have in a picture's name as
+  `_`). A picture's `tag` is its path from the games' folder for EmulationStation and
+  Pegasus, from LaunchBox's folder (with `\`) for LaunchBox; a RetroArch layout has none.
+- **Names.** The list names a game by its title or full name as the Export dialog's
+  choice says; RetroArch starts with the full name, since libretro's thumbnails are named
+  by it. The same name is the pictures' `{label}`, so the two always agree.
+- **Merging.** Each writer keeps what isn't Game Repo's: RetroArch entries by path (a
+  game's own entry keeps the core RetroArch learnt), Pegasus entries by `file:` (Game
+  Repo's own written again; the file's collection header kept, or written when it's new),
+  LaunchBox `<Game>`s by `ApplicationPath` (only the title, the details chosen and the
+  tagged paths are set; a new one's `<ID>` is a GUID made from its platform and file, so
+  it's the same each time). A list that changes is set aside first, so Undo puts it back.
+- **LaunchBox** is refused while `LaunchBox.exe` or `BigBox.exe` runs (Windows'
+  `tasklist`, as for Steam). Its platform names, Playnite's and the few RetroArch
+  playlist names that differ from No-Intro's (in `retroarch.json`'s `systems`) follow
+  their documentation as of October 2026 and are unconfirmed.
+- **Home's Next strip** is `audit::home`'s `next`: misnamed and bad files per system, games
+  needing a look (`meta_games.review`), systems you have games of with none scraped
+  (arcade left out), and systems missing BIOS files (when a BIOS DAT is in). The theme
+  button left the menu (Settings › Appearance has Theme beside Skin), and the Library's
+  *at least* filters (Players, Rating) are one drop-down each.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -2665,7 +2807,7 @@ D57–D61 as written, with these choices:
   its own; one it isn't recognised is identified by searching online sources, brought in
   by ease of integration (3.5). Taken 2026-10-17: Add a game… and Identify with Steam,
   GOG and LaunchBox in Phase 4; ScreenScraper, IGDB and TheGamesDB in Phase 5 (IGDB and
-  TheGamesDB moved up from Phase 8); MobyGames stays in Phase 8.
+  TheGamesDB moved up from Phase 8); MobyGames was to come in Phase 8 and was dropped by Jerred on 2026-10-18.
 
 - **D25–D28** (Phase 4 design): the PC games folder, import as an Organise change,
   Phase 4's sources, Steam's shortcuts. Proposed defaults, followed in the build
@@ -2699,7 +2841,7 @@ D57–D61 as written, with these choices:
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D62). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D69). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 asked of Jerred, the rest proposed with the scope he agreed.
 
 ---
 

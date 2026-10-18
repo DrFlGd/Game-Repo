@@ -832,6 +832,10 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 /* Home */
 .home > * { max-width: 1240px; }
 .home-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.home-next { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--accent-edge); border-radius: 8px; }
+.home-next h2 { margin: 0; font-size: 14px; }
+.home-next ul { display: flex; flex-wrap: wrap; gap: 6px 14px; list-style: none; margin: 0; padding: 0; }
+.home-next a { color: var(--focus); }
 @media (max-width: 760px) { .home-grid { grid-template-columns: minmax(0, 1fr); } }
 .home .home-card, .home-grid > .home-card { margin-top: 0; }
 .home-wide { grid-column: 1 / -1; }
@@ -1214,7 +1218,6 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 .nav-head-row .brand .nav-label { flex: none; }
 .nav-burger, .sidebar .nav-burger { display: inline-flex; width: 34px; height: 32px; padding: 0; color: var(--ink); border-color: var(--steel-2); background: transparent; }
 .nav-burger:hover { background: var(--steel); }
-.nav-theme { border: 0; background: transparent; font-weight: 400; justify-content: flex-start; text-align: left; }
 .sidebar.collapsed .nav-head-row { justify-content: center; }
 .sidebar.collapsed .nav-head-row .brand { display: none; }
 @media (max-width: 900px) {
@@ -1731,6 +1734,9 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 .lib-filter > summary { cursor: pointer; font-weight: 700; padding: 4px 0; list-style-position: outside; }
 .lib-filter-on { display: inline-block; min-width: 16px; padding: 0 5px; border-radius: 8px; background: var(--ink); color: var(--white); font-size: 11px; text-align: center; }
 .lib-filter-find { width: 100%; margin: 2px 0 4px; }
+.lib-filter-select { display: grid; gap: 2px; padding: 4px 0; }
+.lib-filter-select .field-label { font-weight: 700; }
+.lib-filter-select select { justify-self: start; max-width: 100%; }
 .lib-values { list-style: none; margin: 0; padding: 0; }
 .lib-values .check-row { display: flex; gap: 6px; align-items: center; padding: 1px 0; }
 .lib-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

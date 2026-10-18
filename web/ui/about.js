@@ -50,7 +50,7 @@ const DONE = [
   ["Phase 7", "Arcade sets from MAME and FinalBurn Neo: BIOS sets, devices, disks and samples audited, what's playable, sets kept non-merged, split or merged, and exports that carry what each game needs"],
 ];
 export const NEXT = [
-  ["Phase 8", "More frontends (RetroArch, Pegasus, Playnite, LaunchBox), MobyGames, and a collection of magazines"],
+  ["Phase 8", "Exports to RetroArch, Pegasus, LaunchBox and Playnite; updates, DLC and patches kept with their game; a collection's history with Undo; and a collection of magazines", true],
   ["Phase 9", "Serving games to your other devices: Android, Linux and handhelds on your home network"],
 ];
 

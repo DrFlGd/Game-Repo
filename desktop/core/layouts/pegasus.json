@@ -1,0 +1,71 @@
+{
+  "format": 1,
+  "id": "pegasus",
+  "version": 1,
+  "name": "Pegasus",
+  "about": "Pegasus Frontend: each system's games in a folder of their own, with a metadata.pegasus.txt beside them for the details, and the pictures in media/<game>/, where Pegasus finds them by itself.",
+  "places": [
+    {
+      "id": "roms",
+      "label": "The games' folder",
+      "example": "C:\\Users\\you\\ROMs",
+      "note": "Add it to Pegasus' game directories (Settings › Set game directories), or use an SD card's roms folder."
+    }
+  ],
+  "systems": {},
+  "games": {
+    "path": "{roms}/{folder}/{file}",
+    "style": "frontend"
+  },
+  "gamelist": {
+    "kind": "pegasus",
+    "path": "{roms}/{folder}/metadata.pegasus.txt",
+    "fields": {
+      "description": "description",
+      "developer": "developer",
+      "publisher": "publisher",
+      "released": "release",
+      "genres": "genre",
+      "players": "players",
+      "rating": "rating"
+    }
+  },
+  "media": {
+    "cover": {
+      "path": "{roms}/{folder}/media/{stem}/boxFront.{ext}"
+    },
+    "back": {
+      "path": "{roms}/{folder}/media/{stem}/boxBack.{ext}"
+    },
+    "box3d": {
+      "path": "{roms}/{folder}/media/{stem}/boxFull.{ext}"
+    },
+    "screenshot": {
+      "path": "{roms}/{folder}/media/{stem}/screenshot.{ext}"
+    },
+    "titlescreen": {
+      "path": "{roms}/{folder}/media/{stem}/titlescreen.{ext}"
+    },
+    "marquee": {
+      "path": "{roms}/{folder}/media/{stem}/logo.{ext}"
+    },
+    "fanart": {
+      "path": "{roms}/{folder}/media/{stem}/background.{ext}"
+    },
+    "physical": {
+      "path": "{roms}/{folder}/media/{stem}/cartridge.{ext}"
+    },
+    "video": {
+      "path": "{roms}/{folder}/media/{stem}/video.{ext}"
+    },
+    "manual": {
+      "path": "{roms}/{folder}/media/{stem}/manual.pdf",
+      "tag": "assets.manual"
+    }
+  },
+  "text": {},
+  "pictures": {
+    "max": 0,
+    "as": "keep"
+  }
+}

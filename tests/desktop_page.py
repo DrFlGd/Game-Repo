@@ -252,7 +252,7 @@ async def main():
             active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
             lead = await pg.inner_text("#audit-empty")
             check("the menu's places open, with the pages still to come saying what they'll do",
-                  labels == ["Game Repo", "Home", "Library", "Audit", "BIOS files", "Collections", "Export layouts", "PC games", "Metadata", "Documents", "Settings", "Help", "About", "Theme: System"]
+                  labels == ["Game Repo", "Home", "Library", "Audit", "BIOS files", "Collections", "Export layouts", "PC games", "Metadata", "Documents", "Settings", "Help", "About"]
                   and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
             await pg.screenshot(path=str(out / "01-coming.png"))
 
@@ -743,6 +743,9 @@ async def main():
             await pg.wait_for_selector("#export-dialog")
             await pg.wait_for_selector('#export-layout option[value="knulli"]', state="attached")
             layout_first = await pg.input_value("#export-layout")
+            offered = await pg.eval_on_selector_all("#export-layout option", "els => els.map(e => e.value)")
+            check("Export offers RetroArch, Pegasus, LaunchBox and Playnite beside ES-DE, the devices and a plain folder",
+                  all(x in offered for x in ["esde", "knulli", "muos", "retroarch", "pegasus", "launchbox", "playnite", "folder"]), offered)
             await pg.fill("#export-place-roms", str(roms))
             await pg.fill("#export-place-esde", str(esde))
             over = await pg.query_selector("#export-over")
@@ -1300,6 +1303,9 @@ async def main():
             await pg.wait_for_selector('#lib-chips [data-chip="genre-Action"]', state="detached")
             await pg.wait_for_function("(n) => document.querySelectorAll('#lib-games .lib-tile').length === n", arg=len(tiles), timeout=10000)
             back = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.length")
+            radios = await pg.eval_on_selector_all("#lib-filters input[type=radio]", "els => els.length")
+            drops = await pg.eval_on_selector_all("#lib-filters .lib-filter-select select", "els => els.map(e => e.id)")
+            check("Players and Rating are drop-downs in the filters, not lists of buttons", radios == 0 and len(drops) >= 1, (radios, drops))
             check("a filter's values have counts, its chip shows above the games, it's kept in the address and Back takes it off",
                   int(action) >= 2 and "gb/Alpha (USA)" in shown and "gb/Beta (Europe)" in shown and "nes/Echo (USA)" not in shown and "genre=Action" in address
                   and int(gb_count) == int(action) and back == len(tiles), (action, shown, address, gb_count, back))
@@ -1489,6 +1495,14 @@ async def main():
             await toast_text(pg, "split set")
             await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"misnamed\"] .tab-count')?.textContent === '1'", timeout=15000)
             kept = json.loads((library / "_library/library.json").read_text()).get("arcade_sets", {})
+            await pg.click('.sidebar a[href="#/"]')
+            await pg.wait_for_function("() => document.querySelector('#home-next')?.textContent.includes('Arcade (MAME) to put right')", timeout=15000)
+            nxt = await pg.inner_text("#home-next")
+            await pg.screenshot(path=str(out / "57-home-next.png"))
+            await pg.click('#home-next li[data-kind="misnamed"] a:has-text("Arcade")')
+            await pg.wait_for_selector('#audit-list[data-tab="misnamed"]')
+            check("Home's Next strip says what to do, and its link opens the page to do it on",
+                  "1 file in Arcade (MAME) to put right" in nxt and "#/audit" in await pg.evaluate("location.hash"), nxt)
             await pg.click('.sidebar a[href="#/settings"]')
             await pg.wait_for_selector('#arcade-set-types li[data-system="mame"] select')
             in_settings = await pg.input_value('#arcade-set-types li[data-system="mame"] select')
@@ -1507,10 +1521,9 @@ async def main():
             await pg.wait_for_timeout(500)  # preferences are saved after a short pause
             check("the theme follows the setting and is kept", theme == "night" and prefs().get("theme") == "night", (theme, prefs()))
             await pg.screenshot(path=str(out / "03-night.png"))
-            await pg.click("#theme-toggle")
-            cycled = await pg.evaluate("() => document.documentElement.dataset.theme")
             await pg.select_option("#theme-select", "system")
-            check("the menu's theme button goes on to the next choice", cycled in ("light", "dark"), cycled)
+            check("the theme is chosen in one place, Settings › Appearance (the menu has no theme button)",
+                  await pg.query_selector("#theme-toggle") is None and await pg.query_selector("#settings-appearance #theme-select") is not None)
 
             # 8. the skin: Drafting Sheet unless chosen, changed at once (icons too) and kept
             first = await pg.evaluate("() => document.documentElement.dataset.skin")
