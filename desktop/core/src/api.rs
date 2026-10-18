@@ -851,10 +851,11 @@ impl App {
                     let mut r = organise::run(&ix, &lib, &plan, &cancel, &mut |p| app.job_progress(&jid, p))?;
                     let _ = std::fs::remove_file(organise::pending_path(&data_dir, &plan.id));
                     match plan.kind.as_str() {
-                        // the artwork the sources offered for the new games
+                        // the new games' details kept as their source's, and the artwork it offered (D55)
                         "import" => {
                             app.job_progress(&jid, json!({ "text": "Getting artwork" }));
-                            r["art"] = json!(crate::pcgames::fetch_found_art(&lib, &|dir, art| crate::identify::fetch_art(dir, art, false), &cancel));
+                            let games: Vec<PathBuf> = plan.ops.iter().filter(|o| o.op == "text").filter_map(|o| Path::new(&o.to).parent().map(Path::to_path_buf)).collect();
+                            r["art"] = json!(crate::pcmeta::settle_imports(&ix, &lib, &games, &cancel));
                         }
                         // what the added files are, once scanned
                         "add" => {
@@ -1157,12 +1158,17 @@ impl App {
                 }
                 let platform = args["platform"].as_str().filter(|p| !p.is_empty()).map(String::from);
                 let game = args["game"].as_i64();
+                // a game's folder instead of a DAT game (a PC game's, D55), with its title
+                let folder = args["folder"].as_str().filter(|f| !f.is_empty()).map(|f| (f.to_string(), args["game_name"].as_str().unwrap_or("").to_string()));
                 let label = "Reading the documents";
                 self.not_running(label)?;
                 j(self.spawn_job(label, move |app, jid, cancel| {
                     let ix = Self::job_index(&data_dir, &lib)?;
                     meta::sync(&ix, &lib)?;
-                    let items = docs::read_items(&ix, &lib, &paths, platform.as_deref(), game, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    let mut items = docs::read_items(&ix, &lib, &paths, platform.as_deref(), game, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    if let Some((f, name)) = &folder {
+                        docs::pair_with_folder(&lib, &mut items, f, name)?;
+                    }
                     Ok(json!({ "items": items, "kinds": docs::KINDS.iter().map(|(id, name, _)| json!({ "id": id, "name": name })).collect::<Vec<_>>() }))
                 }))
             }
@@ -1319,15 +1325,16 @@ impl App {
                 let (source, id) = (arg(&args, "source").map_err(e2s)?.to_string(), arg(&args, "id").map_err(e2s)?.to_string());
                 let retitle = args["retitle"].as_bool().unwrap_or(true);
                 let (game, platform, file) = (args["game"].as_str().map(String::from), args["platform"].as_str().map(String::from), args["file"].clone());
-                j(blocking(Box::new(move || {
-                    let m = identify::details(&cfg, &data_dir, &source, &id)?;
-                    match (game, platform) {
-                        (Some(g), _) => Ok(identify::apply_to_pc_game(&lib, &g, &m, retitle)?.to_json(&lib)),
-                        (None, Some(p)) => addgame::identify_rom(&lib, &p, &file, &m),
-                        _ => bail!("missing game"),
-                    }
-                }))
-                .await?)
+                j(self
+                    .with_index(move |ix| {
+                        let m = identify::details(&cfg, &data_dir, &source, &id)?;
+                        match (game, platform) {
+                            (Some(g), _) => Ok(crate::pcmeta::identify(ix, &lib, &g, &m, retitle)?.to_json(&lib)),
+                            (None, Some(p)) => addgame::identify_rom(&lib, &p, &file, &m),
+                            _ => bail!("missing game"),
+                        }
+                    })
+                    .await?)
             }
             "sources" => j(identify::sources(&cfg, &data_dir)),
             "sources_set" => {

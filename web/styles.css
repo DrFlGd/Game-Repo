@@ -1832,6 +1832,12 @@ span.game-hero { height: 320px; font-size: 96px; }
 .game-variants-label { margin: 6px 0 0; font-size: 12px; font-weight: 700; color: var(--graphite); }
 .game-detail-from { font-size: 11.5px; min-height: 1.3em; }
 .game-pos { padding: 6px 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+/* a PC game's page: what only a PC game has, in columns (D55); in the PC games panel, one under another */
+.pc-parts { display: grid; gap: 10px; min-width: 0; }
+.game-pc .pc-parts { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 28px; align-items: start; }
+.game-pc .pc-parts > .form-error, .game-pc .pc-files-section { grid-column: 1 / -1; }
+.game-pc #game-pc-line { margin: 0 0 4px; }
+.pc-section .pick-row code { overflow-wrap: anywhere; }
 @media (max-width: 900px) {
   .game-top { grid-template-columns: minmax(0, 1fr); }
   .game-fields { grid-template-columns: minmax(0, 1fr); }

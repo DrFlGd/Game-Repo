@@ -30,6 +30,15 @@ pub const MEDIA: &[(&str, &str, &str)] = &[
     ("video", "Video", "videos"),
 ];
 
+/// A PC game's artwork beside its cover (Phase 4, kept as MEDIA is since D55): (kind, what
+/// it's called, ES-DE's folder for it, none).
+pub const PC_ART: &[(&str, &str, &str)] = &[("banner", "Banner", ""), ("hero", "Hero", ""), ("logo", "Logo", ""), ("icon", "Icon", "")];
+
+/// Every kind of picture a game's folder can hold: MEDIA, then a PC game's.
+pub fn all_media() -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str)> {
+    MEDIA.iter().chain(PC_ART.iter())
+}
+
 /// The details a game can have: (key, what it's called).
 pub const FIELDS: &[(&str, &str)] = &[
     ("description", "Description"),
@@ -230,7 +239,11 @@ pub fn index_folder(conn: &Connection, lib: &Library, dir: &Path) -> Result<()> 
     let platform = v["platform"].as_str().map(String::from).or_else(|| dir.parent().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned())).unwrap_or_default();
     let details = v["details"].as_object().is_some_and(|d| FIELDS.iter().any(|(k, _)| d.get(*k).is_some_and(|x| !x.is_null() && x != "")));
     let review = v["review"].as_array().is_some_and(|a| !a.is_empty());
-    let title = v["title"].as_str().filter(|s| !s.is_empty()).or(v["name"].as_str()).unwrap_or("").to_string();
+    let mut title = v["title"].as_str().filter(|s| !s.is_empty()).or(v["name"].as_str()).unwrap_or("").to_string();
+    // a PC game's title is its own, in `PC/…/game.json` (D55)
+    if title.is_empty() && crate::pcmeta::is_pc(lib, dir) {
+        title = crate::pcmeta::title_of(lib, dir).unwrap_or_default();
+    }
     // the details the Library page lists and searches (browse.rs), and the picture it shows
     let facts = v["details"].as_object().cloned().unwrap_or_default();
     conn.execute(
@@ -458,9 +471,16 @@ pub fn edit_value(field: &str, x: &Value) -> Result<Value> {
 /// Edit one of the details in a game folder's `game.json` (D44).
 pub fn edit_dir(ix: &Index, lib: &Library, dir: &Path, field: &str, value: Option<&Value>) -> Result<()> {
     lib.writable()?;
+    let pc = crate::pcmeta::is_pc(lib, dir);
+    if pc {
+        // a PC game's details from before are brought across first (D55)
+        crate::pcmeta::ensure_dir(ix, lib, dir)?;
+        if field == "title" || field == "year" {
+            bail!("A PC game's {field} is its own (its folder is named by it): change it on its page.");
+        }
+    }
     let mut v = read_game(dir);
-    let by_source = v["platform"] != "pc";
-    if by_source {
+    if !pc {
         // a folder from before is split while its edits are still marked
         crate::sources::prepare(dir, &v)?;
     }
@@ -485,8 +505,12 @@ pub fn edit_dir(ix: &Index, lib: &Library, dir: &Path, field: &str, value: Optio
     }
     v["edited"] = json!(edited);
     // the mark taken off: the sources' value again (D46)
-    if value.is_none() && by_source {
-        crate::sources::make(&mut v, dir, &crate::sources::Rules::of(lib));
+    if value.is_none() {
+        if pc {
+            crate::pcmeta::make(lib, dir, &mut v);
+        } else {
+            crate::sources::make(&mut v, dir, &crate::sources::Rules::of(lib));
+        }
     }
     write_game(ix, lib, dir, &v)
 }

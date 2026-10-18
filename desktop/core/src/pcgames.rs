@@ -8,6 +8,10 @@
 //! (a GOG `goggame-<id>.info`, innoextract, Steam's `steam_appid.txt`, the name, then a
 //! search), and plans an Organise change that copies (or moves) them into the folder and
 //! writes their `game.json`, with the preview, the journal and Undo.
+//!
+//! Since D55 the `game.json` here keeps what only a PC game has (its id, title and year,
+//! source, version, ids, files, program, where it's installed); its details, pictures and
+//! documents are in `_library/games/pc/<id>/` as every other game's are (pcmeta.rs).
 
 use crate::archive;
 use crate::config::write_json;
@@ -99,7 +103,9 @@ pub struct PcGame {
     /// The sources' ids for it: gog, steam, launchbox…
     #[serde(default)]
     pub ids: BTreeMap<String, String>,
-    /// developer, publisher, released, genres, description, and where they came from
+    /// What isn't a detail (a GOG slug); before D55 also its details (developer,
+    /// publisher, released, genres, description) and the source they came from
+    /// (`identified_by`), which pcmeta.rs moves to `_library/games/pc/<id>/`
     #[serde(default)]
     pub details: Map<String, Value>,
     #[serde(default)]
@@ -148,7 +154,7 @@ impl Entry {
         let launch = g.launch.as_ref().map(|l| program_path(&self.dir, l).display().to_string());
         json!({
             "id": g.id, "title": g.title, "year": g.year, "source": g.source, "version": g.version, "ids": g.ids,
-            "details": g.details, "files": g.files, "launch": g.launch, "program": launch, "installed": g.installed,
+            "details": crate::pcmeta::view(lib, self)["details"], "files": g.files, "launch": g.launch, "program": launch, "installed": g.installed,
             "imported": g.imported, "modified": g.modified, "size": size,
             "dir": self.dir.display().to_string(), "folder": self.dir.file_name().map(|n| n.to_string_lossy().into_owned()),
             "extracted": self.dir.join("extracted").is_dir(), "unpacked": g.extra.get("unpacked"),
@@ -198,12 +204,12 @@ fn manifest_text(g: &PcGame) -> Result<String> {
     Ok(serde_json::to_string_pretty(&crate::config::sorted(&serde_json::to_value(g)?))? + "\n")
 }
 
-fn write_manifest(dir: &Path, g: &PcGame) -> Result<()> {
+pub(crate) fn write_manifest(dir: &Path, g: &PcGame) -> Result<()> {
     write_json(&dir.join(MANIFEST), &serde_json::to_value(g)?)
 }
 
-/// Change a game's title, year, ids, details, program or install folder. A new title or
-/// year renames its folder (when the new name is free).
+/// Change a game's title, year, ids, program or install folder. A new title or year renames
+/// its folder (when the new name is free). Its details are changed on its page (pcmeta.rs).
 pub fn update(lib: &Library, id: &str, patch: &Value) -> Result<Entry> {
     lib.writable()?;
     let mut e = get(lib, id)?;
@@ -236,15 +242,6 @@ pub fn update(lib: &Library, id: &str, patch: &Value) -> Result<Entry> {
                 None => {
                     g.ids.remove(k);
                 }
-            }
-        }
-    }
-    if let Some(d) = patch["details"].as_object() {
-        for (k, v) in d {
-            if v.is_null() {
-                g.details.remove(k);
-            } else {
-                g.details.insert(k.clone(), v.clone());
             }
         }
     }
@@ -812,6 +809,8 @@ pub fn apply_match(it: &mut Item, m: &Match) {
     for (k, v) in &m.details {
         it.details.insert(k.clone(), v.clone());
     }
+    // which source the details are from, for its answer once it's imported (D55)
+    it.details.insert("identified_by".into(), json!(m.source));
     for (k, v) in &m.art {
         it.art.insert(k.clone(), v.clone());
     }
@@ -984,6 +983,10 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
             let art = target.game.extra.entry("art").or_insert_with(|| json!({}));
             for (k, v) in &it.art {
                 art[k] = json!(v);
+            }
+            // the source it's from, so it's kept as that source's (D55)
+            if let Some(s) = it.details.get("identified_by") {
+                target.game.extra.insert("art_from".into(), s.clone());
             }
         }
     }
@@ -1195,25 +1198,6 @@ pub fn remove_unpacked(lib: &Library, id: &str) -> Result<()> {
     write_manifest(&e.dir, &e.game)
 }
 
-/// Fetch the artwork an import found for its games (kept in `game.json` until then);
-/// `fetch` gets one game's (into its media folder, kind → URL). The titles that got some.
-pub fn fetch_found_art(lib: &Library, fetch: &dyn Fn(&Path, &BTreeMap<String, String>) -> Vec<String>, cancel: &AtomicBool) -> Vec<String> {
-    let mut got = vec![];
-    for mut e in list(lib) {
-        if cancel.load(Ordering::Relaxed) {
-            break;
-        }
-        let Some(art) = e.game.extra.get("art").and_then(Value::as_object) else { continue };
-        let art: BTreeMap<String, String> = art.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect();
-        if !fetch(&media_dir(lib, &e.game.id), &art).is_empty() {
-            got.push(e.game.title.clone());
-        }
-        e.game.extra.remove("art");
-        let _ = write_manifest(&e.dir, &e.game);
-    }
-    got
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -1336,9 +1320,8 @@ pub(crate) mod tests {
         assert!(program_path(&e.dir, e.game.launch.as_ref().unwrap()).is_file());
         assert_eq!(programs(&lib, &id).unwrap(), ["extracted/Zeta/bin/zeta.exe", "extracted/Zeta/unins000.exe"]);
         // by hand: a year renames its folder
-        let e = update(&lib, &id, &json!({ "year": 2001, "details": { "developer": "Zeta Soft" } })).unwrap();
+        let e = update(&lib, &id, &json!({ "year": 2001 })).unwrap();
         assert_eq!(e.dir.file_name().unwrap(), "Zeta Quest (2001)");
-        assert_eq!(e.game.details["developer"], "Zeta Soft");
         remove_unpacked(&lib, &id).unwrap();
         let e = get(&lib, &id).unwrap();
         assert!(!e.dir.join("extracted").exists() && e.game.launch.is_none());

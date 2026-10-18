@@ -6,7 +6,9 @@
 // Each detail lists what the other sources said, and each kind of picture the other
 // sources' ones, with Use this ("Phase 6b design", D46, D47); Scrape again… and Delete
 // metadata… are in its menu (D48). Previous and Next go through the Library list it was
-// opened from.
+// opened from. A PC game's page is the same, its details and pictures kept as any game's,
+// with a PC section for what only a PC game has: the program, Unpack, its folder and files
+// ("PC game page design", D55); its title and year name its folder, so they're its own.
 import { html, useState, useEffect, useLayoutEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -17,7 +19,7 @@ import { CommandBar } from "./layout.js";
 import { usePageKeys } from "./actions.js";
 import { scrapeDialog, deleteMetadata } from "./metadata.js";
 import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
-import { identifyDialog } from "./pcgames.js";
+import { identifyDialog, PcParts, pcLine } from "./pcgames.js";
 import { convertDialog } from "./organise.js";
 import { opened, gameHash, systemColour } from "./browse.js";
 import { Icon } from "./icons.js";
@@ -92,7 +94,7 @@ function Gallery({ g, off, onChoose }) {
   const url = (k, thumb = "") => `${libraryUrl(`${thumb}${media[k]}`)}?v=${encodeURIComponent(g.variants?.[k]?.find((x) => x.chosen)?.name || "")}`;
   const rel = media[kind];
   if (!kinds.length) return html`<div class="game-gallery" id="game-gallery"><span class="game-hero lib-cover-none" style=${`background:${systemColour(g.platform)}`} aria-hidden="true">${(g.title || "?").slice(0, 1)}</span>
-    <p class="muted">No pictures yet: Scrape… brings them${g.kind === "pc" ? " (or Identify on the PC games page)" : ""}.</p></div>`;
+    <p class="muted">No pictures yet: ${g.kind === "pc" ? "Identify… brings them" : "Scrape… brings them"}.</p></div>`;
   return html`<div class="game-gallery" id="game-gallery">
     ${isVideo(rel) ? html`<video class="game-hero" src=${url(kind)} controls preload="metadata"></video>` : html`<img class="game-hero" src=${url(kind)} alt=${PICTURES[cur] || cur} />`}
     ${kinds.length > 1 ? html`<div class="game-strip" id="game-strip" role="tablist" aria-label="Pictures">${kinds.map((k) => html`<button type="button" role="tab" key=${k} data-kind=${k} aria-selected=${k === cur ? "true" : "false"} title=${PICTURES[k] || k} onClick=${() => setCur(k)}>
@@ -126,10 +128,18 @@ export function GamePage() {
     return () => { gone = true; };
   }, [key, s.changes, s.library?.path]);
   const dat = g?.kind === "dat";
+  const pc = g?.kind === "pc";
   const attach = (paths = null) => {
-    if (!dat) { toast("Documents are attached to a system's games here; a PC game's go in its folder.", 8000); return; }
+    // a PC game's go in its folder in the library (D55), as a DAT game's do
+    if (pc) { attachDocs({ folder: g.folder, gameName: g.title, platform: "pc", paths }); return; }
+    if (!dat) { toast("Documents are attached to the games a DAT knows, and PC games.", 8000); return; }
     attachDocs({ game: g.id, gameName: g.title, platform: g.platform, paths });
   };
+  const reload = async () => setG(await api("browse_game", { key }));
+  const identifyPc = () => identifyDialog({
+    title: `Identify ${g.title}`, query: g.title, year: g.year, platform: "pc",
+    onPick: async (x) => { await api("identify_pick", { source: x.source, id: x.id, game: g.pc_id, retitle: true }); await api("browse"); await reload(); },
+  });
   useDroppedFiles((paths) => { if (g && !off) attach(paths); });
   const save = async (field, value) => {
     setBusy(true);
@@ -158,7 +168,10 @@ export function GamePage() {
       setBusy(false);
     }
   };
-  const use = (field, source) => changed("meta_pin", { field, source });
+  // a PC game's title and year are its own: another source's is taken as typed in
+  const use = (field, source) => (pc && (field === "title" || field === "year")
+    ? save(field, (g.sources || []).find((a) => a.source === source)?.[field] ?? null)
+    : changed("meta_pin", { field, source }));
   const choose = (kind, name) => changed("meta_choose", { kind, name });
   const step = async (by) => {
     const i = opened.index + by;
@@ -178,12 +191,13 @@ export function GamePage() {
   const fromList = opened.query && opened.index >= 0;
   const more = () => [
     ...(dat ? [{ id: "game-identify", label: "Identify…", icon: "search", disabled: off, run: () => identifyDialog({ title: `Identify ${g.name}`, query: g.title, platform: g.platform, onPick: async (x) => { setG(await api("meta_pick", { game: g.id, source: x.source, id: x.id }).then(() => api("browse_game", { key }))); } }) }] : []),
-    ...(g?.kind === "pc" ? [{ id: "game-pc", label: "Open in PC games", icon: "monitor", run: () => { location.hash = routeHash("pc"); } }] : []),
+    ...(pc ? [{ id: "game-pc", label: "Open in PC games", icon: "monitor", run: () => { location.hash = routeHash("pc"); } }] : []),
     ...(dat ? [{ id: "game-scrape-again", label: "Scrape again…", icon: "scrape", disabled: off, run: () => scrapeDialog({ platform: g.platform, platformName: g.platform_name, games: [g.id], gameName: g.title, again: true }) }] : []),
-    ...(g?.kind !== "pc" ? [{ id: "game-delete-metadata", label: "Delete metadata…", icon: "trash", disabled: off || !g?.folder, run: () => deleteMetadata({ folder: g.folder, gameName: g.title, platformName: g.platform_name }) }] : []),
+    { id: "game-delete-metadata", label: "Delete metadata…", icon: "trash", disabled: off || !g?.folder, run: () => deleteMetadata({ folder: g.folder, gameName: g.title, platformName: g.platform_name, pc }) },
     { sep: true },
-    { id: "game-attach", label: "Attach documents…", icon: "file", disabled: off || !isDesktop() || !dat, run: () => attach() },
-    { id: "game-reveal", label: "Show its folder", icon: "folder", disabled: !isDesktop() || !(g?.folder_path || g?.dir), run: () => reveal(g.folder_path || g.dir) },
+    { id: "game-attach", label: "Attach documents…", icon: "file", disabled: off || !isDesktop() || !(dat || pc), run: () => attach() },
+    // a PC game's own folder (PC/<Title> (<Year>)), else where its metadata is kept
+    { id: "game-reveal", label: "Show its folder", icon: "folder", disabled: !isDesktop() || !(g?.pc?.dir || g?.folder_path || g?.dir), run: () => reveal(g.pc?.dir || g.folder_path || g.dir) },
     { sep: true },
     { id: "game-add", label: "Add to a collection…", icon: "collection", disabled: off || !dat, run: () => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } }) },
   ];
@@ -191,7 +205,8 @@ export function GamePage() {
     tools=${fromList ? html`<span class="seg"><button type="button" class="ghost compact" id="game-prev" title="The previous game in the list (←)" disabled=${opened.index <= 0} onClick=${() => step(-1)}>‹</button>
       <span class="muted game-pos">${(opened.index + 1).toLocaleString()} of ${opened.total.toLocaleString()}</span>
       <button type="button" class="ghost compact" id="game-next" title="The next game in the list (→)" disabled=${opened.index >= opened.total - 1} onClick=${() => step(1)}>›</button></span>` : null}
-    primary=${g && dat ? html`<button type="button" class="primary compact" id="game-scrape" disabled=${off} onClick=${() => scrapeDialog({ platform: g.platform, platformName: g.platform_name, games: [g.id], gameName: g.title })}>${Icon.scrape(15)} Scrape…</button>` : null}
+    primary=${g && dat ? html`<button type="button" class="primary compact" id="game-scrape" disabled=${off} onClick=${() => scrapeDialog({ platform: g.platform, platformName: g.platform_name, games: [g.id], gameName: g.title })}>${Icon.scrape(15)} Scrape…</button>`
+      : g && pc ? html`<button type="button" class="primary compact" id="game-identify-pc" disabled=${off} title="Search Steam, GOG and the other sources for it" onClick=${identifyPc}>${Icon.search(15)} Identify…</button>` : null}
     more=${g ? { id: "game-menu", title: "Identify, attach documents, show its folder, add to a collection", items: more } : null} />`;
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   if (error && !g) return html`${head}<div class="pages"><p class="warn-note" role="alert" id="game-error">${error}</p><p><a href=${routeHash("library")}>Back to the Library</a></p></div>`;
@@ -216,24 +231,28 @@ export function GamePage() {
   const dir = g.dir || "";
   return html`${head}<div class="pages game-page" id="game-page" data-key=${g.key} data-kind=${g.kind}>
     <div class="game-top">
-      <${Gallery} g=${g} off=${off || busy || g.kind === "pc"} onChoose=${choose} />
+      <${Gallery} g=${g} off=${off || busy} onChoose=${choose} />
       <section class="game-details" id="game-details" aria-busy=${busy ? "true" : "false"}>
         <p class="muted game-sub">${[g.platform_name, g.kind === "dat" ? (g.have ? "in the library" : "not in the library") : g.kind === "pc" ? "a PC game" : "a game no DAT knows", g.name && g.name !== g.title ? g.name : null].filter(Boolean).join(" · ")}</p>
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
         ${main ? html`<p class="muted game-main-source" id="game-main-source">Details from ${sourceName(main)}, unless a detail says otherwise.</p>` : null}
         <div class="game-fields">${FIELDS.map(([k, l]) => html`<${Detail} key=${k} g=${g} field=${k} label=${l} off=${off || busy} main=${main} onSave=${save} onUnmark=${unmark} onUse=${use} />`)}</div>
-        <p class="muted">${off ? "" : "Click a detail to change it. "}What you change here is kept in the game's folder and stays when it's scraped again.</p>
+        <p class="muted">${off ? "" : "Click a detail to change it. "}${pc ? "Its title and year name its folder, which is renamed with them; the rest is kept in the library and stays when it's identified again." : "What you change here is kept in the game's folder and stays when it's scraped again."}</p>
         ${Object.keys(g.ids || {}).length ? html`<p class="muted" id="game-ids">Its ids at the sources: ${Object.entries(g.ids).map(([k, v]) => `${sourceName(k)} ${v}`).join(" · ")}</p>` : null}
       </section>
     </div>
+    ${pc && g.pc ? html`<section class="ls-section game-pc" id="game-pc"><h2>PC game</h2>
+      <p class="muted" id="game-pc-line">${pcLine(g.pc)}</p>
+      <${PcParts} g=${g.pc} off=${off} onChange=${reload} />
+    </section>` : null}
     ${g.review?.length ? html`<section class="ls-section" id="game-review"><h2>Which game is it?</h2>
       <p class="muted">A scrape wasn't sure of this one: <a href=${routeHash("metadata")}>the Metadata page</a> lists what it found, to pick from.</p></section>` : null}
     <section class="ls-section" id="game-docs"><h2>Documents</h2>
       ${g.docs?.length ? html`<ul class="ls-list">${g.docs.map((x) => html`<li key=${x.id} data-kind=${x.kind}><button type="button" class="linkish" onClick=${() => viewDoc(x.id)}>${x.title}</button><span class="muted">${x.kind_name}${x.source ? ` · ${sourceName(x.source)}` : ""}</span></li>`)}</ul>`
-        : html`<p class="muted">None yet.${dat ? " Attach your own (or drop files on this page), or scrape its manual." : ""}</p>`}
-      ${dat && isDesktop() ? html`<button type="button" class="ghost compact" id="game-attach" disabled=${off} onClick=${() => attach()}>${Icon.file(14)} Attach documents…</button>` : null}
+        : html`<p class="muted">None yet.${dat ? " Attach your own (or drop files on this page), or scrape its manual." : pc ? " Attach your own (or drop files on this page): a manual, a guide, a map." : ""}</p>`}
+      ${(dat || pc) && isDesktop() ? html`<button type="button" class="ghost compact" id="game-attach" disabled=${off} onClick=${() => attach()}>${Icon.file(14)} Attach documents…</button>` : null}
     </section>
-    <section class="ls-section" id="game-files"><h2>Files</h2>
+    ${pc ? null : html`<section class="ls-section" id="game-files"><h2>Files</h2>
       ${files.length ? html`<ul class="ls-list">${files.map((f, i) => html`<li key=${i} data-missing=${f.missing ? "yes" : "no"}>
         <span class="op-paths"><span class="op-to" title=${f.path}>${dir ? f.path : shortPath(f.path, 3)}</span>
           <span class="muted">${[f.kind, f.size ? size(f.size) : null, f.roms?.length > 1 ? plural(f.roms.length, "ROM", "ROMs") : null, f.missing ? "gone since the last scan" : null].filter(Boolean).join(" · ")}</span></span>
@@ -245,7 +264,7 @@ export function GamePage() {
         <dt>Name</dt><dd>${g.name}</dd>
         ${g.regions ? html`<dt>Regions</dt><dd>${g.regions}</dd>` : null}
         <dt>ROMs</dt><dd>${(g.roms || []).length}</dd></dl>` : null}
-    </section>
+    </section>`}
     ${dat ? html`<section class="ls-section" id="game-collections"><h2>Collections</h2>
       ${g.collections?.length ? html`<ul class="ls-list">${g.collections.map((c) => html`<li key=${c.id} data-id=${c.id}><a href=${routeHash("collections")}>${c.name}</a>
         <button type="button" class="ghost compact" disabled=${off} title=${`Take it out of ${c.name}`} onClick=${() => removeFrom(c)}>Take out</button></li>`)}</ul>` : html`<p class="muted">In none.</p>`}

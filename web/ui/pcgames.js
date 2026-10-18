@@ -1,10 +1,12 @@
 // PC games (docs/PLAN.md, "Phase 4 design", D25–D28): the games in the PC games folder,
 // each in its own folder with its game.json; Import… reads the inbox (or files picked)
 // into a review list, where each item can be identified, retitled or left out, then
-// imports them as a change with a preview and Undo. A game's panel sets the program
-// that starts it, unpacks an installer or archive, and identifies it. Add to Steam…
-// writes the games as non-Steam shortcuts with their artwork. Identify… and Add a
-// game… (any other system) are here too, as dialogs the other pages open.
+// imports them as a change with a preview and Undo. A game's details, pictures and
+// documents are on its page, as every game's are ("PC game page design", D55); the
+// panel here, and that page's PC section (`PcParts`), set the program that starts it,
+// unpack an installer or archive, and show its folder. Add to Steam… writes the games
+// as non-Steam shortcuts with their artwork. Identify… and Add a game… (any other
+// system) are here too, as dialogs the other pages open.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -15,6 +17,7 @@ import { CommandBar, SearchNote } from "./layout.js";
 import { Dialog, close } from "./dialogs.js";
 import { Preview, runPlan } from "./organise.js";
 import { Icon } from "./icons.js";
+import { gameHash } from "./browse.js";
 
 const err = (e) => e.message || String(e);
 const again = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
@@ -374,97 +377,42 @@ export function PcDialogs({ dialog }) {
   return null;
 }
 
-// ------------------------------------------------------------ a game's panel
+// ------------------------------------------------------------ what only a PC game has
 
-function GamePanel({ id, off, onChange, version }) {
-  const [g, setG] = useState(null);
-  const [error, setError] = useState("");
+/** What only a PC game has (D55): the program that starts it, Unpack, its folder and its
+ *  files. On its page's PC section and in this page's panel; `g` is the game as `pc_get`
+ *  gives it, and `onChange` reads it again. */
+export function PcParts({ g, off, onChange }) {
   const [busy, setBusy] = useState(false);
-  const [title, setTitle] = useState("");
-  const [year, setYear] = useState("");
-  const [program, setProgram] = useState("");
-  const [args, setArgs] = useState("");
-  const load = () => api("pc_get", { id }).then((x) => {
-    setG(x);
-    setTitle(x.title);
-    setYear(x.year ? String(x.year) : "");
-    setProgram(x.launch?.program || "");
-    setArgs(x.launch?.args || "");
-  }).catch((e) => setError(err(e)));
-  useEffect(() => { setError(""); load(); }, [id, version]);
-  const save = async (patch, said) => {
+  const [error, setError] = useState("");
+  const [program, setProgram] = useState(g.launch?.program || "");
+  const [args, setArgs] = useState(g.launch?.args || "");
+  useEffect(() => { setProgram(g.launch?.program || ""); setArgs(g.launch?.args || ""); }, [g.id, g.launch?.program, g.launch?.args]);
+  const act = async (f, said) => {
     setBusy(true);
     setError("");
     try {
-      await api("pc_update", { id, patch });
-      await load();
-      onChange();
-      if (said) toast(said);
+      const r = await f();
+      await onChange();
+      if (said) toast(typeof said === "function" ? said(r) : said, 6000);
     } catch (e) {
       setError(err(e));
     } finally {
       setBusy(false);
     }
   };
-  const unpack = async (file) => {
-    setBusy(true);
-    setError("");
-    try {
-      const { job } = await api("pc_unpack", { id, file });
-      const done = await followJob(job, `Unpacking ${g.title}`);
-      if (done.error) throw new Error(done.error);
-      await load();
-      onChange();
-      toast(`Unpacked ${plural(done.result.files, "file", "files")}${done.result.launch ? `; it starts with ${done.result.launch.program}` : ""}.`, 6000);
-    } catch (e) {
-      setError(err(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const removeUnpacked = async () => {
-    setBusy(true);
-    try {
-      await api("pc_unpack_remove", { id });
-      await load();
-      onChange();
-    } catch (e) {
-      setError(err(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const identify = () => identifyDialog({
-    title: `Identify ${g.title}`, query: g.title, year: g.year, platform: "pc",
-    onPick: async (x) => { await api("identify_pick", { source: x.source, id: x.id, game: id, retitle: true }); onChange(); },
-  });
-  if (error && !g) return html`<aside class="pc-panel" id="pc-panel"><p class="warn-note" role="alert">${error}</p></aside>`;
-  if (!g) return html`<aside class="pc-panel" id="pc-panel"><p class="muted">Reading…</p></aside>`;
-  const d = g.details || {};
+  const save = (patch, said) => act(() => api("pc_update", { id: g.id, patch }), said);
+  const unpack = (file) => act(async () => {
+    const { job } = await api("pc_unpack", { id: g.id, file });
+    const done = await followJob(job, `Unpacking ${g.title}`);
+    if (done.error) throw new Error(done.error);
+    return done.result;
+  }, (r) => `Unpacked ${plural(r.files, "file", "files")}${r.launch ? `; it starts with ${r.launch.program}` : ""}.`);
+  const removeUnpacked = () => act(() => api("pc_unpack_remove", { id: g.id }));
   const installers = g.files.filter((f) => f.kind === "install");
-  const facts = [["Developer", d.developer], ["Publisher", d.publisher], ["Released", d.released], ["Genres", Array.isArray(d.genres) ? d.genres.join(", ") : d.genres]].filter(([, v]) => v);
-  return html`<aside class="pc-panel" id="pc-panel" data-id=${g.id}>
-    ${g.media?.hero || g.media?.banner ? html`<img class="pc-hero" src=${libraryUrl(g.media.hero || g.media.banner)} alt="" />` : null}
-    <div class="pc-panel-head">
-      <${Cover} media=${g.media} title=${g.title} cls="pc-cover big" />
-      <div><h2 id="pc-title">${g.title}${g.year ? html` <span class="muted">(${g.year})</span>` : null}</h2>
-        <p class="muted">${[g.source && g.source !== "other" ? g.source.toUpperCase() : null, g.version ? `version ${g.version}` : null, size(g.size), Object.entries(g.ids || {}).map(([k, v]) => `${k} ${v}`).join(", ") || null].filter(Boolean).join(" · ")}</p></div>
-    </div>
+  return html`<div class="pc-parts" id="pc-parts" data-id=${g.id}>
     ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
-    ${d.description ? html`<p class="pc-description">${d.description}</p>` : null}
-    ${facts.length ? html`<dl class="pc-facts">${facts.map(([k, v]) => html`<dt key=${`k${k}`}>${k}</dt><dd key=${`v${k}`}>${v}</dd>`)}</dl>` : null}
-    <div class="home-actions">
-      <button type="button" class="ghost compact" id="pc-identify" disabled=${off || busy} onClick=${identify}>${Icon.search(14)} Identify…</button>
-      ${isDesktop() ? html`<button type="button" class="ghost compact" id="pc-reveal" onClick=${() => reveal(g.dir)}>${Icon.folder(14)} Show in folder</button>` : null}
-    </div>
-    <section class="pc-section"><h3>Title</h3>
-      <form class="pick-row" id="pc-title-form" onSubmit=${(e) => { e.preventDefault(); save({ title: title.trim(), year: yearOf(year) }, "Renamed it (and its folder)."); }}>
-        <input type="text" id="pc-edit-title" class="compact" aria-label="Title" value=${title} disabled=${off} onInput=${(e) => setTitle(e.target.value)} />
-        <input type="text" id="pc-edit-year" class="compact year-box" inputmode="numeric" maxlength="4" aria-label="Year" placeholder="Year" value=${year} disabled=${off} onInput=${(e) => setYear(e.target.value)} />
-        <button type="submit" class="ghost compact" disabled=${off || busy || (title.trim() === g.title && yearOf(year) === (g.year || null))}>Save</button>
-      </form>
-      <small class="muted">Its folder is <code title=${g.dir || g.folder}>${baseName(g.folder)}</code>; a new title or year renames it.</small></section>
-    <section class="pc-section"><h3>Program</h3>
+    <section class="pc-section" id="pc-program-section"><h3>Program</h3>
       ${g.programs.length ? html`<form class="pc-program" id="pc-program-form" onSubmit=${(e) => { e.preventDefault(); save({ launch: program ? { program, args } : null }, "Saved the program."); }}>
         <select id="pc-program" class="compact" aria-label="The program that starts it" value=${program} disabled=${off} onChange=${(e) => setProgram(e.target.value)}>
           <option value="">None</option>
@@ -479,12 +427,52 @@ function GamePanel({ id, off, onChange, version }) {
       <p class="muted">Unpacks ${installers.length === 1 ? installers[0].path.split("/").pop() : "an installer or archive"} into the game's <code>extracted</code> folder, so it can be played without installing.${installers.some((f) => /\.exe$/i.test(f.path)) && !g.innoextract ? " GOG installers need innoextract (Settings › Tools)." : ""}</p>
       <div class="home-actions">${installers.slice(0, 4).map((f) => html`<button type="button" class="ghost compact" key=${f.path} data-action="unpack" disabled=${off || busy} onClick=${() => unpack(f.path)}>Unpack ${installers.length > 1 ? f.path.split("/").pop() : ""}</button>`)}</div>
     </section>` : null}
-    ${g.unpacked ? html`<section class="pc-section"><h3>Unpacked</h3>
+    ${g.unpacked ? html`<section class="pc-section" id="pc-unpacked-section"><h3>Unpacked</h3>
       <p class="muted">From ${g.unpacked.from.split("/").pop()}. <button type="button" class="linkish" id="pc-unpack-remove" disabled=${off || busy} onClick=${removeUnpacked}>Remove the unpacked copy</button> (the installer stays).</p></section>` : null}
-    <section class="pc-section"><h3>Files</h3>
+    <section class="pc-section" id="pc-folder-section"><h3>Its folder</h3>
+      <p class="pick-row"><code id="pc-folder-name" title=${g.dir}>${baseName(g.dir || g.folder)}</code>
+        ${isDesktop() ? html`<button type="button" class="ghost compact" id="pc-reveal" onClick=${() => reveal(g.dir)}>${Icon.folder(14)} Show in folder</button>` : null}</p>
+      <small class="muted">In the PC games folder, named by its title and year: a new title or year renames it.</small></section>
+    <section class="pc-section pc-files-section"><h3>Files</h3>
       <ul class="ls-list pc-files" id="pc-files">${g.files.slice(0, 50).map((f) => html`<li key=${f.path}><span>${f.path}</span><span class="muted">${f.kind} · ${size(f.size)}</span></li>`)}</ul>
       ${g.files.length > 50 ? html`<p class="muted">… and ${g.files.length - 50} more.</p>` : null}
     </section>
+  </div>`;
+}
+
+/** A PC game's one line under its title: where it's from, its version, size and ids. */
+export const pcLine = (g) => [g.source && g.source !== "other" ? g.source.toUpperCase() : null, g.version ? `version ${g.version}` : null, size(g.size), Object.entries(g.ids || {}).map(([k, v]) => `${k} ${v}`).join(", ") || null].filter(Boolean).join(" · ");
+
+// ------------------------------------------------------------ a game's panel
+
+/** A game's panel on this page: its cover and title, the way to its page (its details,
+ *  pictures and documents are there, D55), Identify…, and what only a PC game has. */
+function GamePanel({ id, off, onChange, version }) {
+  const [g, setG] = useState(null);
+  const [error, setError] = useState("");
+  const load = () => api("pc_get", { id }).then(setG).catch((e) => setError(err(e)));
+  useEffect(() => { setError(""); load(); }, [id, version]);
+  const identify = () => identifyDialog({
+    title: `Identify ${g.title}`, query: g.title, year: g.year, platform: "pc",
+    onPick: async (x) => { await api("identify_pick", { source: x.source, id: x.id, game: id, retitle: true }); onChange(); },
+  });
+  if (error && !g) return html`<aside class="pc-panel" id="pc-panel"><p class="warn-note" role="alert">${error}</p></aside>`;
+  if (!g) return html`<aside class="pc-panel" id="pc-panel"><p class="muted">Reading…</p></aside>`;
+  const d = g.details || {};
+  return html`<aside class="pc-panel" id="pc-panel" data-id=${g.id}>
+    ${g.media?.hero || g.media?.banner ? html`<img class="pc-hero" src=${libraryUrl(g.media.hero || g.media.banner)} alt="" />` : null}
+    <div class="pc-panel-head">
+      <${Cover} media=${g.media} title=${g.title} cls="pc-cover big" />
+      <div><h2 id="pc-title">${g.title}${g.year ? html` <span class="muted">(${g.year})</span>` : null}</h2>
+        <p class="muted">${pcLine(g)}</p>
+        ${d.developer || d.genres ? html`<p class="muted" id="pc-facts-line">${[d.developer, Array.isArray(d.genres) ? d.genres.join(", ") : d.genres].filter(Boolean).join(" · ")}</p>` : null}</div>
+    </div>
+    <div class="home-actions">
+      <a class="primary compact lib-open" id="pc-open" href=${gameHash(`pc/${g.id}`)}>Open its page</a>
+      <button type="button" class="ghost compact" id="pc-identify" disabled=${off} onClick=${identify}>${Icon.search(14)} Identify…</button>
+    </div>
+    <p class="muted">Its details, pictures and documents are on its page, where they're changed as any game's are.</p>
+    <${PcParts} g=${g} off=${off} onChange=${async () => { await load(); onChange(); }} />
   </aside>`;
 }
 

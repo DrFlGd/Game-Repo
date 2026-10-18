@@ -23,7 +23,7 @@ const FORMAT: &str = "2";
 const SEP: &str = "\u{1f}";
 
 /// A system's name ("PC" for the PC games, which aren't one of platforms.rs's).
-fn system_name(id: &str) -> String {
+pub(crate) fn system_name(id: &str) -> String {
     if id == "pc" { "PC".into() } else { platforms::name_of(id) }
 }
 
@@ -288,14 +288,24 @@ fn rebuild_system(conn: &Connection, platform: &str, dat: Option<i64>) -> Result
     write_rows(conn, platform, &rows)
 }
 
-/// Rebuild the PC games' rows.
+/// A PC game's metadata folder's stamp: its `game.json`'s size and modified time added to its
+/// `media/` folder's, as a DAT game's (`meta::stamp`).
+fn pc_stamp(dir: &Path) -> i64 {
+    let ms = |p: &Path| std::fs::metadata(p).ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64).unwrap_or(0);
+    std::fs::metadata(dir.join("game.json")).map(|m| m.len() as i64).unwrap_or(0) + ms(&dir.join("game.json")) + ms(&dir.join("media"))
+}
+
+/// Rebuild the PC games' rows: what only a PC game has from `PC/…/game.json`, its details
+/// and pictures from its metadata folder (D55).
 fn rebuild_pc(conn: &Connection, lib: &Library) -> Result<()> {
     let mut rows = vec![];
     for e in pcgames::list(lib) {
         let g = &e.game;
         let media = pcgames::media(lib, &g.id);
-        let folder = lib.relative(&pcgames::media_dir(lib, &g.id).parent().map(Path::to_path_buf).unwrap_or_default());
-        let picture = ["cover", "box3d", "hero", "banner"].iter().find_map(|k| media.get(*k).and_then(Value::as_str).map(String::from));
+        let dir = crate::pcmeta::dir(lib, &g.id);
+        let folder = lib.relative(&dir);
+        let stamp = pc_stamp(&dir);
+        let picture = ["cover", "box3d", "hero", "banner"].iter().find_map(|k| media.get(*k).and_then(Value::as_str).map(|p| format!("{p}?v={stamp}")));
         let docs: i64 = match &folder {
             Some(f) => conn.query_row("SELECT COUNT(*) FROM docs WHERE folder = ?1", [f], |r| r.get(0))?,
             None => 0,
@@ -307,7 +317,7 @@ fn rebuild_pc(conn: &Connection, lib: &Library) -> Result<()> {
             name: e.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
             title: g.title.clone(),
             year: g.year.map(i64::from),
-            facts: g.details.clone(),
+            facts: crate::pcmeta::view(lib, &e)["details"].as_object().cloned().unwrap_or_default(),
             have: true,
             media: media.keys().cloned().collect::<Vec<_>>().join(","),
             picture,
@@ -331,6 +341,10 @@ fn stamp(conn: &Connection, lib: &Library, platform: &str) -> Result<(String, Op
             if let Ok(m) = std::fs::metadata(e.path().join("game.json")) {
                 parts.push(format!("{}:{}:{:?}", e.file_name().to_string_lossy(), m.len(), m.modified().ok()));
             }
+        }
+        // and each one's metadata folder (its details and pictures, D55)
+        for e in pcgames::list(lib) {
+            parts.push(format!("{}:{}", e.game.id, pc_stamp(&crate::pcmeta::dir(lib, &e.game.id))));
         }
         parts.sort();
         let media: i64 = conn.query_row("SELECT COUNT(*) FROM docs WHERE platform = 'pc'", [], |r| r.get(0))?;
@@ -823,13 +837,21 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
             v
         }
         ("pc", _) => {
+            // its metadata as any game's (D55), and what only a PC game has in `pc`
             let id = key.strip_prefix("pc/").unwrap_or(key);
             let e = pcgames::get(lib, id)?;
-            let mut v = e.to_json(lib);
+            let mut v = crate::pcmeta::page(lib, &e);
+            let mut pc = e.to_json(lib);
+            pc["programs"] = json!(pcgames::programs(lib, id).unwrap_or_default());
+            pc["innoextract"] = json!(crate::tools::find("innoextract").is_some());
+            v["title"] = json!(e.game.title);
+            v["year"] = json!(e.game.year);
             v["platform"] = json!("pc");
             v["platform_name"] = json!(system_name("pc"));
+            v["have"] = json!(true);
             v["docs"] = json!(match &folder { Some(f) => docs::of_folder(conn, f)?, None => vec![] });
             v["pc_id"] = json!(id);
+            v["pc"] = pc;
             v
         }
         _ => {
@@ -858,7 +880,8 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
 }
 
 /// Change one of a game's details by hand, by its key (D44): kept over later scrapes.
-/// `None` takes the edit mark off. A PC game's details are its `game.json`'s own.
+/// `None` takes the edit mark off. A PC game's title and year are its `PC/…/game.json`'s
+/// own (its folder is renamed); its other details are kept as any game's (D55).
 pub fn edit(ix: &Index, lib: &Library, key: &str, field: &str, value: Option<&Value>) -> Result<Value> {
     lib.writable()?;
     let row: Option<(String, Option<i64>, Option<String>)> =
@@ -869,12 +892,24 @@ pub fn edit(ix: &Index, lib: &Library, key: &str, field: &str, value: Option<&Va
             meta::edit(ix, lib, id, field, value)?;
         }
         ("pc", _) => {
-            let x = meta::edit_value(field, value.unwrap_or(&Value::Null))?;
-            let patch = match field {
-                "title" | "year" => json!({ field: x }),
-                _ => json!({ "details": { field: x } }),
-            };
-            pcgames::update(lib, key.strip_prefix("pc/").unwrap_or(key), &patch)?;
+            let id = key.strip_prefix("pc/").unwrap_or(key);
+            match field {
+                "title" | "year" => {
+                    // a title or year is the game's own: there's no mark to take off
+                    if let Some(x) = value {
+                        pcgames::update(lib, id, &json!({ field: meta::edit_value(field, x)? }))?;
+                        // the index names its documents by it
+                        let dir = crate::pcmeta::dir(lib, id);
+                        if dir.join("game.json").is_file() {
+                            meta::touch(ix, lib, &dir)?;
+                        }
+                    }
+                }
+                _ => {
+                    let dir = crate::pcmeta::ensure(ix, lib, &pcgames::get(lib, id)?)?;
+                    meta::edit_dir(ix, lib, &dir, field, value)?;
+                }
+            }
         }
         _ => {
             let f = folder.ok_or_else(|| anyhow!("The game {key} has no folder."))?;

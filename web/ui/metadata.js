@@ -184,13 +184,14 @@ export const scrapeDialog = (opts) => ui.set({ dialog: { type: "scrape", ...opts
 // ------------------------------------------------------------ Delete metadata…
 
 /** Delete metadata…: what a system's games (or one game's folder) have from the sources,
- *  set aside as a change with a preview and Undo (D48). */
-function DeleteDialog({ platform = "", platformName = "", folder = "", gameName = "" }) {
+ *  set aside as a change with a preview and Undo (D48). A PC game's (`pc`) offers its
+ *  kinds of artwork (D55). */
+function DeleteDialog({ platform = "", platformName = "", folder = "", gameName = "", pc = false }) {
   const [c, setC] = useState(null);
   const [what, setWhat] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => { api("scrape_choices").then((x) => { setC(x.delete); setWhat(x.delete.map((d) => d.id)); }).catch((e) => setError(err(e))); }, []);
+  useEffect(() => { api("scrape_choices").then((x) => { const d = pc ? x.delete_pc : x.delete; setC(d); setWhat(d.map((w) => w.id)); }).catch((e) => setError(err(e))); }, []);
   const whose = folder ? gameName : platformName;
   const run = async () => {
     setBusy(true);
