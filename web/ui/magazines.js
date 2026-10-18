@@ -4,7 +4,8 @@
 // magazine, number and date, or a DAT of issues). Import magazines… reads a folder into a
 // review list (each file's magazine, number and date worked out from its name, put right
 // here) and brings them in as a change with a preview and Undo. An issue opens in the
-// document viewer: PDFs as documents are, CBZ and CBR a page at a time.
+// document viewer: PDFs as documents are, CBZ and CBR a page at a time. The magazines are
+// in the ribbon beside the menu (`#/magazines/<title>`, D69).
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -16,6 +17,7 @@ import { Dialog, close, confirmDialog } from "./dialogs.js";
 import { Preview, runPlan } from "./organise.js";
 import { viewDoc, useDroppedFiles } from "./documents.js";
 import { Icon } from "./icons.js";
+import { useSidePanel, useRouteArg, argHash } from "./panels.js";
 
 const err = (e) => e.message || String(e);
 const again = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
@@ -109,7 +111,7 @@ export function Magazines() {
   const off = !!s.library?.read_only;
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  const [pick, setPick] = useState("");
+  const pick = useRouteArg("magazines");
   const [stamp, setStamp] = useState(0);
   const [focus, setFocus] = useState(null);
   useEffect(() => {
@@ -118,6 +120,11 @@ export function Magazines() {
   }, [s.changes, s.library?.path]);
   const mags = data?.magazines || [];
   const m = mags.find((x) => x.title === pick) || mags[0];
+  useEffect(() => setFocus(null), [m?.title]);
+  useSidePanel(mags.length ? {
+    id: "mag-panel", route: "magazines", title: "Magazines", icon: "stack", count: mags.filter((x) => !x.none).length, current: m?.title,
+    items: mags.map((x) => ({ id: x.title, label: x.title, sub: [x.none ? "none yet" : plural(x.issues.length, "issue", "issues"), x.missing?.length ? `${x.missing.length} missing` : null].filter(Boolean).join(" · "), href: argHash("magazines", x.title) })),
+  } : null);
   const reload = async () => setData(await api("magazines"));
   const cover = async (issue, picture) => {
     try {
@@ -182,12 +189,7 @@ export function Magazines() {
     ${!mags.length ? html`<div class="library-settings" id="mag-empty">
       <p class="page-lead">Your magazines, each with its issues as PDF, CBZ or CBR files, their covers, and the issues you're missing.</p>
       <p class="muted">Import magazines… reads a folder of them (the magazine, number and date of each come from its name), and brings them into the library's Magazines folder. Add a list… of the issues there are to see which you don't have.</p>
-    </div>` : html`<div class="collections-layout">
-      <nav class="collection-side" aria-label="Magazines">
-        <ul id="mag-list">${mags.map((x) => html`<li key=${x.title}>
-          <button type="button" class="collection-item" data-title=${x.title} aria-current=${x === m ? "true" : null} onClick=${() => { setPick(x.title); setFocus(null); }}>
-            <b>${x.title}</b><small class="muted">${[x.none ? "none yet" : plural(x.issues.length, "issue", "issues"), x.missing?.length ? `${x.missing.length} missing` : null].filter(Boolean).join(" · ")}</small></button></li>`)}</ul>
-      </nav>
+    </div>` : html`<div class="mag-layout">
       <div class="collection-main" id="mag-main" data-title=${m.title}>
         <div class="collection-top">
           <h2 id="mag-title">${m.title}</h2>

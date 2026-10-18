@@ -9,6 +9,7 @@ import { ctx, routeHash } from "./context.js";
 import { isDesktop, openLibrary, showLibraryFolder, checkIndex, plural, baseName } from "./library.js";
 import { refreshGames, scan, importDats, starterDats, repointRoot, addRoot } from "./games.js";
 import { CommandBar } from "./layout.js";
+import { argHash } from "./panels.js";
 import { Icon } from "./icons.js";
 
 /** The Library ⋯ menu: what's done to the whole library. */
@@ -29,7 +30,7 @@ function PlatformsCard({ home, off }) {
   return html`<section class="home-card home-wide" id="home-platforms">
     <h2>Platforms</h2>
     ${bars.length ? html`<ul class="platform-bars">${bars.map((b) => html`<li key=${b.platform} data-platform=${b.platform}>
-      <a class="pbar-name" href=${routeHash("audit")} onClick=${() => ctx.platform.store.prefs.set("gr-audit", { ...(ctx.platform.store.prefs.get("gr-audit", {}) || {}), platform: b.platform })}>${b.platform_name}</a>
+      <a class="pbar-name" href=${argHash("audit", b.platform)} onClick=${() => ctx.platform.store.prefs.set("gr-audit", { ...(ctx.platform.store.prefs.get("gr-audit", {}) || {}), platform: b.platform })}>${b.platform_name}</a>
       <span class="audit-bar" role="img" aria-label=${`${b.have} of ${b.games}`}><span style=${`width:${b.games ? (100 * b.have) / b.games : 0}%`}></span></span>
       <span class="pbar-count"><b>${b.have}</b> of ${b.games}</span>
       <span class="muted pbar-1g1r" title="1G1R: groups of a game and its clones with at least one of them">1G1R ${b.groups_have} of ${b.groups}</span>

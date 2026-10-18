@@ -344,6 +344,13 @@ fn like(search: &str) -> String {
 
 /// One page of a list: `{ total, items }`.
 pub fn list(ix: &Index, lib: &Library, dat_id: i64, tab: &str, search: &str, offset: i64, limit: i64) -> Result<Value> {
+    list_by(ix, lib, dat_id, tab, search, "", "name", offset, limit)
+}
+
+/// `list`, a games list narrowed to one region and in another order (by `region` or
+/// `year`); its first page also says the regions there are in it, and how many of each.
+#[allow(clippy::too_many_arguments)]
+pub fn list_by(ix: &Index, lib: &Library, dat_id: i64, tab: &str, search: &str, region: &str, sort: &str, offset: i64, limit: i64) -> Result<Value> {
     let conn = ix.conn();
     let d = dat_ref(conn, dat_id)?;
     let limit = limit.clamp(1, 1000);
@@ -353,11 +360,17 @@ pub fn list(ix: &Index, lib: &Library, dat_id: i64, tab: &str, search: &str, off
         "have" | "partial" | "missing" | "sets" => {
             // an arcade DAT's BIOS sets and devices are listed apart (D58)
             let (with, which) = if tab == "sets" { (MACHINES, "gs.kind IN ('bios', 'device') AND ?2 = ?2") } else { (GAMES, "gs.status = ?2") };
+            let in_region = "(?4 = '' OR (', ' || COALESCE(gs.regions, '') || ', ') LIKE '%, ' || ?4 || ', %')";
             let total: i64 = conn.query_row(
-                &format!("WITH {with} SELECT COUNT(*) FROM gs WHERE {which} AND name LIKE ?3 ESCAPE '\\'"),
-                params![dat_id, tab, pat],
+                &format!("WITH {with} SELECT COUNT(*) FROM gs WHERE {which} AND name LIKE ?3 ESCAPE '\\' AND {in_region}"),
+                params![dat_id, tab, pat, region],
                 |r| r.get(0),
             )?;
+            let order = match sort {
+                "region" => "COALESCE(gs.regions, '~'), gs.name",
+                "year" => "COALESCE(dg.year, '9999'), gs.name",
+                _ => "gs.name",
+            };
             let mut q = conn.prepare(&format!(
                 "WITH {with}
                  SELECT gs.id, gs.name, gs.title, gs.regions, gs.flags, gs.roms, gs.have, pg.name,
@@ -366,10 +379,10 @@ pub fn list(ix: &Index, lib: &Library, dat_id: i64, tab: &str, search: &str, off
                          WHERE r.game_id = gs.id LIMIT 1),
                         dg.year, dg.manufacturer, gs.kind, gs.status
                  FROM gs JOIN dat_games dg ON dg.id = gs.id LEFT JOIN dat_games pg ON pg.id = gs.parent_id
-                 WHERE {which} AND gs.name LIKE ?3 ESCAPE '\\' ORDER BY gs.name LIMIT ?4 OFFSET ?5"
+                 WHERE {which} AND gs.name LIKE ?3 ESCAPE '\\' AND {in_region} ORDER BY {order} LIMIT ?5 OFFSET ?6"
             ))?;
             let items: Vec<Value> = q
-                .query_map(params![dat_id, tab, pat, limit, offset], |r| {
+                .query_map(params![dat_id, tab, pat, region, limit, offset], |r| {
                     let file: Option<String> = r.get(8)?;
                     let (path, shown) = file
                         .map(|s| {
@@ -398,7 +411,21 @@ pub fn list(ix: &Index, lib: &Library, dat_id: i64, tab: &str, search: &str, off
                     it["samples"] = n["samples"].clone();
                 }
             }
-            Ok(json!({ "total": total, "items": items }))
+            let mut out = json!({ "total": total, "items": items });
+            if offset == 0 {
+                // the regions in the list (searched, not narrowed), the most games first
+                let mut q = conn.prepare(&format!("WITH {with} SELECT gs.regions FROM gs WHERE {which} AND name LIKE ?3 ESCAPE '\\'"))?;
+                let mut n: HashMap<String, i64> = HashMap::new();
+                for r in q.query_map(params![dat_id, tab, pat], |r| r.get::<_, Option<String>>(0))? {
+                    for x in r?.unwrap_or_default().split(", ").filter(|x| !x.is_empty()) {
+                        *n.entry(x.to_string()).or_default() += 1;
+                    }
+                }
+                let mut v: Vec<(String, i64)> = n.into_iter().collect();
+                v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+                out["regions"] = json!(v.iter().map(|(r, c)| json!({ "region": r, "count": c })).collect::<Vec<_>>());
+            }
+            Ok(out)
         }
         "matched" | "misnamed" | "duplicates" => {
             let (with, filter, from) = match tab {
@@ -599,6 +626,25 @@ pub fn save_report(ix: &Index, lib: &Library, dat_id: i64, format: &str) -> Resu
     let path = lib.root().join(APP_DIR).join("reports").join(format!("{safe} ({}).{format}", &now()[..10]));
     crate::config::write_atomic(&path, text.as_bytes())?;
     Ok(json!({ "path": path.display().to_string(), "rel": lib.relative(&path) }))
+}
+
+/// Every system with a DAT, audited against its DAT: the counts of each list, for the
+/// Audit page's overview.
+pub fn overview(ix: &Index, lib: &Library) -> Result<Value> {
+    let conn = ix.conn();
+    let mut q = conn.prepare("SELECT DISTINCT platform FROM dats WHERE current = 1 AND platform != 'bios' ORDER BY platform")?;
+    let with_dats: Vec<String> = q.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let mut v = vec![];
+    for p in &with_dats {
+        if let Some(id) = primary_dat(conn, lib, p)? {
+            let mut s = summary(conn, id)?;
+            s["platform"] = json!(p);
+            s["platform_name"] = json!(platforms::name_of(p));
+            v.push(s);
+        }
+    }
+    v.sort_by(|a, b| a["platform_name"].as_str().cmp(&b["platform_name"].as_str()));
+    Ok(json!({ "systems": v }))
 }
 
 /// What Home shows: a bar per platform with a DAT, the last scan, and what needs attention.
@@ -828,6 +874,16 @@ pub mod tests {
         assert_eq!(names(&f, id, "have"), ["Alpha (USA)", "Beta (Europe)", "Delta (World)"]);
         assert_eq!(names(&f, id, "partial"), ["Epsilon (USA)"]);
         assert_eq!(names(&f, id, "missing"), ["Alpha (Europe)", "Gamma (Japan)"]);
+        // a games list narrowed to a region, in region order, saying its regions
+        let by = list_by(&f.ix, &f.lib, id, "have", "", "Europe", "name", 0, 50).unwrap();
+        assert_eq!(by["items"].as_array().unwrap().iter().map(|x| x["name"].as_str().unwrap()).collect::<Vec<_>>(), ["Beta (Europe)"]);
+        let regions: Vec<&str> = by["regions"].as_array().unwrap().iter().map(|x| x["region"].as_str().unwrap()).collect();
+        assert_eq!(regions.len(), 3, "{regions:?}");
+        let by = list_by(&f.ix, &f.lib, id, "have", "", "", "region", 0, 50).unwrap();
+        assert_eq!(by["items"][0]["name"], "Beta (Europe)");
+        let o = overview(&f.ix, &f.lib).unwrap();
+        let gbo = o["systems"].as_array().unwrap().iter().find(|x| x["platform"] == "gb").unwrap();
+        assert_eq!((gbo["have"].as_i64(), gbo["misnamed"].as_i64(), gbo["platform_name"].as_str()), (Some(3), Some(2), Some("Game Boy")));
         assert_eq!(names(&f, id, "matched"), ["Alpha (USA).gb", "Delta (World).gb"]);
         assert_eq!(names(&f, id, "misnamed"), ["Alpha copy.gb", "beta.gb"]);
         assert_eq!(names(&f, id, "baddump"), ["Gamma (Japan).gb"]);

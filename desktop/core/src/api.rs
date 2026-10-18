@@ -681,8 +681,14 @@ impl App {
                 let dat_id = args["dat"].as_i64().ok_or("missing dat")?;
                 let tab = arg(&args, "tab").map_err(e2s)?.to_string();
                 let search = args["search"].as_str().unwrap_or("").to_string();
+                let region = args["region"].as_str().unwrap_or("").to_string();
+                let sort = args["sort"].as_str().unwrap_or("name").to_string();
                 let (offset, limit) = (args["offset"].as_i64().unwrap_or(0).max(0), args["limit"].as_i64().unwrap_or(100));
-                j(self.with_index(move |ix| audit::list(ix, &lib, dat_id, &tab, &search, offset, limit)).await?)
+                j(self.with_index(move |ix| audit::list_by(ix, &lib, dat_id, &tab, &search, &region, &sort, offset, limit)).await?)
+            }
+            "audit_overview" => {
+                let lib = self.library()?;
+                j(self.with_index(move |ix| audit::overview(ix, &lib)).await?)
             }
             "audit_fixdat" => {
                 let lib = self.library()?;

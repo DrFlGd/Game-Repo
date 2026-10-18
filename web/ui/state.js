@@ -24,6 +24,11 @@ export const ui = createStore({
   theme: "system",
   navOpen: false,          // the menu as a drawer in a narrow window
   navCollapsed: false,     // the desktop menu folded to its icons
+  sidePanel: null,         // the page's list beside the menu: "open" | "folded" (null: by the window's width)
+  sidePanelWidth: 240,
+  inspector: {},           // the inspector on the right, by page: "open" | "folded"
+  inspectorTab: {},        // its tab shown, by page
+  inspectorWidth: 360,
 });
 
 let prefs = null;
@@ -33,7 +38,9 @@ const LAYOUT_KEY = "gr-ui";
 export function initState(store) {
   prefs = store.prefs;
   const saved = prefs.get(LAYOUT_KEY, {}) || {};
-  ui.set({ skin: SKINS.some(([v]) => v === saved.skin) ? saved.skin : "drafting", theme: THEMES.some(([v]) => v === saved.theme) ? saved.theme : "system", navCollapsed: !!saved.navCollapsed });
+  ui.set({ skin: SKINS.some(([v]) => v === saved.skin) ? saved.skin : "drafting", theme: THEMES.some(([v]) => v === saved.theme) ? saved.theme : "system", navCollapsed: !!saved.navCollapsed,
+    sidePanel: ["open", "folded"].includes(saved.sidePanel) ? saved.sidePanel : null, sidePanelWidth: Number(saved.sidePanelWidth) || 240,
+    inspector: saved.inspector || {}, inspectorTab: saved.inspectorTab || {}, inspectorWidth: Number(saved.inspectorWidth) || 360 });
   applySkin();
   applyTheme();
   matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", applyTheme);
@@ -41,7 +48,8 @@ export function initState(store) {
 
 function savePrefs() {
   const s = ui.get();
-  prefs?.set(LAYOUT_KEY, { skin: s.skin, theme: s.theme, navCollapsed: s.navCollapsed });
+  prefs?.set(LAYOUT_KEY, { skin: s.skin, theme: s.theme, navCollapsed: s.navCollapsed, sidePanel: s.sidePanel, sidePanelWidth: s.sidePanelWidth,
+    inspector: s.inspector, inspectorTab: s.inspectorTab, inspectorWidth: s.inspectorWidth });
 }
 
 export function setPref(patch) {

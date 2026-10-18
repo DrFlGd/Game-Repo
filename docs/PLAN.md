@@ -2776,6 +2776,67 @@ D68 as written, with these choices made in the build:
 - **Exports** carry them with a tick in *What it carries* (any layout): each magazine's
   issues and covers in `Magazines/<Title>/` in the export's folder.
 
+### UI pass 2 notes (built 2026-10-18, D69)
+
+Jerred's list after Phase 8, built as one PR before the joint UI review.
+
+- **Ribbons, from Model Library's and SCAD Workshop's subcategory views** (`web/ui/panels.js`).
+  `useSidePanel(spec)` puts a page's own list in a ribbon to the right of the menu
+  (`SidePanel`, drawn by `sidebar.js` after the nav): a header with its name, count and
+  actions, the rows (`a.panel-link` with a second line), an optional *All* entry above
+  them; resizable from 180 to 420 px (`sidePanelWidth`), folded to a 34 px strip with its
+  name written down it (`[`, `sidePanel`), folded by default at 1250 px or narrower. In a
+  window under 900 px it isn't drawn: `DrawerRows` puts the rows under the page's link in
+  the menu's drawer. Pages give their list an address: `#/<page>/<arg>` (`useRouteArg`,
+  `argHash`), so Back returns to the one you were on. `Inspector` is the right-hand
+  ribbon: a pane with tabs and a rail of tab names down the window's edge (`]` folds it;
+  `inspector`, `inspectorTab`, `inspectorWidth` per page in `gr-ui`); under 900 px the
+  pane covers the page when opened.
+- **Collections:** the collections in the ribbon (`#/collections/<id>`, New collection… in
+  its header and the ⋯ menu); the games drawn by the Library's own `Games` (grid, list,
+  table; sorted by title, system, year or size) from a `browse_query` with `collection` and
+  `all`, picked with the Library's `useSelection` (click, Ctrl, Shift, Ctrl+A) for
+  *Export these…* and *Leave out* in the selection bar and the right-click menu. "Made
+  from" is now *Source* (the tab and its section); *Export…* is only in the top bar; the
+  system tabs became a drop-down; *Left out by hand* stays a list with Put back.
+- **A game's page:** a *Media* tab in the `Inspector`: every kind of picture it has, each
+  source's at 256 px, a click shows it larger at the top of the pane, *Use this*
+  (`meta_choose`). The gallery on the page is unchanged.
+- **Left-justified:** `.pages > *` keeps its max width without auto margins.
+- **Audit:** the systems in the ribbon with *All systems* above them (`#/audit/all`): a
+  table of every system's counts from `audit_overview` (`audit::overview`, each system's
+  primary DAT's summary), each count a link to that system at that list. A system's games
+  lists take a region (`audit_list`'s `region`, matched within `gs.regions`; the first
+  page returns `regions` with their counts) and a sort (`name`, `region`, `year`), and a
+  List or Table look (`gr-audit-look`); the platform drop-down is gone (the ribbon is the
+  picker; Home's bars link to `#/audit/<system>`).
+- **BIOS files:** every system the BIOS DATs list, those with games first (as before),
+  with the search; the three-way picker is gone.
+- **Magazines** moved their list into the ribbon too (`#/magazines/<title>`), for one way
+  of doing it across the app.
+
+**Claude's findings for the joint review** (not built; for Jerred to add to):
+
+1. *Right-hand panels differ by page.* Library (`lib-panel`), Metadata, Documents, PC games
+   and Export layouts each have a fixed panel on the right that doesn't fold or resize; the
+   game page now has the shared `Inspector`. Moving them all onto it would give every page
+   the same rail, `]` and widths.
+2. *System pickers.* Metadata (`#meta-platform`) and Documents (`#docs-platform`) choose
+   a system from a drop-down at the top; Audit and Collections now use the ribbon. Metadata
+   in particular reads like Audit (a system's DAT games) and could share its ribbon.
+3. *Library filters* (`lib-filters`) are a fixed column on the left of the page; they
+   could be the Library's ribbon (folding with `[`), which would leave one left-hand
+   pattern.
+4. *Settings' section index* is its own column; it could be the ribbon as well.
+5. *Two meanings of "Source".* Help's glossary uses *Source* for ScreenScraper, IGDB and
+   the rest; Collections now uses it for what a collection was made from. Help explains
+   both, but a reader may trip on it.
+6. *The PC games page and the Library overlap:* PC games are in the Library with their own
+   page already; the PC games page could become a filtered Library view with its
+   Import/Unpack actions, leaving one list of games.
+7. *Grid of tabs on a collection* (Games, Source, Size, Exported to, History) plus the
+   In it / Left out tabs: two rows of tabs; Left out could be a filter of the games view.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -2910,7 +2971,7 @@ D68 as written, with these choices made in the build:
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D70). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18): in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field.
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D70). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field.
 
 ---
 

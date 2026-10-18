@@ -34,6 +34,7 @@ export const TERMS = [
   ["set-type", "Set type", "How an arcade system's ZIPs are made up: non-merged (every game's ZIP holds all it needs but its BIOS's), split (a clone's ZIP holds only what its parent's doesn't) or merged (a parent's ZIP holds its clones' too). Chosen on the Audit page or in Settings › Systems; Organise builds ZIPs that way, and an export is always non-merged."],
   ["playable", "Playable", "An arcade game you have, with the BIOS set and devices it needs (and, in a split DAT, its parent). A game that isn't says what it needs; missing sounds are listed but don't stop it."],
   ["pc-game", "PC game", "A game for Windows, kept in its own folder under PC/<Title> (<Year>)/ with a game.json saying what it is and how it starts. Installers are never run: Unpack opens GOG's and zipped ones."],
+  ["ribbons", "Ribbons", "The panels beside a page. On the left, next to the menu, a page's own list: the collections, the audited systems, the magazines ([ folds it to a strip). On the right of a game's page, its pictures (] folds it). Drag a ribbon's edge to make it wider."],
   ["inbox", "Inbox", "A folder you drop PC installers, archives, disc images and game folders into; Import… reads it and brings them into the PC folder."],
 ];
 
@@ -45,22 +46,25 @@ export const PAGES = [
   ]],
   ["library", "Library", "Every game in the library, across systems, by its pictures and details.", [
     "Filter by system, genre, decade, players and more, search, and sort or group the list.",
-    "Open a game's page: its details from each source (Use this picks one), its pictures by kind, its files and documents, its updates and DLC; edit a detail by hand, or drop a file on it.",
+    "Open a game's page: its details from each source (Use this picks one), its pictures by kind, its files and documents, its updates and DLC; edit a detail by hand, or drop a file on it. The Media ribbon on its right shows every picture from each source, larger, with Use this.",
     "Save as a collection… keeps the filters as a collection's rules.",
   ]],
   ["audit", "Audit", "Your folders with games checked against each system's full set: what you have, have in part, or are missing.", [
     "Import DATs… or Get starter DATs… for each system; your folders with games are scanned by themselves.",
-    "The lists of games you have, have in part and are missing, with reports and Export fixdat for what's missing.",
+    "The systems are in the ribbon on the left; All systems is a table of every system's counts, each a link to that list.",
+    "The lists of games you have, have in part and are missing, narrowed to a region, sorted by name, region or year, as a list or a table; reports, and Export fixdat for what's missing.",
     "Organise… sorts, renames and packs a system's games; Rename these, Set aside duplicates, Convert… (to CHD, RVZ, CSO, ZIP) and Extract are changes too.",
     "Make a DAT from a set… you trust; Add a game… for one ROM or disc from anywhere.",
     "For an arcade system (MAME, FinalBurn Neo): how many games are playable, what each needs, its BIOS sets and devices on a tab of their own, and its set type.",
   ]],
   ["bios", "BIOS files", "Each system's BIOS files: which you have, which are missing, and where they are.", [
+    "Every system the BIOS DATs list, the ones you have games for first; search for a system or a file.",
     "Get libretro's list… or Import a BIOS DAT…, then Gather… copies the ones you have into the library's BIOS folder; an export can take them with a collection's games.",
   ]],
   ["collections", "Collections", "Parts of your full sets, to export or save as DATs.", [
+    "The collections are in the ribbon on the left; the one chosen shows its games as the Library does (grid, list or table), with its Source (or Rules), Size, Exported to and History.",
     "New collection…: by rules, from folders (matched by hash, so the files' names don't matter), or from a DAT read where it is; a review shows the games found before it's made.",
-    "Tick games or whole systems and Export these…, or Export… the whole collection; Update… and Check an export from its tab.",
+    "Pick games (Ctrl or Shift for more, Ctrl+A for all) and Export these…, or Export… the whole collection; Update… and Check an export from Exported to.",
     "Leave a game out by hand, or add one; set a size limit for a card; Save as DATs… for RomVault, clrmamepro or igir.",
     "With their updates and DLC (a rule, on by default) takes the games' updates and DLC you have along; History lists each change to what's in it, and Undo puts one back.",
   ]],

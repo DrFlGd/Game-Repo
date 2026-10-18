@@ -9,6 +9,8 @@
 // opened from. A PC game's page is the same, its details and pictures kept as any game's,
 // with a PC section for what only a PC game has: the program, Unpack, its folder and files
 // ("PC game page design", D55); its title and year name its folder, so they're its own.
+// Along its right edge, a ribbon that folds (]): every kind of picture it has, each
+// source's, larger, with Use this (D69).
 import { html, useState, useEffect, useLayoutEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -23,6 +25,7 @@ import { identifyDialog, PcParts, pcLine } from "./pcgames.js";
 import { convertDialog } from "./organise.js";
 import { opened, gameHash, systemColour } from "./browse.js";
 import { Icon } from "./icons.js";
+import { Inspector } from "./panels.js";
 
 const err = (e) => e.message || String(e);
 const PICTURES = { cover: "Box", back: "Back", box3d: "3D box", screenshot: "Screenshot", titlescreen: "Title screen", marquee: "Logo", fanart: "Fan art", physical: "Cartridge or disc", video: "Video", banner: "Banner", hero: "Hero", logo: "Logo", icon: "Icon" };
@@ -138,6 +141,38 @@ function Gallery({ g, off, onChoose }) {
       disabled=${off} title=${x.chosen ? `Shown: ${x.source_name}'s` : `Use ${x.source_name}'s`} onClick=${() => { if (!x.chosen) onChoose(cur, x.name); }}>
       ${isVideo(x.path) ? html`<span class="game-strip-video">${Icon.image(16)} Video</span>` : html`<img src=${libraryUrl(`~thumb/128/${x.path}`)} alt="" loading="lazy" />`}
       <span class="muted">${x.source_name}${x.chosen ? " · shown" : ""}</span></button>`)}</div>` : null}
+  </div>`;
+}
+
+/** The Media ribbon: each kind, the one shown and every source's, larger on a click. */
+function MediaPane({ g, off, onChoose }) {
+  const [big, setBig] = useState(null);
+  useEffect(() => setBig(null), [g.key]);
+  const media = g.media || {};
+  const kinds = [...ORDER.filter((k) => media[k]), ...Object.keys(media).filter((k) => !ORDER.includes(k))];
+  if (!kinds.length) return html`<p class="muted media-none" id="game-media">No pictures yet: ${g.kind === "pc" ? "Identify… brings them" : "Scrape… brings them"}.</p>`;
+  const shownName = (k) => g.variants?.[k]?.find((x) => x.chosen)?.name || "";
+  const pic = (rel, name, thumb) => isVideo(rel)
+    ? html`<video src=${`${libraryUrl(rel)}?v=${encodeURIComponent(name)}`} controls preload="metadata"></video>`
+    : html`<img src=${`${libraryUrl(`${thumb}${rel}`)}?v=${encodeURIComponent(name)}`} alt="" loading="lazy" />`;
+  return html`<div class="media-pane" id="game-media">
+    ${big ? html`<figure class="media-view" id="media-view">
+      ${pic(big.path, big.name, "")}
+      <figcaption><span>${big.label} · ${big.source}</span>
+        <button type="button" class="ghost compact" id="media-view-close" onClick=${() => setBig(null)}>Close</button></figcaption>
+    </figure>` : null}
+    ${kinds.map((k) => {
+      const vs = g.variants?.[k]?.length ? g.variants[k] : [{ name: shownName(k), path: media[k], chosen: true, source_name: g.scraped?.media?.[k] ? sourceName(g.scraped.media[k]) : "" }];
+      const label = PICTURES[k] || k;
+      return html`<section class="media-kind" key=${k} data-kind=${k}>
+        <h3>${label}${vs.length > 1 ? html` <span class="muted">${plural(vs.length, "source", "sources")}</span>` : null}</h3>
+        <div class="media-variants">${vs.map((x) => html`<div class=${`media-variant${x.chosen ? " chosen" : ""}`} key=${x.name || "shown"} data-name=${x.name}>
+          <button type="button" class="media-thumb" title=${`See it larger: ${label}${x.source_name ? `, ${x.source_name}'s` : ""}`} onClick=${() => setBig({ path: x.path, name: x.name, label, source: x.source_name || "shown" })}>${pic(x.path, x.name, "~thumb/256/")}</button>
+          <span class="media-source">${x.source_name || ""}${x.chosen ? html` <b>· shown</b>` : null}</span>
+          ${!x.chosen && vs.length > 1 ? html`<button type="button" class="linkish" data-action="use" disabled=${off} onClick=${() => onChoose(k, x.name)}>Use this</button>` : null}
+        </div>`)}</div>
+      </section>`;
+    })}
   </div>`;
 }
 
@@ -262,7 +297,7 @@ export function GamePage() {
   for (const [k] of FIELDS) { const f = g.scraped?.[k]; if (f && f !== "you") tally[f] = (tally[f] || 0) + 1; }
   const main = Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
   const dir = g.dir || "";
-  return html`${head}<div class="pages game-page" id="game-page" data-key=${g.key} data-kind=${g.kind}>
+  return html`${head}<div class="page-with-inspector"><div class="pages game-page" id="game-page" data-key=${g.key} data-kind=${g.kind}>
     <div class="game-top">
       <${Gallery} g=${g} off=${off || busy} onChoose=${choose} />
       <section class="game-details" id="game-details" aria-busy=${busy ? "true" : "false"}>
@@ -304,5 +339,6 @@ export function GamePage() {
         <button type="button" class="ghost compact" disabled=${off} title=${`Take it out of ${c.name}`} onClick=${() => removeFrom(c)}>Take out</button></li>`)}</ul>` : html`<p class="muted">In none.</p>`}
       <button type="button" class="ghost compact" id="game-add" disabled=${off} onClick=${() => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } })}>${Icon.collection(14)} Add to a collection…</button>
     </section>` : null}
-  </div>`;
+  </div>
+  <${Inspector} page="game" label="Media" tabs=${[{ id: "media", label: "Media", icon: "image", body: html`<${MediaPane} g=${g} off=${off || busy} onChoose=${choose} />` }]} /></div>`;
 }

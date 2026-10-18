@@ -7,9 +7,14 @@ import { routeHash } from "./context.js";
 import { Icon } from "./icons.js";
 import { COMING } from "./coming.js";
 import { NavHead, useMedia, NARROW } from "./chrome.js";
+import { SidePanel, DrawerRows } from "./panels.js";
 
 function NavLink({ route, label, icon, current, note = null, off = false }) {
   const active = current === route;
+  return html`${NavRow({ route, label, icon, active, note, off })}${active && ui.get().navOpen ? html`<${DrawerRows} route=${route} />` : null}`;
+}
+
+function NavRow({ route, label, icon, active, note, off }) {
   return html`<li class="nav-row">
     <span class="nav-toggle-space"></span>
     <a class=${`nav-link${active ? " active" : ""}${off ? " off" : ""}`} id=${`nav-${route}`} href=${routeHash(route)} title=${off ? `${label} (open a library first)` : note ? `${label} (${note})` : label} aria-label=${label} aria-current=${active ? "page" : null}
@@ -46,5 +51,6 @@ export function Sidebar() {
         <${NavLink} route="help" label="Help" icon="help" current=${s.route} />
         <${NavLink} route="about" label="About" icon="info" current=${s.route} />
       </ul>
-    </nav>`;
+    </nav>
+    <${SidePanel} />`;
 }

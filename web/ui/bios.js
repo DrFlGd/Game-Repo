@@ -1,6 +1,6 @@
 // BIOS files (docs/PLAN.md, "Phase 5b design", D40): a category of their own, audited
 // against a BIOS DAT (libretro's System.dat, or one of your own) system by system, the
-// systems you have games for first. Gathering copies the files the library has into
+// systems you have games for first, every system shown with a search (D69). Gathering copies the files the library has into
 // <library>/BIOS/<system>/, and an export in a layout with a BIOS folder carries them.
 // The app never ships or downloads BIOS files themselves, only the list of them.
 import { html, useState, useEffect } from "../lib/html.js";
@@ -15,7 +15,6 @@ import { Preview, runPlan } from "./organise.js";
 import { Icon } from "./icons.js";
 
 const err = (e) => e.message || String(e);
-const prefs = () => ctx.platform?.store?.prefs;
 const STATUS = { have: "You have it", missing: "Missing", wrong: "A file of its name, but not this one" };
 
 /** Gather the BIOS files: the plan's preview, then Run. */
@@ -51,7 +50,6 @@ export function Bios() {
   const s = useStore(ui, (st) => ({ library: st.library, home: st.home, changes: st.changes }));
   const off = !!s.library?.read_only;
   const [data, setData] = useState(null);
-  const [show, setShow] = useState(() => prefs()?.get("gr-bios-show", "yours") || "yours");
   const [q, setQ] = useState("");
   useEffect(() => {
     if (!s.library) return;
@@ -59,7 +57,6 @@ export function Bios() {
     api("bios").then((d) => { if (!gone) setData(d); }).catch((e) => { if (!gone) setData({ error: err(e) }); });
     return () => { gone = true; };
   }, [s.library?.path, s.home, s.changes]);
-  const pickShow = (v) => { setShow(v); prefs()?.set("gr-bios-show", v); };
   const gather = async () => {
     try {
       const plan = await api("bios_gather_plan");
@@ -109,9 +106,7 @@ export function Bios() {
     </div></div>`;
   }
   const needle = q.trim().toLowerCase();
-  const list = data.systems
-    .filter((x) => show === "all" || (show === "yours" ? x.yours : x.missing + x.wrong > 0))
-    .filter((x) => !needle || x.name.toLowerCase().includes(needle) || x.systems.some((y) => y.name.toLowerCase().includes(needle)) || x.files.some((f) => f.name.toLowerCase().includes(needle)));
+  const list = data.systems.filter((x) => !needle || x.name.toLowerCase().includes(needle) || x.systems.some((y) => y.name.toLowerCase().includes(needle)) || x.files.some((f) => f.name.toLowerCase().includes(needle)));
   const yours = data.systems.filter((x) => x.yours);
   const complete = yours.filter((x) => x.have === x.files.length).length;
   return html`${head}<div class="pages bios-page" id="bios-page">
@@ -122,13 +117,10 @@ export function Bios() {
         : html`None of the systems you have games for has a BIOS file listed.`} <span class="muted">Not every file is needed by every emulator: libretro lists every file any of its emulators can use.</span></p>
     </div>
     <div class="audit-tools">
-      <div class="seg" role="tablist" id="bios-show" aria-label="Show">
-        ${[["yours", "Systems you have games for"], ["missing", "With files missing"], ["all", "Every system"]].map(([k, label]) => html`<button type="button" role="tab" key=${k} data-show=${k} aria-selected=${show === k ? "true" : "false"} onClick=${() => pickShow(k)}>${label}</button>`)}
-      </div>
       <input type="search" id="bios-search" class="compact" placeholder="Search systems and files" aria-label="Search systems and files" value=${q} onInput=${(e) => setQ(e.target.value)} />
     </div>
     <${SearchNote} q=${q} found=${plural(list.length, "system", "systems")} onClear=${() => setQ("")} />
-    ${list.length ? null : html`<p class="muted" id="bios-nothing">${q ? "Nothing matches the search." : show === "yours" ? "None of the systems you have games for is in the BIOS DAT. Every system shows them all." : "Nothing in this list."}</p>`}
+    ${list.length ? null : html`<p class="muted" id="bios-nothing">${q ? "Nothing matches the search." : "The BIOS DATs list no systems."}</p>`}
     <ul class="bios-list" id="bios-list">${list.map((x) => html`<${System} key=${`${x.dat}-${x.name}`} s=${x} open=${list.length <= 3 || !!needle} />`)}</ul>
   </div>`;
 }
