@@ -80,6 +80,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 - **Set types.** Each arcade system is kept as a **non-merged** set (the default: every game's ZIP holds all it needs but its BIOS's), **split** (a clone's ZIP holds only what its parent's doesn't) or **merged** (a parent's ZIP holds its clones' too). Choose it on the Audit page or in Settings › Systems. Organise… builds the ZIPs that way, and files in the wrong ZIP are listed as misnamed, so *Rename these…* puts a set right after you change its type.
 - **Arcade exports** copy each game as its own ZIP, with the BIOS sets and devices it needs and its disk folders, whatever the library's set type, so the card or frontend runs them. BIOS sets and devices get no gamelist entry.
 - **Help** explains arcade sets, set types and *playable*.
+- **Fixed:** opening the Library or a game's page while a scan was writing to the index could fail with "database is locked"; it now waits for the scan.
 
 ## 0.5.9 (2026-10-18)
 
