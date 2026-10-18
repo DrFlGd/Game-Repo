@@ -657,19 +657,23 @@ mod tests {
         let unknown = &r["unknown"][0];
         assert_eq!((unknown["system"].as_str(), unknown["file"].as_str()), (Some("gamegear"), src.join("homebrew.gg").to_str()));
         // the Game Boy's games go to its folder; the Game Gear has none, and the folder for
-        // every system holds only the Game Boy's games, so it isn't offered
+        // every system holds only the Game Boy's games, so it isn't offered: a new folder
+        // named for it is, beside the Game Boy's
         let gb = r["systems"].as_array().unwrap().iter().find(|x| x["platform"] == "gb").unwrap();
         let gg = r["systems"].as_array().unwrap().iter().find(|x| x["platform"] == "gamegear").unwrap();
         assert_eq!(gb["places"][0]["dir"].as_str(), dir.join("Roms").to_str());
-        assert!(gg["places"].as_array().unwrap().is_empty(), "{}", gg["places"]);
+        let new_gg = dir.join("Sega Game Gear");
+        assert_eq!(gg["places"].as_array().unwrap().iter().map(|p| p["dir"].as_str().unwrap()).collect::<Vec<_>>(), [new_gg.to_str().unwrap()]);
         let games: Vec<(i64, Vec<PathBuf>)> = [gb, gg].iter().flat_map(|x| x["games"].as_array().unwrap().iter())
             .filter(|g| g["status"] == "missing")
             .map(|g| (g["id"].as_i64().unwrap(), g["files"].as_array().unwrap().iter().map(|f| PathBuf::from(f.as_str().unwrap())).collect()))
             .collect();
         let files = vec![("gamegear".to_string(), vec![src.join("homebrew.gg")])];
-        let asked = bring_plan(&ix, &lib, &Import { games: games.clone(), files: files.clone(), ..Default::default() }, &none, &mut |_| {}).unwrap();
-        assert!(asked.left.iter().any(|l| l["why"].as_str().unwrap().contains("Choose where Sega Game Gear's games go")), "{:?}", asked.left);
-        assert!(asked.ops.iter().all(|o| !o.to.contains("Champion")));
+        let made = bring_plan(&ix, &lib, &Import { games: games.clone(), files: files.clone(), ..Default::default() }, &none, &mut |_| {}).unwrap();
+        assert!(made.left.is_empty(), "{:?}", made.left);
+        assert!(made.ops.iter().all(|o| !o.to.contains("Champion")));
+        assert!(made.ops.iter().any(|o| Path::new(&o.to) == new_gg.join("Sonic (World).gg")), "{:?}", made.ops);
+        assert_eq!(made.new_roots, [[new_gg.display().to_string(), "gamegear".to_string()]]);
         // a folder chosen for it becomes a folder with games for the Game Gear; moved, not copied
         let gg_dir = dir.join("Games/Game Gear");
         let imp = Import { games, files, places: [("gamegear".to_string(), gg_dir.clone())].into(), mode: "move".into(), ..Default::default() };

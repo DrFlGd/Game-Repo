@@ -76,6 +76,10 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **A new system gets a folder of its own.** Importing games of a system with no folder yet asked where they go. Now a folder named for the system is made beside the other systems' folders (*Roms/Sega Game Gear* beside *Roms/GBA*), and becomes a folder with games for it. Inside a folder with games for every system, a system's new folder is named the same way. A folder with games for every system that is named for a system, such as *SNES*, takes only that system's games.
+
+## 0.5.17 (2026-10-18)
+
 - **Imported games go to their own system's folder.** Importing from folders put every game in the first folder with games set to *every system*, so Game Gear games could land in a Game Boy Advance folder. Now each system's games go to its own folder with games, or to the folder its games are in already, or to its own folder inside a folder with games for every system that holds several systems' games. When a system has none of these, the import asks where its games go, and a new folder chosen becomes a folder with games for it. *One game…* chooses the same way.
 - **One system or every system, copied or moved.** The import reads every system's games, or only the system you pick. It copies them (hardlinked on the same drive), always copies them in full, or moves them into the library.
 - **The import's window stays put.** While it reads the folders or checks the files, the window shows how far it's got, with *Stop* and *Run in the background*; clicking the page behind it no longer closes it. Run in the background, and the status bar (bottom right) brings it back, or a message says when it's ready. Closing it keeps your place: *From a folder…* opens it where you left off.
