@@ -274,7 +274,7 @@ impl App {
     /// A connection of a job's own to the library's index, so a long scan or import
     /// doesn't hold up the page's reads (SQLite's WAL lets them run side by side).
     fn job_index(data_dir: &Path, lib: &Library) -> Result<Index> {
-        let id = lib.id().ok_or_else(|| anyhow!("This library has no id in _library/library.json, so its index can't be found."))?;
+        let id = lib.id().ok_or_else(|| anyhow!("{}", lib.read_only().unwrap_or("This library has no id in _library/library.json, so its index can't be found.")))?;
         Index::open(&index::path_for(data_dir, &id), &id)
     }
 

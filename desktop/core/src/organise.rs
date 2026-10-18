@@ -22,7 +22,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -179,12 +179,13 @@ pub fn safe_name(name: &str) -> String {
         s.pop();
     }
     let s = s.trim_start().to_string();
-    let stem = s.split('.').next().unwrap_or("").to_ascii_uppercase();
-    let reserved = ["CON", "PRN", "AUX", "NUL"].contains(&stem.as_str())
-        || ((stem.starts_with("COM") || stem.starts_with("LPT")) && stem.len() == 4 && stem.as_bytes()[3].is_ascii_digit());
+    let stem = s.split('.').next().unwrap_or("").trim_end().to_uppercase();
+    let numbered = |p: &str| stem.strip_prefix(p).is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0" | "¹" | "²" | "³"));
+    let reserved = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"].contains(&stem.as_str()) || numbered("COM") || numbered("LPT");
     if s.is_empty() {
         "_".into()
-    } else if reserved {
+    } else if reserved || s.starts_with('.') {
+        // a name starting with a dot is hidden, and scans pass over it (".hack//Infection")
         format!("_{s}")
     } else {
         s
@@ -624,8 +625,8 @@ struct Planner<'a> {
     roots: &'a [Root],
     mode: String,
     always_copy: bool,
-    /// archive file id → (the archive, its members, members used by this plan)
-    consumed: HashMap<i64, (Src, i64, HashSet<String>)>,
+    /// archive file id → (the archive, its members, members used by this plan, the games using them)
+    consumed: HashMap<i64, (Src, i64, HashSet<String>, BTreeSet<String>)>,
     /// file id → where an earlier step of this plan moved it
     moved: HashMap<i64, String>,
     /// archive file id → how many members it has
@@ -679,11 +680,12 @@ impl Planner<'_> {
 
     /// A member of an archive is used by a step (an archive all of whose members are
     /// used is set aside at the end, in modes 2 and 3).
-    fn consume(&mut self, src: &Src) {
+    fn consume(&mut self, game: &str, src: &Src) {
         let Some(m) = &src.member else { return };
         let count = self.counts.get(&src.file_id).copied().unwrap_or(i64::MAX);
-        let e = self.consumed.entry(src.file_id).or_insert_with(|| (whole_archive(src), count, HashSet::new()));
+        let e = self.consumed.entry(src.file_id).or_insert_with(|| (whole_archive(src), count, HashSet::new(), BTreeSet::new()));
         e.2.insert(m.clone());
+        e.3.insert(game.to_string());
     }
 }
 
@@ -933,7 +935,11 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         let mut there = vec![];
         for op in ops {
             let to = Path::new(&op.to);
-            if !to.exists() || op.from.iter().any(|s| s.member.is_none() && same_file(Path::new(&s.path), to)) {
+            let own = op.from.iter().any(|s| s.member.is_none() && same_file(Path::new(&s.path), to));
+            if own && matches!(op.op.as_str(), "link" | "copy") {
+                // a copy of a file onto itself (a name that differs only in case, on Windows)
+                there.push(json!({ "game": op.game, "to": op.to }));
+            } else if !to.exists() || own {
                 kept.push(op);
             } else if placed_before(&o.known, to) || already_there(conn, &roots, &op, cancel_never()) {
                 there.push(json!({ "game": op.game, "to": op.to }));
@@ -950,7 +956,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         for op in &kept {
             if matches!(op.op.as_str(), "zip" | "extract") {
                 for s in &op.from {
-                    p.consume(s);
+                    p.consume(&op.game, s);
                 }
             }
             if matches!(op.op.as_str(), "rename" | "move") {
@@ -974,12 +980,13 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     for op in &mut p.plan.ops {
         op.aside.retain(|s| uses.get(&(s.file_id, s.member.clone())).copied().unwrap_or(0) <= 1);
     }
-    let consumed: Vec<(Src, i64, HashSet<String>)> = p.consumed.values().cloned().collect();
-    for (src, count, used) in consumed {
+    let consumed: Vec<(Src, i64, HashSet<String>, BTreeSet<String>)> = p.consumed.values().cloned().collect();
+    for (src, count, used, games) in consumed {
         let src = p.redirect(&src);
         if used.len() as i64 == count {
             if mode != "copy" {
-                p.plan.ops.push(Op { op: "aside".into(), game: String::new(), to: src.path.clone(), size: 0, from: vec![src], names: vec![], aside: vec![], note: None });
+                // `names` holds the games that read it: when one of them fails, it stays
+                p.plan.ops.push(Op { op: "aside".into(), game: String::new(), to: src.path.clone(), size: 0, from: vec![src], names: games.into_iter().collect(), aside: vec![], note: None });
             }
         } else if mode != "copy" {
             p.plan.left.push(json!({ "path": src.path, "why": "It holds other files too, so it stays where it is." }));
@@ -1502,6 +1509,11 @@ fn set_aside(lib: &Library, roots: &[Root], id: &str, src: &Src) -> Result<Strin
     Ok(to.display().to_string())
 }
 
+/// The folders above `p` that aren't there yet (the ones writing it makes), deepest first.
+fn missing_dirs(p: &Path) -> Vec<PathBuf> {
+    p.ancestors().skip(1).take_while(|d| !d.as_os_str().is_empty() && !d.exists()).map(Path::to_path_buf).collect()
+}
+
 pub(crate) fn make_parent(p: &Path) -> Result<()> {
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("couldn't make the folder {}", dir.display()))?;
@@ -1522,6 +1534,26 @@ fn rename(from: &Path, to: &Path) -> io::Result<()> {
     std::fs::rename(from, to)
 }
 
+/// A file at a step's target before the step writes it: the same as the source (a run
+/// that stopped before its log was written) is done; anything else is never replaced.
+fn there_already(to: &Path, src: &Src, cancel: &AtomicBool) -> Result<bool> {
+    if !to.exists() {
+        return Ok(false);
+    }
+    let same = if src.member.is_none() && src.sha1.is_none() && src.crc32.is_empty() {
+        check_archive_copy(Path::new(&src.path), to, src, cancel).is_ok()
+    } else {
+        check_file(to, src, cancel).is_ok()
+    };
+    if cancel.load(Ordering::Relaxed) {
+        bail!("stopped");
+    }
+    if !same {
+        bail!("{} is there already", to.display());
+    }
+    Ok(true)
+}
+
 /// Copy `from` to `to` through a temporary file, checked before it takes its name.
 fn copy_checked(from: &Path, to: &Path, want: &Src, cancel: &AtomicBool) -> Result<()> {
     let tmp = to.with_file_name(format!("{}.gamerepo-tmp", to.file_name().unwrap_or_default().to_string_lossy()));
@@ -1534,6 +1566,10 @@ fn copy_checked(from: &Path, to: &Path, want: &Src, cancel: &AtomicBool) -> Resu
             check_archive_copy(from, &tmp, want, cancel)?;
         } else {
             check_file(&tmp, want, cancel)?;
+        }
+        // a file that appeared there since the preview is never replaced (rename would on Windows)
+        if to.exists() {
+            bail!("{} is there already", to.display());
         }
         std::fs::rename(&tmp, to)?;
         Ok(())
@@ -1605,6 +1641,13 @@ fn perform(op: &Op, cancel: &AtomicBool) -> Result<(Option<Written>, bool)> {
         }
         "link" | "copy" => {
             let src = &op.from[0];
+            if same_file(Path::new(&src.path), to) {
+                // the source itself (a name that differs only in case, on Windows): nothing to write
+                return Ok((None, false));
+            }
+            if there_already(to, src, cancel)? {
+                return Ok((None, true));
+            }
             make_parent(to)?;
             if op.op == "link" && std::fs::hard_link(&src.path, to).is_ok() {
                 return Ok((None, false));
@@ -1613,6 +1656,11 @@ fn perform(op: &Op, cancel: &AtomicBool) -> Result<(Option<Written>, bool)> {
             Ok((None, true))
         }
         "zip" | "extract" => {
+            if op.op == "extract" && to.exists() {
+                // the member there already (a run that stopped before its log was written), else never replaced
+                let h = check_file(to, &op.from[0], cancel).map_err(|e| if cancel.load(Ordering::Relaxed) { e } else { anyhow!("{} is there already", to.display()) })?;
+                return Ok((Some(Written { members: vec![], file: Some(h), kind: "file" }), true));
+            }
             make_parent(to)?;
             let staging = to.parent().unwrap_or(Path::new(".")).join(STAGING).join(format!("{}", std::process::id()));
             std::fs::create_dir_all(&staging)?;
@@ -1628,6 +1676,9 @@ fn perform(op: &Op, cancel: &AtomicBool) -> Result<(Option<Written>, bool)> {
                     let src = &op.from[0];
                     let p = path_of(src);
                     let h = check_file(&p, src, cancel)?;
+                    if to.exists() {
+                        bail!("{} is there already", to.display());
+                    }
                     std::fs::rename(&p, to).or_else(|_| std::fs::copy(&p, to).map(|_| ()))?;
                     return Ok((Some(Written { members: vec![], file: Some(h), kind: "file" }), true));
                 }
@@ -1850,6 +1901,7 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
     let conn = ix.conn();
     let (mut done, mut failed) = (state.done.len(), vec![]);
     let mut failed_games: HashSet<String> = HashSet::new();
+    let mut warnings: Vec<Value> = vec![];
     let mut stopped = false;
     let mut journal = Log::open(lib, &id)?;
     for (i, op) in plan.ops.iter().enumerate() {
@@ -1862,6 +1914,12 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
         }
         progress(json!({ "item": i + 1, "items": plan.ops.len(), "name": if op.game.is_empty() { op.to.clone() } else { op.game.clone() } }));
         if !op.game.is_empty() && failed_games.contains(&op.game) {
+            // said, not passed over silently: the game's other files wait with it
+            failed.push(json!({ "game": op.game, "to": op.to, "skipped": true, "error": format!("not done, as another of {}'s files failed", op.game) }));
+            continue;
+        }
+        if op.op == "aside" && op.names.iter().any(|g| failed_games.contains(g)) {
+            // an archive a failed game was read from stays where it is
             continue;
         }
         // a cue sheet rewritten under its own name is set aside first, and read from there
@@ -1880,6 +1938,7 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
                 }
             }
         }
+        let made = missing_dirs(Path::new(&op.to));
         let result = perform(&step, cancel).and_then(|(written, copied)| {
             // originals go only once what replaced them is checked
             let mut aside: Vec<Src> = op.aside.clone();
@@ -1892,11 +1951,19 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
                     went.push(json!([s.path, set_aside(lib, &roots, &id, s)?]));
                 }
             }
-            let tx = conn.unchecked_transaction()?;
-            update_index(&tx, &roots, op, written.as_ref(), &op.aside)?;
-            tx.commit()?;
+            // journalled as soon as it's on disk, so Undo knows of it whatever comes next
+            let made: Vec<String> = made.iter().filter(|d| d.is_dir()).map(|d| d.display().to_string()).collect();
+            let wrote = if op.op == "aside" { None } else { file_stamp(Path::new(&op.to)) };
             let important = copied || !went.is_empty();
-            journal.write(&json!({ "op": i, "copied": copied, "aside": went }), important)
+            journal.write(&json!({ "op": i, "copied": copied, "aside": went, "wrote": wrote, "made": made }), important)?;
+            let indexed = conn.unchecked_transaction().map_err(anyhow::Error::from).and_then(|tx| {
+                update_index(&tx, &roots, op, written.as_ref(), &op.aside)?;
+                Ok(tx.commit()?)
+            });
+            if let Err(e) = indexed {
+                warnings.push(json!({ "game": op.game, "to": op.to, "error": format!("done, but the index wasn't updated (the next scan puts it right): {e:#}") }));
+            }
+            Ok(())
         });
         if result.is_err() {
             // the sheet set aside early goes back
@@ -1932,7 +1999,12 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
     }
     audit::match_files(conn)?;
     audit::changed(conn)?;
-    Ok(json!({ "id": id, "label": plan.label, "done": done, "ops": plan.ops.len(), "failed": failed, "stopped": stopped }))
+    if !warnings.is_empty() {
+        // the files are where the change put them; a rescan of those folders brings the index up to date
+        let dirs: Vec<PathBuf> = warnings.iter().filter_map(|w| Path::new(w["to"].as_str()?).parent().map(Path::to_path_buf)).collect();
+        let _ = crate::scan::scan(ix, lib, &crate::scan::Options { only: Some(dirs), ..Default::default() }, cancel, &mut |_| {});
+    }
+    Ok(json!({ "id": id, "label": plan.label, "done": done, "ops": plan.ops.len(), "failed": failed, "warnings": warnings, "stopped": stopped }))
 }
 
 /// Finish a change that was interrupted.
@@ -1961,8 +2033,22 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
     let mut steps: Vec<usize> = st.done.keys().copied().collect();
     steps.sort_unstable();
     steps.reverse();
+    // a drive that isn't plugged in, or a folder with games that's gone, would read as files already removed
+    let all_roots = roots::list(lib);
+    for i in &steps {
+        let to = Path::new(&plan.ops[*i].to);
+        if let Some(drive) = to.ancestors().last().filter(|d| !d.as_os_str().is_empty() && !d.exists()) {
+            bail!("{} isn't there: plug in the drive it's on, then undo it.", drive.display());
+        }
+        if let Some(r) = all_roots.iter().find(|r| Path::new(&key(to)).starts_with(Path::new(&key(&r.dir))) && !r.found()) {
+            bail!("The folder with games {} isn't there: plug in its drive, then undo it.", r.dir.display());
+        }
+    }
     let (mut undone, mut problems) = (0, vec![]);
+    // folders the change made (from the journal), and for older journals the folders it wrote into
     let mut made: HashSet<PathBuf> = HashSet::new();
+    let mut wrote_into: HashSet<PathBuf> = HashSet::new();
+    let mut touched: HashSet<PathBuf> = HashSet::new();
     for (n, i) in steps.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
             break;
@@ -1971,6 +2057,14 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
         let rec = &st.done[i];
         progress(json!({ "item": n + 1, "items": steps.len(), "name": if op.game.is_empty() { op.to.clone() } else { op.game.clone() } }));
         let to = Path::new(&op.to);
+        touched.extend(to.parent().map(Path::to_path_buf));
+        for pair in rec["aside"].as_array().into_iter().flatten() {
+            touched.extend(Path::new(pair[0].as_str().unwrap_or("")).parent().map(Path::to_path_buf));
+        }
+        if matches!(op.op.as_str(), "rename" | "move") {
+            touched.extend(Path::new(&op.from[0].path).parent().map(Path::to_path_buf));
+        }
+        let mut kept = false;
         let r = (|| -> Result<()> {
             let copied = rec["copied"] == true;
             match op.op.as_str() {
@@ -1994,18 +2088,33 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
                 }
                 "aside" => {}
                 _ => {
-                    // a file the change wrote
-                    if to.exists() {
+                    // a file the change wrote: gone only once every original it replaced can come back
+                    for pair in rec["aside"].as_array().into_iter().flatten() {
+                        let (orig, held) = (Path::new(pair[0].as_str().unwrap_or("")), Path::new(pair[1].as_str().unwrap_or("")));
+                        if !held.exists() && (!orig.exists() || key(orig) == key(to)) {
+                            bail!("{} can't be put back: its set-aside copy {} is gone, so {} stays", orig.display(), held.display(), to.display());
+                        }
+                    }
+                    // a copy onto the source itself wrote nothing (a step that rewrote a file in place set it aside first)
+                    let own = matches!(op.op.as_str(), "link" | "copy") && same_file(Path::new(&op.from[0].path), to);
+                    let changed = rec["wrote"].as_array().is_some_and(|w| {
+                        let was = (w.first().and_then(Value::as_u64).unwrap_or(0), w.get(1).and_then(Value::as_i64).unwrap_or(0));
+                        file_stamp(to).is_some_and(|now| now != was)
+                    });
+                    if to.exists() && changed && !own {
+                        kept = true;
+                    } else if to.exists() && !own {
                         std::fs::remove_file(to).with_context(|| format!("couldn't remove {}", to.display()))?;
                         if let Some((root, rel)) = in_root(&roots, to) {
                             conn.execute("DELETE FROM files WHERE root_id = ?1 AND rel_path = ?2 AND parent_id IS NULL", params![root.id, rel])?;
                         }
-                        if let Some(dir) = to.parent() {
-                            made.insert(dir.to_path_buf());
+                        if rec.get("made").is_none() {
+                            wrote_into.extend(to.parent().map(Path::to_path_buf));
                         }
                     }
                 }
             }
+            made.extend(rec["made"].as_array().into_iter().flatten().filter_map(Value::as_str).map(PathBuf::from));
             for pair in rec["aside"].as_array().into_iter().flatten() {
                 let (orig, held) = (pair[0].as_str().unwrap_or(""), pair[1].as_str().unwrap_or(""));
                 if Path::new(held).exists() && !Path::new(orig).exists() {
@@ -2018,26 +2127,40 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
             Ok(())
         })();
         match r {
+            Ok(()) if kept => {
+                undone += 1;
+                problems.push(json!({ "game": op.game, "to": op.to, "kept": true, "error": format!("{} was changed after the change wrote it, so it stays", to.display()) }));
+            }
             Ok(()) => undone += 1,
             Err(e) => problems.push(json!({ "game": op.game, "to": op.to, "error": format!("{e:#}") })),
         }
     }
-    // folders the change made and left empty go, up to its output folder
-    let top = plan.out.as_ref().map(PathBuf::from);
+    // folders the change made and left empty go, deepest first; never a folder with games or one above it
+    let holds_root = |dir: &Path| all_roots.iter().any(|r| Path::new(&key(&r.dir)).starts_with(Path::new(&key(dir))));
     let mut dirs: Vec<PathBuf> = made.into_iter().collect();
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    for d in dirs {
+        if !holds_root(&d) {
+            let _ = std::fs::remove_dir(&d);
+        }
+    }
+    // older journals don't say which folders the change made: the empty ones it wrote into
+    // go, and those above them, up to its output folder
+    let top = plan.out.as_ref().map(PathBuf::from);
+    let mut dirs: Vec<PathBuf> = wrote_into.into_iter().collect();
     dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
     for d in dirs {
         let mut at = Some(d.as_path());
         while let Some(dir) = at {
-            if top.as_ref().is_some_and(|t| !key(dir).starts_with(&key(t))) || std::fs::remove_dir(dir).is_err() {
+            if holds_root(dir) || top.as_ref().is_some_and(|t| !key(dir).starts_with(&key(t))) || std::fs::remove_dir(dir).is_err() {
                 break;
             }
             at = dir.parent();
         }
     }
-    // and the folder with games it added, if it's empty again
+    // and the folder with games it added, if it's there and empty again
     for dir in plan.new_root.iter().chain(plan.new_roots.iter().map(|[d, _]| d)).map(PathBuf::from) {
-        if !dir.exists() || std::fs::read_dir(&dir).is_ok_and(|mut rd| rd.next().is_none()) {
+        if dir.is_dir() && std::fs::read_dir(&dir).is_ok_and(|mut rd| rd.next().is_none()) {
             let _ = std::fs::remove_dir(&dir);
             if let Some(r) = roots::list(lib).into_iter().find(|r| key(&r.dir) == key(&dir)) {
                 roots::remove(lib, &r.id)?;
@@ -2049,10 +2172,18 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
     for d in aside_dirs(lib, id) {
         remove_empty_tree(&d);
     }
-    if !cancel.load(Ordering::Relaxed) {
+    // a step that couldn't be undone leaves the change done, so Undo can be tried again
+    // (each step undone already is passed over); a file the user changed stays either way
+    let whole = problems.iter().all(|p| p["kept"] == true);
+    if !cancel.load(Ordering::Relaxed) && whole {
         log(lib, id, &json!({ "state": "undone", "problems": problems.len() }))?;
     }
-    if plan.export.is_some() {
+    // what's back where it was is looked at again, so the index has it
+    let dirs: Vec<PathBuf> = touched.into_iter().filter(|d| d.is_dir()).collect();
+    if !dirs.is_empty() && !cancel.load(Ordering::Relaxed) {
+        let _ = crate::scan::scan(ix, lib, &crate::scan::Options { only: Some(dirs), ..Default::default() }, cancel, &mut |_| {});
+    }
+    if plan.export.is_some() && whole {
         crate::export::record(lib, &plan, true)?;
     }
     if plan.kind == "metadata" {
@@ -2060,7 +2191,7 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
     }
     audit::match_files(conn)?;
     audit::changed(conn)?;
-    Ok(json!({ "id": id, "label": plan.label, "undone": undone, "problems": problems }))
+    Ok(json!({ "id": id, "label": plan.label, "undone": undone, "problems": problems, "finished": whole }))
 }
 
 fn remove_empty_tree(d: &Path) {
@@ -2146,6 +2277,10 @@ mod tests {
         assert_eq!(safe_name("CON.gb"), "_CON.gb");
         assert_eq!(safe_name("Com1"), "_Com1");
         assert_eq!(safe_name("Comet"), "Comet");
+        assert_eq!(safe_name(".hack//Infection (USA)"), "_.hack__Infection (USA)");
+        assert_eq!(safe_name("conout$.txt"), "_conout$.txt");
+        assert_eq!(safe_name("LPT²"), "_LPT²");
+        assert_eq!(safe_name("COM12"), "COM12");
         let g = GameFields { name: "Alpha (USA) (Rev 1)".into(), title: Some("Alpha".into()), regions: Some("USA".into()), languages: None, revision: Some("1".into()) };
         assert_eq!(render("{name}", &g), "Alpha (USA) (Rev 1)");
         assert_eq!(render("{title} ({region}) ({languages}) ({revision})", &g), "Alpha (USA) (Rev 1)");
@@ -2364,6 +2499,173 @@ mod tests {
         assert_eq!(r["done"], 3, "{r}");
         assert_eq!(history(&f.lib, &[]).unwrap()[0]["state"], "done");
         assert!(out.join("Delta (World).zip").is_file() && out.join("Beta (Europe).gb").is_file());
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    fn copy_to(f: &Fixture, dat: i64, out: &Path, format: &str) -> Plan {
+        let mut o = opts(dat, "copy", format);
+        o.out = Some(out.to_path_buf());
+        plan(&f.ix, &f.lib, &o).unwrap()
+    }
+
+    fn failed_at(r: &Value) -> Vec<String> {
+        r["failed"].as_array().unwrap().iter().map(|e| Path::new(e["to"].as_str().unwrap()).file_name().unwrap().to_string_lossy().into_owned()).collect()
+    }
+
+    // review C3: a file that turns up at a target after the preview is never replaced
+    #[test]
+    fn a_file_that_appears_at_a_target_after_the_preview_is_left_alone() {
+        let (f, dat) = setup("organise-appears");
+        let out = f.dir.join("Sorted");
+        for (format, mine) in [("keep", "Beta (Europe).gb"), ("loose", "Delta (World).gb")] {
+            for always_copy in [false, true] {
+                let mut o = opts(dat, "copy", format);
+                o.out = Some(out.clone());
+                o.always_copy = always_copy;
+                let p = plan(&f.ix, &f.lib, &o).unwrap();
+                std::fs::create_dir_all(&out).unwrap();
+                std::fs::write(out.join(mine), b"the user's own file").unwrap();
+                let r = go(&f, &p);
+                assert_eq!(failed_at(&r), [mine], "{r}");
+                assert_eq!(std::fs::read(out.join(mine)).unwrap(), b"the user's own file");
+                back(&f, &p.id);
+                assert_eq!(std::fs::read(out.join(mine)).unwrap(), b"the user's own file", "Undo leaves it too");
+                std::fs::remove_dir_all(&out).unwrap();
+            }
+        }
+        // the same file there already (a run that stopped before its log was written) counts as done
+        let p = copy_to(&f, dat, &out, "keep");
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::copy(f.gb.join("beta.gb"), out.join("Beta (Europe).gb")).unwrap();
+        let r = go(&f, &p);
+        assert_eq!((r["done"].as_i64(), failed_at(&r).len()), (Some(3), 0), "{r}");
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    // review C2 and C1: Undo never removes a file changed since, or one whose original can't come back
+    #[test]
+    fn undo_keeps_a_file_changed_since_and_one_whose_original_is_gone() {
+        let (f, dat) = setup("organise-undo-safe");
+        let out = f.dir.join("Sorted");
+        let mut o = opts(dat, "copy", "keep");
+        o.out = Some(out.clone());
+        o.always_copy = true;
+        let p = plan(&f.ix, &f.lib, &o).unwrap();
+        go(&f, &p);
+        // replaced (a hard link would be written through to the original)
+        std::fs::remove_file(out.join("Alpha (USA).gb")).unwrap();
+        std::fs::write(out.join("Alpha (USA).gb"), b"edited by hand").unwrap();
+        let u = back(&f, &p.id);
+        assert_eq!(u["problems"].as_array().unwrap().len(), 1, "{u}");
+        assert_eq!((u["problems"][0]["kept"].as_bool(), u["finished"].as_bool()), (Some(true), Some(true)), "{u}");
+        assert_eq!(std::fs::read(out.join("Alpha (USA).gb")).unwrap(), b"edited by hand");
+        assert!(!out.join("Beta (Europe).gb").exists(), "what wasn't changed goes");
+        assert_eq!(history(&f.lib, &[]).unwrap()[0]["state"], "undone");
+        std::fs::remove_dir_all(&out).unwrap();
+
+        // zipped where they are, then the set-aside originals deleted by hand
+        let before = tree(&f.dir.join("Roms"));
+        let p = plan(&f.ix, &f.lib, &opts(dat, "rename", "zip")).unwrap();
+        let r = go(&f, &p);
+        assert_eq!(failed_at(&r).len(), 0, "{r}");
+        let zips: Vec<PathBuf> = p.ops.iter().filter(|o| o.op == "zip").map(|o| PathBuf::from(&o.to)).collect();
+        assert!(!zips.is_empty());
+        let held = f.dir.join("Roms").join(SET_ASIDE);
+        std::fs::rename(&held, f.dir.join("held elsewhere")).unwrap();
+        let u = back(&f, &p.id);
+        assert_eq!(u["finished"], false, "{u}");
+        assert!(u["problems"].as_array().unwrap().iter().any(|e| e["error"].as_str().unwrap().contains("can't be put back")), "{u}");
+        for z in &zips {
+            assert!(z.is_file(), "{} stays while its original can't come back", z.display());
+        }
+        let h = history(&f.lib, &[]).unwrap();
+        assert_eq!((h[0]["state"].as_str(), h[0]["can_undo"].as_bool()), (Some("done"), Some(true)), "{h}");
+        // the originals found again: Undo finishes, and the index has them back without a rescan (review M7)
+        std::fs::rename(f.dir.join("held elsewhere"), &held).unwrap();
+        let u = back(&f, &p.id);
+        assert_eq!((u["finished"].as_bool(), u["problems"].as_array().unwrap().len()), (Some(true), 0), "{u}");
+        assert_eq!(tree(&f.dir.join("Roms")), before);
+        assert_eq!(names(&f, dat, "misnamed"), ["Alpha copy.gb", "beta.gb"]);
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    // review C4: an archive whose game failed stays where it is
+    #[test]
+    fn an_archive_a_failed_game_was_read_from_stays_where_it_is() {
+        let (f, dat) = setup("organise-failed-archive");
+        let p = plan(&f.ix, &f.lib, &opts(dat, "rename", "loose")).unwrap();
+        let aside = p.ops.iter().find(|o| o.op == "aside" && o.to.ends_with("Delta (World).zip")).expect("the ZIP is set aside after");
+        assert_eq!(aside.names, ["Delta (World)"]);
+        // the ZIP changes after the preview: its member isn't what the DAT says any more
+        let zip = f.gb.join("Delta (World).zip");
+        crate::audit::tests::zip(&zip, &[("Delta (World).gb", &crate::audit::tests::rom(77, 65536))]);
+        let r = go(&f, &p);
+        assert_eq!(failed_at(&r), ["Delta (World).gb"], "{r}");
+        assert!(zip.is_file(), "the only copy stays in its folder");
+        assert!(!f.gb.join("Delta (World).gb").exists());
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    // review H1: Undo never removes a folder with games, or the folders above it
+    #[test]
+    fn undo_leaves_the_folders_with_games_it_wrote_into() {
+        let (f, dat) = setup("organise-undo-roots");
+        let out = f.dir.join("Drive/Games/Sorted");
+        std::fs::create_dir_all(&out).unwrap();
+        roots::add(&f.lib, &out, Some("gb")).unwrap();
+        let p = copy_to(&f, dat, &out.join("Game Boy"), "keep");
+        go(&f, &p);
+        assert!(out.join("Game Boy/Alpha (USA).gb").is_file());
+        back(&f, &p.id);
+        assert!(!out.join("Game Boy").exists(), "the folder it made goes");
+        assert!(out.is_dir(), "the folder with games stays");
+        // an older journal (no record of the folders it made) climbs no higher either
+        let p = copy_to(&f, dat, &out, "keep");
+        go(&f, &p);
+        let log = f.lib.root().join(APP_DIR).join("journal").join(format!("{}.log", p.id));
+        let text = std::fs::read_to_string(&log).unwrap();
+        let old: Vec<String> = text.lines().map(|l| {
+            let mut v: Value = serde_json::from_str(l).unwrap();
+            if let Some(o) = v.as_object_mut() { o.remove("made"); }
+            v.to_string()
+        }).collect();
+        std::fs::write(&log, old.join("\n") + "\n").unwrap();
+        back(&f, &p.id);
+        assert!(out.is_dir() && !out.join("Alpha (USA).gb").exists());
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    // review M4: Undo while the folder with games isn't there changes nothing
+    #[test]
+    fn undo_waits_for_a_folder_with_games_that_isnt_there() {
+        let (f, dat) = setup("organise-undo-unplugged");
+        let out = f.dir.join("Card");
+        std::fs::create_dir_all(&out).unwrap();
+        roots::add(&f.lib, &out, Some("gb")).unwrap();
+        let p = copy_to(&f, dat, &out, "keep");
+        go(&f, &p);
+        std::fs::rename(&out, f.dir.join("Card (unplugged)")).unwrap();
+        let e = undo(&f.ix, &f.lib, &p.id, &AtomicBool::new(false), &mut |_| {}).unwrap_err();
+        assert!(format!("{e:#}").contains("plug in"), "{e:#}");
+        assert!(roots::list(&f.lib).iter().any(|r| r.dir == out), "the folder with games is kept");
+        std::fs::rename(f.dir.join("Card (unplugged)"), &out).unwrap();
+        let u = back(&f, &p.id);
+        assert_eq!(u["finished"], true, "{u}");
+        assert!(out.is_dir() && !out.join("Alpha (USA).gb").exists());
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    // review H4: a target that is the source itself (a case-only difference on Windows; a link here) is present
+    #[cfg(unix)]
+    #[test]
+    fn a_target_that_is_the_source_itself_is_left_alone() {
+        let (f, dat) = setup("organise-own-target");
+        let out = f.dir.join("Sorted");
+        std::fs::create_dir_all(&out).unwrap();
+        std::os::unix::fs::symlink(f.gb.join("Alpha (USA).gb"), out.join("Alpha (USA).gb")).unwrap();
+        let p = copy_to(&f, dat, &out, "keep");
+        assert!(!p.ops.iter().any(|o| o.to.ends_with("Alpha (USA).gb")), "{:#?}", p.ops);
+        assert!(p.present.iter().any(|v| v["to"].as_str().unwrap().ends_with("Alpha (USA).gb")));
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 

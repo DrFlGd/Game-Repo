@@ -17,7 +17,7 @@
 //! already holds games adds only `_library/`. No database lives here: the index
 //! is on each computer and can be rebuilt from the files ([`crate::index`]).
 
-use crate::config::{read_json_object, write_json};
+use crate::config::{read_json_object, try_read_json_object, write_json};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::path::{Component, Path, PathBuf};
@@ -127,7 +127,15 @@ impl Library {
             .with_context(|| format!("couldn't create {}", root.display()))?;
         let meta_path = root.join(APP_DIR).join("library.json");
         if meta_path.is_file() {
-            let format = read_json_object(&meta_path)["format"].as_u64().unwrap_or(0);
+            let meta = match try_read_json_object(&meta_path) {
+                Ok(m) => m,
+                Err(e) => {
+                    // nothing is written over it until it's put right (or whatever held it lets go)
+                    let msg = format!("The library's settings can't be read, so it's open read-only: {e:#}. Put it right (or close what has it open), then open the library again.");
+                    return Ok(Self { root, read_only: Some(msg) });
+                }
+            };
+            let format = meta["format"].as_u64().unwrap_or(0);
             if format > FORMAT {
                 let msg = format!(
                     "This library was made by a newer version of Game Repo (library format {format}; this version reads up to {FORMAT}). \
@@ -198,7 +206,7 @@ impl Library {
     /// Merge `patch` into library.json (top-level keys; null removes one).
     pub fn update_meta(&self, patch: Value) -> Result<Value> {
         self.writable()?;
-        let mut meta = self.meta();
+        let mut meta = try_read_json_object(&self.meta_path())?;
         for (k, v) in patch.as_object().into_iter().flatten() {
             if k == "format" || k == "id" {
                 continue;
@@ -248,6 +256,29 @@ pub mod tests {
         let d = std::env::temp_dir().join(format!("gamerepo-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    // review H2: a library.json that can't be read is never written over
+    #[test]
+    fn an_unreadable_library_json_is_never_written_over() {
+        let dir = temp_dir("unreadable-meta");
+        let lib = Library::open(&dir).unwrap();
+        lib.update_meta(json!({ "roots": [{ "id": "r1", "path": "Roms" }] })).unwrap();
+        let path = lib.meta_path();
+        let broken = std::fs::read_to_string(&path).unwrap().replacen(",", ",,", 1);
+        std::fs::write(&path, &broken).unwrap();
+        let e = lib.update_meta(json!({ "name": "New" })).unwrap_err();
+        assert!(format!("{e:#}").contains("isn't valid JSON") && format!("{e:#}").contains("line"), "{e:#}");
+        let again = Library::open(&dir).unwrap();
+        assert!(again.read_only().is_some_and(|m| m.contains("can't be read")), "{:?}", again.read_only());
+        assert!(again.update_meta(json!({ "name": "New" })).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), broken, "the file is as the user left it");
+        // and config.json is kept beside the new one
+        let cfg = dir.join("config.json");
+        std::fs::write(&cfg, b"{ \"library\": ,, }").unwrap();
+        crate::config::AppConfig::default().save(&cfg).unwrap();
+        assert_eq!(std::fs::read(dir.join("config.unreadable.json")).unwrap(), b"{ \"library\": ,, }");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

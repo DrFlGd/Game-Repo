@@ -13,7 +13,7 @@ use crate::index::Index;
 use crate::library::Library;
 use crate::organise::{self, key};
 use crate::platforms;
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -518,7 +518,11 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
         match new_roots.iter_mut().find(|[x, _]| *x == d) {
             Some(r) if r[1] != *platform => r[1] = String::new(),
             Some(_) => {}
-            None => new_roots.push([d, platform.clone()]),
+            None => {
+                // checked now, so the change can't stop part way when it adds the folder
+                crate::roots::check_new(lib, dir).map_err(|e| anyhow!("{}'s games can't go to {}: {e:#}", platforms::name_of(platform), dir.display()))?;
+                new_roots.push([d, platform.clone()]);
+            }
         }
     }
     let places: HashSet<String> = ops.iter().filter_map(|o| Path::new(&o.to).parent().map(|p| p.display().to_string())).collect();

@@ -25,7 +25,7 @@ export const TERMS = [
   ["set-aside", "Set aside", "What a change does instead of deleting: the file goes to a hidden .gamerepo-set-aside folder on the same drive, so Undo can bring it back. It's deleted only when you empty it (History)."],
   ["duplicates", "Duplicates", "More than one file for the same file of a DAT. Set aside duplicates… keeps the one organising would keep and sets the others aside."],
   ["collection", "Collection", "Games picked from the library for an export, made by rules (systems, regions, one per title, details), from folders, or from a DAT, and kept in the library. A collection can hold groups (say, a system's games and its translations), each made its own way. Collecting never copies files; exporting copies its games from your folders with games."],
-  ["export", "Export", "Copying a collection's games (with their pictures, gamelist, manuals and BIOS files if you choose) to ES-DE, a handheld's card or a folder, laid out as an export layout says. Each export is remembered: Update… brings it in step with the collection, Check reads it back."],
+  ["export", "Export", "Copying a collection's games (with their pictures, gamelist, manuals and BIOS files if you choose) for ES-DE (on a computer or a card), RetroArch, Pegasus, LaunchBox or Playnite, a muOS, Knulli or ROCKNIX handheld's card, or a plain folder, laid out as an export layout says. Each export is remembered: Update… brings it in step with the collection, Check reads it back."],
   ["layout", "Export layout", "Where an export puts each thing for a frontend or a device's firmware: the folder for each system, the gamelist, the pictures and their names. The built-in ones can't be changed; save a copy to make your own."],
   ["details", "Details", "What's known about a game: its title, year, genre, players, description and so on. Each source's answer is kept apart; the game shows one value for each field, from the first source in your order, unless you've chosen another source's value or written your own."],
   ["source", "Source", "Where details and pictures come from: ScreenScraper, IGDB, TheGamesDB and LaunchBox for ROM games, Steam, GOG and LaunchBox for PC games. Their keys are in Settings › Sources. (A collection's Source tab is what the collection was made from.)"],
@@ -47,8 +47,10 @@ export const TERMS = [
 /** Each page in the menu, in its order: [route, title, what it's for, its main actions]. */
 export const PAGES = [
   ["home", "Home", "Where your library stands: how complete each system is against its DAT, and what to do next.", [
-    "Open a library…, Add a folder… with games, Import DATs… or Get starter DATs…: the first steps, in order.",
+    "Scan, at the top, reads the folders with games for what's new or changed.",
     "Next: files to put right, games whose details need a look, systems not scraped yet and missing BIOS files, each a link to the page it's done on.",
+    "Systems: how complete each one is against its DAT, with Import DATs… (and Get starter DATs… while you have none) and Open the audit.",
+    "Folders with games: how many files were found and when they were last scanned, Add a folder… while there are none, folders not found on this computer (Point it elsewhere…), and files no DAT takes yet. Before any library is open, Home offers Open a library….",
   ]],
   ["library", "Library", "Every game in the library, across systems, by its pictures and details.", [
     "Filter by system, genre, decade, players and more, search, and sort or group the list.",
@@ -102,7 +104,7 @@ export const PAGES = [
     "Undo the newest; finish a change that was interrupted; empty what changes set aside, to free the space.",
   ]],
   ["settings", "Settings", "How the app works for this library and this computer.", [
-    "Sources and their keys, tools (chdman, dolphin-tool, innoextract), how folders are scanned, systems added by hand, naming and preferred formats.",
+    "Sources and their keys, tools (dolphin-tool for RVZ, innoextract for GOG installers; CHD, CSO and ZSO the app writes itself), how folders are scanned, systems added by hand, naming and preferred formats.",
     "The index, metadata sizes, the theme and the skin.",
   ]],
   ["about", "About", "The app's version, its licence and where its data comes from.", []],
