@@ -1433,6 +1433,14 @@ async def main():
                   alpha_json["details"]["developer"] == "My Own Studio" and "developer" in alpha_json.get("edited", []) and alpha_json["scraped"]["developer"] == "you"
                   and "of" in pos and sorted(gallery) == ["cover", "screenshot"], (alpha_json.get("details"), alpha_json.get("edited"), pos, gallery))
             await pg.screenshot(path=str(out / "52-game.png"), full_page=True)
+            # the picture sits in one square box: picking another doesn't change its size
+            box = "() => { const r = document.querySelector('#game-gallery .game-hero').getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }"
+            sizes = []
+            for k in ["cover", "screenshot", "cover"]:
+                await pg.click(f'#game-strip [data-kind="{k}"]')
+                await pg.wait_for_function(f"() => document.querySelector('#game-strip [data-kind=\"{k}\"]').getAttribute('aria-selected') === 'true' && document.querySelector('#game-gallery .game-hero').complete")
+                sizes.append(await pg.evaluate(box))
+            check("a game's picture keeps one square size whichever picture is picked", sizes[0][0] > 100 and all(s == [sizes[0][0]] * 2 for s in sizes), sizes)
             dropped = home / "Guides" / "Alpha Map.txt"
             dropped.write_text("The map of Alpha's second world.")
             await pg.evaluate("(p) => window.__shimEmit('tauri://drag-drop', { paths: [p], position: { x: 400, y: 400 } })", str(dropped))
