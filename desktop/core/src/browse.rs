@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex};
 
 /// Bumped when what a row holds changes, so every system is rebuilt once.
-const FORMAT: &str = "2";
+const FORMAT: &str = "3";
 /// Between the genres in a row's `genres` (a genre may have a comma in it).
 const SEP: &str = "\u{1f}";
 
@@ -86,6 +86,8 @@ struct Row {
     date: Option<i64>,
     best_all: bool,
     best_have: bool,
+    /// How many of its updates, DLC and patches you have (D66)
+    addons: i64,
 }
 
 fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
@@ -95,9 +97,9 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
     let mut ins = conn.prepare_cached(
         "INSERT INTO library (key, kind, platform, dat_game, name, title, sort, year, developer, publisher, players, rating, regions, have,
                               folder, picture, media, described, docs, review, size, date, best_all, best_have, genre, genres, languages,
-                              year_sort, rating_sort, size_sort, date_sort)
+                              year_sort, rating_sort, size_sort, date_sort, addons)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27,
-                 ?28, ?29, ?30, ?31)",
+                 ?28, ?29, ?30, ?31, ?32)",
     )?;
     let mut val = conn.prepare_cached("INSERT INTO library_values (game, field, value) VALUES (?1, ?2, ?3)")?;
     let mut fts = conn.prepare_cached("INSERT INTO library_text (rowid, title, name, body) VALUES (?1, ?2, ?3, ?4)")?;
@@ -121,7 +123,7 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
             players_of(&get("players")), rating, r.regions.join(","), r.have as i64, r.folder, r.picture, r.media,
             description.is_some() as i64, r.docs, r.review as i64, r.size, r.date, r.best_all as i64, r.best_have as i64, genres.first(),
             genres.join(SEP), r.languages.join(","),
-            year.unwrap_or(i64::MAX), rating.map(|x| -x).unwrap_or(f64::MAX), -r.size, r.date.map(|d| -d).unwrap_or(i64::MAX),
+            year.unwrap_or(i64::MAX), rating.map(|x| -x).unwrap_or(f64::MAX), -r.size, r.date.map(|d| -d).unwrap_or(i64::MAX), r.addons,
         ])?;
         let id = conn.last_insert_rowid();
         for g in &genres {
@@ -146,12 +148,15 @@ fn picture_path(folder: &Option<String>, picture: &Option<String>, stamp: i64) -
     Some(format!("{}/media/{}?v={stamp}", folder.as_ref()?, picture.as_ref()?))
 }
 
-/// Rebuild a system's rows: every game of the DAT it's audited against, and the games no
-/// DAT knows that Add a game… kept for it.
-fn rebuild_system(conn: &Connection, platform: &str, dat: Option<i64>) -> Result<()> {
+/// Rebuild a system's rows: every game of the DAT it's audited against but its updates and
+/// DLC (they're counted with their game, D66), and the games no DAT knows that Add a game…
+/// kept for it.
+fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<i64>) -> Result<()> {
     let mut rows: Vec<Row> = vec![];
     let mut used: HashSet<String> = HashSet::new();
+    let addons = crate::addons::have_by_base(conn, lib, platform)?;
     if let Some(dat) = dat {
+        let addon_dat = conn.query_row("SELECT name FROM dats WHERE id = ?1", [dat], |r| r.get::<_, String>(0)).map(|n| crate::addons::is_addon_dat(&n))?;
         let sql = format!(
             "WITH {GAMES},
                   fv AS (SELECT r.game_id, mr.folder, COUNT(*) AS n FROM dat_roms r JOIN meta_roms mr ON mr.crc32 = r.crc32 AND mr.size = r.size
@@ -189,6 +194,10 @@ fn rebuild_system(conn: &Connection, platform: &str, dat: Option<i64>) -> Result
             let meta_title: Option<String> = x.get(11)?;
             let facts: String = x.get(15)?;
             let picture: Option<String> = x.get(16)?;
+            if !addon_dat && crate::addons::kind_of(&name, false).is_some() {
+                continue;
+            }
+            let have_addons = addons.get(&name).copied().unwrap_or(0);
             if let Some(f) = &folder {
                 used.insert(f.clone());
             }
@@ -215,6 +224,7 @@ fn rebuild_system(conn: &Connection, platform: &str, dat: Option<i64>) -> Result
                 docs: x.get(17)?,
                 size: sizes.get(&id).map(|s| s.0 as i64).unwrap_or(0),
                 date: x.get(18)?,
+                addons: have_addons,
                 ..Default::default()
             });
         }
@@ -367,7 +377,14 @@ fn stamp(conn: &Connection, lib: &Library, platform: &str) -> Result<(String, Op
         use sha2::Digest;
         hex::encode(&sha2::Sha256::digest(pictures.as_bytes())[..8])
     };
-    Ok((format!("{FORMAT}|{dat:?}|{matched:?}|{games:?}|{pics}|{docs:?}"), dat))
+    // and its updates and DLC (in its other DATs, and linked by hand)
+    let others: (i64, i64) = conn.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(m.file_id), 0) FROM dat_roms r JOIN matches m ON m.rom_id = r.id JOIN dats d ON d.id = r.dat_id WHERE d.platform = ?1 AND d.current = 1",
+        [platform],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let hand = lib.meta()["addons"][platform].to_string();
+    Ok((format!("{FORMAT}|{dat:?}|{matched:?}|{games:?}|{pics}|{docs:?}|{others:?}|{hand}"), dat))
 }
 
 /// Bring the library's rows up to date: each system whose games, files, game folders or
@@ -391,7 +408,7 @@ pub fn refresh(ix: &Index, lib: &Library) -> Result<Vec<String>> {
         // IMMEDIATE: a rebuild reads before it writes, and a deferred transaction can't
         // take the write lock once another connection (a job's) has written in between
         let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
-        if p == "pc" { rebuild_pc(&tx, lib)? } else { rebuild_system(&tx, p, dat)? }
+        if p == "pc" { rebuild_pc(&tx, lib)? } else { rebuild_system(&tx, lib, p, dat)? }
         tx.execute("INSERT INTO index_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![key, st])?;
         tx.commit()?;
         done.push(p.clone());
@@ -433,7 +450,7 @@ pub struct Query {
     pub players: i64,
     /// At least this rating (0 to 1)
     pub rating: f64,
-    /// pictures | description | manual | video | documents (each wanted)
+    /// pictures | description | manual | video | documents | addons (each wanted)
     pub has: Vec<String>,
     /// Only games needing a look
     pub look: bool,
@@ -516,6 +533,7 @@ fn where_of(q: &Query, keys: &Option<Vec<String>>, skip: &str) -> (String, Vec<S
                 "description" => w.push("l.described = 1".into()),
                 "documents" => w.push("l.docs > 0".into()),
                 "manual" | "video" => w.push(format!("(',' || l.media || ',') LIKE '%,{h},%'")),
+                "addons" => w.push("l.addons > 0".into()),
                 _ => {}
             }
         }
@@ -603,7 +621,7 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
         .collect::<rusqlite::Result<_>>()?;
     let mut st = conn.prepare(&format!(
         "SELECT l.id, l.key, l.kind, l.platform, l.dat_game, l.name, l.title, l.year, l.developer, l.publisher, l.players, l.rating, l.regions,
-                l.have, l.picture, l.media, l.described, l.docs, l.review, l.size, l.date, {group}, l.genres
+                l.have, l.picture, l.media, l.described, l.docs, l.review, l.size, l.date, {group}, l.genres, l.addons
          FROM library l WHERE l.id IN (SELECT value FROM json_each(?1))"
     ))?;
     let mut by: HashMap<i64, Value> = st
@@ -620,7 +638,7 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
                 "picture": r.get::<_, Option<String>>(14)?, "media": split(&media), "described": r.get::<_, i64>(16)? == 1,
                 "docs": r.get::<_, i64>(17)?, "review": r.get::<_, i64>(18)? == 1, "size": r.get::<_, i64>(19)?, "date": r.get::<_, Option<i64>>(20)?,
                 "group": match group { Some(Sql::Text(t)) => json!(t), Some(Sql::Integer(n)) => json!(n), _ => Value::Null },
-                "genres": genres.split(SEP).filter(|g| !g.is_empty()).collect::<Vec<_>>(),
+                "genres": genres.split(SEP).filter(|g| !g.is_empty()).collect::<Vec<_>>(), "addons": r.get::<_, i64>(23)?,
             })))
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -657,7 +675,7 @@ struct Counts {
     decade: HashMap<i64, i64>,
     players: [i64; 4],
     rating: [i64; 3],
-    has: [i64; 5],
+    has: [i64; 6],
     look: i64,
 }
 
@@ -698,7 +716,7 @@ fn facets(conn: &Connection, q: &Query, keys: &Option<Vec<String>>) -> Result<Va
         let (w, p) = where_of(q, keys, skip);
         let mut st = conn.prepare_cached(&format!(
             "SELECT l.platform, l.year, l.developer, l.publisher, l.players, l.rating, l.picture IS NOT NULL, l.described, l.media, l.docs > 0, l.review,
-                    l.genres, l.regions, l.languages FROM library l WHERE {w}"
+                    l.genres, l.regions, l.languages, l.addons > 0 FROM library l WHERE {w}"
         ))?;
         let mut rows = st.query(params_from_iter(p.iter()))?;
         while let Some(r) = rows.next()? {
@@ -752,7 +770,7 @@ fn facets(conn: &Connection, q: &Query, keys: &Option<Vec<String>>) -> Result<Va
             if want("has") {
                 let media = r.get_ref(8)?.as_str()?;
                 let kinds = media.split(',').collect::<Vec<_>>();
-                for (x, yes) in c.has.iter_mut().zip([r.get::<_, i64>(6)? == 1, r.get::<_, i64>(7)? == 1, kinds.contains(&"manual"), kinds.contains(&"video"), r.get::<_, i64>(9)? == 1]) {
+                for (x, yes) in c.has.iter_mut().zip([r.get::<_, i64>(6)? == 1, r.get::<_, i64>(7)? == 1, kinds.contains(&"manual"), kinds.contains(&"video"), r.get::<_, i64>(9)? == 1, r.get::<_, i64>(14)? == 1]) {
                     *x += yes as i64;
                 }
             }
@@ -779,7 +797,7 @@ fn facets(conn: &Connection, q: &Query, keys: &Option<Vec<String>>) -> Result<Va
         "decade": decade.into_iter().map(|(d, n)| json!({ "value": d, "count": n })).collect::<Vec<_>>(),
         "players": c.players.iter().enumerate().map(|(i, n)| json!({ "value": (i + 1) as f64, "count": n })).collect::<Vec<_>>(),
         "rating": RATINGS.iter().zip(c.rating).map(|(v, n)| json!({ "value": v, "count": n })).collect::<Vec<_>>(),
-        "has": { "pictures": c.has[0], "description": c.has[1], "manual": c.has[2], "video": c.has[3], "documents": c.has[4] },
+        "has": { "pictures": c.has[0], "description": c.has[1], "manual": c.has[2], "video": c.has[3], "documents": c.has[4], "addons": c.has[5] },
         "look": c.look,
     }))
 }
@@ -836,6 +854,8 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
         ("dat", Some(id)) => {
             let mut v = meta::game(ix, lib, id)?;
             v["dat_id"] = json!(audit::primary_dat(conn, lib, &platform)?);
+            let name: String = conn.query_row("SELECT name FROM library WHERE key = ?1", [key], |r| r.get(0))?;
+            v["addons"] = crate::addons::of_game(conn, lib, &platform, &name)?;
             v
         }
         ("pc", _) => {
@@ -853,6 +873,15 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
             v["have"] = json!(true);
             v["docs"] = json!(match &folder { Some(f) => docs::of_folder(conn, f)?, None => vec![] });
             v["pc_id"] = json!(id);
+            // its patches and DLC are listed as other systems' updates and DLC are (D66)
+            let items: Vec<Value> = e
+                .game
+                .files
+                .iter()
+                .filter(|f| f.kind == "patch" || f.kind == "dlc")
+                .map(|f| json!({ "name": f.path.rsplit('/').next().unwrap_or(&f.path), "kind": f.kind, "version": f.version, "status": "have", "by_hand": false }))
+                .collect();
+            v["addons"] = json!({ "items": items, "have": items.len(), "loose": [] });
             v["pc"] = pc;
             v
         }

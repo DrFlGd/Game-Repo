@@ -699,7 +699,24 @@ async def main():
             stored = json.loads(next((library / "_library/collections").glob("*.json")).read_text())
             check("a game is left out by hand, and listed with Put back (changes made quickly are all kept)",
                   stored["removed"] == [f"gb/{names[0]}"] and stored["rules"]["one_per_title"] is True and stored["rules"]["include"] == "have", (stored["removed"], stored["rules"]))
+            # its history (D67): each change a step, newest first; the leave-out undone, then made again
+            await pg.click('#collection-view [data-view="history"]')
+            await pg.wait_for_selector("#collection-history-list li")
+            hows = await pg.eval_on_selector_all("#collection-history-list li", "els => els.map(e => e.dataset.how)")
+            first_text = await pg.inner_text("#collection-history-list li:first-child")
+            await pg.screenshot(path=str(out / "21c-collection-history.png"))
+            await pg.click('#collection-history-list li[data-how="hand"] [data-action="undo"]')
+            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n", arg=len(names))
+            await pg.wait_for_selector('#collection-history-list li:first-child[data-how="undo"]')
+            undone = await pg.get_attribute('#collection-history-list li[data-how="hand"]', "data-undone")
+            check("a collection's History lists each change newest first (by hand, its rules, made), and Undo puts the game left out back",
+                  hows[0] == "hand" and "rules" in hows and hows[-1] == "made" and names[0] in first_text and undone == "yes", (hows, first_text, undone))
+            await pg.click('#collection-view [data-view="rules"]')
+            check("a collection takes its games' updates and DLC by default", await pg.is_checked("#rule-addons"))
+            await pg.click('#collection-view [data-view="games"]')
             await pg.click('#collection-tabs [data-tab="in"]')
+            await pg.click(f'#collection-list .audit-row[data-name="{names[0]}"] [data-action="leave-out"]')
+            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n - 1", arg=len(names))
             await pg.screenshot(path=str(out / "21-collection.png"), full_page=True)
             kept = names[1:]
 

@@ -51,6 +51,8 @@ pub struct Rules {
     /// Only games with these details (the Library page's filters, Phase 6)
     #[serde(skip_serializing_if = "Details::is_empty")]
     pub details: Details,
+    /// Its games' updates, DLC and patches you have go with them (D66)
+    pub with_addons: bool,
 }
 
 /// A collection's rules by the games' details, as the Library page filters them: values
@@ -94,6 +96,7 @@ impl Default for Rules {
             from_dats: vec![],
             from_files: vec![],
             details: Details::default(),
+            with_addons: true,
         }
     }
 }
@@ -251,6 +254,19 @@ pub struct System {
     pub games: Vec<Game>,
     /// Left out by hand (they'd be in otherwise)
     pub removed: Vec<Game>,
+    /// Its games' updates, DLC and patches that you have (all or some of their files),
+    /// with the rules' *With their updates and DLC* (D66)
+    pub addons: Vec<Addon>,
+}
+
+/// An update, DLC or patch going with one of a collection's games.
+#[derive(Clone, Debug)]
+pub struct Addon {
+    /// The DAT it's in (its own, usually: "(Updates and DLC)")
+    pub dat_id: i64,
+    /// The game it belongs to (its name)
+    pub base: String,
+    pub game: Game,
 }
 
 #[derive(Debug, Default)]
@@ -269,18 +285,20 @@ impl Worked {
 
     pub fn summary(&self) -> Value {
         // on disk: the files of the games there (all or in part); the rest by the DAT's sizes
-        let size = |g: &[Game]| g.iter().map(|g| g.size).sum::<u64>();
+        // with the add-ons going with them
+        let size = |s: &System| s.games.iter().map(|g| g.size).sum::<u64>() + s.addons.iter().map(|a| a.game.size).sum::<u64>();
         let wanting = |g: &[Game]| g.iter().filter(|g| g.status != "have").map(|g| g.dat_size.saturating_sub(g.size)).sum::<u64>();
         json!({
             "games": self.systems.iter().map(|s| s.games.len()).sum::<usize>(),
             "have": self.games().filter(|g| g.status == "have").count(),
             "removed": self.systems.iter().map(|s| s.removed.len()).sum::<usize>(),
-            "size": self.systems.iter().map(|s| size(&s.games)).sum::<u64>(),
+            "addons": self.systems.iter().map(|s| s.addons.len()).sum::<usize>(),
+            "size": self.systems.iter().map(size).sum::<u64>(),
             "missing_size": self.systems.iter().map(|s| wanting(&s.games)).sum::<u64>(),
             "systems": self.systems.iter().map(|s| json!({
                 "platform": s.platform, "name": platforms::name_of(&s.platform), "dat": s.dat_id, "games": s.games.len(),
-                "have": s.games.iter().filter(|g| g.status == "have").count(), "removed": s.removed.len(),
-                "size": size(&s.games), "missing_size": wanting(&s.games),
+                "have": s.games.iter().filter(|g| g.status == "have").count(), "removed": s.removed.len(), "addons": s.addons.len(),
+                "size": size(s), "missing_size": wanting(&s.games),
             })).collect::<Vec<_>>(),
             "no_dat": self.no_dat.iter().map(|p| json!({ "platform": p, "name": platforms::name_of(p) })).collect::<Vec<_>>(),
             "missing_dats": self.missing_dats,
@@ -340,7 +358,9 @@ pub fn work_out(ix: &Index, lib: &Library, c: &Collection) -> Result<Arc<Worked>
         format!("{f}:{:?}:{:?}", m.as_ref().map(|m| m.len()), m.and_then(|m| m.modified().ok()))
     }).collect();
     // (its name and size limit don't change its games)
-    let key = format!("{}|{}|{:?}|{:?}|{}|{dats:?}|{library}|{files:?}", ix.path().display(), serde_json::to_string(&c.rules)?, c.added, c.removed, audit::generation(conn)?);
+    // and the add-ons linked by hand
+    let hand = if c.rules.with_addons { lib.meta()["addons"].to_string() } else { String::new() };
+    let key = format!("{}|{}|{:?}|{:?}|{}|{dats:?}|{library}|{files:?}|{hand}", ix.path().display(), serde_json::to_string(&c.rules)?, c.added, c.removed, audit::generation(conn)?);
     if let Some((k, w)) = LAST.lock().unwrap().as_ref() {
         if *k == key {
             return Ok(w.clone());
@@ -519,7 +539,7 @@ fn work_out_fresh(conn: &Connection, lib: &Library, c: &Collection, dats: &[(Str
                 size, dat_size,
             }
         };
-        let mut sys = System { platform: platform.clone(), dat_id, games: vec![], removed: vec![] };
+        let mut sys = System { platform: platform.clone(), dat_id, games: vec![], removed: vec![], addons: vec![] };
         let mut inside: HashSet<i64> = HashSet::new();
         for g in picked {
             let x = game(g, false);
@@ -534,9 +554,41 @@ fn work_out_fresh(conn: &Connection, lib: &Library, c: &Collection, dats: &[(Str
             sys.games.push(game(g, true));
         }
         sys.games.sort_by(|a, b| a.name.cmp(&b.name));
+        if r.with_addons {
+            sys.addons = addons_of(conn, lib, platform, &sys.games)?;
+        }
         w.systems.push(sys);
     }
     Ok(w)
+}
+
+/// The updates, DLC and patches you have (all or some of their files) of these games.
+fn addons_of(conn: &Connection, lib: &Library, platform: &str, games: &[Game]) -> Result<Vec<Addon>> {
+    let mut by = crate::addons::by_base(conn, lib, platform)?;
+    let links: Vec<crate::addons::Link> = games.iter().flat_map(|g| by.remove(&g.name).unwrap_or_default()).collect();
+    if links.is_empty() {
+        return Ok(vec![]);
+    }
+    let dats: std::collections::BTreeSet<i64> = links.iter().map(|l| l.dat_id).collect();
+    let status = crate::addons::statuses(conn, dats.iter().copied())?;
+    let mut size = HashMap::new();
+    for d in &dats {
+        size.extend(sizes(conn, *d)?);
+    }
+    let mut v = vec![];
+    for l in links {
+        let st = status.get(&l.id).cloned().unwrap_or_else(|| "missing".into());
+        if st == "missing" {
+            continue;
+        }
+        let (size, dat_size) = size.get(&l.id).copied().unwrap_or_default();
+        v.push(Addon {
+            dat_id: l.dat_id,
+            base: l.base.clone().unwrap_or_default(),
+            game: Game { id: l.id, platform: platform.to_string(), name: l.name, title: String::new(), regions: String::new(), status: st, manual: false, size, dat_size },
+        });
+    }
+    Ok(v)
 }
 
 /// Each game of a DAT with the bytes its files take on disk and the bytes of its ROMs as

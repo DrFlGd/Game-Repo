@@ -230,7 +230,7 @@ pub fn dat_ref(conn: &Connection, id: i64) -> Result<DatRef> {
 
 /// The DAT a platform is audited against: the one chosen for it on the Audit page
 /// (kept in library.json as `audit_dats: {platform: DAT name}`), else its current
-/// No-Intro DAT, else its first current DAT by name.
+/// No-Intro DAT, else its first current DAT by name that isn't a DAT of updates and DLC.
 pub fn primary_dat(conn: &Connection, lib: &Library, platform: &str) -> Result<Option<i64>> {
     let chosen = lib.meta()["audit_dats"][platform].as_str().map(String::from);
     let preferred = platforms::by_id(platform).and_then(|p| p.dat_names.first()).map(|n| n.to_ascii_lowercase()).unwrap_or_default();
@@ -239,7 +239,8 @@ pub fn primary_dat(conn: &Connection, lib: &Library, platform: &str) -> Result<O
     Ok(rows
         .iter()
         .find(|(_, n)| Some(n) == chosen.as_ref())
-        .or_else(|| rows.iter().find(|(_, n)| platforms::dat_base_name(n).to_ascii_lowercase() == preferred))
+        .or_else(|| rows.iter().find(|(_, n)| platforms::dat_base_name(n).to_ascii_lowercase() == preferred && !crate::addons::is_addon_dat(n)))
+        .or_else(|| rows.iter().find(|(_, n)| !crate::addons::is_addon_dat(n)))
         .or(rows.first())
         .map(|(id, _)| *id))
 }

@@ -70,6 +70,13 @@ pub fn platform_names(id: &str) -> Vec<String> {
         "gc" => &["Nintendo GameCube"],
         "wii" => &["Nintendo Wii"],
         "xbox" => &["Microsoft Xbox"],
+        "n3ds" => &["Nintendo 3DS"],
+        "wiiu" => &["Nintendo Wii U"],
+        "switch" => &["Nintendo Switch"],
+        "ps3" => &["Sony Playstation 3"],
+        "ps4" => &["Sony Playstation 4"],
+        "psvita" => &["Sony Playstation Vita"],
+        "xbox360" => &["Microsoft Xbox 360"],
         _ => &[],
     };
     if names.is_empty() {

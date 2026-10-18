@@ -238,6 +238,10 @@ fn only_these(systems: &[collection::System], only: &[String]) -> Vec<collection
             let mut s = s.clone();
             if !all {
                 s.games.retain(|g| keys.contains(format!("{}/{}", g.platform, g.name).as_str()));
+                // and the add-ons of those
+                let names: HashSet<&str> = s.games.iter().map(|g| g.name.as_str()).collect();
+                let addons = s.addons.iter().filter(|a| names.contains(a.base.as_str())).cloned().collect();
+                s.addons = addons;
             }
             s
         })
@@ -369,6 +373,35 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         plan.conflicts.extend(sub.conflicts);
         plan.present.extend(sub.present);
         plan.left.extend(sub.left);
+        // the games' updates, DLC and patches, from their own DATs, beside them (or where the
+        // layout says), with no entries of their own in its list (D66)
+        let placed_games: HashSet<&str> = placed.iter().map(String::as_str).collect();
+        let mut by_dat: BTreeMap<i64, Vec<String>> = BTreeMap::new();
+        for a in s.addons.iter().filter(|a| placed_games.contains(a.base.as_str())) {
+            by_dat.entry(a.dat_id).or_default().push(a.game.name.clone());
+        }
+        if by_dat.is_empty() {
+            continue;
+        }
+        let Some(to) = layout::addons_dir(&l, &s.platform, &places)? else { continue };
+        for (dat_id, names) in by_dat {
+            let sub = organise::plan(ix, lib, &organise::Options {
+                dat_id, mode: "copy".into(), out: Some(to.clone()), format: "keep".into(),
+                always_copy: o.always_copy, games: Some(names), esde: l.games.style != "naming", known: known.clone(),
+                ..Default::default()
+            })?;
+            for op in &sub.ops {
+                wanted.push(json!({ "path": op.to, "game": op.game, "system": s.platform, "dat": dat_id }));
+            }
+            for p in &sub.present {
+                wanted.push(json!({ "path": p["to"], "game": p["game"], "system": s.platform, "dat": dat_id }));
+            }
+            plan.ops.extend(sub.ops);
+            plan.in_place += sub.in_place;
+            plan.conflicts.extend(sub.conflicts);
+            plan.present.extend(sub.present);
+            plan.left.extend(sub.left);
+        }
     }
     for p in &w.no_dat {
         plan.left.push(json!({ "path": platforms::name_of(p), "why": "This system has no DAT, so its games aren't known." }));
@@ -1838,6 +1871,76 @@ mod tests {
         let card = dir.join("Card");
         run(&ix, &lib, &Options { collection: c.id.clone(), layout: "knulli".into(), places: on("card", &card), carry: Carry { bios: true, ..Default::default() }, ..Default::default() });
         assert_eq!(std::fs::read(card.join("bios").join("gb_bios.bin")).unwrap(), gb_bios);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn updates_and_dlc_go_with_their_game_into_the_library_a_collection_and_an_export() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-addons");
+        use crate::audit::tests::{dat_xml, rom, rom_xml};
+        let r = |n: u32| rom(n, 1024);
+        let addons: Vec<(&str, Option<&str>, String)> = vec![
+            ("Delta (World) (Update) (v1.1)", None, rom_xml("Delta (World) (Update) (v1.1).gb", &r(20))),
+            ("Alpha (Europe) (DLC)", None, rom_xml("Alpha (Europe) (DLC).gb", &r(21))),
+            ("Alpha (USA) (DLC)", None, rom_xml("Alpha (USA) (DLC).gb", &r(22))),
+            ("Omega (USA) (DLC)", None, rom_xml("Omega (USA) (DLC).gb", &r(23))),
+        ];
+        std::fs::write(dir.join("gb-addons.dat"), dat_xml("Nintendo - Game Boy (Updates and DLC)", "20261001", &addons)).unwrap();
+        for (n, seed) in [("Delta (World) (Update) (v1.1).gb", 20), ("Alpha (Europe) (DLC).gb", 21), ("Omega (USA) (DLC).gb", 23)] {
+            std::fs::write(dir.join("Roms").join(n), r(seed)).unwrap();
+        }
+        crate::scan::scan(&ix, &lib, &crate::scan::Options::default(), &AtomicBool::new(false), &mut |_| {}).unwrap();
+        crate::dat::import(&ix, &lib, &dir.join("gb-addons.dat"), &serde_json::Map::new()).unwrap();
+        let conn = ix.conn();
+        // its system is told from its name, and it isn't the one audited
+        let gb: i64 = conn.query_row("SELECT id FROM dats WHERE name = 'Nintendo - Game Boy'", [], |r| r.get(0)).unwrap();
+        assert_eq!(crate::audit::primary_dat(conn, &lib, "gb").unwrap(), Some(gb));
+        // each belongs to the game with its title and region; Omega to none
+        let links = crate::addons::links(conn, &lib, "gb").unwrap();
+        let base = |n: &str| links.iter().find(|l| l.name == n).unwrap().base.clone();
+        assert_eq!(base("Delta (World) (Update) (v1.1)").as_deref(), Some("Delta (World)"));
+        assert_eq!(base("Alpha (USA) (DLC)").as_deref(), Some("Alpha (USA)"));
+        assert_eq!(base("Omega (USA) (DLC)"), None);
+        // the Library: Delta and Alpha (Europe) say they have one each, and the filter finds them
+        crate::browse::refresh(&ix, &lib).unwrap();
+        let q = crate::browse::Query { has: vec!["addons".into()], limit: 50, ..Default::default() };
+        let found = crate::browse::query(&ix, &lib, &q).unwrap();
+        let mut names: Vec<&str> = found["items"].as_array().unwrap().iter().map(|g| g["name"].as_str().unwrap()).collect();
+        names.sort();
+        assert_eq!(names, ["Alpha (Europe)", "Delta (World)"], "{found}");
+        assert_eq!(found["items"][0]["addons"], 1);
+        // the game page lists them, and the ones belonging to no game
+        let page = crate::browse::game(&ix, &lib, "gb/Delta (World)").unwrap();
+        assert_eq!(page["addons"]["items"][0]["version"], "v1.1");
+        assert_eq!(page["addons"]["items"][0]["status"], "have");
+        assert_eq!(page["addons"]["loose"], json!(["Omega (USA) (DLC)"]));
+        // linked by hand to Delta, then back
+        crate::addons::set(conn, &lib, "gb", "Omega (USA) (DLC)", Some("Delta (World)"), false).unwrap();
+        let of = crate::addons::of_game(conn, &lib, "gb", "Delta (World)").unwrap();
+        assert_eq!((of["have"].as_u64(), of["items"].as_array().unwrap().len()), (Some(2), 2), "{of}");
+        assert!(crate::addons::set(conn, &lib, "gb", "Delta (World)", None, false).is_err(), "a game isn't an add-on");
+        crate::addons::set(conn, &lib, "gb", "Omega (USA) (DLC)", None, true).unwrap();
+        assert!(lib.meta()["addons"]["gb"].as_object().unwrap().is_empty());
+        // a collection takes them with its games (Alpha (Europe) and Delta are in it), unless told not to
+        let c = collection(&lib, |_| {});
+        let w = collection::work_out(&ix, &lib, &c).unwrap();
+        let mut with: Vec<&str> = w.systems[0].addons.iter().map(|a| a.game.name.as_str()).collect();
+        with.sort();
+        assert_eq!(with, ["Alpha (Europe) (DLC)", "Delta (World) (Update) (v1.1)"]);
+        assert_eq!(w.summary()["addons"], 2);
+        let mut bare = c.clone();
+        bare.rules.with_addons = false;
+        assert!(collection::work_out(&ix, &lib, &bare).unwrap().systems[0].addons.is_empty());
+        // an export copies them beside their game, with no entries of their own in its list
+        let out = dir.join("Out");
+        let es = dir.join("ES-DE");
+        std::fs::create_dir_all(es.join("settings")).unwrap();
+        let p = run(&ix, &lib, &Options { collection: c.id.clone(), target: "esde".into(), out: out.clone(), esde: Some(es.clone()), only: vec!["gb/Delta (World)".into()], ..Default::default() });
+        assert_eq!(p.games, 1);
+        assert_eq!(tree(&out), ["gb/Delta (World) (Update) (v1.1).gb", "gb/Delta (World).gb"]);
+        let gl = std::fs::read_to_string(es.join("gamelists/gb/gamelist.xml")).unwrap();
+        assert!(gl.contains("Delta (World).gb") && !gl.contains("Update"), "{gl}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

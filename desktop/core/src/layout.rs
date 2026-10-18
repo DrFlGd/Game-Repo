@@ -116,6 +116,10 @@ pub struct Games {
     /// `frontend`: a game of one file is the file, one of several a folder named as its
     /// sheet (as ES-DE and the firmwares show them); `naming`: as Settings › Naming says
     pub style: String,
+    /// Where the games' updates, DLC and patches go, ending in `/{file}` (D66); none:
+    /// beside the games
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub addons: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -370,6 +374,16 @@ pub fn games_dir(l: &Layout, system: &str, places: &BTreeMap<String, PathBuf>) -
     let Some(vars) = system_vars(l, system) else { return Ok(None) };
     let dir = l.games.path.trim().replace('\\', "/");
     let dir = dir.strip_suffix("/{file}").ok_or_else(|| anyhow!("The layout's games path must end in /{{file}}."))?;
+    expand(dir, places, &vars)
+}
+
+/// Where a system's updates, DLC and patches go: the layout's `games.addons`, else the
+/// games' own folder (D66).
+pub fn addons_dir(l: &Layout, system: &str, places: &BTreeMap<String, PathBuf>) -> Result<Option<PathBuf>> {
+    let Some(path) = l.games.addons.as_deref().filter(|p| !p.trim().is_empty()) else { return games_dir(l, system, places) };
+    let Some(vars) = system_vars(l, system) else { return Ok(None) };
+    let path = path.trim().replace('\\', "/");
+    let dir = path.strip_suffix("/{file}").ok_or_else(|| anyhow!("The layout's add-ons path must end in /{{file}}."))?;
     expand(dir, places, &vars)
 }
 

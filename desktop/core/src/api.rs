@@ -1016,6 +1016,16 @@ impl App {
                 let key = arg(&args, "key").map_err(e2s)?.to_string();
                 j(self.with_index(move |ix| crate::browse::game(ix, &lib, &key)).await?)
             }
+            "addon_link" => {
+                // an update, DLC or patch linked to another game by hand ("base": null, to none),
+                // or ("clear": true) back to the game its name gives it (D66)
+                let lib = self.library()?;
+                let (platform, addon) = (arg(&args, "platform").map_err(e2s)?.to_string(), arg(&args, "addon").map_err(e2s)?.to_string());
+                let base = args["base"].as_str().map(String::from);
+                let clear = args["clear"].as_bool().unwrap_or(false);
+                self.with_index(move |ix| crate::addons::set(ix.conn(), &lib, &platform, &addon, base.as_deref(), clear)).await?;
+                j(json!({ "ok": true }))
+            }
             "browse_edit" => {
                 let lib = self.library()?;
                 let (key, field) = (arg(&args, "key").map_err(e2s)?.to_string(), arg(&args, "field").map_err(e2s)?.to_string());
@@ -1630,11 +1640,24 @@ impl App {
                 let c: collection::Collection = serde_json::from_value(args["collection"].clone()).map_err(|e| format!("That isn't a collection: {e}"))?;
                 j(self
                     .with_index(move |ix| {
+                        // each change is a step of its history (D67)
+                        let before = if c.id.is_empty() { None } else { Some(crate::history::before(ix, &lib, &c.id, "")?) };
                         let c = collection::save(&lib, c)?;
+                        let how = if before.is_none() { "made" } else { "" };
+                        crate::history::record(ix, &lib, before.unwrap_or_else(|| crate::history::new(&c)), how, None)?;
                         let w = collection::work_out(ix, &lib, &c)?;
                         Ok(json!({ "collection": c, "summary": w.summary() }))
                     })
                     .await?)
+            }
+            "collection_history" => {
+                let lib = self.library()?;
+                crate::history::view(&lib, arg(&args, "id").map_err(e2s)?).map_err(e2s).and_then(j)
+            }
+            "collection_undo" => {
+                let lib = self.library()?;
+                let (id, step) = (arg(&args, "id").map_err(e2s)?.to_string(), arg(&args, "step").map_err(e2s)?.to_string());
+                j(self.with_index(move |ix| crate::history::undo(ix, &lib, &id, &step)).await?)
             }
             "collection_delete" => {
                 let lib = self.library()?;
@@ -1711,7 +1734,13 @@ impl App {
                 let made_from = args["made_from"].clone();
                 j(self
                     .with_index(move |ix| {
+                        // read again: a step of its history, with the DATs it had kept (D67)
+                        let before = match &id { Some(id) => Some(crate::history::before(ix, &lib, id, "read")?), None => None };
                         let c = crate::subset::save(ix, &lib, &name, id.as_deref(), &games, made_from)?;
+                        match before {
+                            Some(b) => crate::history::record(ix, &lib, b, "read", None)?,
+                            None => crate::history::record(ix, &lib, crate::history::new(&c), "made", None)?,
+                        };
                         let w = collection::work_out(ix, &lib, &c)?;
                         Ok(json!({ "collection": c, "summary": w.summary() }))
                     })
