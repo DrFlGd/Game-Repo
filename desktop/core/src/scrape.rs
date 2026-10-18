@@ -120,6 +120,8 @@ pub fn choices(cfg: &AppConfig, data_dir: &Path, lib: &Library) -> Value {
         "media": meta::MEDIA.iter().map(|(k, n, _)| json!({ "id": k, "name": n })).chain([json!({ "id": "manual", "name": "Manual" })]).collect::<Vec<_>>(),
         // what Delete metadata… offers (D48)
         "delete": sources::what_choices(),
+        // and for a PC game, its kinds of artwork (D55)
+        "delete_pc": sources::pc_what_choices(),
     })
 }
 

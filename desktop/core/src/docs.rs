@@ -386,7 +386,7 @@ pub fn search(ix: &Index, query: &str, kind: &str, platform: &str, source: &str,
             v["snippet"] = json!(r.get::<_, Option<String>>("snip")?);
             v["game"] = json!(r.get::<_, Option<String>>("game_title")?.or(r.get::<_, Option<String>>("game_name")?));
             if let Some(p) = v["platform"].as_str() {
-                v["platform_name"] = json!(platforms::name_of(p));
+                v["platform_name"] = json!(crate::browse::system_name(p));
             }
             Ok(v)
         })?
@@ -543,6 +543,8 @@ pub struct Item {
     pub title: String,
     /// The DAT game it goes with (none: no game)
     pub game: Option<i64>,
+    /// Or the folder of the game it goes with, in the library (a PC game's, D55)
+    pub folder: Option<String>,
     pub game_name: Option<String>,
     pub game_title: Option<String>,
     pub platform: Option<String>,
@@ -731,6 +733,22 @@ pub fn read_items(ix: &Index, lib: &Library, paths: &[PathBuf], platform: Option
     Ok(out)
 }
 
+/// Pair every item with a game's folder (Attach documents… on a PC game's page, D55).
+pub fn pair_with_folder(lib: &Library, items: &mut [Item], folder: &str, name: &str) -> Result<()> {
+    meta::resolve(lib, folder)?;
+    for it in items.iter_mut() {
+        it.folder = Some(folder.to_string());
+        it.game = None;
+        it.game_name = Some(name.to_string());
+        it.game_title = Some(name.to_string());
+        it.platform = folder.split('/').nth(2).map(String::from);
+        it.pairing = "you".into();
+        it.score = 100;
+        it.others = vec![];
+    }
+    Ok(())
+}
+
 /// A free name in a folder for a file, given the names taken.
 fn free_name(taken: &mut HashSet<String>, name: &str) -> String {
     let p = Path::new(name);
@@ -784,8 +802,12 @@ pub fn plan(ix: &Index, lib: &Library, items: &[Item], mode: &str, always_copy: 
         if !src.is_file() {
             bail!("There's no file {}.", it.path);
         }
-        let (tkey, dir, label, new_game) = match it.game {
-            Some(id) => {
+        let (tkey, dir, label, new_game) = match (it.game, &it.folder) {
+            (_, Some(f)) => {
+                let d = meta::resolve(lib, f)?;
+                (key(&d), d.join("docs"), it.game_name.clone().unwrap_or_default(), None)
+            }
+            (Some(id), None) => {
                 let g: DatGame = meta::dat_game(conn, id)?;
                 match meta::folder_of(conn, &g)?.and_then(|f| lib.resolve(&f).ok()).filter(|d| d.join("game.json").is_file()) {
                     Some(d) => (key(&d), d.join("docs"), g.name.clone(), None),
@@ -802,7 +824,7 @@ pub fn plan(ix: &Index, lib: &Library, items: &[Item], mode: &str, always_copy: 
                     }
                 }
             }
-            None => {
+            (None, None) => {
                 let d = loose_dir(lib, it.platform.as_deref());
                 (key(&d), d, String::new(), None)
             }

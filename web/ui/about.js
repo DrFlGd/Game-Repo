@@ -15,7 +15,7 @@ export const TREE = `_library/                       the app's own files
   library.json                  the library's name and settings
   games/<platform>/<Game>/      one folder per game with more than its ROM
   games/<platform>/<SHA1>/      what Identify found for a file no DAT knows
-  games/pc/<id>/media/          a PC game's artwork
+  games/pc/<id>/                a PC game's details, pictures and documents
     game.json                   its id, DAT match, ROM hashes and details
     media/                      scraped pictures and video: cover.png, screenshot.jpg…
     docs/                       its guides, manuals, maps and scans (docs.json: their

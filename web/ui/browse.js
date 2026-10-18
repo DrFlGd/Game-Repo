@@ -381,7 +381,7 @@ function Inspector({ count, keyOf, actions, overview, off }) {
       ${actions.filter((a) => a.one !== false).slice(1).map((a) => html`<button type="button" class="ghost compact" key=${a.id} id=${`lib-panel-${a.id}`} disabled=${!!a.disabled || off} title=${typeof a.disabled === "string" ? a.disabled : a.label} onClick=${a.run}>${Icon[a.icon]?.(14)} ${a.label}</button>`)}
     </div>
     ${d.description ? html`<p class="lib-panel-text">${d.description}</p>` : null}
-    ${facts.length ? html`<dl class="pc-facts">${facts.map(([k, v]) => html`<dt key=${`k${k}`}>${k}</dt><dd key=${`v${k}`}>${v}</dd>`)}</dl>` : html`<p class="muted">No details yet: Scrape… fills them in.</p>`}
+    ${facts.length ? html`<dl class="pc-facts">${facts.map(([k, v]) => html`<dt key=${`k${k}`}>${k}</dt><dd key=${`v${k}`}>${v}</dd>`)}</dl>` : html`<p class="muted">No details yet: ${g.kind === "pc" ? "Identify… on its page" : "Scrape…"} fills them in.</p>`}
     ${g.docs?.length ? html`<p class="muted">${plural(g.docs.length, "document", "documents")}</p>` : null}
     ${g.collections?.length ? html`<p class="muted">In ${g.collections.map((c) => c.name).join(", ")}</p>` : null}
   </aside>`;

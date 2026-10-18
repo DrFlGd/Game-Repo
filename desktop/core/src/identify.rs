@@ -9,7 +9,7 @@
 
 use crate::config::AppConfig;
 use crate::launchbox;
-use crate::pcgames::{self, norm_title, Match};
+use crate::pcgames::{norm_title, Match};
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -204,7 +204,7 @@ fn steam_details(cfg: &AppConfig, id: &str) -> Result<Match> {
     }
     let date = d["release_date"]["date"].as_str().unwrap_or("");
     if !date.is_empty() {
-        details.insert("released".into(), json!(date));
+        details.insert("released".into(), json!(steam_date(date)));
     }
     let cdn = url(cfg, "steam_cdn");
     let mut art = BTreeMap::new();
@@ -297,6 +297,30 @@ fn gog_details(cfg: &AppConfig, id: &str) -> Result<Match> {
         }
     }
     Ok(Match { source: "gog".into(), id: id.to_string(), title, year: year_of(date), details, art })
+}
+
+/// A date as Steam writes it ("24 Feb, 1999" or "Feb 24, 1999") as the other sources do
+/// ("1999-02-24"), so they agree on a game's page; anything else as it is.
+fn steam_date(s: &str) -> String {
+    const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    let (mut day, mut month, mut year) = (None, None, None);
+    for w in s.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()) {
+        let l = w.to_ascii_lowercase();
+        if let Some(m) = MONTHS.iter().position(|m| l.starts_with(m)) {
+            month = Some(m + 1);
+        } else if w.len() == 4 && w.chars().all(|c| c.is_ascii_digit()) {
+            year = w.parse::<u32>().ok();
+        } else if w.len() <= 2 && w.chars().all(|c| c.is_ascii_digit()) {
+            day = w.parse::<u32>().ok().filter(|d| (1..=31).contains(d));
+        } else {
+            return s.to_string();
+        }
+    }
+    match (year, month, day) {
+        (Some(y), Some(m), Some(d)) => format!("{y}-{m:02}-{d:02}"),
+        (Some(y), Some(m), None) => format!("{y}-{m:02}"),
+        _ => s.to_string(),
+    }
 }
 
 /// Text without its HTML tags.
@@ -423,21 +447,28 @@ pub fn fetch_art(dir: &Path, art: &BTreeMap<String, String>, replace: bool) -> V
         if !replace && has_media(dir, kind) {
             continue;
         }
-        let Ok(Some((bytes, ctype))) = get(u, 40 << 20) else { continue };
-        if bytes.len() < 64 || ctype.starts_with("text/") {
-            continue;
-        }
-        let ext = match () {
-            _ if ctype.contains("png") || bytes.starts_with(b"\x89PNG") => "png",
-            _ if ctype.contains("webp") || bytes.get(8..12) == Some(b"WEBP") => "webp",
-            _ if ctype.contains("icon") || u.to_lowercase().ends_with(".ico") => "ico",
-            _ => "jpg",
-        };
+        let Some((bytes, ext)) = fetch_picture(u) else { continue };
         if save_media(dir, kind, ext, &bytes).is_ok() {
             got.push(kind.clone());
         }
     }
     got
+}
+
+/// Fetch a picture: its bytes and the extension it's kept under, or None when the source
+/// hasn't it (or answers with something that isn't one).
+pub fn fetch_picture(u: &str) -> Option<(Vec<u8>, &'static str)> {
+    let Ok(Some((bytes, ctype))) = get(u, 40 << 20) else { return None };
+    if bytes.len() < 64 || ctype.starts_with("text/") {
+        return None;
+    }
+    let ext = match () {
+        _ if ctype.contains("png") || bytes.starts_with(b"\x89PNG") => "png",
+        _ if ctype.contains("webp") || bytes.get(8..12) == Some(b"WEBP") => "webp",
+        _ if ctype.contains("icon") || u.to_lowercase().ends_with(".ico") => "ico",
+        _ => "jpg",
+    };
+    Some((bytes, ext))
 }
 
 /// The artwork in a media folder: kind → its path in the library.
@@ -469,22 +500,6 @@ pub fn save_media(dir: &Path, kind: &str, ext: &str, bytes: &[u8]) -> Result<Pat
     let p = dir.join(format!("{kind}.{ext}"));
     crate::config::write_atomic(&p, bytes)?;
     Ok(p)
-}
-
-/// Put a source's answer into a PC game: its id, title and year (when asked), details,
-/// then its artwork.
-pub fn apply_to_pc_game(lib: &crate::library::Library, game: &str, m: &Match, retitle: bool) -> Result<pcgames::Entry> {
-    let mut patch = json!({ "ids": { m.source.clone(): m.id }, "details": m.details });
-    if retitle {
-        patch["title"] = json!(m.title);
-        if m.year.is_some() {
-            patch["year"] = json!(m.year);
-        }
-    }
-    patch["details"]["identified_by"] = json!(m.source);
-    let e = pcgames::update(lib, game, &patch)?;
-    fetch_art(&pcgames::media_dir(lib, game), &m.art, true);
-    Ok(e)
 }
 
 #[cfg(test)]
@@ -569,6 +584,8 @@ pub(crate) mod tests {
         // the hashed folder the browse service names wins over the fixed name
         assert_eq!(s.art["hero"], format!("{base}/cdn/steam/apps/4000/abc123/library_hero.jpg?t=1"));
         assert_eq!(s.details["description"], "Quest & more.");
+        assert_eq!(s.details["released"], "1999-02-24");
+        assert_eq!([steam_date("Feb 24, 1999"), steam_date("Mar 2001"), steam_date("Coming soon")], ["1999-02-24", "2001-03", "Coming soon"]);
         let g = details(&cfg, &dir, "gog", "1207658930").unwrap();
         assert_eq!((g.year, g.details["description"].as_str(), g.art["hero"].as_str()), (Some(1999), Some("Quest on."), "https://img/bg.jpg"));
         let l = details(&cfg, &dir, "launchbox", "11").unwrap();
