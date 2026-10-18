@@ -73,6 +73,15 @@ pub static PLATFORMS: &[Platform] = &[
     p!("gc", "Nintendo GameCube", ["Nintendo - GameCube"], ["GameCube", "GC", "NGC", "Nintendo GameCube"], ["iso", "gcm", "rvz", "gcz", "ciso"]),
     p!("wii", "Nintendo Wii", ["Nintendo - Wii"], ["Wii", "Nintendo Wii"], ["iso", "wbfs", "rvz", "wia", "gcz"]),
     p!("xbox", "Xbox", ["Microsoft - Xbox"], ["Xbox", "Microsoft Xbox"], ["iso", "xiso"]),
+    // Phase 8b (D66): the systems whose updates and DLC come as files of their own,
+    // audited only, like Xbox
+    p!("n3ds", "Nintendo 3DS", ["Nintendo - Nintendo 3DS"], ["3DS", "N3DS", "Nintendo 3DS"], ["3ds", "cia", "cci", "cxi"]),
+    p!("wiiu", "Nintendo Wii U", ["Nintendo - Wii U"], ["Wii U", "WiiU", "Nintendo Wii U"], ["wua", "wux", "wud", "rpx"]),
+    p!("switch", "Nintendo Switch", ["Nintendo - Nintendo Switch"], ["Switch", "NSW", "Nintendo Switch"], ["nsp", "xci", "nsz", "xcz"]),
+    p!("ps3", "PlayStation 3", ["Sony - PlayStation 3"], ["PS3", "PlayStation 3", "Sony PlayStation 3"], ["iso", "pkg"]),
+    p!("ps4", "PlayStation 4", ["Sony - PlayStation 4"], ["PS4", "PlayStation 4", "Sony PlayStation 4"], ["pkg"]),
+    p!("psvita", "PlayStation Vita", ["Sony - PlayStation Vita"], ["PS Vita", "PSVita", "Vita", "PlayStation Vita", "Sony PlayStation Vita"], ["vpk", "pkg"]),
+    p!("xbox360", "Xbox 360", ["Microsoft - Xbox 360"], ["Xbox 360", "X360", "Microsoft Xbox 360"], ["iso", "xex"]),
     p!("mame", "Arcade (MAME)", ["MAME"], ["MAME", "Arcade"], []),
     p!("fbneo", "Arcade (FinalBurn Neo)", ["FinalBurn Neo - Arcade Games", "FBNeo - Arcade Games"], ["FBNeo", "FinalBurn Neo", "FBA", "FinalBurn Alpha"], []),
     // not a system of games: each system's BIOS files, from a BIOS DAT (bios.rs, D40)
@@ -120,7 +129,7 @@ pub fn media(id: &str) -> Media {
         "psx" | "ps2" | "saturn" | "segacd" | "dreamcast" | "pcenginecd" | "neogeocd" | "3do" | "pcfx" | "atarijaguarcd" | "cdimono1" => Media::Cd,
         "gc" | "wii" => Media::Nintendo,
         "psp" => Media::Umd,
-        "xbox" => Media::AuditOnly,
+        "xbox" | "n3ds" | "wiiu" | "switch" | "ps3" | "ps4" | "psvita" | "xbox360" => Media::AuditOnly,
         "mame" | "fbneo" => Media::Arcade,
         _ => Media::Cartridge,
     }
@@ -150,6 +159,8 @@ pub fn formats(id: &str) -> &'static [&'static str] {
 const DAT_SUFFIXES: &[&str] = &[
     "headered", "headerless", "parent-clone", "decrypted", "encrypted", "bigendian",
     "byteswapped", "a78", "lnx", "lyx", "j64", "rom", "private", "no-intro", "retool",
+    // and how a system's DATs are split (D66): its games, and its updates and DLC
+    "digital", "cdn", "psn", "content", "standard", "updates and dlc", "updates", "update", "dlc", "patches",
 ];
 
 // ------------------------------------------------------------ systems added by hand (D22)

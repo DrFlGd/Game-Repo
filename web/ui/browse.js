@@ -29,7 +29,7 @@ export const SORTS = [["title", "Title"], ["system", "System"], ["year", "Year"]
 const GROUPS = [["", "None"], ["system", "System"], ["genre", "Genre"], ["decade", "Decade"], ["developer", "Developer"], ["publisher", "Publisher"]];
 const VIEWS = [["grid", "Grid", "grid"], ["list", "List", "list"], ["table", "Table", "table"]];
 const SIZES = { small: 120, medium: 160, large: 220 };
-const HAS = [["pictures", "Pictures"], ["description", "A description"], ["manual", "A manual"], ["documents", "Documents"], ["video", "A video"]];
+const HAS = [["pictures", "Pictures"], ["description", "A description"], ["manual", "A manual"], ["documents", "Documents"], ["video", "A video"], ["addons", "Updates and DLC"]];
 const FILTER_NAMES = { platform: "System", genre: "Genre", decade: "Year", developer: "Developer", publisher: "Publisher", region: "Region", language: "Language", has: "Has" };
 const RATINGS = [[0.4, "★★ and up"], [0.6, "★★★ and up"], [0.8, "★★★★ and up"]];
 
@@ -383,11 +383,51 @@ function Inspector({ count, keyOf, actions, overview, off }) {
     ${d.description ? html`<p class="lib-panel-text">${d.description}</p>` : null}
     ${facts.length ? html`<dl class="pc-facts">${facts.map(([k, v]) => html`<dt key=${`k${k}`}>${k}</dt><dd key=${`v${k}`}>${v}</dd>`)}</dl>` : html`<p class="muted">No details yet: ${g.kind === "pc" ? "Identify… on its page" : "Scrape…"} fills them in.</p>`}
     ${g.docs?.length ? html`<p class="muted">${plural(g.docs.length, "document", "documents")}</p>` : null}
+    ${g.addons?.have ? html`<p class="muted" id="lib-panel-addons">${plural(g.addons.have, "update or DLC", "updates and DLC")} of ${g.addons.items.length}</p>` : null}
     ${g.collections?.length ? html`<p class="muted">In ${g.collections.map((c) => c.name).join(", ")}</p>` : null}
   </aside>`;
 }
 
 // ------------------------------------------------------------ dialogs
+
+/** Link an update, DLC or patch to another of its system's games, or to none (D66). */
+function LinkAddon({ platform, addon, from, onDone }) {
+  const [search, setSearch] = useState("");
+  const [found, setFound] = useState([]);
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let gone = false;
+    const t = setTimeout(() => api("browse_query", { query: { search, platform: [platform], all: true, limit: 50 } })
+      .then((r) => { if (!gone) setFound((r.items || []).filter((x) => x.kind === "dat" && x.name !== from)); }).catch((e) => { if (!gone) setError(err(e)); }), 200);
+    return () => { gone = true; clearTimeout(t); };
+  }, [search]);
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await api("addon_link", { platform, addon, base: to === "__none" ? null : to });
+      close();
+      ui.set((x) => ({ changes: (x.changes || 0) + 1 }));
+      onDone?.();
+    } catch (e) {
+      setError(err(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return html`<${Dialog} title="Link to another game" id="addon-link-dialog" onSubmit=${submit} busy=${busy || !to} error=${error} submitLabel="Link it">
+    <p>${addon}</p>
+    <label class="field">Find the game it belongs to
+      <input type="search" id="addon-link-search" class="compact" value=${search} placeholder="Its title" onInput=${(e) => setSearch(e.target.value)} /></label>
+    <select id="addon-link-to" class="compact" size="8" value=${to} onChange=${(e) => setTo(e.target.value)}>
+      <option value="__none">No game: it belongs to none</option>
+      ${found.map((x) => html`<option key=${x.key} value=${x.name}>${x.name}</option>`)}
+    </select>
+    <p class="muted">The link is kept in the library, and stays when the DATs change.</p>
+  <//>`;
+}
 
 /** Add games to a collection (a new one, or one there is), by hand. */
 function AddToCollection({ games }) {
@@ -473,6 +513,7 @@ function SaveAsCollection({ q }) {
 
 export function BrowseDialogs({ dialog }) {
   if (dialog.type === "lib-add") return html`<${AddToCollection} ...${dialog} />`;
+  if (dialog.type === "addon-link") return html`<${LinkAddon} ...${dialog} />`;
   if (dialog.type === "lib-save") return html`<${SaveAsCollection} ...${dialog} />`;
   return null;
 }

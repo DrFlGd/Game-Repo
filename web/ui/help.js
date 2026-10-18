@@ -15,6 +15,7 @@ export const TERMS = [
   ["full-set", "Full set (audit DAT)", "A system's complete list of games: the DAT imported on the Audit page for that system, which your files are checked against. Collections are always parts of the full sets."],
   ["have", "Have, partly, missing", "How much of a game your folders hold: every file the DAT lists, some of them, or none. A file matches a DAT's file by its hashes, not its name."],
   ["one-per-title", "One game per title (1G1R)", "Of a game's versions (regions, revisions), only the one first in your region order."],
+  ["addons", "Updates and DLC", "Updates, DLC and patches for a game, from a DAT of their own (No-Intro's \"Updates and DLC\") or tagged so in its name. Each belongs to the game with the same title and region; Link to another game… on its page puts one right. They're audited with their own DAT, shown with their game, and go with it into collections and exports."],
   ["change", "Change", "Anything that moves, copies, renames, converts or writes files: Organise, Rename these, Convert, Export, Import and the rest. Each is shown as a preview first, nothing happens until you press Run, every file written is read back and checked, and it can be undone from the message afterwards or from Settings › History."],
   ["set-aside", "Set aside", "What a change does instead of deleting: the file goes to a hidden .gamerepo-set-aside folder on the same drive, so Undo can bring it back. It's deleted only when you empty it (Settings › History)."],
   ["duplicates", "Duplicates", "More than one file for the same file of a DAT. Set aside duplicates keeps the one organising would keep and sets the others aside."],
@@ -43,7 +44,7 @@ export const PAGES = [
   ]],
   ["library", "Library", "Every game in the library, across systems, by its pictures and details.", [
     "Filter by system, genre, decade, players and more, search, and sort or group the list.",
-    "Open a game's page: its details from each source (Use this picks one), its pictures by kind, its files and documents; edit a detail by hand, or drop a file on it.",
+    "Open a game's page: its details from each source (Use this picks one), its pictures by kind, its files and documents, its updates and DLC; edit a detail by hand, or drop a file on it.",
     "Save as a collection… keeps the filters as a collection's rules.",
   ]],
   ["audit", "Audit", "Your folders with games checked against each system's full set: what you have, have in part, or are missing.", [
@@ -60,6 +61,7 @@ export const PAGES = [
     "New collection…: by rules, from folders (matched by hash, so the files' names don't matter), or from a DAT read where it is; a review shows the games found before it's made.",
     "Tick games or whole systems and Export these…, or Export… the whole collection; Update… and Check an export from its tab.",
     "Leave a game out by hand, or add one; set a size limit for a card; Save as DATs… for RomVault, clrmamepro or igir.",
+    "With their updates and DLC (a rule, on by default) takes the games' updates and DLC you have along; History lists each change to what's in it, and Undo puts one back.",
   ]],
   ["layouts", "Export layouts", "Where an export puts things for ES-DE, RetroArch, Pegasus, LaunchBox, Playnite, a device's firmware or a folder.", [
     "See a layout as a folder tree with a collection's games, change it, and Save as new…; edit its JSON, or bring one in.",

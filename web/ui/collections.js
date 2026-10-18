@@ -424,6 +424,7 @@ function RulesEditor({ c, onSave, off }) {
         <option value="none">Only the games added by hand</option>
       </select></label>
     <label class="check-row"><input type="checkbox" id="rule-1g1r" checked=${r.one_per_title} onChange=${(e) => set({ one_per_title: e.target.checked })} /> One game per title (1G1R)</label>
+    <label class="check-row"><input type="checkbox" id="rule-addons" checked=${r.with_addons !== false} onChange=${(e) => set({ with_addons: e.target.checked })} /> With their updates and DLC <span class="muted">(the ones you have, exported beside their game)</span></label>
     <div class="rule-pair">
       <label class="field-block"><span class="field-label">Regions, first preferred</span>${text("regions", r.regions.join(", "))}</label>
       <label class="check-row"><input type="checkbox" id="rule-only-regions" checked=${r.only_regions} onChange=${(e) => set({ only_regions: e.target.checked })} /> Only these regions</label>
@@ -515,6 +516,44 @@ function Properties({ c, sum, off, onSave, onPick }) {
 }
 
 // ------------------------------------------------------------ exports
+
+const HOW = { made: "Made", hand: "By hand", rules: "Rules changed", read: "Read again", undo: "Undone" };
+
+/** A collection's history (D67): each change to what's in it, newest first, with Undo. */
+function History({ c, off, onChange }) {
+  const [steps, setSteps] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  useEffect(() => { api("collection_history", { id: c.id }).then((r) => setSteps(r.steps)).catch((e) => setError(err(e))); }, [c.id, c.modified]);
+  const undo = async (s) => {
+    setBusy(s.id);
+    setError("");
+    try {
+      setSteps((await api("collection_undo", { id: c.id, step: s.id })).steps);
+      onChange();
+    } catch (e) {
+      setError(err(e));
+    } finally {
+      setBusy("");
+    }
+  };
+  const names = (list, n) => {
+    const shown = (list || []).map((k) => k.split("/").slice(1).join("/"));
+    return shown.length < n ? `${shown.join(", ")} and ${(n - shown.length).toLocaleString()} more` : shown.join(", ");
+  };
+  return html`<section class="ls-section" id="collection-history"><h2>History</h2>
+    <p class="muted">Each change to what's in it. Undo puts a change back as a change of its own; a change of its rules, or reading it again, can be undone newest first.</p>
+    ${error ? html`<p class="warn-note" role="alert">${error}</p>` : null}
+    ${!steps ? html`<p class="muted">Reading…</p>` : !steps.length ? html`<p class="muted" id="collection-history-none">No changes kept yet.</p>` : html`<ul class="ls-list" id="collection-history-list">
+      ${steps.map((s) => html`<li key=${s.id} data-how=${s.how} data-undone=${s.undone ? "yes" : "no"}>
+        <span class="op-paths"><span><b>${HOW[s.how] || s.how}</b> <span class="muted">${new Date(s.at).toLocaleString()}${s.undone ? " · undone" : ""}</span></span>
+          ${s.added_count ? html`<span class="muted history-added">Added ${plural(s.added_count, "game", "games")}: ${names(s.added, s.added_count)}</span>` : null}
+          ${s.removed_count ? html`<span class="muted history-removed">Took out ${plural(s.removed_count, "game", "games")}: ${names(s.removed, s.removed_count)}</span>` : null}
+          ${!s.added_count && !s.removed_count ? html`<span class="muted">The same games.</span>` : null}</span>
+        ${s.can_undo ? html`<button type="button" class="ghost compact" data-action="undo" disabled=${off || !!busy} onClick=${() => undo(s)}>${busy === s.id ? "Undoing…" : "Undo"}</button>` : null}
+      </li>`)}</ul>`}
+  </section>`;
+}
 
 function Exports({ c, sum, exports, off, onChange }) {
   const [checks, setChecks] = useState({});
@@ -726,7 +765,7 @@ export function Collections() {
     </div></div>`;
   }
   const limit = c?.size_limit || 0;
-  const views = [["games", "Games"], ["rules", c?.made_from ? "Made from" : "Rules"], ["size", "Size"], ["exports", "Exports", exports.filter((e) => e.collection === c?.id).length]];
+  const views = [["games", "Games"], ["rules", c?.made_from ? "Made from" : "Rules"], ["size", "Size"], ["exports", "Exports", exports.filter((e) => e.collection === c?.id).length], ["history", "History"]];
   const sysTabs = sum && sum.systems.length > 1 ? [["", "All", sum.games], ...sum.systems.map((x) => [x.platform, x.name, x.games])] : [];
   const sysName = platform && sum?.systems.find((x) => x.platform === platform)?.name;
   return html`${head}<div class="pages collections-page" id="collections-page">
@@ -741,7 +780,7 @@ export function Collections() {
         ${!c ? html`<p class="muted">Reading the collection…</p>` : html`
         <div class="collection-top">
           <h2 id="collection-title">${c.name}</h2>
-          <p id="collection-totals"><b id="collection-games">${sum.games}</b> games, <b id="collection-have">${sum.have}</b> you have${sum.removed ? html`, ${sum.removed} left out by hand` : null}${` · ${plural(sum.systems.length, "system", "systems")} · ${size(sum.size)}`}${limit ? html` <span class=${sum.size > limit ? "fit over" : "fit"} id="collection-fit-line">${sum.size > limit ? `over its ${size(limit)} limit by ${size(sum.size - limit)}` : `of ${size(limit)}, fits`}</span>` : null}</p>
+          <p id="collection-totals"><b id="collection-games">${sum.games}</b> games, <b id="collection-have">${sum.have}</b> you have${sum.removed ? html`, ${sum.removed} left out by hand` : null}${sum.addons ? html`, <span id="collection-addons">${plural(sum.addons, "update or DLC", "updates and DLC")}</span>` : null}${` · ${plural(sum.systems.length, "system", "systems")} · ${size(sum.size)}`}${limit ? html` <span class=${sum.size > limit ? "fit over" : "fit"} id="collection-fit-line">${sum.size > limit ? `over its ${size(limit)} limit by ${size(sum.size - limit)}` : `of ${size(limit)}, fits`}</span>` : null}</p>
           ${sum.no_dat.map((x) => html`<p class="warn-note" key=${x.platform}>${x.name} has no DAT, so its games aren't known.</p>`)}
           ${sum.missing_dats.map((x) => html`<p class="warn-note" key=${x}>The DAT ${x} isn't in the library any more.</p>`)}
         </div>
@@ -786,6 +825,7 @@ export function Collections() {
           </section></div>` : null}
         ${view === "size" ? html`<${Properties} c=${c} sum=${sum} off=${off} onSave=${quietly} onPick=${(p) => { setPlatform(p); setTab("in"); setView("games"); }} />` : null}
         ${view === "exports" ? html`<${Exports} c=${c} sum=${sum} exports=${exports} off=${off} onChange=${again} />` : null}
+        ${view === "history" ? html`<${History} c=${c} off=${off} onChange=${again} />` : null}
         `}
       </div>
     </div>

@@ -87,6 +87,13 @@ Where Redump has renamed a DAT, both names are listed; libretro's copies use the
 | `gc` | Nintendo GameCube | Nintendo - GameCube | GameCube, GC, NGC, Nintendo GameCube | .iso, **.gcm**, .rvz, .gcz, **.ciso** | RVZ |
 | `wii` | Nintendo Wii | Nintendo - Wii | Wii, Nintendo Wii | .iso, **.wbfs**, .rvz, **.wia**, .gcz | RVZ |
 | `xbox` | Xbox | Microsoft - Xbox | Xbox, Microsoft Xbox | .iso, **.xiso** | audited only |
+| `n3ds` | Nintendo 3DS | Nintendo - Nintendo 3DS | 3DS, N3DS, Nintendo 3DS | **.3ds**, **.cia**, **.cci**, **.cxi** | audited only; updates and DLC tied to their game (D66) |
+| `wiiu` | Nintendo Wii U | Nintendo - Wii U | Wii U, WiiU, Nintendo Wii U | **.wua**, **.wux**, **.wud**, **.rpx** | audited only; updates and DLC tied to their game (D66) |
+| `switch` | Nintendo Switch | Nintendo - Nintendo Switch | Switch, NSW, Nintendo Switch | **.nsp**, **.xci**, **.nsz**, **.xcz** | audited only; updates and DLC tied to their game (D66) |
+| `ps3` | PlayStation 3 | Sony - PlayStation 3 | PS3, PlayStation 3, Sony PlayStation 3 | .iso, .pkg | audited only; updates and DLC tied to their game (D66) |
+| `ps4` | PlayStation 4 | Sony - PlayStation 4 | PS4, PlayStation 4, Sony PlayStation 4 | .pkg | audited only; updates and DLC tied to their game (D66) |
+| `psvita` | PlayStation Vita | Sony - PlayStation Vita | PS Vita, PSVita, Vita, PlayStation Vita, Sony PlayStation Vita | **.vpk**, .pkg | audited only; updates and DLC tied to their game (D66) |
+| `xbox360` | Xbox 360 | Microsoft - Xbox 360 | Xbox 360, X360, Microsoft Xbox 360 | .iso, **.xex** | audited only; updates and DLC tied to their game (D66) |
 | `mame` | Arcade (MAME) | MAME (any DAT whose name starts with MAME, and MAME's own `-listxml`) | MAME, Arcade | .zip, .7z, .chd | arcade (Phase 7): ZIPs by set type |
 | `fbneo` | Arcade (FinalBurn Neo) | FinalBurn Neo - Arcade Games, FBNeo - Arcade Games (and FBNeo's arcade and Neo Geo DATs) | FBNeo, FinalBurn Neo, FBA | .zip, .7z | arcade (Phase 7): ZIPs by set type |
 

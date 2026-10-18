@@ -189,6 +189,11 @@ const MIGRATIONS: &[(&str, &str)] = &[
          ALTER TABLE files ADD COLUMN chd_sha1 TEXT;
          CREATE INDEX files_chd ON files (chd_sha1) WHERE chd_sha1 IS NOT NULL;",
     ),
+    (
+        "add-ons",
+        // Phase 8b (D66): how many of a game's updates, DLC and patches you have
+        "ALTER TABLE library ADD COLUMN addons INTEGER NOT NULL DEFAULT 0;",
+    ),
 ];
 
 /// How many schema steps this build knows.

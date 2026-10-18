@@ -30,6 +30,39 @@ const ORDER = ["cover", "box3d", "back", "screenshot", "titlescreen", "fanart", 
 const FIELDS = [["title", "Title"], ["year", "Year"], ["released", "Release date"], ["developer", "Developer"], ["publisher", "Publisher"], ["genres", "Genres"], ["players", "Players"], ["rating", "Rating"], ["description", "Description"]];
 const isVideo = (rel) => /\.(mp4|webm|mkv|avi)$/i.test(rel || "");
 
+const ADDON_KINDS = { update: "Update", dlc: "DLC", patch: "Patch" };
+
+/** A game's updates, DLC and patches (D66): which you have and their versions, each one
+ *  movable to another game, and the system's ones that belong to no game, to link here. */
+function Addons({ g, dat, off, onChange }) {
+  const a = g.addons;
+  const [pick, setPick] = useState("");
+  const link = async (addon, base, clear = false) => {
+    try {
+      await api("addon_link", { platform: g.platform, addon, base, clear });
+      ui.set((x) => ({ changes: (x.changes || 0) + 1 }));
+      await onChange();
+    } catch (e) {
+      toast(`Couldn't link it: ${err(e)}`, 8000);
+    }
+  };
+  return html`<section class="ls-section" id="game-addons"><h2>Updates and DLC</h2>
+    ${a.items.length ? html`<p class="muted" id="game-addons-have">${g.kind === "pc" ? "Its patches and DLC, in its folder." : `You have ${a.have.toLocaleString()} of ${a.items.length.toLocaleString()}.`}</p>
+      <ul class="ls-list">${a.items.map((x) => html`<li key=${x.name} data-status=${x.status} data-kind=${x.kind}>
+        <span class="op-paths"><span class="op-to">${x.name}</span>
+          <span class="muted">${[ADDON_KINDS[x.kind] || x.kind, x.version, dat ? (x.status === "have" ? "you have it" : x.status === "partial" ? "some of its files" : "you don't have it") : null, x.by_hand ? "linked by hand" : null].filter(Boolean).join(" · ")}</span></span>
+        ${dat ? html`<span class="seg">
+          <button type="button" class="ghost compact" disabled=${off} onClick=${() => ui.set({ dialog: { type: "addon-link", platform: g.platform, addon: x.name, from: g.name, onDone: onChange } })}>Link to another game…</button>
+          ${x.by_hand ? html`<button type="button" class="ghost compact" disabled=${off} title="Go back to the game its name says" onClick=${() => link(x.name, null, true)}>Undo the link</button>` : null}</span>` : null}</li>`)}</ul>`
+      : html`<p class="muted">None of its system's updates or DLC belong to it.</p>`}
+    ${dat && a.loose.length ? html`<p class="addon-loose"><label>Not linked to a game:
+      <select id="game-addon-loose" class="compact" value=${pick} onChange=${(e) => setPick(e.target.value)}>
+        <option value="">${a.loose.length.toLocaleString()} to choose from</option>
+        ${a.loose.map((n) => html`<option key=${n} value=${n}>${n}</option>`)}</select></label>
+      <button type="button" class="ghost compact" id="game-addon-link-here" disabled=${off || !pick} onClick=${() => link(pick, g.name).then(() => setPick(""))}>Link to this game</button></p>` : null}
+  </section>`;
+}
+
 /** The key in the address. */
 export const keyFromHash = (hash = location.hash) => hash.replace(/^#\/game\//, "").split("?")[0].split("/").map(decodeURIComponent).join("/");
 
@@ -247,6 +280,7 @@ export function GamePage() {
     </section>` : null}
     ${g.review?.length ? html`<section class="ls-section" id="game-review"><h2>Which game is it?</h2>
       <p class="muted">A scrape wasn't sure of this one: <a href=${routeHash("metadata")}>the Metadata page</a> lists what it found, to pick from.</p></section>` : null}
+    ${g.addons && (g.addons.items.length || (dat && g.addons.loose.length)) ? html`<${Addons} g=${g} dat=${dat} off=${off} onChange=${reload} />` : null}
     <section class="ls-section" id="game-docs"><h2>Documents</h2>
       ${g.docs?.length ? html`<ul class="ls-list">${g.docs.map((x) => html`<li key=${x.id} data-kind=${x.kind}><button type="button" class="linkish" onClick=${() => viewDoc(x.id)}>${x.title}</button><span class="muted">${x.kind_name}${x.source ? ` · ${sourceName(x.source)}` : ""}</span></li>`)}</ul>`
         : html`<p class="muted">None yet.${dat ? " Attach your own (or drop files on this page), or scrape its manual." : pc ? " Attach your own (or drop files on this page): a manual, a guide, a map." : ""}</p>`}

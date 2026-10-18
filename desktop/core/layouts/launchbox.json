@@ -185,6 +185,34 @@
       "folder": "Microsoft Xbox",
       "name": "Microsoft Xbox"
     },
+    "n3ds": {
+      "folder": "Nintendo 3DS",
+      "name": "Nintendo 3DS"
+    },
+    "wiiu": {
+      "folder": "Nintendo Wii U",
+      "name": "Nintendo Wii U"
+    },
+    "switch": {
+      "folder": "Nintendo Switch",
+      "name": "Nintendo Switch"
+    },
+    "ps3": {
+      "folder": "Sony Playstation 3",
+      "name": "Sony Playstation 3"
+    },
+    "ps4": {
+      "folder": "Sony Playstation 4",
+      "name": "Sony Playstation 4"
+    },
+    "psvita": {
+      "folder": "Sony Playstation Vita",
+      "name": "Sony Playstation Vita"
+    },
+    "xbox360": {
+      "folder": "Microsoft Xbox 360",
+      "name": "Microsoft Xbox 360"
+    },
     "mame": {
       "folder": "Arcade",
       "name": "Arcade"

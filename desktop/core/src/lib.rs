@@ -34,6 +34,7 @@
 //! The layout, the phases and every design decision are in docs/PLAN.md.
 
 pub mod addgame;
+pub mod addons;
 pub mod api;
 pub mod arcade;
 pub mod archive;
@@ -48,6 +49,7 @@ pub mod dat;
 pub mod docs;
 pub mod export;
 pub mod hash;
+pub mod history;
 pub mod identify;
 pub mod image;
 pub mod index;
