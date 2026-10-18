@@ -417,7 +417,7 @@ impl App {
         if ["pc_", "identify_", "sources", "launchbox_", "steam_", "add_"].iter().any(|p| cmd.starts_with(p)) {
             return self.pc_call(cmd, args).await;
         }
-        if ["meta_", "scrape_", "docs_", "browse"].iter().any(|p| cmd.starts_with(p)) {
+        if ["meta_", "scrape_", "docs_", "browse", "addon_"].iter().any(|p| cmd.starts_with(p)) {
             return self.meta_call(cmd, args).await;
         }
         if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
@@ -1984,6 +1984,11 @@ mod tests {
         )
         .await;
         assert_eq!(call(&app, "app_info", json!({})).await["first_run"], false);
+        // Phase 8b's calls reach their commands
+        let e = app.call("addon_link", json!({ "platform": "gb", "addon": "Nothing (USA) (DLC)" })).await.err().unwrap();
+        assert!(e.contains("isn't an update"), "{e}");
+        let e = app.call("collection_history", json!({ "id": "none" })).await.err().unwrap();
+        assert!(e.contains("There's no collection"), "{e}");
         let _ = std::fs::remove_dir_all(&home);
     }
 
