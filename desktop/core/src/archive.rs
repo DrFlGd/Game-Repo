@@ -280,6 +280,11 @@ pub fn each(path: &Path, cancel: &AtomicBool, f: &mut dyn FnMut(&str, u64, &mut 
 
 /// The same, for the members `want` names (others are skipped, or read past in a ZIP, 7z or RAR).
 pub fn each_wanted(path: &Path, want: &dyn Fn(&str) -> bool, cancel: &AtomicBool, f: &mut dyn FnMut(&str, u64, &mut dyn Read) -> io::Result<()>) -> io::Result<()> {
+    each_wanted_as(path, container_of(&path.to_string_lossy()).unwrap_or("zip"), want, cancel, f)
+}
+
+/// The same, for an archive of the kind given whatever its name (a CBZ is a ZIP, a CBR a RAR).
+pub fn each_wanted_as(path: &Path, kind: &str, want: &dyn Fn(&str) -> bool, cancel: &AtomicBool, f: &mut dyn FnMut(&str, u64, &mut dyn Read) -> io::Result<()>) -> io::Result<()> {
     let mut f = |name: &str, size: u64, r: &mut dyn Read| -> io::Result<()> {
         if want(name) {
             f(name, size, r)
@@ -288,7 +293,7 @@ pub fn each_wanted(path: &Path, want: &dyn Fn(&str) -> bool, cancel: &AtomicBool
         }
     };
     let f = &mut f;
-    match container_of(&path.to_string_lossy()).unwrap_or("zip") {
+    match kind {
         kind @ ("chd" | "cso" | "zso" | "rvz") => crate::image::each_wanted(path, kind, want, cancel, f),
         "7z" => {
             let mut r = sevenz_rust2::ArchiveReader::open(path, sevenz_rust2::Password::empty()).map_err(seven_error)?;

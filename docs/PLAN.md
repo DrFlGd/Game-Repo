@@ -2749,6 +2749,33 @@ D66 and D67 as written, with these choices made in the build:
   (off the left-out list, and added by hand only if the rules don't bring them in).
   Making a collection is a step that can't be undone.
 
+### Phase 8c notes (built 2026-10-18)
+
+D68 as written, with these choices made in the build:
+- **Names.** `magazines.rs` reads a file's magazine, number and date from its name: a
+  number (leading zeros dropped), then a date as `(YYYY-MM)`, `YYYY-MM` or a month and
+  year (`Apr1993`). A name that's only a number or a date takes its folder's name as the
+  magazine. An issue is named `<Title> <number to three places> (<YYYY-MM>).<ext>`; a file
+  the library already has (by SHA1) is shown as *Have it* and left unticked.
+- **Bringing in** is a plan of kind `magazines` (copy, or hardlink on the same drive),
+  writing each magazine's `magazine.json` last, so Undo takes the files and the list
+  back together. The issues are indexed as documents of the kind Magazine from their
+  `magazine.json` (only the files it lists), so they're searched and filtered with the
+  documents; their title and kind are changed on the Magazines page only.
+- **Covers and pages.** A cover is a picture chosen for it (copied into the magazine's
+  `covers/`), else a CBZ's or CBR's first picture in natural order, else a PDF's first
+  page when that page is a single JPEG, else a plain cover drawn with its magazine's name,
+  number and date; covers and comic pages are cached under the data
+  folder's `thumbs/<library id>/` (never in the library) and served as `~cover/<path>`
+  and `~page/<n>/<path>`. Dropping a picture on the page sets the focused issue's cover;
+  dropping anything else imports it.
+- **Lists** are kept in `_library/dats/magazines/`: a CSV of magazine, number, date (a
+  header line is passed over), or a DAT whose games are issues, matched by SHA1, else by
+  magazine and number. *Save as a list* writes the missing to
+  `_library/reports/Magazines missing … .csv` in the same CSV shape.
+- **Exports** carry them with a tick in *What it carries* (any layout): each magazine's
+  issues and covers in `Magazines/<Title>/` in the export's folder.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -2883,7 +2910,7 @@ D66 and D67 as written, with these choices made in the build:
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D69). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D67 followed as built ("Phase 8a notes", "Phase 8b notes").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D70). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18): in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field.
 
 ---
 

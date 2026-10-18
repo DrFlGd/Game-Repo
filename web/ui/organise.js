@@ -36,7 +36,7 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting", import: "Importing", add: "Adding", bring: "Bringing in games", docs: "Bringing in documents", metadata: "Deleting metadata" })[kind] || "Organising";
+const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Extracting", export: "Exporting", import: "Importing", add: "Adding", bring: "Bringing in games", docs: "Bringing in documents", magazines: "Bringing in magazines", metadata: "Deleting metadata" })[kind] || "Organising";
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
 export const organiseDialog = (opts) => ui.set({ dialog: { type: "organise", ...opts } });
@@ -123,7 +123,7 @@ export async function runPlan(plan) {
 /** The totals of a plan: what each kind of step does, and what's left alone. */
 function Totals({ plan }) {
   return html`<div class="organise-totals" id="organise-totals">
-    <p><b>${plural(plan.games, "game", "games")}</b> to ${plan.kind === "export" ? "export" : plan.kind === "bring" ? "bring in" : "change"}${plan.in_place ? html`, <span class="muted">${plan.in_place} already in place</span>` : null}.</p>
+    <p><b>${plan.kind === "magazines" ? plural(plan.games, "issue", "issues") : plural(plan.games, "game", "games")}</b> to ${plan.kind === "export" ? "export" : plan.kind === "bring" || plan.kind === "magazines" ? "bring in" : "change"}${plan.in_place ? html`, <span class="muted">${plan.in_place} already in place</span>` : null}.</p>
     ${plan.by_op.length ? html`<ul class="ls-list">${plan.by_op.map((o) => html`<li key=${o.op} data-op=${o.op}><span>${OPS[o.op] || o.op}: ${plan.kind === "folders" ? plural(o.count, "folder", "folders") : plural(o.count, "file", "files")}</span><span class="muted">${size(o.bytes)}</span></li>`)}</ul>` : null}
     ${plan.set_aside ? html`<p class="muted">${plural(plan.set_aside, "file is", "files are")} set aside in <code>.gamerepo-set-aside</code> at the top of ${plan.set_aside === 1 ? "its" : "their"} folder, until you empty it (Settings › History).</p>` : null}
     ${plan.out ? html`<p class="muted">Into <span class="op-to" title=${plan.out}>${shortPath(plan.out, 3)}</span>${plan.new_root ? ", which becomes a folder with games" : ""}.</p>` : null}

@@ -28,6 +28,7 @@ export const TERMS = [
   ["picture-kinds", "Picture kinds and variants", "Each kind of picture (box, screenshot, title screen, logo…) can come from several sources. One per source is kept; the one chosen is what the game shows and what an export takes."],
   ["game-library-folder", "A game's library folder", "Where a game's details, pictures and documents are kept: _library/games/<system>/<the DAT's name for it>/. It follows the game by its files' hashes, so renaming a ROM doesn't lose anything."],
   ["documents", "Documents", "Guides, FAQs, manuals, maps, posters and scans of your own, kept with their games (or by system) and searchable by their words."],
+  ["magazines", "Magazines", "Issues of game magazines (PDF, CBZ or CBR), kept by magazine in the library's Magazines folder, each with its number, date and cover. A list of issues (a CSV or a DAT) says which ones you're missing."],
   ["bios", "BIOS files", "The firmware files emulators need, audited against libretro's list and kept in the library's BIOS folder. The app never downloads them or says where to get them."],
   ["arcade", "Arcade sets", "MAME's and FinalBurn Neo's games: a ZIP per machine named by its short name (sf2.zip), clones leaning on their parents, BIOS sets (neogeo.zip) and devices as ZIPs of their own, hard disks as CHDs in a folder named for the machine, and sounds in samples/. BIOS sets and devices aren't counted as games."],
   ["set-type", "Set type", "How an arcade system's ZIPs are made up: non-merged (every game's ZIP holds all it needs but its BIOS's), split (a clone's ZIP holds only what its parent's doesn't) or merged (a parent's ZIP holds its clones' too). Chosen on the Audit page or in Settings › Systems; Organise builds ZIPs that way, and an export is always non-merged."],
@@ -77,6 +78,11 @@ export const PAGES = [
   ]],
   ["documents", "Documents", "Your guides, manuals and other documents, searchable and readable here.", [
     "Search their words, read them beside the list, filter by kind; Import documents… pairs files with games for you to check first.",
+  ]],
+  ["magazines", "Magazines", "Your magazines, each issue by its cover, readable here.", [
+    "Import magazines… from files or a folder: each file's magazine, number and date are read from its name for you to check, then brought in (copied or linked, with Undo).",
+    "Open an issue to read it (a PDF, or a comic book a page at a time); give it a cover by dropping a picture on it; Add a list… to see what's missing, and save that as a list.",
+    "An export can carry the magazines into a Magazines folder (What it carries in the Export dialog).",
   ]],
   ["settings", "Settings", "How the app works for this library and this computer.", [
     "Sources and their keys, tools (chdman, dolphin-tool, innoextract), systems added by hand, naming and preferred formats.",

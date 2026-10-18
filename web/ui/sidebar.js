@@ -35,6 +35,7 @@ export function Sidebar() {
         <${NavLink} route="pc" label="PC games" icon="monitor" current=${s.route} off=${!s.open} />
         <${NavLink} route="metadata" label="Metadata" icon="scrape" current=${s.route} off=${!s.open} />
         <${NavLink} route="documents" label="Documents" icon="book" current=${s.route} off=${!s.open} />
+        <${NavLink} route="magazines" label="Magazines" icon="stack" current=${s.route} off=${!s.open} />
       </ul>
       ${Object.keys(COMING).length ? html`<p class="nav-head">Coming</p>
       <ul class="nav-list" id="coming-pages">

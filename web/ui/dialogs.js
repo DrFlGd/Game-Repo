@@ -14,6 +14,7 @@ import { CollectionDialogs } from "./collections.js";
 import { PcDialogs } from "./pcgames.js";
 import { MetaDialogs } from "./metadata.js";
 import { DocDialogs } from "./documents.js";
+import { MagazineDialogs } from "./magazines.js";
 import { BiosDialogs } from "./bios.js";
 import { LayoutDialogs } from "./layouts.js";
 import { BrowseDialogs } from "./browse.js";
@@ -185,5 +186,5 @@ export function Dialogs() {
   if (dialog.type === "make-dat") return html`<${MakeDatDialog} ...${dialog} />`;
   if (dialog.type === "organise") return html`<${OrganiseDialog} key=${dialog.plan?.id || "new"} ...${dialog} />`;
   if (dialog.type === "convert") return html`<${ConvertDialog} ...${dialog} />`;
-  return SystemDialogs({ dialog }) || CollectionDialogs({ dialog }) || PcDialogs({ dialog }) || MetaDialogs({ dialog }) || DocDialogs({ dialog }) || BiosDialogs({ dialog }) || LayoutDialogs({ dialog }) || BrowseDialogs({ dialog });
+  return SystemDialogs({ dialog }) || CollectionDialogs({ dialog }) || PcDialogs({ dialog }) || MetaDialogs({ dialog }) || DocDialogs({ dialog }) || MagazineDialogs({ dialog }) || BiosDialogs({ dialog }) || LayoutDialogs({ dialog }) || BrowseDialogs({ dialog });
 }

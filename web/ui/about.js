@@ -48,9 +48,9 @@ const DONE = [
   ["Phase 5b", "Exports to your handhelds' SD cards (muOS, Knulli, ROCKNIX, ES-DE on Android or Linux) in layouts you can copy and change in a visual editor, and BIOS files audited, gathered and exported with the games"],
   ["Phase 6", "The Library: every game across the systems by its covers, in a grid, list or table, searched and filtered by its details and saved as a collection; a page for each game where its details are changed by hand and kept over scrapes"],
   ["Phase 7", "Arcade sets from MAME and FinalBurn Neo: BIOS sets, devices, disks and samples audited, what's playable, sets kept non-merged, split or merged, and exports that carry what each game needs"],
+  ["Phase 8", "Exports to RetroArch, Pegasus, LaunchBox and Playnite; updates, DLC and patches kept with their game; a collection's history with Undo; and a collection of magazines, read here and checked against lists of issues"],
 ];
 export const NEXT = [
-  ["Phase 8", "Exports to RetroArch, Pegasus, LaunchBox and Playnite; updates, DLC and patches kept with their game; a collection's history with Undo; and a collection of magazines", true],
   ["Phase 9", "Serving games to your other devices: Android, Linux and handhelds on your home network"],
 ];
 
