@@ -627,7 +627,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets, add-ons, magazines | RetroArch playlists, Pegasus, Playnite and LaunchBox exports (8a); updates, DLC and patches with their base game (D56) and a collection's history (D52) (8b); magazines (3.8, D31) (8c). MobyGames dropped (Jerred, 2026-10-18). |
 | **9** | Serve to devices | The app as a server on the home network (3.10): browse and download from a browser, a read-only WebDAV view, device profiles for Android, Linux and handheld firmwares, and sync of a collection to a device with verification. Needs Phase 3's collections and export; can move ahead of 4–8. |
-| **Later** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). |
+| **Later** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). It reads every format Magazines imports: a PDF's pages and a CBZ's or CBR's images alike. |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
 reordered.
@@ -2979,6 +2979,8 @@ fixdat gets a plain label with the term in its tooltip.
 
 **Later (roadmap):** magazine OCR (text read from scanned issues, so they're searchable as
 documents are) and tagging an issue with the games it covers, linked from each game's page.
+The OCR reads every format an issue can be in: a PDF's pages, and the images in a CBZ or
+CBR (Jerred, 2026-10-18).
 
 ### UI pass 3 notes (built 2026-10-18)
 
