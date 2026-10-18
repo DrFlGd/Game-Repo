@@ -158,8 +158,8 @@ export const libraryUrl = (rel) => ctx.platform.library?.url(rel);
 
 /** Wait for a background job (scanning, checking), showing it in the status bar.
  *  `onProgress(job)` sees each poll. Resolves with the finished job. */
-export async function followJob(id, label, onProgress) {
-  const done = addJob(label, () => api("job_cancel", { id }));
+export async function followJob(id, label, onProgress, open) {
+  const done = addJob(label, () => api("job_cancel", { id }), open);
   try {
     for (;;) {
       const job = await api("job", { id });

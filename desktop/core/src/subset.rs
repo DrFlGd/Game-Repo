@@ -373,7 +373,7 @@ pub struct Import {
 /// its name. A folder chosen outside every folder with games becomes one for its system.
 /// Copying never changes the folders read (D5); byte-identical copies of a file are
 /// imported once.
-pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool) -> Result<organise::Plan> {
+pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, progress: &mut dyn FnMut(Value)) -> Result<organise::Plan> {
     lib.writable()?;
     let conn = ix.conn();
     let mut q = conn.prepare("SELECT g.name, d.platform, (SELECT COUNT(*) FROM dat_roms r WHERE r.game_id = g.id AND COALESCE(r.status, '') <> 'nodump'), (SELECT r.name FROM dat_roms r WHERE r.game_id = g.id LIMIT 1) FROM dat_games g JOIN dats d ON d.id = g.dat_id WHERE g.id = ?1")?;
@@ -412,7 +412,18 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool) 
             member: None, size, crc32: h.crc32, sha1: h.sha1,
         })
     };
+    let items = imp.games.len() + imp.files.iter().map(|(_, f)| f.len()).sum::<usize>();
+    let mut item = 0;
+    let mut step = |progress: &mut dyn FnMut(Value)| -> Result<()> {
+        if cancel.load(Ordering::Relaxed) {
+            bail!("Stopped.");
+        }
+        progress(json!({ "text": "Checking the files", "item": item, "items": items }));
+        item += 1;
+        Ok(())
+    };
     for (id, files) in &imp.games {
+        step(progress)?;
         let (game, platform, roms, first_rom): (String, String, i64, Option<String>) = q.query_row([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).with_context(|| format!("There's no DAT game {id}."))?;
         let Some(place) = place_of(&platform) else {
             left.push(nowhere(&platform, &game));
@@ -461,6 +472,7 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool) 
             bail!("There's no system {platform} to import them into.");
         }
         for f in files {
+            step(progress)?;
             let game = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
             let Some(place) = place_of(platform) else {
                 left.push(nowhere(platform, &game));
@@ -610,7 +622,7 @@ mod tests {
             .map(|g| (g["id"].as_i64().unwrap(), g["files"].as_array().unwrap().iter().map(|f| PathBuf::from(f.as_str().unwrap())).collect()))
             .collect();
         assert_eq!(lacking.len(), 2, "{r}");
-        let plan = bring_plan(&ix, &lib, &Import { games: lacking, ..Default::default() }, &none).unwrap();
+        let plan = bring_plan(&ix, &lib, &Import { games: lacking, ..Default::default() }, &none, &mut |_| {}).unwrap();
         let mut to: Vec<String> = plan.ops.iter().map(|o| Path::new(&o.to).file_name().unwrap().to_string_lossy().into_owned()).collect();
         to.sort();
         assert_eq!(to, ["Alpha (USA).gb", "Zeta (Japan).gb"]);
@@ -655,13 +667,13 @@ mod tests {
             .map(|g| (g["id"].as_i64().unwrap(), g["files"].as_array().unwrap().iter().map(|f| PathBuf::from(f.as_str().unwrap())).collect()))
             .collect();
         let files = vec![("gamegear".to_string(), vec![src.join("homebrew.gg")])];
-        let asked = bring_plan(&ix, &lib, &Import { games: games.clone(), files: files.clone(), ..Default::default() }, &none).unwrap();
+        let asked = bring_plan(&ix, &lib, &Import { games: games.clone(), files: files.clone(), ..Default::default() }, &none, &mut |_| {}).unwrap();
         assert!(asked.left.iter().any(|l| l["why"].as_str().unwrap().contains("Choose where Sega Game Gear's games go")), "{:?}", asked.left);
         assert!(asked.ops.iter().all(|o| !o.to.contains("Champion")));
         // a folder chosen for it becomes a folder with games for the Game Gear; moved, not copied
         let gg_dir = dir.join("Games/Game Gear");
         let imp = Import { games, files, places: [("gamegear".to_string(), gg_dir.clone())].into(), mode: "move".into(), ..Default::default() };
-        let plan = bring_plan(&ix, &lib, &imp, &none).unwrap();
+        let plan = bring_plan(&ix, &lib, &imp, &none, &mut |_| {}).unwrap();
         let mut to: Vec<String> = plan.ops.iter().map(|o| o.to.replace('\\', "/")).collect();
         to.sort();
         let at = |p: &Path| p.to_string_lossy().replace('\\', "/");

@@ -3082,6 +3082,14 @@ always copy, or move. Files no DAT knows are grouped by folder, each taken as th
 `platforms::guess` gives it, and they come in under their own names. *One game…* uses the
 same places and gains *always copy*.
 
+Jerred, later the same day: work that runs after Read or Preview must not be lost by
+clicking away. The import's place is kept outside its window, so closing the window loses
+nothing and *From a folder…* reopens it there. Checking the files is a job like reading
+them. While either runs, the window shows its progress with *Stop* and *Run in the
+background*. The status bar's entry for that job reopens the window, and a message with
+*Show* says when the result is ready. The page behind the window doesn't close it
+(`Dialog`'s `sticky`).
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been

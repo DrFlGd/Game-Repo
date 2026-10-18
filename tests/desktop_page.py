@@ -1061,16 +1061,24 @@ async def main():
             await pg.wait_for_selector('#import-places li[data-platform="gb"][data-dir]:not([data-dir=""])')
             place = await pg.get_attribute('#import-places li[data-platform="gb"]', "data-dir")
             await pg.screenshot(path=str(out / "23d-import-review.png"))
+            # the window stays when the page behind it is clicked; closed, it comes back where it was
+            await pg.mouse.click(5, 5)
+            stayed = await pg.query_selector("#import-games-review") is not None
+            await pg.click('#import-games-review .dialog-head button[aria-label="Close"]')
+            await pg.wait_for_selector("#import-games-review", state="detached")
+            await pg.click("#import-games")
+            await pg.wait_for_selector("#import-games-review")
+            kept = await pg.input_value('#import-games-unknown li[data-folder="Wanted"] select')
             await pg.click("#import-games-review button[type=submit]")
             await pg.wait_for_selector("#bring-dialog #organise-totals")
             await pg.screenshot(path=str(out / "23d-bring-in.png"))
             await pg.click("#bring-dialog button[type=submit]")
             said = await toast_text(pg, "Imported 2 games into the library")
             brought = [x for x in (fx / "Roms").rglob("Alpha (Europe).gb") if ".gamerepo-set-aside" not in x.parts]
-            check("Import offers every system or one, and copy, always copy or move; each system's games go to the folder its games are in, and a file no DAT knows to its folder's system",
-                  systems_offered[0].startswith("Every system") and "Game Boy" in systems_offered and unknown_as == "gb" and len(brought) == 1
+            check("Import offers every system or one, and copy, always copy or move; its window stays put and comes back where it was; each system's games go to the folder its games are in, and a file no DAT knows to its folder's system",
+                  systems_offered[0].startswith("Every system") and "Game Boy" in systems_offered and unknown_as == "gb" and stayed and kept == "gb" and len(brought) == 1
                   and brought[0].parent == Path(place) and (Path(place) / "homebrew.gb").is_file() and os.stat(brought[0]).st_nlink == 1,
-                  (systems_offered[:3], unknown_as, place, brought))
+                  (systems_offered[:3], unknown_as, stayed, kept, place, brought))
             await pg.click('.sidebar a[href="#/collections"]')
             await pg.click('#collection-panel-list .panel-link:has-text("Wanted")')
             await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Wanted' && document.querySelector('#collection-have')?.textContent === '1'", timeout=30000)

@@ -1895,13 +1895,13 @@ impl App {
                     mode: args["mode"].as_str().unwrap_or("copy").to_string(),
                     always_copy: args["always_copy"].as_bool().unwrap_or(false),
                 };
-                j(self
-                    .with_index(move |ix| {
-                        let plan = crate::subset::bring_plan(ix, &lib, &imp, &AtomicBool::new(false))?;
-                        organise::save_pending(&data_dir, &plan)?;
-                        Ok(plan.summary())
-                    })
-                    .await?)
+                // a job: every file is read, which can take a while; Stop ends it
+                j(self.spawn_job("Checking the files to import", move |app, jid, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    let plan = crate::subset::bring_plan(&ix, &lib, &imp, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    organise::save_pending(&data_dir, &plan)?;
+                    Ok(plan.summary())
+                }))
             }
             "export_defaults" => j(export::esde_default()),
             "export_plan" => {
