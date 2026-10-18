@@ -27,7 +27,8 @@ macro_rules! p {
 }
 
 /// The cartridge systems of Phase 1, then the disc systems of Phase 2 (Redump's DAT
-/// names first, then libretro's copies'); arcade joins in Phase 7.
+/// names first, then libretro's copies'), then arcade (Phase 7, D57: their DATs are found by
+/// [`from_dat_name`]'s prefixes as well, as each MAME release names its own).
 pub static PLATFORMS: &[Platform] = &[
     p!("nes", "Nintendo Entertainment System", ["Nintendo - Nintendo Entertainment System"], ["NES", "Famicom", "FC", "Nintendo Entertainment System"], ["nes", "unf", "unif"]),
     p!("fds", "Famicom Disk System", ["Nintendo - Family Computer Disk System"], ["FDS", "Famicom Disk System", "Family Computer Disk System"], ["fds"]),
@@ -72,6 +73,8 @@ pub static PLATFORMS: &[Platform] = &[
     p!("gc", "Nintendo GameCube", ["Nintendo - GameCube"], ["GameCube", "GC", "NGC", "Nintendo GameCube"], ["iso", "gcm", "rvz", "gcz", "ciso"]),
     p!("wii", "Nintendo Wii", ["Nintendo - Wii"], ["Wii", "Nintendo Wii"], ["iso", "wbfs", "rvz", "wia", "gcz"]),
     p!("xbox", "Xbox", ["Microsoft - Xbox"], ["Xbox", "Microsoft Xbox"], ["iso", "xiso"]),
+    p!("mame", "Arcade (MAME)", ["MAME"], ["MAME", "Arcade"], []),
+    p!("fbneo", "Arcade (FinalBurn Neo)", ["FinalBurn Neo - Arcade Games", "FBNeo - Arcade Games"], ["FBNeo", "FinalBurn Neo", "FBA", "FinalBurn Alpha"], []),
     // not a system of games: each system's BIOS files, from a BIOS DAT (bios.rs, D40)
     p!("bios", "BIOS files", ["System"], ["BIOS", "Firmware"], []),
 ];
@@ -88,6 +91,8 @@ pub enum Media {
     Umd,
     /// Audited, not converted
     AuditOnly,
+    /// MAME and FinalBurn Neo: a ZIP per machine, kept as a set type says (arcade.rs)
+    Arcade,
 }
 
 impl Media {
@@ -98,11 +103,12 @@ impl Media {
             Media::Nintendo => "nintendo",
             Media::Umd => "umd",
             Media::AuditOnly => "audit",
+            Media::Arcade => "arcade",
         }
     }
 
     pub fn from_id(s: &str) -> Option<Media> {
-        [Media::Cartridge, Media::Cd, Media::Nintendo, Media::Umd, Media::AuditOnly].into_iter().find(|m| m.id() == s)
+        [Media::Cartridge, Media::Cd, Media::Nintendo, Media::Umd, Media::AuditOnly, Media::Arcade].into_iter().find(|m| m.id() == s)
     }
 }
 
@@ -115,12 +121,18 @@ pub fn media(id: &str) -> Media {
         "gc" | "wii" => Media::Nintendo,
         "psp" => Media::Umd,
         "xbox" => Media::AuditOnly,
+        "mame" | "fbneo" => Media::Arcade,
         _ => Media::Cartridge,
     }
 }
 
 pub fn is_disc(id: &str) -> bool {
-    media(id) != Media::Cartridge
+    !matches!(media(id), Media::Cartridge | Media::Arcade)
+}
+
+/// An arcade system (Phase 7): machines, BIOS sets, devices, disks and set types.
+pub fn is_arcade(id: &str) -> bool {
+    media(id) == Media::Arcade
 }
 
 /// The formats a platform's games can be converted to, its preferred one (D12) first.
@@ -130,7 +142,7 @@ pub fn formats(id: &str) -> &'static [&'static str] {
         Media::Cd => &["chd"],
         Media::Nintendo => &["rvz"],
         Media::Umd => &["cso", "zso", "chd"],
-        Media::AuditOnly => &[],
+        Media::AuditOnly | Media::Arcade => &[],
     }
 }
 
@@ -253,10 +265,24 @@ pub fn dat_base_name(name: &str) -> String {
     s
 }
 
-/// The platform a DAT is for, from its header name.
+/// The platform a DAT is for, from its header name. Arcade DATs name their release or set
+/// type ("MAME 0.270 ROMs (non-merged)", "FinalBurn Neo (ClrMame Pro XML, Arcade only)"),
+/// so a name starting with MAME is MAME's, and one naming FinalBurn Neo is FBNeo's.
 pub fn from_dat_name(name: &str) -> Option<&'static Platform> {
     let base = squash(&dat_base_name(name));
-    all().find(|p| p.dat_names.iter().any(|d| squash(d) == base))
+    if let Some(p) = all().find(|p| p.dat_names.iter().any(|d| squash(d) == base)) {
+        return Some(p);
+    }
+    let lower = name.trim().to_ascii_lowercase();
+    if lower == "mame" || lower.starts_with("mame ") || lower.starts_with("mame-") {
+        return by_id("mame");
+    }
+    // FBNeo's DATs for consoles ("FinalBurn Neo - NES Games") are asked about
+    let fbneo = lower.contains("finalburn neo") || lower.starts_with("fbneo") || lower.starts_with("fb neo");
+    if fbneo && (lower.contains("arcade") || lower.contains("neo geo") || lower.contains("neogeo") || !lower.contains(" games")) {
+        return by_id("fbneo");
+    }
+    None
 }
 
 /// The platform a folder's name means: one of its folder names, its id, its name or a DAT name.
@@ -332,6 +358,15 @@ mod tests {
         assert_eq!(id("Sega - Mega-CD - Sega CD"), Some("segacd"));
         assert_eq!(id("The 3DO Company - 3DO"), Some("3do"));
         assert_eq!(id("Nintendo - GameCube"), Some("gc"));
+        // arcade (D57)
+        assert_eq!(id("MAME"), Some("mame"));
+        assert_eq!(id("MAME 0.270 ROMs (non-merged)"), Some("mame"));
+        assert_eq!(id("MAME 2003-Plus"), Some("mame"));
+        assert_eq!(id("FinalBurn Neo - Arcade Games"), Some("fbneo"));
+        assert_eq!(id("FBNeo - Arcade Games"), Some("fbneo"));
+        assert_eq!(id("Mamemoto - Things"), None);
+        assert_eq!(id("FinalBurn Neo - NES Games"), None);
+        assert!(is_arcade("mame") && !is_disc("mame") && formats("fbneo").is_empty());
     }
 
     #[test]

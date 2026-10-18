@@ -286,7 +286,7 @@ fn record(conn: &Connection, w: &Work, root: &Root, scan_id: i64, outcome: Outco
         Outcome::File(h) => {
             let blob = blob_id(conn, &h)?;
             conn.prepare_cached("DELETE FROM files WHERE parent_id = ?1")?.execute([w.file_id])?;
-            conn.prepare_cached("UPDATE files SET kind = 'file', blob_id = ?2, hashed = 2, matched = 0, locked = 0 WHERE id = ?1")?
+            conn.prepare_cached("UPDATE files SET kind = 'file', blob_id = ?2, hashed = 2, matched = 0, locked = 0, chd_sha1 = NULL WHERE id = ?1")?
                 .execute(params![w.file_id, blob])?;
         }
         Outcome::Archive(kind, listing) => {
@@ -306,7 +306,7 @@ fn record(conn: &Connection, w: &Work, root: &Root, scan_id: i64, outcome: Outco
                     guess_platform(root, &w.rel, (!crate::image::KINDS.contains(&kind)).then_some(m.name.as_str())), scan_id
                 ])?;
             }
-            conn.prepare_cached("UPDATE files SET kind = ?3, blob_id = NULL, hashed = ?2, matched = 1, locked = ?4 WHERE id = ?1")?
+            conn.prepare_cached("UPDATE files SET kind = ?3, blob_id = NULL, hashed = ?2, matched = 1, locked = ?4, chd_sha1 = NULL WHERE id = ?1")?
                 .execute(params![w.file_id, if all_full { 2 } else { 1 }, kind, listing.locked as i64])?;
         }
         Outcome::NeedsTool(kind) => {
@@ -540,7 +540,10 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
     }
     stopped |= cancel.load(Ordering::Relaxed);
 
-    // 4. match what changed against the DATs; drop hashes no file has any more
+    // 4. each CHD's own SHA1, from its header, for arcade disks (D58)
+    chd_headers(conn, &roots)?;
+
+    // 5. match what changed against the DATs; drop hashes no file has any more
     progress(json!({ "text": "Matching" }));
     let matched = crate::audit::match_files(conn)?;
     crate::audit::changed(conn)?;
@@ -553,6 +556,26 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
         "seconds": (started.elapsed().as_secs_f64() * 10.0).round() / 10.0,
     });
     finish(conn, scan_id, &summary, done, bytes, seen as usize)
+}
+
+/// Read the header of each CHD whose own SHA1 isn't known yet ("" for one that can't be read).
+fn chd_headers(conn: &Connection, roots: &[Root]) -> Result<()> {
+    let rows: Vec<(i64, String, String)> = conn
+        .prepare("SELECT id, root_id, rel_path FROM files WHERE kind = 'chd' AND parent_id IS NULL AND chd_sha1 IS NULL AND missing_since IS NULL")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction()?;
+    for (id, root, rel) in rows {
+        let Some(r) = roots.iter().find(|r| r.id == root) else { continue };
+        let path = rel.split('/').fold(r.dir.clone(), |p, part| p.join(part));
+        let sha1 = crate::image::chd_sha1(&path).unwrap_or_default();
+        tx.execute("UPDATE files SET chd_sha1 = ?2 WHERE id = ?1", params![id, sha1])?;
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 fn finish(conn: &Connection, scan_id: i64, summary: &Value, hashed: usize, bytes: u64, seen: usize) -> Result<Value> {

@@ -27,6 +27,16 @@ export const TABS = [
   ["duplicates", "Duplicates", "duplicates"],
 ];
 
+/** An arcade system's BIOS sets and devices (Phase 7, D58), a tab of their own. */
+const SETS_TAB = ["sets", "BIOS and devices", "sets"];
+
+/** How an arcade set's ZIPs are made up (D60). */
+export const SET_TYPES = [
+  ["non-merged", "Non-merged", "Every game's ZIP holds all the ROMs it needs (but its BIOS's), so any ZIP can be copied on its own."],
+  ["split", "Split", "A clone's ZIP holds only the ROMs its parent's doesn't."],
+  ["merged", "Merged", "A parent's ZIP holds its clones' ROMs too; clones have no ZIP of their own."],
+];
+
 const HELP = {
   have: "Games with every ROM their DAT lists.",
   partial: "Games with some of their ROMs (a multi-file game missing a part).",
@@ -36,20 +46,27 @@ const HELP = {
   baddump: "Files named as one of the DAT's ROMs that don't match it: likely corrupt, trimmed or patched copies.",
   unknown: "Files of this platform that no DAT for it knows: hacks, translations, homebrew or files for another system.",
   duplicates: "Files that match the same ROM as another file. Setting them aside keeps the copy that's named right (or the first).",
+  sets: "The BIOS sets and devices the games lean on. They're kept as ZIPs of their own and copied with the games that need them.",
 };
+
+const WHY = { bios: "its BIOS set", device: "a device", parent: "its parent" };
 
 const prefs = () => ctx.platform?.store?.prefs;
 
-function Row({ it, tab, onConvert }) {
+function Row({ it, tab, onConvert, arcade }) {
   const games = tab === "have" || tab === "partial" || tab === "missing";
-  const meta = games
-    ? [it.regions, it.flags, it.clone_of ? `clone of ${it.clone_of}` : null, tab === "partial" ? `${it.have} of ${plural(it.roms, "ROM", "ROMs")}` : null].filter(Boolean).join(" · ")
+  const meta = games || tab === "sets"
+    ? [arcade && it.title && it.title !== it.name ? it.title : null, it.year, it.manufacturer, it.regions, it.flags, it.clone_of ? `clone of ${it.clone_of}` : null,
+       tab === "sets" ? (it.kind === "bios" ? "BIOS set" : "device") : null, tab === "sets" && it.status !== "have" ? (it.status === "partial" ? "partly there" : "missing") : null,
+       tab === "partial" ? `${it.have} of ${plural(it.roms, "ROM", "ROMs")}` : null].filter(Boolean).join(" · ")
     : [it.game && tab !== "unknown" && tab !== "baddump" ? it.game : null, it.method?.startsWith("crc") ? "matched by CRC" : null, it.baddump ? "a bad dump in the DAT" : null, it.offline ? "folder not found on this computer" : null].filter(Boolean).join(" · ");
   return html`<li class="audit-row" data-name=${it.name}>
     <div class="audit-main">
       <span class="audit-name">${it.name}</span>
       ${meta ? html`<span class="muted audit-meta">${meta}</span>` : null}
       ${tab === "misnamed" ? html`<span class="audit-expected">→ ${it.expected}</span>` : null}
+      ${it.needs?.length ? html`<span class="audit-needs" title="It runs once these are in your folders too">Needs ${it.needs.map((n) => `${n.name} (${WHY[n.why] || n.why})`).join(", ")}</span>` : null}
+      ${it.samples?.length ? html`<span class="muted audit-samples" title="Its sounds, in samples/${it.name}.zip; it runs without them">No sounds for ${it.samples.join(", ")}</span>` : null}
       ${it.shown ? html`<span class="audit-path muted" title=${it.shown}>${it.shown}</span>` : null}
     </div>
     ${onConvert && tab === "have" ? html`<button type="button" class="ghost compact audit-convert-one" title=${`Convert ${it.name} to another format, or extract it`} onClick=${() => onConvert(it.name)}>Convert…</button>` : null}
@@ -65,6 +82,8 @@ export function Audit() {
   const [tab, setTab] = useState(() => prefs()?.get("gr-audit", {})?.tab || "missing");
   const [q, setQ] = useState("");
   const [list, setList] = useState({ total: 0, items: [], loading: true });
+  const [tick, setTick] = useState(0);
+  const [sets, setSets] = useState(null);
 
   // the summary: again when the platform or DAT changes, and after a scan or import (Home's data is read again then)
   useEffect(() => {
@@ -74,7 +93,10 @@ export function Audit() {
       .then((d) => { if (!gone) setData(d); })
       .catch((e) => { if (!gone) setData({ error: e.message || String(e) }); });
     return () => { gone = true; };
-  }, [s.library?.path, platform, datId, s.home, s.changes]);
+  }, [s.library?.path, platform, datId, s.home, s.changes, tick]);
+  useEffect(() => {
+    if (s.library) api("arcade_sets").then(setSets).catch(() => setSets(null));
+  }, [s.library?.path, tick]);
 
   const sum = data?.summary;
   const dat = sum?.dat?.id;
@@ -157,8 +179,18 @@ export function Audit() {
     </div></div>`;
   }
 
-  const n = (k) => sum[k] || 0;
+  const arc = sum.arcade;
+  const n = (k) => (k === "sets" ? arc?.sets : sum[k]) || 0;
   const platformName = data.platforms.find((p) => p.id === sum.dat.platform)?.name;
+  const tabs = arc ? [...TABS, SETS_TAB] : TABS;
+  const setType = sets?.systems?.[sum.dat.platform];
+  const chooseSetType = async (t) => {
+    try {
+      await api("arcade_set", { platform: sum.dat.platform, set_type: t });
+      setTick((x) => x + 1);
+      toast(`${platformName} is kept as a ${t} set now. Files in the wrong ZIP are listed as misnamed: Rename these… puts them right.`, 8000);
+    } catch (e) { toast(`Couldn't change the set type: ${e.message || e}`, 8000); }
+  };
   return html`${head}<div class="pages audit-page" id="audit-page">
     <div class="audit-pick">
       <label class="field-inline"><span>Platform</span>
@@ -170,15 +202,22 @@ export function Audit() {
           onChange=${(e) => setDatId(Number(e.target.value))}>
           ${data.dats.map((d) => html`<option key=${d.id} value=${String(d.id)}>${d.name} (${d.version})</option>`)}
         </select></label>
+      ${arc && setType ? html`<label class="field-inline"><span>Set type</span>
+        <select id="audit-set-type" class="compact" value=${setType} disabled=${!!s.library?.read_only} title=${SET_TYPES.find((t) => t[0] === setType)?.[2]}
+          onChange=${(e) => chooseSetType(e.target.value)}>
+          ${SET_TYPES.map(([k, label]) => html`<option key=${k} value=${k}>${label}</option>`)}
+        </select></label>` : null}
     </div>
     <div class="audit-totals" id="audit-totals">
       <div class="audit-bar" role="img" aria-label=${`${n("have")} of ${n("games")} games`}><span style=${`width:${n("games") ? (100 * n("have")) / n("games") : 0}%`}></span></div>
       <p><b id="audit-have">${n("have")}</b> of <b id="audit-games">${n("games")}</b> games
+        ${arc ? html` · <b id="audit-playable" title="Games had, with the BIOS sets and devices they need">${arc.playable}</b> playable
+          · BIOS and devices <b id="audit-sets">${arc.sets_have} of ${arc.sets}</b>` : null}
         · 1G1R <b id="audit-1g1r">${n("groups_have")} of ${n("groups")}</b>
         ${n("by_crc") ? html` · <span class="muted" title="Files inside ZIPs matched by the CRC the ZIP records. Settings › Scan ZIPs › Unpack and hash checks them in full.">${plural(n("by_crc"), "file", "files")} matched by CRC</span>` : null}</p>
       ${n("needs_tool") ? html`<p class="warn-note" id="audit-needs-tool">${plural(n("needs_tool"), "RVZ file waits", "RVZ files wait")} for dolphin-tool before ${n("needs_tool") === 1 ? "it" : "they"} can be checked. Set where it is in <a href=${routeHash("settings")}>Settings › Tools</a>, then scan.</p>` : null}
     </div>
-    <div class="seg audit-tabs" role="tablist" id="audit-tabs">${TABS.map(([k, label, key]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${tab === k ? "true" : "false"} onClick=${() => chooseTab(k)}>
+    <div class="seg audit-tabs" role="tablist" id="audit-tabs">${tabs.map(([k, label, key]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${tab === k ? "true" : "false"} onClick=${() => chooseTab(k)}>
       ${label} <span class="tab-count">${n(key)}</span></button>`)}</div>
     <div class="audit-tools">
       <input type="search" id="audit-search" class="compact" placeholder="Search this list" aria-label="Search this list" value=${q} onInput=${(e) => setQ(e.target.value)} />
@@ -190,7 +229,7 @@ export function Audit() {
     ${list.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
     ${!list.loading && !list.items.length ? html`<p class="muted" id="audit-none">${q ? "Nothing here matches the search." : "Nothing in this list."}</p>` : null}
     <ul class="audit-list" id="audit-list" data-tab=${list.tab} data-total=${list.total} aria-busy=${list.loading ? "true" : "false"}>
-      ${list.items.map((it) => html`<${Row} key=${`${it.id}-${it.name}`} it=${it} tab=${list.tab} onConvert=${canConvert ? (g) => convert([g]) : null} />`)}
+      ${list.items.map((it) => html`<${Row} key=${`${it.id}-${it.name}`} it=${it} tab=${list.tab} arcade=${!!arc} onConvert=${canConvert ? (g) => convert([g]) : null} />`)}
     </ul>
     ${list.items.length < list.total ? html`<div class="home-actions"><button type="button" class="ghost" id="audit-more" onClick=${more}>Show ${Math.min(PAGE, list.total - list.items.length)} more (${list.total - list.items.length} left)</button></div>` : null}
   </div>`;

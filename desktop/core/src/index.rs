@@ -163,6 +163,32 @@ const MIGRATIONS: &[(&str, &str)] = &[
          CREATE INDEX library_values_game ON library_values (game);
          CREATE VIRTUAL TABLE library_text USING fts5 (title, name, body, tokenize = 'unicode61 remove_diacritics 2');",
     ),
+    (
+        "arcade sets",
+        // Phase 7 (D58): what arcade DATs say about a machine (kind: bios, device or
+        // mechanical) and its ROMs (merge; disk: a CHD, matched by the CHD's own SHA1, which
+        // files.chd_sha1 keeps); dat_links: a machine's devices and samples; dat_places: where
+        // each ROM goes in the set type the system is kept as (arcade.rs), for the audit's
+        // misnamed files
+        "ALTER TABLE dat_games ADD COLUMN romof TEXT;
+         ALTER TABLE dat_games ADD COLUMN sampleof TEXT;
+         ALTER TABLE dat_games ADD COLUMN kind TEXT;
+         ALTER TABLE dat_games ADD COLUMN year TEXT;
+         ALTER TABLE dat_games ADD COLUMN manufacturer TEXT;
+         ALTER TABLE dat_roms ADD COLUMN merge TEXT;
+         ALTER TABLE dat_roms ADD COLUMN disk INTEGER NOT NULL DEFAULT 0;
+         CREATE INDEX dat_roms_disk ON dat_roms (sha1) WHERE disk = 1;
+         CREATE TABLE dat_links (
+            game_id INTEGER NOT NULL REFERENCES dat_games (id) ON DELETE CASCADE, kind TEXT NOT NULL, name TEXT NOT NULL
+         ) STRICT;
+         CREATE INDEX dat_links_game ON dat_links (game_id);
+         CREATE TABLE dat_places (
+            rom_id INTEGER NOT NULL REFERENCES dat_roms (id) ON DELETE CASCADE, container TEXT NOT NULL, member TEXT NOT NULL
+         ) STRICT;
+         CREATE INDEX dat_places_rom ON dat_places (rom_id);
+         ALTER TABLE files ADD COLUMN chd_sha1 TEXT;
+         CREATE INDEX files_chd ON files (chd_sha1) WHERE chd_sha1 IS NOT NULL;",
+    ),
 ];
 
 /// How many schema steps this build knows.

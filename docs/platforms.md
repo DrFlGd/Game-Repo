@@ -87,6 +87,8 @@ Where Redump has renamed a DAT, both names are listed; libretro's copies use the
 | `gc` | Nintendo GameCube | Nintendo - GameCube | GameCube, GC, NGC, Nintendo GameCube | .iso, **.gcm**, .rvz, .gcz, **.ciso** | RVZ |
 | `wii` | Nintendo Wii | Nintendo - Wii | Wii, Nintendo Wii | .iso, **.wbfs**, .rvz, **.wia**, .gcz | RVZ |
 | `xbox` | Xbox | Microsoft - Xbox | Xbox, Microsoft Xbox | .iso, **.xiso** | audited only |
+| `mame` | Arcade (MAME) | MAME (any DAT whose name starts with MAME, and MAME's own `-listxml`) | MAME, Arcade | .zip, .7z, .chd | arcade (Phase 7): ZIPs by set type |
+| `fbneo` | Arcade (FinalBurn Neo) | FinalBurn Neo - Arcade Games, FBNeo - Arcade Games (and FBNeo's arcade and Neo Geo DATs) | FBNeo, FinalBurn Neo, FBA | .zip, .7z | arcade (Phase 7): ZIPs by set type |
 
 `.cue`, `.bin`, `.iso` and `.chd` belong to several disc platforms, so a disc set is
 found by its DAT match or its folder name.

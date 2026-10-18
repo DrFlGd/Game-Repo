@@ -30,7 +30,7 @@ design").
 | Games | `game` (also `machine`) `name`, `description` | DAT games |
 | Parent/clone | `cloneof` (name), or No-Intro's `cloneofid` → `id` | 1G1R groups |
 | ROMs | `rom` `name`, `size`, `crc`, `md5`, `sha1`, `status` | Matching. `status="nodump"`: not counted as missing; `baddump`: matched and flagged |
-| Disks | `disk` | Ignored until discs (Phase 2) and arcade CHDs (Phase 7) |
+| Disks | `disk` | An arcade machine's CHD (Phase 7): kept as the machine's file `<name>.chd`, matched by the CHD's own SHA1 from its header |
 | Other | `category`, `release`, `sample`, `biosset`, `driver` | Ignored for now; `category` may feed collection rules in Phase 3 |
 
 Read with `quick-xml` as a stream, so a DAT of any size takes little memory. Unknown
@@ -81,7 +81,7 @@ where it can be; anything not understood stays in the name.
 
 ## Not yet
 
-- MAME `-listxml` (machines, ROM sets, merges, device and BIOS links, disks): Phase 7.
+- MAME `-listxml` (machines, ROM sets, merges, device and BIOS links, disks): read since Phase 7. It has no header, so it's named "MAME" at its build's version. Kept per machine: `romof`, `sampleof`, `isbios`/`isdevice`/`ismechanical`, `year`, `manufacturer`, each ROM's `merge`, `<disk>`, `<sample>` and `<device_ref>`; ClrMamePro's `romof`, `sampleof`, `sample`, `disk ( … )` and `resource` (a BIOS set) likewise.
 - Redump's cue sheets beside its DATs: Phase 2, with disc systems.
 - Header definition XMLs (No-Intro's `headers/*.xml`): not needed; the header rules are
   built in (docs/PLAN.md, "Phase 1 design").

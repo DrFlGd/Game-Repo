@@ -1,7 +1,7 @@
 // Systems (docs/PLAN.md, "Phase 3 design", D22): Settings › Systems lists the built-in
 // ones and those added by hand, which can be added, changed and removed; the DAT
 // question offers every system or a new one. Added systems are kept in the library.
-import { html, useState } from "../lib/html.js";
+import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { api, toast } from "./library.js";
@@ -13,6 +13,7 @@ export const MEDIA = [
   ["nintendo", "GameCube or Wii discs (RVZ)"],
   ["umd", "PSP discs (CSO, ZSO, CHD)"],
   ["audit", "Audit only (no conversions)"],
+  ["arcade", "Arcade (a ZIP per machine, as MAME or FBNeo)"],
 ];
 
 /** An id from a name, as the app makes it: lower case letters and digits. */
@@ -99,6 +100,14 @@ export function SystemsSection({ lib }) {
     run: async () => { await api("systems_remove", { id: p.id }); await refreshPlatforms(); toast(`Removed ${p.name}.`); },
   });
   const open = (p) => ui.set({ dialog: { type: "system", system: p ? { ...p, dats: withDats(p.id) } : null } });
+  // Phase 7 (D60): how each arcade system's ZIPs are made up
+  const [sets, setSets] = useState(null);
+  useEffect(() => { api("arcade_sets").then(setSets).catch(() => setSets(null)); }, [lib.path, list.length]);
+  const arcade = list.filter((p) => p.media === "arcade");
+  const chooseSet = async (p, t) => {
+    try { setSets(await api("arcade_set", { platform: p.id, set_type: t })); toast(`${p.name} is kept as a ${t} set now.`); }
+    catch (e) { toast(`Couldn't change the set type: ${e.message || e}`, 8000); }
+  };
   return html`<section class="ls-section" id="settings-systems">
     <h2>Systems</h2>
     <p class="muted">The systems the app knows. Add one it doesn't (a DAT's system, a computer, a handheld) and its DATs, folders and files are found like any other's. Added systems are kept in the library.</p>
@@ -112,6 +121,12 @@ export function SystemsSection({ lib }) {
       <button type="button" class="ghost" id="system-add" disabled=${off} onClick=${() => open(null)}>Add a system…</button>
       <button type="button" class="ghost" id="systems-built-in" aria-expanded=${showAll ? "true" : "false"} onClick=${() => setShowAll(!showAll)}>${showAll ? "Hide" : "Show"} the ${builtIn.length} built-in systems</button>
     </div>
+    ${arcade.length && sets ? html`<h3>Arcade set types</h3>
+      <p class="muted">How each arcade system's ZIPs are made up. Non-merged: every game's ZIP holds all it needs but its BIOS's. Split: a clone's ZIP holds only what its parent's doesn't. Merged: a parent's ZIP holds its clones' too. Organise builds ZIPs this way; an export is always non-merged.</p>
+      <ul class="ls-list" id="arcade-set-types">${arcade.map((p) => html`<li key=${p.id} data-system=${p.id}><span>${p.name}</span>
+        <select class="compact" aria-label=${`${p.name}'s set type`} value=${sets.systems?.[p.id] || "non-merged"} disabled=${off} onChange=${(e) => chooseSet(p, e.target.value)}>
+          ${(sets.types || []).map((t) => html`<option key=${t} value=${t}>${t[0].toUpperCase()}${t.slice(1)}</option>`)}
+        </select></li>`)}</ul>` : null}
     ${showAll ? html`<ul class="ls-list" id="systems-list">${builtIn.map((p) => html`<li key=${p.id}><span>${p.name}</span><span class="muted">${p.id} · ${p.dat || ""}</span></li>`)}</ul>` : null}
   </section>`;
 }

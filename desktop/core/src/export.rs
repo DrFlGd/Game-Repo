@@ -324,6 +324,8 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         let sub = organise::plan(ix, lib, &organise::Options {
             dat_id: s.dat_id, mode: "copy".into(), out: Some(folder.clone()), format: "keep".into(),
             always_copy: o.always_copy, games: Some(names), esde: l.games.style != "naming", known: known.clone(),
+            // an arcade game goes as its own ZIP, with the BIOS sets and devices it needs (D61)
+            set_type: platforms::is_arcade(&s.platform).then(|| "non-merged".to_string()),
             ..Default::default()
         })?;
         let mut placed: HashSet<String> = HashSet::new();
@@ -332,7 +334,9 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         let mut want = |game: &str, to: &str, placed: &mut HashSet<String>| {
             placed.insert(game.to_string());
             wanted.push(json!({ "path": to, "game": game, "system": s.platform, "dat": s.dat_id }));
-            if let Some(rel) = rel_to(&folder, Path::new(to)) {
+            // a BIOS set or device an arcade game needs is copied, but isn't one of the games listed
+            let listed = titles.contains_key(game);
+            if let Some(rel) = rel_to(&folder, Path::new(to)).filter(|_| listed) {
                 let entry = rel.split('/').next().unwrap_or(&rel).to_string();
                 if seen_entry.insert(entry.clone()) {
                     let title = if o.short_names { titles.get(game).copied().unwrap_or(game) } else { game };

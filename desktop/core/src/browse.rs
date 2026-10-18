@@ -10,7 +10,7 @@ use crate::library::Library;
 use crate::{collection, docs, meta, pcgames, platforms};
 use anyhow::{anyhow, bail, Result};
 use rusqlite::types::Value as Sql;
-use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
@@ -388,7 +388,9 @@ pub fn refresh(ix: &Index, lib: &Library) -> Result<Vec<String>> {
         if old.as_deref() == Some(st.as_str()) {
             continue;
         }
-        let tx = conn.unchecked_transaction()?;
+        // IMMEDIATE: a rebuild reads before it writes, and a deferred transaction can't
+        // take the write lock once another connection (a job's) has written in between
+        let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
         if p == "pc" { rebuild_pc(&tx, lib)? } else { rebuild_system(&tx, p, dat)? }
         tx.execute("INSERT INTO index_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![key, st])?;
         tx.commit()?;
@@ -401,7 +403,7 @@ pub fn refresh(ix: &Index, lib: &Library) -> Result<Vec<String>> {
     // systems that have gone (their last DAT removed)
     let gone: Vec<String> = conn.prepare("SELECT DISTINCT platform FROM library")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?.into_iter().filter(|p| !systems.contains(p)).collect();
     for p in gone {
-        let tx = conn.unchecked_transaction()?;
+        let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
         write_rows(&tx, &p, &[])?;
         tx.execute("DELETE FROM index_meta WHERE key = ?1", [format!("library:{p}")])?;
         tx.commit()?;

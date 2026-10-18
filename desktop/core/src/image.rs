@@ -47,6 +47,10 @@ pub fn read(path: &Path, kind: &str, cancel: &AtomicBool) -> io::Result<Listing>
     if kind == "rvz" {
         return read_rvz(path, cancel);
     }
+    // a hard disk or laserdisc (an arcade machine's) is matched by its own SHA1, not unpacked
+    if kind == "chd" && matches!(ChdImage::open(path)?.layout, Layout::Raw) {
+        return Ok(Listing { members: vec![], locked: false });
+    }
     let mut members = vec![];
     each(path, kind, cancel, &mut |name, size, r| {
         let hashes = hash::hash_reader(r, size, name, cancel)?;
@@ -109,6 +113,11 @@ pub fn each_wanted(path: &Path, kind: &str, want: &dyn Fn(&str) -> bool, cancel:
 }
 
 // ------------------------------------------------------------ CHD
+
+/// A CHD's own SHA1 (of its data and metadata), as MAME's DATs list a disk.
+pub fn chd_sha1(path: &Path) -> Option<String> {
+    ChdImage::open(path).ok()?.sha1()
+}
 
 /// The name a CD track has as a member of its CHD.
 pub fn track_name(number: u32) -> String {

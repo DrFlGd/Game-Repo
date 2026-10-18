@@ -2483,6 +2483,88 @@ PC games get the same.
 - The panel on the PC games page no longer edits the title or shows the description:
   those are on the page.
 
+### Phase 7 design (written 2026-10-18; Jerred asked for it to be built and released for testing)
+
+Arcade sets are kept the way MAME and FinalBurn Neo want them: a ZIP per machine named by
+its short name (`sf2.zip`), clones leaning on their parents, BIOS sets (`neogeo.zip`) and
+devices (`namco51.zip`) as ZIPs of their own, hard disks and laserdiscs as CHDs in a
+folder named for the machine (`sfiii/sfiii.chd`), and sounds in `samples/<name>.zip`.
+How a clone's ROMs are spread between its ZIP and its parent's is the *set type*.
+
+- **D57 Two arcade systems.** `mame` (Arcade (MAME)) and `fbneo` (Arcade (FinalBurn
+  Neo)), ES-DE's ids, of a new kind of system, *arcade* (Settings › Systems offers it for
+  a system added by hand, such as Naomi or a MAME 2003-Plus set kept apart). A DAT whose
+  name starts with "MAME" is for `mame`, one naming FinalBurn Neo or FBNeo is for
+  `fbneo`. MAME's own `mame.exe -listxml` output, which has no header, is read as a DAT
+  named "MAME" at its build's version; it's big (300 MB), so it's streamed.
+- **D58 What an arcade DAT says is kept.** Besides each machine's ROMs: its BIOS set and
+  parent (`romof`), samples (`sampleof`, `<sample>`), the devices it uses
+  (`<device_ref>`), whether it's a BIOS set or a device, year and manufacturer; each ROM's
+  `merge` (the parent's or BIOS's ROM it is); and its disks (`<disk name sha1>`), kept as
+  files of the machine named `<disk>.chd`. A CHD's own SHA1 (in its header, as MAME's DATs
+  give it) is read when it's scanned, and that's what a disk matches. A hard disk or
+  laserdisc CHD isn't unpacked and hashed in full (it's only ever matched by that SHA1);
+  CD and GD-ROM CHDs are read as before. BIOS sets and devices aren't games: they aren't
+  counted with the system's games, listed in the Library or put in collections; the Audit
+  page lists them on a tab of their own. Arcade games are titled by the DAT's description
+  ("Street Fighter II: The World Warrior"), the short name staying the file's.
+- **D59 Playable.** A machine is *had* when every ROM and disk it lists is somewhere in
+  the folders with games, matched by hash wherever it is (so a merged, split or non-merged
+  set audits the same). For arcade systems the audit adds **playable**: had, and so are its
+  BIOS set, every device it uses that has ROMs, and (for a DAT that leaves a clone's
+  parent's ROMs out, a split DAT) its parent. A game's line says what it's waiting for
+  ("needs neogeo", "needs the disk sfiii"). Samples are listed when missing but don't stop
+  a game being playable (MAME runs without its sounds).
+- **D60 Set types.** Each arcade system has a set type, in Settings › Systems and the
+  Organise dialog: **non-merged** (the default: every game's ZIP holds every ROM it needs
+  apart from its BIOS's, so any ZIP can be copied alone), **split** (a clone's ZIP holds
+  only the ROMs its parent doesn't) or **merged** (a parent's ZIP holds its clones' ROMs
+  too; a clone ROM whose name the parent uses for other contents goes in as
+  `<clone>/<rom>`, as clrmamepro does). BIOS sets and devices are always ZIPs of their own,
+  and a disk always goes in the folder of the machine whose disk it is (a clone that uses
+  its parent's disk finds it there). Organise builds ZIPs as the set type says, and a file
+  in the wrong ZIP is *misnamed*, so Rename these… puts a set right after its type changes.
+- **D61 Arcade exports are non-merged**, whatever the library's set type: each game is its
+  own ZIP (what frontends and handhelds list), with its BIOS set's and devices' ZIPs and its
+  disk folders beside it. BIOS sets and devices get no gamelist entry (ES-DE hides MAME's
+  BIOS and device ZIPs by name). Samples aren't exported yet: their folder is the
+  emulator's and isn't in the layouts.
+
+Not in Phase 7: MAME's software lists, reading MAME's `-listxml` by running MAME (the file
+is imported like any DAT), CHDs made or checked by chdman for arcade, catver/history files.
+
+### Phase 7 notes (built 2026-10-18)
+
+D57–D61 as written, with these choices:
+- **Where it lives.** `arcade.rs`: `Machines` (a DAT's machines from the index), `origin`
+  (the machine a shared ROM comes from: its `merge`, else the same name and contents in the
+  set it leans on), `places` (where each ROM goes in a set type), `needs` (the BIOS sets,
+  devices and, for a split DAT's clone, the parent a machine needs), `containers_for` (what
+  an export or Organise of some games takes) and `needs` per DAT (playable, missing samples),
+  kept with the summaries. The index's step "arcade sets" adds the columns and `dat_links`,
+  `dat_places` (the set type's places, for the audit's *named*) and `files.chd_sha1`.
+- **The audit.** `audit::GAMES` leaves BIOS sets and devices out (every page that lists
+  games uses it); `audit::MACHINES` has them. An arcade DAT's *named* is
+  `MATCHED_ARCADE`, against `dat_places`. A clone is taken as split-listed (needing its
+  parent) when none of its ROMs comes from its parent.
+- **Disks.** A scan reads each CHD's header once (`scan::chd_headers`; "" for one that
+  can't be read); hard disk and laserdisc CHDs aren't unpacked. Disks match with method
+  `chd`. The tracks of a CHD matched as a disk aren't *unknown*.
+- **Organise.** For an arcade DAT, `organise::arcade_rows` turns the machines into the
+  ZIPs the set type keeps (a member of a merged parent's ZIP that's a clone's is
+  *optional*: the ZIP is complete without it), and `place_disks` puts each disk at
+  `<machine>/<disk>.chd`. Machines are always named by their short names (no naming
+  template, no folder per game). Set aside duplicates uses the same rows, so a ROM a
+  non-merged clone shares with its parent is kept in both ZIPs. Convert doesn't apply.
+- **Exports** pass `set_type: non-merged` to Organise with the collection's games, so the
+  BIOS sets and devices they need are copied too and left out of the gamelist. muOS's
+  layout lists `mame` and `fbneo` (catalogue "Arcade", unconfirmed); the others use the ids.
+- **Starter DATs** skip the arcade systems (libretro's No-Intro and Redump copies have no
+  arcade DATs). ScreenScraper's, IGDB's and TheGamesDB's arcade ids are set for scraping.
+- **Not built:** samples aren't exported, merged sets' clones get no gamelist entry of their
+  own (exports are non-merged, so it doesn't arise), and an arcade machine's CHD isn't
+  checked with chdman.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -2617,7 +2699,7 @@ PC games get the same.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D57). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled.
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D62). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes").
 
 ---
 
