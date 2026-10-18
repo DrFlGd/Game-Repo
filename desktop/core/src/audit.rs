@@ -29,6 +29,15 @@ fn match_sql(p: &str, scope: &str) -> String {
     )
 }
 
+/// An arcade disk matches a CHD by the CHD's own SHA1 (D58).
+fn disk_sql(scope: &str) -> String {
+    format!(
+        "INSERT OR IGNORE INTO matches (file_id, rom_id, method)
+         SELECT f.id, r.id, 'chd' FROM files f JOIN dat_roms r ON r.disk = 1 AND r.sha1 = f.chd_sha1
+         WHERE f.chd_sha1 IS NOT NULL AND f.chd_sha1 != '' AND f.parent_id IS NULL AND {scope}"
+    )
+}
+
 /// Something matched changed: summaries worked out before are stale.
 pub fn changed(conn: &Connection) -> Result<()> {
     conn.execute("DELETE FROM index_meta WHERE key LIKE 'summary:%'", [])?;
@@ -55,7 +64,9 @@ pub fn match_files(conn: &Connection) -> Result<usize> {
     let sheets = unmatched_sheets(&tx, "f.matched = 0")?;
     let touched = tx.execute("UPDATE files SET matched = 1 WHERE matched = 0 AND (blob_id IS NOT NULL OR kind IN ('zip', '7z', 'rar', 'chd', 'cso', 'zso', 'rvz'))", [])?;
     let n = n + match_sheets(&tx, &sheets, None)?;
-    if touched > 0 {
+    let disks = tx.execute(&disk_sql("1"), [])?;
+    let n = n + disks;
+    if touched > 0 || disks > 0 {
         changed(&tx)?;
     }
     tx.commit()?;
@@ -68,7 +79,7 @@ pub fn match_dat(conn: &Connection, dat_id: i64) -> Result<usize> {
     let scope = format!("r.dat_id = {dat_id}");
     let n = tx.execute(&match_sql("", &scope), [])? + tx.execute(&match_sql("hl_", &format!("{scope} AND b.hl_crc32 IS NOT NULL")), [])?;
     let sheets = unmatched_sheets(&tx, "1")?;
-    let n = n + match_sheets(&tx, &sheets, Some(dat_id))?;
+    let n = n + match_sheets(&tx, &sheets, Some(dat_id))? + tx.execute(&disk_sql(&scope), [])?;
     changed(&tx)?;
     tx.commit()?;
     Ok(n)
@@ -134,17 +145,24 @@ fn match_sheets(conn: &Connection, sheets: &[Sheet], dat_id: Option<i64>) -> Res
 
 /// Each game of the DAT with how many of its ROMs (nodumps aside) are matched.
 /// A disc's cue sheet (or GDI) counts as had when the game's tracks are in a CHD,
-/// which keeps no cue (docs/PLAN.md, "2b", Compressed images).
-pub(crate) const GAMES: &str = "
+/// which keeps no cue (docs/PLAN.md, "2b", Compressed images). An arcade DAT's BIOS sets
+/// and devices aren't games (D58): [`MACHINES`] has them too.
+macro_rules! games_sql {
+    ($only:literal) => {
+        concat!("
   rs AS (SELECT r.game_id, r.id,
                 EXISTS (SELECT 1 FROM matches m WHERE m.rom_id = r.id)
                 OR ((lower(r.name) LIKE '%.cue' OR lower(r.name) LIKE '%.gdi')
                     AND EXISTS (SELECT 1 FROM dat_roms o JOIN matches m ON m.rom_id = o.id JOIN files f ON f.id = m.file_id
                                 JOIN files p ON p.id = f.parent_id WHERE o.game_id = r.game_id AND p.kind = 'chd')) AS have
          FROM dat_roms r WHERE r.dat_id = ?1 AND (r.status IS NULL OR r.status != 'nodump')),
-  gs AS (SELECT g.id, g.name, g.title, g.regions, g.flags, g.parent_id, COUNT(rs.id) AS roms, SUM(rs.have) AS have,
+  gs AS (SELECT g.id, g.name, g.title, g.regions, g.flags, g.parent_id, g.kind, COUNT(rs.id) AS roms, SUM(rs.have) AS have,
                 CASE WHEN SUM(rs.have) = COUNT(rs.id) THEN 'have' WHEN SUM(rs.have) > 0 THEN 'partial' ELSE 'missing' END AS status
-         FROM dat_games g JOIN rs ON rs.game_id = g.id WHERE g.dat_id = ?1 GROUP BY g.id)";
+         FROM dat_games g JOIN rs ON rs.game_id = g.id WHERE g.dat_id = ?1", $only, " GROUP BY g.id)")
+    };
+}
+pub(crate) const GAMES: &str = games_sql!(" AND (g.kind IS NULL OR g.kind NOT IN ('bios', 'device'))");
+pub(crate) const MACHINES: &str = games_sql!("");
 
 /// Each file matched with one of the DAT's ROMs, whether it's named as the DAT says
 /// (a ZIP member: the ZIP named for the game, the member for the ROM; a track in a disc
@@ -159,6 +177,28 @@ const MATCHED: &str = "
          JOIN files f ON f.id = m.file_id LEFT JOIN files p ON p.id = f.parent_id
          GROUP BY f.id)";
 
+/// The same for an arcade DAT: named when it's where its system's set type puts it
+/// (`dat_places`): in the ZIP (or 7z) of the machine it belongs in, under its name there, or
+/// a disk (or loose file) in a folder named for that machine.
+const MATCHED_ARCADE: &str = "
+  fm AS (SELECT f.id AS file_id,
+                MAX(CASE WHEN EXISTS (SELECT 1 FROM dat_places pl WHERE pl.rom_id = r.id AND (
+                      (p.id IS NOT NULL AND p.kind IN ('zip', '7z') AND p.name = pl.container || '.' || p.kind AND f.rel_path = p.rel_path || '/' || pl.member)
+                      OR (p.id IS NULL AND (f.rel_path = pl.container || '/' || pl.member
+                          OR substr(f.rel_path, -length(pl.container) - length(pl.member) - 2) = '/' || pl.container || '/' || pl.member)))) THEN 1 ELSE 0 END) AS named,
+                MIN(r.id) AS rom_id
+         FROM matches m JOIN dat_roms r ON r.id = m.rom_id AND r.dat_id = ?1
+         JOIN files f ON f.id = m.file_id LEFT JOIN files p ON p.id = f.parent_id
+         GROUP BY f.id)";
+
+fn matched_sql(platform: &str) -> &'static str {
+    if platforms::is_arcade(platform) {
+        MATCHED_ARCADE
+    } else {
+        MATCHED
+    }
+}
+
 /// Files of the DAT's platform with no match in it (nor in another platform's DAT):
 /// *bad dumps* when named as one of its ROMs, else *unknown*.
 const UNMATCHED: &str = "
@@ -166,7 +206,9 @@ const UNMATCHED: &str = "
          FROM files f
          WHERE f.platform = ?2 AND f.kind NOT IN ('zip', '7z', 'rar', 'chd', 'cso', 'zso', 'rvz') AND f.hashed > 0
            AND NOT EXISTS (SELECT 1 FROM matches m JOIN dat_roms r ON r.id = m.rom_id
-                           WHERE m.file_id = f.id AND (r.dat_id = ?1 OR r.dat_id IN (SELECT id FROM dats WHERE platform != ?2))))";
+                           WHERE m.file_id = f.id AND (r.dat_id = ?1 OR r.dat_id IN (SELECT id FROM dats WHERE platform != ?2)))
+           -- (the tracks of a CHD that is an arcade machine's disk)
+           AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.file_id = f.parent_id))";
 
 /// ROMs of the DAT matched by more than one file.
 const DUPLICATES: &str = "
@@ -233,7 +275,7 @@ pub fn summary(conn: &Connection, dat_id: i64) -> Result<Value> {
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
     )?;
     let (matched, misnamed): (i64, i64) = conn.query_row(
-        &format!("WITH {MATCHED} SELECT COALESCE(SUM(named), 0), COALESCE(SUM(1 - named), 0) FROM fm"),
+        &format!("WITH {} SELECT COALESCE(SUM(named), 0), COALESCE(SUM(1 - named), 0) FROM fm", matched_sql(&d.platform)),
         [dat_id],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
@@ -260,6 +302,12 @@ pub fn summary(conn: &Connection, dat_id: i64) -> Result<Value> {
         "matched": matched, "misnamed": misnamed, "baddump": bad, "unknown": unknown, "duplicates": duplicates, "by_crc": by_crc,
         "needs_tool": needs_tool,
     });
+    let mut v = v;
+    if platforms::is_arcade(&d.platform) {
+        // D59: the games that run, and the BIOS sets and devices they lean on
+        let a = crate::arcade::needs(conn, dat_id)?;
+        v["arcade"] = json!({ "playable": a["playable"], "sets": a["sets"], "sets_have": a["sets_have"] });
+    }
     conn.execute(
         "INSERT INTO index_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![key, v.to_string()],
@@ -268,7 +316,7 @@ pub fn summary(conn: &Connection, dat_id: i64) -> Result<Value> {
 }
 
 /// The lists the Audit page shows.
-pub const TABS: &[&str] = &["have", "partial", "missing", "matched", "misnamed", "baddump", "unknown", "duplicates"];
+pub const TABS: &[&str] = &["have", "partial", "missing", "matched", "misnamed", "baddump", "unknown", "duplicates", "sets"];
 
 /// Where a file is on this computer: (the file to show in a folder, how it's shown).
 fn locate(dirs: &HashMap<String, PathBuf>, root_id: &str, rel: &str, member: Option<&str>) -> (String, String) {
@@ -301,20 +349,23 @@ pub fn list(ix: &Index, lib: &Library, dat_id: i64, tab: &str, search: &str, off
     let pat = like(search);
     let dirs: HashMap<String, PathBuf> = roots::list(lib).into_iter().map(|r| (r.id, r.dir)).collect();
     match tab {
-        "have" | "partial" | "missing" => {
+        "have" | "partial" | "missing" | "sets" => {
+            // an arcade DAT's BIOS sets and devices are listed apart (D58)
+            let (with, which) = if tab == "sets" { (MACHINES, "gs.kind IN ('bios', 'device') AND ?2 = ?2") } else { (GAMES, "gs.status = ?2") };
             let total: i64 = conn.query_row(
-                &format!("WITH {GAMES} SELECT COUNT(*) FROM gs WHERE status = ?2 AND name LIKE ?3 ESCAPE '\\'"),
+                &format!("WITH {with} SELECT COUNT(*) FROM gs WHERE {which} AND name LIKE ?3 ESCAPE '\\'"),
                 params![dat_id, tab, pat],
                 |r| r.get(0),
             )?;
             let mut q = conn.prepare(&format!(
-                "WITH {GAMES}
+                "WITH {with}
                  SELECT gs.id, gs.name, gs.title, gs.regions, gs.flags, gs.roms, gs.have, pg.name,
                         (SELECT f.root_id || char(9) || f.rel_path || char(9) || COALESCE(p.name, '') || char(9) || f.name
                          FROM dat_roms r JOIN matches m ON m.rom_id = r.id JOIN files f ON f.id = m.file_id LEFT JOIN files p ON p.id = f.parent_id
-                         WHERE r.game_id = gs.id LIMIT 1)
-                 FROM gs LEFT JOIN dat_games pg ON pg.id = gs.parent_id
-                 WHERE gs.status = ?2 AND gs.name LIKE ?3 ESCAPE '\\' ORDER BY gs.name LIMIT ?4 OFFSET ?5"
+                         WHERE r.game_id = gs.id LIMIT 1),
+                        dg.year, dg.manufacturer, gs.kind, gs.status
+                 FROM gs JOIN dat_games dg ON dg.id = gs.id LEFT JOIN dat_games pg ON pg.id = gs.parent_id
+                 WHERE {which} AND gs.name LIKE ?3 ESCAPE '\\' ORDER BY gs.name LIMIT ?4 OFFSET ?5"
             ))?;
             let items: Vec<Value> = q
                 .query_map(params![dat_id, tab, pat, limit, offset], |r| {
@@ -331,16 +382,27 @@ pub fn list(ix: &Index, lib: &Library, dat_id: i64, tab: &str, search: &str, off
                         "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "title": r.get::<_, Option<String>>(2)?,
                         "regions": r.get::<_, Option<String>>(3)?, "flags": r.get::<_, Option<String>>(4)?,
                         "roms": r.get::<_, i64>(5)?, "have": r.get::<_, i64>(6)?, "clone_of": r.get::<_, Option<String>>(7)?,
-                        "path": path, "shown": shown,
+                        "path": path, "shown": shown, "year": r.get::<_, Option<String>>(9)?, "manufacturer": r.get::<_, Option<String>>(10)?,
+                        "kind": r.get::<_, Option<String>>(11)?, "status": r.get::<_, String>(12)?,
                     }))
                 })?
                 .collect::<rusqlite::Result<_>>()?;
+            let mut items = items;
+            if platforms::is_arcade(&d.platform) && tab != "sets" {
+                // what each game is waiting for to run (D59)
+                let a = crate::arcade::needs(conn, dat_id)?;
+                for it in &mut items {
+                    let n = &a["games"][it["id"].to_string()];
+                    it["needs"] = n["needs"].clone();
+                    it["samples"] = n["samples"].clone();
+                }
+            }
             Ok(json!({ "total": total, "items": items }))
         }
         "matched" | "misnamed" | "duplicates" => {
             let (with, filter, from) = match tab {
-                "matched" => (MATCHED, "fm.named = 1", "fm JOIN files f ON f.id = fm.file_id JOIN dat_roms r ON r.id = fm.rom_id"),
-                "misnamed" => (MATCHED, "fm.named = 0", "fm JOIN files f ON f.id = fm.file_id JOIN dat_roms r ON r.id = fm.rom_id"),
+                "matched" => (matched_sql(&d.platform), "fm.named = 1", "fm JOIN files f ON f.id = fm.file_id JOIN dat_roms r ON r.id = fm.rom_id"),
+                "misnamed" => (matched_sql(&d.platform), "fm.named = 0", "fm JOIN files f ON f.id = fm.file_id JOIN dat_roms r ON r.id = fm.rom_id"),
                 _ => (DUPLICATES, "1", "dr JOIN matches mm ON mm.rom_id = dr.rom_id JOIN files f ON f.id = mm.file_id JOIN dat_roms r ON r.id = dr.rom_id"),
             };
             let search_sql = "(f.rel_path LIKE ?2 ESCAPE '\\' OR r.name LIKE ?2 ESCAPE '\\')";
@@ -352,7 +414,8 @@ pub fn list(ix: &Index, lib: &Library, dat_id: i64, tab: &str, search: &str, off
             let mut q = conn.prepare(&format!(
                 "WITH {with}
                  SELECT f.id, f.root_id, f.rel_path, f.name, f.parent_id IS NOT NULL, p.name, r.name, g.name, r.status,
-                        (SELECT method FROM matches x WHERE x.file_id = f.id AND x.rom_id = r.id), f.missing_since
+                        (SELECT method FROM matches x WHERE x.file_id = f.id AND x.rom_id = r.id), f.missing_since,
+                        (SELECT pl.container || char(9) || pl.member || char(9) || r.disk FROM dat_places pl WHERE pl.rom_id = r.id LIMIT 1)
                  FROM {from} JOIN dat_games g ON g.id = r.game_id LEFT JOIN files p ON p.id = f.parent_id
                  WHERE {filter} AND {search_sql} ORDER BY r.name, f.rel_path LIMIT ?3 OFFSET ?4"
             ))?;
@@ -361,7 +424,14 @@ pub fn list(ix: &Index, lib: &Library, dat_id: i64, tab: &str, search: &str, off
                     let (root, rel, name, member): (String, String, String, bool) = (r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?);
                     let (rom, game): (String, String) = (r.get(6)?, r.get(7)?);
                     let (path, shown) = locate(&dirs, &root, &rel, member.then_some(name.as_str()));
-                    let expected = if member { format!("{game}.zip › {rom}") } else { rom.clone() };
+                    // an arcade ROM is where its set type puts it
+                    let place: Option<String> = r.get(11)?;
+                    let expected = match place.as_deref().map(|p| p.split('\t').collect::<Vec<_>>()) {
+                        Some(p) if p.len() == 3 && p[2] == "1" => format!("{}/{}", p[0], p[1]),
+                        Some(p) if p.len() == 3 => format!("{}.zip › {}", p[0], p[1]),
+                        _ if member => format!("{game}.zip › {rom}"),
+                        _ => rom.clone(),
+                    };
                     Ok(json!({
                         "id": r.get::<_, i64>(0)?, "path": path, "shown": shown, "name": name, "zip": r.get::<_, Option<String>>(5)?,
                         "rom": rom, "game": game, "expected": expected, "baddump": r.get::<_, Option<String>>(8)?.as_deref() == Some("baddump"),

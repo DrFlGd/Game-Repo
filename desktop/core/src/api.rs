@@ -607,6 +607,19 @@ impl App {
                     starter::get(&ix, &lib, &source, &only, again, &cancel, &mut |p| app.job_progress(&id, p))
                 }))
             }
+            // Phase 7 (D60): each arcade system's set type
+            "arcade_sets" => {
+                let lib = self.library()?;
+                j(crate::arcade::set_types(&lib))
+            }
+            "arcade_set" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let kind = arg(&args, "set_type").map_err(e2s)?.to_string();
+                let l2 = lib.clone();
+                self.with_index(move |ix| crate::arcade::set_set_type(ix.conn(), &l2, &platform, &kind)).await?;
+                j(crate::arcade::set_types(&lib))
+            }
             "dat_use" => {
                 let lib = self.library()?;
                 let id = args["id"].as_i64().ok_or("missing id")?;

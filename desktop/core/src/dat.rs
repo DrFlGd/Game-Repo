@@ -34,6 +34,16 @@ pub struct Game {
     /// The parent's name (`cloneof`)
     pub cloneof: Option<String>,
     pub roms: Vec<Rom>,
+    /// Arcade DATs (Phase 7, D58): the set its ROMs lean on (its parent or BIOS set), its
+    /// samples' set and samples, the devices it uses, "bios", "device" or "mechanical",
+    /// and the DAT's year and manufacturer
+    pub romof: Option<String>,
+    pub sampleof: Option<String>,
+    pub samples: Vec<String>,
+    pub devices: Vec<String>,
+    pub kind: Option<String>,
+    pub year: Option<String>,
+    pub manufacturer: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -45,6 +55,10 @@ pub struct Rom {
     pub sha1: Option<String>,
     /// "baddump", "nodump", "verified" or none
     pub status: Option<String>,
+    /// The parent's or BIOS set's ROM this one is (arcade DATs' `merge`)
+    pub merge: Option<String>,
+    /// A disk (`<disk>`): named `<disk>.chd`, matched by the CHD's own SHA1
+    pub disk: bool,
 }
 
 fn hex_field(v: &str) -> Option<String> {
@@ -69,8 +83,22 @@ impl Rom {
             "md5" => self.md5 = hex_field(v),
             "sha1" => self.sha1 = hex_field(v),
             "status" | "flags" => self.status = Some(v.trim().to_ascii_lowercase()).filter(|s| !s.is_empty()),
+            "merge" => self.merge = Some(v.to_string()).filter(|v| !v.is_empty()),
             _ => {}
         }
+    }
+}
+
+impl Rom {
+    /// A disk is the game's `<name>.chd`.
+    fn disk_named(mut self) -> Self {
+        if self.disk {
+            self.name = format!("{}.chd", self.name);
+            self.merge = self.merge.map(|m| format!("{m}.chd"));
+            self.size = None;
+            self.crc32 = None;
+        }
+        self
     }
 }
 
@@ -135,6 +163,11 @@ fn parse_logiqx(bytes: &[u8]) -> Result<Dat> {
                                 "id" => g.id = Some(v),
                                 "cloneofid" => g.cloneofid = Some(v).filter(|v| !v.is_empty()),
                                 "cloneof" => g.cloneof = Some(v).filter(|v| !v.is_empty()),
+                                "romof" => g.romof = Some(v).filter(|v| !v.is_empty()),
+                                "sampleof" => g.sampleof = Some(v).filter(|v| !v.is_empty()),
+                                "isbios" if v == "yes" => g.kind = Some("bios".into()),
+                                "isdevice" if v == "yes" => g.kind = Some("device".into()),
+                                "ismechanical" if v == "yes" && g.kind.is_none() => g.kind = Some("mechanical".into()),
                                 _ => {}
                             }
                         }
@@ -144,12 +177,30 @@ fn parse_logiqx(bytes: &[u8]) -> Result<Dat> {
                             game = Some(g);
                         }
                     }
-                    "rom" if in_game => {
-                        let mut rom = Rom::default();
+                    "rom" | "disk" if in_game => {
+                        let mut rom = Rom { disk: tag == "disk", ..Default::default() };
                         for (k, v) in attrs(e) {
                             rom.set(&k, &v);
                         }
-                        game.as_mut().unwrap().roms.push(rom);
+                        game.as_mut().unwrap().roms.push(rom.disk_named());
+                    }
+                    "sample" if in_game => game.as_mut().unwrap().samples.extend(attrs(e).into_iter().find(|(k, _)| k == "name").map(|(_, v)| v)),
+                    "device_ref" if in_game => {
+                        let g = game.as_mut().unwrap();
+                        if let Some((_, v)) = attrs(e).into_iter().find(|(k, _)| k == "name") {
+                            if !g.devices.contains(&v) {
+                                g.devices.push(v);
+                            }
+                        }
+                    }
+                    // MAME's -listxml has no header: it's "MAME" at its build
+                    "mame" if stack.is_empty() => {
+                        dat.name = "MAME".into();
+                        if let Some((_, b)) = attrs(e).into_iter().find(|(k, _)| k == "build") {
+                            version = b.split_whitespace().next().unwrap_or(&b).to_string();
+                            dat.description = format!("MAME {version}");
+                        }
+                        dat.author = "MAME".into();
                     }
                     _ => {}
                 }
@@ -179,6 +230,16 @@ fn parse_logiqx(bytes: &[u8]) -> Result<Dat> {
                     ("game" | "machine" | "software", "description") => {
                         if let Some(g) = game.as_mut() {
                             g.description = value();
+                        }
+                    }
+                    ("game" | "machine", "year") => {
+                        if let Some(g) = game.as_mut() {
+                            g.year = Some(value()).filter(|v| !v.is_empty());
+                        }
+                    }
+                    ("game" | "machine", "manufacturer") => {
+                        if let Some(g) = game.as_mut() {
+                            g.manufacturer = Some(value()).filter(|v| !v.is_empty());
                         }
                     }
                     (_, "game" | "machine" | "software") => {
@@ -294,8 +355,11 @@ fn parse_clrmamepro(s: &str) -> Result<Dat> {
                     }
                 }
                 i += 1;
-                if k == "rom" {
-                    game.roms.push(rom);
+                match k {
+                    "rom" => game.roms.push(rom),
+                    "disk" => game.roms.push(Rom { disk: true, ..rom }.disk_named()),
+                    "device_ref" if !rom.name.is_empty() => game.devices.push(rom.name),
+                    _ => {}
                 }
                 continue;
             }
@@ -305,6 +369,11 @@ fn parse_clrmamepro(s: &str) -> Result<Dat> {
                 "name" => game.name = v,
                 "description" => game.description = v,
                 "cloneof" => game.cloneof = Some(v).filter(|v| !v.is_empty()),
+                "romof" => game.romof = Some(v).filter(|v| !v.is_empty()),
+                "sampleof" => game.sampleof = Some(v).filter(|v| !v.is_empty()),
+                "sample" if !v.is_empty() => game.samples.push(v),
+                "year" => game.year = Some(v).filter(|v| !v.is_empty()),
+                "manufacturer" => game.manufacturer = Some(v).filter(|v| !v.is_empty()),
                 _ => {}
             }
             i += 2;
@@ -318,7 +387,9 @@ fn parse_clrmamepro(s: &str) -> Result<Dat> {
                 dat.version = if h("version").is_empty() { h("date") } else { h("version") };
                 dat.author = if h("homepage").is_empty() { h("author") } else { h("homepage") };
             }
-            "game" | "resource" | "machine" => dat.games.push(game),
+            // a resource is a BIOS set
+            "resource" => dat.games.push(Game { kind: Some("bios".into()), ..game }),
+            "game" | "machine" => dat.games.push(game),
             _ => {}
         }
     }
@@ -513,7 +584,11 @@ pub fn import_bytes(ix: &Index, lib: &Library, bytes: &[u8], file: &str, answers
     }
     let id = match existing {
         Some(id) if already => id,
-        _ => load(ix.conn(), &rel, &platform, &dat)?,
+        _ => {
+            let id = load(ix.conn(), &rel, &platform, &dat)?;
+            crate::arcade::loaded(ix.conn(), lib, id, &platform)?;
+            id
+        }
     };
     update_current(ix.conn(), lib)?;
     let matched = crate::audit::match_dat(ix.conn(), id)?;
@@ -539,13 +614,20 @@ fn load(conn: &Connection, rel: &str, platform: &str, dat: &Dat) -> Result<i64> 
     let mut ids = Vec::with_capacity(dat.games.len());
     {
         let mut g_ins = tx.prepare(
-            "INSERT INTO dat_games (dat_id, name, description, title, regions, languages, revision, version, flags) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO dat_games (dat_id, name, description, title, regions, languages, revision, version, flags, romof, sampleof, kind, year, manufacturer)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         )?;
-        let mut r_ins = tx.prepare("INSERT INTO dat_roms (game_id, dat_id, name, size, crc32, md5, sha1, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
+        let mut r_ins = tx.prepare("INSERT INTO dat_roms (game_id, dat_id, name, size, crc32, md5, sha1, status, merge, disk) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")?;
+        let mut l_ins = tx.prepare("INSERT INTO dat_links (game_id, kind, name) VALUES (?1, ?2, ?3)")?;
         let join = |v: &[String]| (!v.is_empty()).then(|| v.join(", "));
+        // an arcade machine's name is a short name ("sf2"): its title is its description's
+        let arcade = platforms::is_arcade(platform);
         for g in &dat.games {
-            let f = parse_name(&g.name);
-            g_ins.execute(params![dat_id, g.name, g.description, f.title, join(&f.regions), join(&f.languages), f.revision, f.version, join(&f.flags)])?;
+            let f = parse_name(if arcade && !g.description.is_empty() { &g.description } else { &g.name });
+            g_ins.execute(params![
+                dat_id, g.name, g.description, f.title, join(&f.regions), join(&f.languages), f.revision, f.version, join(&f.flags),
+                g.romof, g.sampleof, g.kind, g.year, g.manufacturer
+            ])?;
             let gid = tx.last_insert_rowid();
             ids.push(gid);
             by_name.insert(&g.name, gid);
@@ -553,7 +635,13 @@ fn load(conn: &Connection, rel: &str, platform: &str, dat: &Dat) -> Result<i64> 
                 by_nid.insert(n, gid);
             }
             for r in &g.roms {
-                r_ins.execute(params![gid, dat_id, r.name, r.size.map(|s| s as i64), r.crc32, r.md5, r.sha1, r.status])?;
+                r_ins.execute(params![gid, dat_id, r.name, r.size.map(|s| s as i64), r.crc32, r.md5, r.sha1, r.status, r.merge, r.disk as i64])?;
+            }
+            for d in &g.devices {
+                l_ins.execute(params![gid, "device", d])?;
+            }
+            for s in &g.samples {
+                l_ins.execute(params![gid, "sample", s])?;
             }
         }
         let mut p_upd = tx.prepare("UPDATE dat_games SET parent_id = ?2 WHERE id = ?1")?;
@@ -660,6 +748,7 @@ pub fn sync_library(ix: &Index, lib: &Library) -> Result<()> {
         let Ok(dat) = parse(&bytes) else { continue };
         let dat = if platform == crate::bios::ID { crate::bios::by_system(&String::from_utf8_lossy(&bytes), dat) } else { dat };
         let id = load(conn, rel, platform, &dat)?;
+        crate::arcade::loaded(conn, lib, id, platform)?;
         crate::audit::match_dat(conn, id)?;
         changed = true;
     }
@@ -692,6 +781,11 @@ pub fn list(ix: &Index) -> Result<Value> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+
+    /// A parsed DAT loaded into an index for `platform` (its id).
+    pub fn load_for_test(conn: &Connection, platform: &str, dat: &Dat) -> i64 {
+        load(conn, &format!("{APP_DIR}/dats/{platform}/{}.dat", dat.name), platform, dat).unwrap()
+    }
 
     pub const LOGIQX: &str = r#"<?xml version="1.0"?>
 <!DOCTYPE datafile PUBLIC "-//Logiqx//DTD ROM Management Datafile//EN" "http://www.logiqx.com/dtds/datafile.dtd">

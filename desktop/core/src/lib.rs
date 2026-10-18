@@ -16,6 +16,7 @@
 //! - [`scan`]: scanning the folders with games into the index
 //! - [`dat`]: reading and importing DAT files
 //! - [`audit`]: matching files with DATs, and what an audit shows
+//! - [`arcade`]: arcade sets (MAME, FBNeo): set types, what a machine needs, playable
 //! - [`bios`]: each system's BIOS files, audited from a BIOS DAT, gathered and exported
 //! - [`makedat`]: making a DAT from a scanned set
 //! - [`organise`]: organising a set by its DAT (copy, rename or move), the journal and Undo
@@ -33,6 +34,7 @@
 
 pub mod addgame;
 pub mod api;
+pub mod arcade;
 pub mod archive;
 pub mod audit;
 pub mod bios;

@@ -159,6 +159,8 @@ pub struct Options {
     /// Every game in a folder of its own with its files named as the DAT says (the BIOS
     /// set: a system's folder, its files as the cores look for them)
     pub per_game_folder: bool,
+    /// An arcade system's set type, when not the library's (an export's is non-merged, D61)
+    pub set_type: Option<String>,
     /// Files placed before (an export's), by path key: their size and modified time then.
     /// One still the same is there already, without reading it again.
     pub known: HashMap<String, (u64, i64)>,
@@ -402,13 +404,18 @@ impl Cand {
 }
 
 pub(crate) struct RomRow {
+    pub(crate) id: i64,
     pub(crate) name: String,
     pub(crate) cands: Vec<Cand>,
+    /// A clone's ROM in a merged arcade set's parent ZIP: the ZIP is complete without it
+    pub(crate) optional: bool,
 }
 
 pub(crate) struct GameRow {
     pub(crate) fields: GameFields,
     pub(crate) roms: Vec<RomRow>,
+    /// An arcade machine's disks, kept as `<machine>/<disk>.chd` beside its ZIP
+    pub(crate) disks: Vec<RomRow>,
 }
 
 /// An id for a change, ordered by time to the millisecond (the newest sorts last).
@@ -452,11 +459,12 @@ pub(crate) fn load_games(conn: &Connection, roots: &[Root], dat_id: i64) -> Resu
             games.push(GameRow {
                 fields: GameFields { name: r.get(1)?, title: r.get(2)?, regions: r.get(3)?, languages: r.get(4)?, revision: r.get(5)? },
                 roms: vec![],
+                disks: vec![],
             });
         }
         let g = games.last_mut().unwrap();
         if (gid, rid) != last {
-            g.roms.push(RomRow { name: r.get(7)?, cands: vec![] });
+            g.roms.push(RomRow { id: rid, name: r.get(7)?, cands: vec![], optional: false });
         }
         last = (gid, rid);
         let Some(fid) = r.get::<_, Option<i64>>(8)? else { continue };
@@ -499,6 +507,67 @@ pub(crate) fn load_games(conn: &Connection, roots: &[Root], dat_id: i64) -> Resu
         g.roms.last_mut().unwrap().cands.push(cand);
     }
     Ok(games)
+}
+
+/// An arcade DAT's machines as the ZIPs (and disk folders) a set of `kind` keeps (D60):
+/// each container a row, its members the ROMs [`crate::arcade::places`] puts there, with
+/// the files found for them and whether each is named as that set type says. With `only`,
+/// just the containers those games need to run.
+pub(crate) fn arcade_rows(conn: &Connection, games: Vec<GameRow>, dat_id: i64, kind: &str, only: Option<&[String]>) -> Result<Vec<GameRow>> {
+    let ms = crate::arcade::Machines::load(conn, dat_id)?;
+    let wanted = only.map(|o| crate::arcade::containers_for(&ms, o, kind));
+    let mut cands: HashMap<i64, Vec<Cand>> = HashMap::new();
+    for g in games {
+        for r in g.roms {
+            cands.insert(r.id, r.cands);
+        }
+    }
+    // the machine each ROM is listed under, for what a merged parent's ZIP can do without
+    let owner: HashMap<i64, &str> = ms.list.iter().flat_map(|m| m.roms.iter().map(move |r| (r.id, m.name.as_str()))).collect();
+    let mut rows: Vec<GameRow> = vec![];
+    let mut at: HashMap<String, usize> = HashMap::new();
+    let mut members: HashMap<(usize, String), usize> = HashMap::new();
+    for pl in crate::arcade::places(&ms, kind) {
+        if wanted.as_ref().is_some_and(|w| !w.contains(&pl.container)) {
+            continue;
+        }
+        let ci = *at.entry(pl.container.clone()).or_insert_with(|| {
+            rows.push(GameRow {
+                fields: GameFields { name: pl.container.clone(), title: None, regions: None, languages: None, revision: None },
+                roms: vec![],
+                disks: vec![],
+            });
+            rows.len() - 1
+        });
+        let mut found: Vec<Cand> = cands.get(&pl.rom_id).cloned().unwrap_or_default();
+        for c in &mut found {
+            c.named = match (&c.archive, &c.src.member) {
+                (Some((k, name, _)), Some(m)) => (k == "zip" || k == "7z") && *name == format!("{}.{k}", pl.container) && *m == pl.member,
+                _ => c.src.rel.ends_with(&format!("{}/{}", pl.container, pl.member)),
+            };
+        }
+        let optional = !pl.disk && owner.get(&pl.rom_id).is_some_and(|o| *o != pl.container);
+        let key = (ci, pl.member.to_ascii_lowercase());
+        match members.get(&key) {
+            Some(&ri) => {
+                // the same file listed under another machine (a clone's copy of its parent's ROM)
+                let row = if pl.disk { &mut rows[ci].disks[ri] } else { &mut rows[ci].roms[ri] };
+                row.optional &= optional;
+                for c in found {
+                    if !row.cands.iter().any(|k| k.src.file_id == c.src.file_id && k.src.member == c.src.member) {
+                        row.cands.push(c);
+                    }
+                }
+            }
+            None => {
+                let list = if pl.disk { &mut rows[ci].disks } else { &mut rows[ci].roms };
+                list.push(RomRow { id: pl.rom_id, name: pl.member.clone(), cands: found, optional });
+                members.insert(key, list.len() - 1);
+            }
+        }
+    }
+    rows.sort_by(|a, b| a.fields.name.cmp(&b.fields.name));
+    Ok(rows)
 }
 
 /// Which of the files found for a ROM is used (the others are duplicates): one named
@@ -654,8 +723,12 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         bail!("Disc games keep their format when they're organised: Convert changes it.");
     }
     let mode = if o.only_misnamed { "rename".to_string() } else { o.mode.clone() };
+    let arcade = platforms::is_arcade(&d.platform);
     let mut games = load_games(conn, &roots, o.dat_id)?;
-    if let Some(only) = &o.games {
+    if arcade {
+        let kind = o.set_type.clone().unwrap_or_else(|| crate::arcade::set_type(lib, &d.platform));
+        games = arcade_rows(conn, games, o.dat_id, &kind, o.games.as_deref())?;
+    } else if let Some(only) = &o.games {
         let only: HashSet<&str> = only.iter().map(String::as_str).collect();
         games.retain(|g| only.contains(g.fields.name.as_str()));
     }
@@ -693,12 +766,17 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         // a game in a disc image has its cue sheet (the image needs none)
         let in_image = g.roms.iter().any(|r| r.cands.iter().any(Cand::in_image));
         let have = g.roms.iter().filter(|r| !r.cands.is_empty() || (in_image && cue::is_sheet(&r.name))).count();
-        if have == 0 || (have < g.roms.len() && !o.partial) {
+        // (an arcade ZIP is complete without the clones' ROMs a merged parent's holds)
+        let needed = g.roms.iter().filter(|r| !r.optional).count() + g.disks.len();
+        let have_needed = g.roms.iter().filter(|r| !r.optional && (!r.cands.is_empty() || (in_image && cue::is_sheet(&r.name)))).count()
+            + g.disks.iter().filter(|r| !r.cands.is_empty()).count();
+        let disks_had = g.disks.iter().any(|r| !r.cands.is_empty());
+        if (have == 0 && !disks_had) || (have_needed < needed && !o.partial) {
             continue;
         }
-        if o.only_misnamed && g.roms.iter().all(|r| r.cands.is_empty() || r.cands.iter().any(|c| c.named)) {
+        if o.only_misnamed && g.roms.iter().chain(&g.disks).all(|r| r.cands.is_empty() || r.cands.iter().any(|c| c.named)) {
             // a misnamed copy of a file that's named right elsewhere is a duplicate, not renamed
-            for c in g.roms.iter().flat_map(|r| r.cands.iter()).filter(|c| !c.named) {
+            for c in g.roms.iter().chain(&g.disks).flat_map(|r| r.cands.iter()).filter(|c| !c.named) {
                 let shown = match &c.src.member {
                     Some(m) => format!("{} › {m}", c.src.path),
                     None => c.src.path.clone(),
@@ -708,132 +786,139 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             continue;
         }
         let (chosen, whole) = choose(g, &format, out.as_deref());
-        for r in &g.roms {
-            for c in &r.cands {
-                if !chosen.iter().any(|(_, k)| std::ptr::eq(*k, c)) {
-                    let shown = match &c.src.member {
-                        Some(m) => format!("{} › {m}", c.src.path),
-                        None => c.src.path.clone(),
-                    };
-                    p.plan.duplicates.push(json!({ "game": g.fields.name, "rom": r.name, "path": shown }));
-                }
-            }
-        }
-        let any_member = chosen.iter().any(|(_, c)| c.archive.is_some());
-        let target = match format.as_str() {
-            "zip" => "zip",
-            "loose" => "loose",
-            _ if whole.is_some() => "archive",
-            _ if any_member => "zip",
-            _ => "loose",
-        };
-        let base = safe_name(&render(&naming.template, &g.fields));
-        let src_dir = |c: &Cand| Path::new(&c.src.path).parent().map(Path::to_path_buf).unwrap_or_default();
-        let first = chosen[0].1;
-        let multi = g.roms.len() > 1;
-        // for ES-DE, a game of several files is a folder named as the file it starts from
-        let per_game = (naming.folder || o.per_game_folder) && !o.esde;
-        let folder_name = if o.esde {
-            let start = g.roms.iter().find(|r| cue::is_sheet(&r.name)).or(g.roms.first()).map(|r| r.name.rsplit(['/', '\\']).next().unwrap_or(&r.name).to_string());
-            safe_name(&start.unwrap_or_else(|| base.clone()))
-        } else {
-            base.clone()
-        };
-        let dest = |folder: bool| -> PathBuf {
-            match &out {
-                Some(o) if folder => o.join(&folder_name),
-                Some(o) => o.clone(),
-                None => src_dir(first),
-            }
-        };
         let before = p.plan.ops.len();
+        if !g.disks.is_empty() {
+            place_disks(&mut p, g, &chosen, out.as_deref());
+        }
         let mut conflict = None;
-        match target {
-            "archive" => {
-                let c = first;
-                let (kind, _, _) = c.archive.clone().unwrap();
-                // (a disc image's tracks need no names)
-                let names_right = c.in_image() || chosen.iter().all(|(r, c)| c.src.member.as_deref() == Some(r.name.as_str()));
-                let dir = dest(per_game);
-                if names_right {
-                    let to = p.claim(&dir, &format!("{base}.{kind}"));
-                    let src = whole_archive(&c.src);
-                    if let Some(op) = p.place(&g.fields.name, &src, to) {
-                        p.plan.ops.push(op);
+        // (an arcade machine may have only its disks here)
+        if !chosen.is_empty() {
+            for r in &g.roms {
+                for c in &r.cands {
+                    if !chosen.iter().any(|(_, k)| std::ptr::eq(*k, c)) {
+                        let shown = match &c.src.member {
+                            Some(m) => format!("{} › {m}", c.src.path),
+                            None => c.src.path.clone(),
+                        };
+                        p.plan.duplicates.push(json!({ "game": g.fields.name, "rom": r.name, "path": shown }));
                     }
-                } else {
-                    let to = p.claim(&dir, &format!("{base}.zip"));
-                    let mut op = zip_op(&g.fields.name, &to, &chosen);
-                    op.from = op.from.iter().map(|s| p.redirect(s)).collect();
-                    if kind != "zip" {
-                        op.note = Some(format!("The .{kind} is rebuilt as a ZIP: its files need renaming, and the app doesn't write .{kind} files."));
-                    }
-                    p.plan.ops.push(op);
                 }
             }
-            "zip" => {
-                let dir = dest(per_game);
-                let to_name = format!("{base}.zip");
-                let already = whole.is_some()
-                    && first.archive.as_ref().is_some_and(|a| a.0 == "zip")
-                    && chosen.iter().all(|(r, c)| c.src.member.as_deref() == Some(r.name.as_str()))
-                    && torrentzip::is_torrentzip(Path::new(&first.src.path));
-                let to = p.claim(&dir, &to_name);
-                if already {
-                    let src = whole_archive(&first.src);
-                    if let Some(op) = p.place(&g.fields.name, &src, to) {
+            let any_member = chosen.iter().any(|(_, c)| c.archive.is_some());
+            let target = match format.as_str() {
+                "zip" => "zip",
+                "loose" => "loose",
+                _ if whole.is_some() => "archive",
+                _ if any_member => "zip",
+                _ => "loose",
+            };
+            // an arcade machine is always its short name, as the emulators look for it
+            let base = if arcade { safe_name(&g.fields.name) } else { safe_name(&render(&naming.template, &g.fields)) };
+            let src_dir = |c: &Cand| Path::new(&c.src.path).parent().map(Path::to_path_buf).unwrap_or_default();
+            let first = chosen[0].1;
+            let multi = g.roms.len() > 1;
+            // for ES-DE, a game of several files is a folder named as the file it starts from
+            let per_game = (naming.folder || o.per_game_folder) && !o.esde && !arcade;
+            let folder_name = if o.esde {
+                let start = g.roms.iter().find(|r| cue::is_sheet(&r.name)).or(g.roms.first()).map(|r| r.name.rsplit(['/', '\\']).next().unwrap_or(&r.name).to_string());
+                safe_name(&start.unwrap_or_else(|| base.clone()))
+            } else {
+                base.clone()
+            };
+            let dest = |folder: bool| -> PathBuf {
+                match &out {
+                    Some(o) if folder => o.join(&folder_name),
+                    Some(o) => o.clone(),
+                    None => src_dir(first),
+                }
+            };
+            match target {
+                "archive" => {
+                    let c = first;
+                    let (kind, _, _) = c.archive.clone().unwrap();
+                    // (a disc image's tracks need no names)
+                    let names_right = c.in_image() || chosen.iter().all(|(r, c)| c.src.member.as_deref() == Some(r.name.as_str()));
+                    let dir = dest(per_game);
+                    if names_right {
+                        let to = p.claim(&dir, &format!("{base}.{kind}"));
+                        let src = whole_archive(&c.src);
+                        if let Some(op) = p.place(&g.fields.name, &src, to) {
+                            p.plan.ops.push(op);
+                        }
+                    } else {
+                        let to = p.claim(&dir, &format!("{base}.zip"));
+                        let mut op = zip_op(&g.fields.name, &to, &chosen);
+                        op.from = op.from.iter().map(|s| p.redirect(s)).collect();
+                        if kind != "zip" {
+                            op.note = Some(format!("The .{kind} is rebuilt as a ZIP: its files need renaming, and the app doesn't write .{kind} files."));
+                        }
                         p.plan.ops.push(op);
                     }
-                } else {
-                    let mut op = zip_op(&g.fields.name, &to, &chosen);
-                    op.from = op.from.iter().map(|s| p.redirect(s)).collect();
-                    for (_, c) in &chosen {
-                        if c.archive.is_none() && mode != "copy" {
-                            op.aside.push(p.redirect(&c.src));
+                }
+                "zip" => {
+                    let dir = dest(per_game);
+                    let to_name = format!("{base}.zip");
+                    let already = whole.is_some()
+                        && first.archive.as_ref().is_some_and(|a| a.0 == "zip")
+                        && chosen.iter().all(|(r, c)| c.src.member.as_deref() == Some(r.name.as_str()))
+                        && torrentzip::is_torrentzip(Path::new(&first.src.path));
+                    let to = p.claim(&dir, &to_name);
+                    if already {
+                        let src = whole_archive(&first.src);
+                        if let Some(op) = p.place(&g.fields.name, &src, to) {
+                            p.plan.ops.push(op);
+                        }
+                    } else {
+                        let mut op = zip_op(&g.fields.name, &to, &chosen);
+                        op.from = op.from.iter().map(|s| p.redirect(s)).collect();
+                        for (_, c) in &chosen {
+                            if c.archive.is_none() && mode != "copy" {
+                                op.aside.push(p.redirect(&c.src));
+                            }
+                        }
+                        p.plan.ops.push(op);
+                    }
+                }
+                _ => {
+                    let folder = per_game || multi;
+                    // a cue sheet that isn't the DAT's own names the tracks as they were: it's rewritten
+                    let mut renames: Vec<String> = vec![];
+                    let mut sheets: Vec<usize> = vec![];
+                    for (r, c) in &chosen {
+                        let (dir, name) = match &out {
+                            None => (src_dir(c), if multi { r.name.clone() } else { format!("{base}{}", ext_of_name(&r.name)) }),
+                            Some(_) if folder => (dest(true), r.name.clone()),
+                            Some(_) => (dest(false), format!("{base}{}", ext_of_name(&r.name))),
+                        };
+                        let rel = safe_rel(&name);
+                        let to = p.claim(&dir.join(rel.parent().unwrap_or(Path::new(""))), &rel.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+                        if c.archive.is_none() && c.method == "cue" {
+                            let src = p.redirect(&c.src);
+                            let in_place = key(Path::new(&src.path)) == key(&to);
+                            let aside = if mode != "copy" && !in_place { vec![src.clone()] } else { vec![] };
+                            sheets.push(p.plan.ops.len());
+                            p.plan.ops.push(Op {
+                                op: "cue".into(), game: g.fields.name.clone(), to: to.display().to_string(), from: vec![src],
+                                names: vec![], aside, size: c.src.size, note: Some("Its FILE lines are rewritten for the tracks' new names.".into()),
+                            });
+                            continue;
+                        }
+                        if c.archive.is_none() && !cue::is_sheet(&r.name) {
+                            let old = Path::new(&c.src.path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                            renames.extend([old, to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()]);
+                        }
+                        if c.archive.is_some() {
+                            p.plan.ops.push(Op {
+                                op: "extract".into(), game: g.fields.name.clone(), to: to.display().to_string(), from: vec![p.redirect(&c.src)],
+                                names: vec![], aside: vec![], size: c.src.size, note: None,
+                            });
+                        } else if let Some(op) = p.place(&g.fields.name, &c.src, to) {
+                            p.plan.ops.push(op);
                         }
                     }
-                    p.plan.ops.push(op);
-                }
-            }
-            _ => {
-                let folder = per_game || multi;
-                // a cue sheet that isn't the DAT's own names the tracks as they were: it's rewritten
-                let mut renames: Vec<String> = vec![];
-                let mut sheets: Vec<usize> = vec![];
-                for (r, c) in &chosen {
-                    let (dir, name) = match &out {
-                        None => (src_dir(c), if multi { r.name.clone() } else { format!("{base}{}", ext_of_name(&r.name)) }),
-                        Some(_) if folder => (dest(true), r.name.clone()),
-                        Some(_) => (dest(false), format!("{base}{}", ext_of_name(&r.name))),
-                    };
-                    let rel = safe_rel(&name);
-                    let to = p.claim(&dir.join(rel.parent().unwrap_or(Path::new(""))), &rel.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
-                    if c.archive.is_none() && c.method == "cue" {
-                        let src = p.redirect(&c.src);
-                        let in_place = key(Path::new(&src.path)) == key(&to);
-                        let aside = if mode != "copy" && !in_place { vec![src.clone()] } else { vec![] };
-                        sheets.push(p.plan.ops.len());
-                        p.plan.ops.push(Op {
-                            op: "cue".into(), game: g.fields.name.clone(), to: to.display().to_string(), from: vec![src],
-                            names: vec![], aside, size: c.src.size, note: Some("Its FILE lines are rewritten for the tracks' new names.".into()),
-                        });
-                        continue;
+                    for i in sheets {
+                        p.plan.ops[i].names = renames.clone();
                     }
-                    if c.archive.is_none() && !cue::is_sheet(&r.name) {
-                        let old = Path::new(&c.src.path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                        renames.extend([old, to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()]);
-                    }
-                    if c.archive.is_some() {
-                        p.plan.ops.push(Op {
-                            op: "extract".into(), game: g.fields.name.clone(), to: to.display().to_string(), from: vec![p.redirect(&c.src)],
-                            names: vec![], aside: vec![], size: c.src.size, note: None,
-                        });
-                    } else if let Some(op) = p.place(&g.fields.name, &c.src, to) {
-                        p.plan.ops.push(op);
-                    }
-                }
-                for i in sheets {
-                    p.plan.ops[i].names = renames.clone();
                 }
             }
         }
@@ -986,6 +1071,33 @@ pub(crate) fn file_stamp(p: &Path) -> Option<(u64, i64)> {
     Some((m.len(), t))
 }
 
+/// An arcade machine's disks: each CHD at `<machine>/<disk>.chd`, beside where its ZIP
+/// goes (where it is, when renaming a machine with no ZIP here).
+fn place_disks(p: &mut Planner, g: &GameRow, chosen: &[(&RomRow, &Cand)], out: Option<&Path>) {
+    let name = safe_name(&g.fields.name);
+    for d in &g.disks {
+        let Some(c) = d.cands.iter().filter(|c| c.archive.is_none()).min_by_key(|c| (!c.named, c.src.root.clone(), c.src.rel.clone())) else { continue };
+        let base = match (out, chosen.first()) {
+            (Some(o), _) => o.to_path_buf(),
+            (None, Some((_, f))) => Path::new(&f.src.path).parent().map(Path::to_path_buf).unwrap_or_default(),
+            (None, None) => {
+                let dir = Path::new(&c.src.path).parent().map(Path::to_path_buf).unwrap_or_default();
+                match dir.file_name() {
+                    Some(n) if n.to_string_lossy() == name => dir.parent().map(Path::to_path_buf).unwrap_or(dir),
+                    _ => dir,
+                }
+            }
+        };
+        let to = base.join(&name).join(safe_name(&d.name));
+        if let Some(op) = p.place(&g.fields.name, &c.src, to) {
+            p.plan.ops.push(op);
+        }
+        for k in d.cands.iter().filter(|k| !std::ptr::eq(*k, c)) {
+            p.plan.duplicates.push(json!({ "game": g.fields.name, "rom": d.name, "path": k.src.path }));
+        }
+    }
+}
+
 fn zip_op(game: &str, to: &Path, chosen: &[(&RomRow, &Cand)]) -> Op {
     Op {
         op: "zip".into(), game: game.into(), to: to.display().to_string(),
@@ -1001,7 +1113,11 @@ pub fn plan_duplicates(ix: &Index, lib: &Library, dat_id: i64) -> Result<Plan> {
     let conn = ix.conn();
     let d = audit::dat_ref(conn, dat_id)?;
     let roots = roots::list(lib);
-    let games = load_games(conn, &roots, dat_id)?;
+    let mut games = load_games(conn, &roots, dat_id)?;
+    if platforms::is_arcade(&d.platform) {
+        // a ROM a clone shares with its parent belongs in both ZIPs of a non-merged set
+        games = arcade_rows(conn, games, dat_id, &crate::arcade::set_type(lib, &d.platform), None)?;
+    }
     let mut plan = Plan {
         id: new_id(), created: now(), kind: "aside".into(),
         label: format!("Set aside {} duplicates", platforms::name_of(&d.platform)), title: String::new(),

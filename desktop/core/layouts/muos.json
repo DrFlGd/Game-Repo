@@ -163,6 +163,14 @@
     "cdimono1": {
       "folder": "cdimono1",
       "name": "Philips CDi"
+    },
+    "mame": {
+      "folder": "mame",
+      "name": "Arcade"
+    },
+    "fbneo": {
+      "folder": "fbneo",
+      "name": "Arcade"
     }
   },
   "games": {

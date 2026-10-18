@@ -59,7 +59,8 @@ pub fn get(ix: &Index, lib: &Library, source: &str, only: &[String], again: bool
     let db = base.strip_suffix("metadat/no-intro/").or_else(|| base.strip_suffix("no-intro/")).unwrap_or(&base).to_string();
     let mut discs = false;
     let have: Vec<String> = ix.conn().prepare("SELECT DISTINCT platform FROM dats")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-    let wanted: Vec<_> = PLATFORMS.iter().filter(|p| only.is_empty() || only.iter().any(|o| o == p.id)).collect();
+    // arcade DATs come with MAME's or FBNeo's releases, not libretro's No-Intro and Redump copies
+    let wanted: Vec<_> = PLATFORMS.iter().filter(|p| if only.is_empty() { !platforms::is_arcade(p.id) } else { only.iter().any(|o| o == p.id) }).collect();
     let (mut imported, mut skipped, mut missing, mut failed) = (vec![], vec![], vec![], vec![]);
     for (i, p) in wanted.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {

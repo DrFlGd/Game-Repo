@@ -251,6 +251,9 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     if media == Media::AuditOnly {
         bail!("{name} games are audited only: Game Repo doesn't convert them.");
     }
+    if media == Media::Arcade {
+        bail!("{name} sets are ZIPs as their set type says: Organise builds them.");
+    }
     if o.to != "extract" && !platforms::formats(&d.platform).contains(&o.to.as_str()) {
         bail!("{name} games can't be converted to {}.", o.to.to_uppercase());
     }
