@@ -76,6 +76,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.15 (2026-10-18)
+
 - **Faster ScreenScraper scrapes.** A scrape asks ScreenScraper for as many games at once as your account allows (its threads), and fetches their pictures the same way, still keeping under its rate. *Threads at once* in Settings › Sources sets fewer; *Check* says how many your account has.
 - **A game's picture stays put.** The picture on a game's page sits in one square box, scaled to fit, so picking another from the strip under it no longer moves the page.
 

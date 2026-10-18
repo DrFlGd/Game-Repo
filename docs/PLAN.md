@@ -627,6 +627,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets, add-ons, magazines | RetroArch playlists, Pegasus, Playnite and LaunchBox exports (8a); updates, DLC and patches with their base game (D56) and a collection's history (D52) (8b); magazines (3.8, D31) (8c). MobyGames dropped (Jerred, 2026-10-18). |
 | **9** | Serve to devices | The app as a server on the home network (3.10): browse and download from a browser, a read-only WebDAV view, device profiles for Android, Linux and handheld firmwares, and sync of a collection to a device with verification. Needs Phase 3's collections and export; can move ahead of 4–8. |
+| **Later** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
 reordered.
@@ -2856,6 +2857,126 @@ the game page's picture changed size with every picture picked from the strip un
   column's width (at most 520 px), the picture or video scaled inside it with
   `object-fit: contain`, so picking another doesn't move the page.
 
+### UI pass 3 design (written 2026-10-18, D71–D76)
+
+Jerred's review of v0.5.15 (2026-10-18), with his notes as examples for a review of every
+page: the menu has overlapping pages whose purpose isn't clear; BIOS files, Metadata and
+Documents could sit under Audit; it's unclear how games come into the library at all
+(Collections can bring games in, the library itself can't); importing, organising,
+auditing and collecting should each be clearly one thing. The Audit ribbon should put each
+system's count beside its name; the Audit list view goes (the table says more in less
+room); a game should open from the Audit. BIOS files says *Gather*, which should be
+*Import*, and the wording across the app wants a review. Collections need groups: one
+collection over several systems, each with groups of its own (translations, language
+packs) kept apart. Later: OCR for magazines, and tagging an issue with the games it
+covers.
+
+**D71: five verbs, one place each.** Every action is one of these, and is reached from
+the page of its verb (other pages link there, they don't repeat it):
+
+| Verb | What it does | Where |
+|---|---|---|
+| **Import** | Brings files into the library: games for any system (PC games too), DATs, BIOS files, documents, magazines. | The new Import page (and drag and drop anywhere). |
+| **Audit** | Checks what the library holds against the DATs: games, BIOS files, metadata and pictures, documents. Changes nothing. | Audit, with BIOS files, Metadata and Documents under it. |
+| **Organise** | Changes files the library already holds: names, folders, formats, duplicates set aside. Always a preview, then Run, with Undo. | Started from Audit (a system) or the Library (picked games). |
+| **Collect** | Picks games for an export. Never copies files into the library. | Collections. |
+| **Export** | Writes a collection to a device, a frontend or a folder. | Collections (Export…) and Export layouts. |
+
+So Collections' *Bring in the games the full set lacks* (D53) moves to Import (*Games
+from a folder*, below), and Settings keeps only settings: *Folders with games* and *DAT
+files* move to Import, and *History* becomes its own page.
+
+**D72: the menu, nested.** Children are indented under their parent and always shown
+(visual nesting, no expanding):
+
+    Home
+    Library
+      PC games
+      Magazines
+    Import
+    Audit
+      BIOS files
+      Metadata
+      Documents
+    Collections
+    Export layouts
+    History
+    ─────
+    Settings · Help · About
+
+**D73: the Import page.** One card per kind of thing, each saying in a line where the
+files end up, with its one button. A drop on any page opens Import with what was dropped
+(as PC games' and Documents' drops do now).
+
+- *Games already in a folder*: add the folder to *Folders with games*; its files stay
+  where they are, are scanned and audited. (Today's Settings section, with its list.)
+- *Games to copy into the library*: choose files or a folder; they're matched against the
+  DATs and copied (hardlinked on the same drive) or moved into a folder with games, named
+  as their DAT says; files no DAT knows can still be added to a system (today's *Add a
+  game…* and D53's bring-in, as one dialog).
+- *PC games*: installers, archives and game folders (today's PC games import).
+- *DATs*: Import DATs…, Get starter DATs…, Make a DAT from a set…, with the list of DATs
+  from Settings.
+- *BIOS files*: Import BIOS files… (today's *Gather*) and Import a BIOS DAT….
+- *Documents* and *Magazines*: their imports.
+- *Recent imports*: the last few from History, each with Undo.
+
+The Library page's empty state and its ⋯ menu get *Import…*; Home's *Import DATs…* and
+*Add a folder…* open the Import page's cards.
+
+**D74: Audit.** The Systems ribbon's rows are one line, the count right-aligned. The list
+view goes: every tab is a table (Have, Partly there, Missing: name, region, year, flags,
+ROMs; Named right, Misnamed, Bad dumps, Unknown, Duplicates: file, folder, its DAT game,
+what it should be called). A row's double-click (or Enter) opens the game's page, a missing
+game's too (its DAT entry, *not in the library*); *Convert…* moves from each row to the
+right-click menu and the selection bar. The tabs are in two labelled groups, *Games* and
+*Files*. BIOS files and Metadata use the same Systems ribbon (Metadata loses its system
+drop-down).
+
+**D75: collection groups.** A collection holds groups, each with a name and its own way of
+choosing games (rules, a DAT, or folders, as a collection does now); one group can span
+systems, and a system can have several groups (*SNES*, *SNES translations*, *SNES
+language packs*). The page shows each group as a section of the games view, the ribbon
+shows a collection's groups under it, and *Add a group…* is in the collection's menu. An
+existing collection becomes one group, so nothing changes until a group is added. Exports
+place a group's games by the layout's new `{group}` token; the built-in layouts put the
+first group at the system's folder and every other group in a subfolder of it
+(`roms/snes/Translations/`), and ES-DE, Pegasus and RetroArch also get a custom collection
+or playlist per group. (Placement asked of Jerred, 2026-10-18.)
+
+**D76: wording.** One word per idea across the app, from a review of every label: see "UI
+pass 3 notes" for the table. *Import* for everything that brings files in (not *gather*,
+*bring in*, *add*); *Systems* everywhere (Home says *Platforms*); jargon such as 1G1R and
+fixdat gets a plain label with the term in its tooltip.
+
+**Claude's findings from the review** (built in the same pass unless marked):
+
+1. The game page shows its pictures twice (the strip under the picture and the Media
+   ribbon): the strip stays, the ribbon shows each source's pictures only and starts
+   folded.
+2. The Library's right-hand panel only shows a hint until a game is picked: it starts
+   folded and opens on a pick.
+3. Metadata repeats the game page in a side panel: it becomes a table per system (game,
+   details, pictures, documents, source) opening the game page.
+4. Toasts with Undo stay long and cover the bottom right of the page (seen on most
+   pages): shorter, and History holds the Undo after.
+5. Dialogs explain at length (Organise, bring-in, PC import): one line, the rest behind
+   *More about this*.
+6. A collection has two rows of tabs and a long hint: *In it* / *Left out* becomes a
+   filter of the games view, the hint a tooltip.
+7. The Audit's DAT drop-down repeats the title's DAT name: it moves into the ⋯ menu when
+   a system has one DAT.
+8. BIOS files' count reads awkwardly ("0 of 1 systems you have games for have every BIOS
+   file") and its search box touches the first card.
+9. Export layouts says *built in* on every row: two headed lists, *Built in* and *Yours*.
+10. Magazines edits each issue's date in a field under its cover: the date is text, edited
+    from the issue's menu.
+11. PC games overlaps the Library (UI pass 2 finding 6): it stays a page under Library for
+    now, for its imports and Steam.
+
+**Later (roadmap):** magazine OCR (text read from scanned issues, so they're searchable as
+documents are) and tagging an issue with the games it covers, linked from each game's page.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -2990,7 +3111,7 @@ the game page's picture changed size with every picture picked from the strip un
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D71). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D77). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
