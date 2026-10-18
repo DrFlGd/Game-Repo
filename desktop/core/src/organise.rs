@@ -935,11 +935,13 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         let mut there = vec![];
         for op in ops {
             let to = Path::new(&op.to);
-            let own = op.from.iter().any(|s| s.member.is_none() && same_file(Path::new(&s.path), to));
+            // (only a target that's there can be the source: canonicalizing every target is slow on Windows)
+            let exists = to.exists();
+            let own = exists && op.from.iter().any(|s| s.member.is_none() && same_file(Path::new(&s.path), to));
             if own && matches!(op.op.as_str(), "link" | "copy") {
                 // a copy of a file onto itself (a name that differs only in case, on Windows)
                 there.push(json!({ "game": op.game, "to": op.to }));
-            } else if !to.exists() || own {
+            } else if !exists || own {
                 kept.push(op);
             } else if placed_before(&o.known, to) || already_there(conn, &roots, &op, cancel_never()) {
                 there.push(json!({ "game": op.game, "to": op.to }));
