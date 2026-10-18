@@ -27,15 +27,15 @@ const prefs = () => ctx.platform?.store?.prefs;
 const LISTS = ["platform", "genre", "decade", "developer", "publisher", "region", "language", "has"];
 export const SORTS = [["title", "Title"], ["system", "System"], ["year", "Year"], ["rating", "Rating"], ["size", "Size on disk"], ["date", "File date"]];
 const GROUPS = [["", "None"], ["system", "System"], ["genre", "Genre"], ["decade", "Decade"], ["developer", "Developer"], ["publisher", "Publisher"]];
-const VIEWS = [["grid", "Grid", "grid"], ["list", "List", "list"], ["table", "Table", "table"]];
-const SIZES = { small: 120, medium: 160, large: 220 };
+export const VIEWS = [["grid", "Grid", "grid"], ["list", "List", "list"], ["table", "Table", "table"]];
+export const SIZES = { small: 120, medium: 160, large: 220 };
 const HAS = [["pictures", "Pictures"], ["description", "A description"], ["manual", "A manual"], ["documents", "Documents"], ["video", "A video"], ["addons", "Updates and DLC"]];
 const FILTER_NAMES = { platform: "System", genre: "Genre", decade: "Year", developer: "Developer", publisher: "Publisher", region: "Region", language: "Language", has: "Has" };
 const RATINGS = [[0.4, "★★ and up"], [0.6, "★★★ and up"], [0.8, "★★★★ and up"]];
 
 // ------------------------------------------------------------ the query, in the address
 
-const blank = () => ({ search: "", all: false, one_per_title: false, look: false, players: 0, rating: 0, collection: "", sort: "title", desc: false, group: "", ...Object.fromEntries(LISTS.map((k) => [k, []])) });
+export const blank = () => ({ search: "", all: false, one_per_title: false, look: false, players: 0, rating: 0, collection: "", sort: "title", desc: false, group: "", ...Object.fromEntries(LISTS.map((k) => [k, []])) });
 
 /** The query an address holds (`#/library?genre=Puzzle&sort=year`). */
 export function queryOf(hash = location.hash) {
@@ -180,7 +180,7 @@ function Chips({ q, set, facets, collections }) {
 // ------------------------------------------------------------ the games, a page at a time
 
 /** The list's games, fetched a chunk at a time as they come into view. */
-function useGames(q, version, ready) {
+export function useGames(q, version, ready) {
   const [state, setState] = useState({ total: 0, loading: true, facets: null, groups: null, rev: 0 });
   const chunks = useRef(new Map());
   const pending = useRef(new Set());
@@ -281,7 +281,7 @@ const COLUMNS = [
 
 function Row({ g, i, on, onPick, onOpen, onMenu }) {
   if (!g) return html`<div class="lib-row lib-wait" aria-hidden="true"></div>`;
-  return html`<div role="row" tabindex="-1" class=${`lib-row${on ? " selected" : ""}${g.have ? "" : " lib-missing"}`} data-key=${g.key} data-index=${i} aria-selected=${on ? "true" : "false"}
+  return html`<div role="row" tabindex="-1" class=${`lib-row${on ? " selected" : ""}${g.have ? "" : " lib-missing"}`} data-key=${g.key} data-index=${i} data-bytes=${g.size || 0} aria-selected=${on ? "true" : "false"}
     onClick=${(e) => onPick(e, g, i)} onDblClick=${() => onOpen(g, i)} onContextMenu=${(e) => onMenu(e, g, i)}>
     ${COLUMNS.map(([k, , v]) => html`<span role="cell" key=${k} class=${`lib-cell lib-col-${k}`}>${v(g)}</span>`)}</div>`;
 }
@@ -293,7 +293,7 @@ function TableHead({ q, set }) {
 }
 
 /** The grid, list or table, drawing only what's in view. */
-function Games({ games, q, set, view, px, selected, onPick, onOpen, onMenu, scrollRef }) {
+export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMenu, scrollRef }) {
   const [box, setBox] = useState({ w: 800, h: 600, top: 0 });
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -340,6 +340,43 @@ function Games({ games, q, set, view, px, selected, onPick, onOpen, onMenu, scro
   useEffect(() => { for (const n of wanted) games.need(n); });
   return html`${view === "table" ? html`<${TableHead} q=${q} set=${set} />` : null}
     <div class=${`lib-canvas lib-${view}`} id="lib-games" role=${view === "table" ? "table" : "list"} data-total=${games.total} data-cols=${cols} style=${`height:${height}px`}>${drawn}</div>`;
+}
+
+/** Picking games in a grid, list or table: a click picks one, Ctrl adds or takes one
+ *  away, Shift picks those between; `all` is every game the query finds (Ctrl+A). */
+export function useSelection(games) {
+  const [sel, setSel] = useState(() => new Map());
+  const [all, setAll] = useState(false);
+  const [anchor, setAnchor] = useState(-1);
+  const clear = () => { setSel(new Map()); setAll(false); setAnchor(-1); };
+  const count = all ? games.total : sel.size;
+  const selected = (k) => all || sel.has(k);
+  const one = !all && sel.size === 1 ? [...sel.values()][0] : null;
+  const pick = async (e, g, i) => {
+    if (e.shiftKey && anchor >= 0) {
+      const [a, b] = anchor < i ? [anchor, i] : [i, anchor];
+      const got = await games.range(a, b);
+      const next = e.ctrlKey || e.metaKey ? new Map(sel) : new Map();
+      for (const x of got) next.set(x.key, x);
+      setAll(false);
+      setSel(next);
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      const next = new Map(all ? [] : sel);
+      next.has(g.key) ? next.delete(g.key) : next.set(g.key, g);
+      setAll(false);
+      setSel(next);
+      setAnchor(i);
+      return;
+    }
+    setAll(false);
+    setSel(new Map([[g.key, g]]));
+    setAnchor(i);
+  };
+  /** A right-click on a game not picked picks it alone. */
+  const pickForMenu = (g, i) => { if (!selected(g.key)) { setAll(false); setSel(new Map([[g.key, g]])); setAnchor(i); } };
+  return { sel, all, anchor, count, one, clear, pick, pickForMenu, selectAll: () => setAll(true), selected };
 }
 
 // ------------------------------------------------------------ the panel
@@ -528,9 +565,6 @@ export function Browse() {
   const [px, setPx] = useState(() => prefs()?.get("gr-library-size", "medium") || "medium");
   const [overview, setOverview] = useState(null);
   const [collections, setCollections] = useState([]);
-  const [sel, setSel] = useState(() => new Map());
-  const [all, setAll] = useState(false);
-  const [anchor, setAnchor] = useState(-1);
   const [box, setBox] = useState(q.search);
   const scrollRef = useRef(null);
   useEffect(() => {
@@ -541,6 +575,9 @@ export function Browse() {
     return () => { gone = true; };
   }, [s.library?.path, s.changes, s.home]);
   const games = useGames(q, `${s.changes}`, !!overview && !overview.error);
+  const picked = useSelection(games);
+  const { sel, all, anchor, count, one, selected, pick } = picked;
+  const clearSel = picked.clear;
   // the address is the query: Back and a bookmark come back to it
   useEffect(() => {
     const on = () => { if (location.hash.startsWith("#/library")) { const next = queryOf(); setQState(next); setBox(next.search); } };
@@ -560,40 +597,14 @@ export function Browse() {
     const t = setTimeout(() => set({ search: box }, true), 250);
     return () => clearTimeout(t);
   }, [box]);
-  const clearSel = () => { setSel(new Map()); setAll(false); setAnchor(-1); };
   const pickView = (v) => { setView(v); prefs()?.set("gr-library-view", v); };
   const pickSize = (v) => { setPx(v); prefs()?.set("gr-library-size", v); };
-  const count = all ? games.total : sel.size;
-  const selected = (k) => all || sel.has(k);
   const open = (g, i) => {
     Object.assign(opened, { query: { ...q }, index: i, total: games.total });
     location.hash = gameHash(g.key);
   };
-  const pick = async (e, g, i) => {
-    if (e.shiftKey && anchor >= 0) {
-      const [a, b] = anchor < i ? [anchor, i] : [i, anchor];
-      const got = await games.range(a, b);
-      const next = e.ctrlKey || e.metaKey ? new Map(sel) : new Map();
-      for (const x of got) next.set(x.key, x);
-      setAll(false);
-      setSel(next);
-      return;
-    }
-    if (e.ctrlKey || e.metaKey) {
-      const next = new Map(all ? [] : sel);
-      next.has(g.key) ? next.delete(g.key) : next.set(g.key, g);
-      setAll(false);
-      setSel(next);
-      setAnchor(i);
-      return;
-    }
-    setAll(false);
-    setSel(new Map([[g.key, g]]));
-    setAnchor(i);
-  };
   /** The games selected, every one (asked of the core when everything is). */
   const chosen = async () => (all ? await api("browse_keys", { query: q }) : [...sel.values()]);
-  const one = !all && sel.size === 1 ? [...sel.values()][0] : null;
   const scrape = async () => {
     const list = (await chosen()).filter((g) => g.kind === "dat" && g.dat_game);
     if (!list.length) { toast("Scrape… is for the systems' games; a PC game is identified on its page.", 8000); return; }
@@ -625,14 +636,14 @@ export function Browse() {
   const barItems = () => actions.filter((a) => count === 1 || !a.one).map((a) => ({ ...a, run: () => a.run() }));
   const onMenu = (e, g, i) => {
     e.preventDefault();
-    if (!selected(g.key)) { setAll(false); setSel(new Map([[g.key, g]])); setAnchor(i); }
+    picked.pickForMenu(g, i);
     const single = !selected(g.key) || count <= 1;
     const items = actions.filter((a) => single || !a.one).map((a) => ({ ...a, run: a.id === "open" ? () => open(g, i) : a.one ? () => (a.id === "reveal" ? showIn(g) : a.id === "attach" ? attachDocs({ game: g.dat_game, gameName: g.title, platform: g.platform }) : a.run()) : a.run }));
     openMenu(e, items);
   };
   usePageKeys((e) => {
     if (e.key === "Escape" && count) { clearSel(); return; }
-    if (selectAllKey(e)) { e.preventDefault(); setAll(true); return; }
+    if (selectAllKey(e)) { e.preventDefault(); picked.selectAll(); return; }
     if (e.key === "Enter" && one) { open(one, anchor); return; }
     if (e.key === "ContextMenu" && count) { const el = document.querySelector(".lib-canvas .selected"); if (el) { const r = el.getBoundingClientRect(); openMenu({ clientX: r.left + 20, clientY: r.top + 20 }, barItems()); } }
   });

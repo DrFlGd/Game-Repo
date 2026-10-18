@@ -1,14 +1,18 @@
 // Audit: one platform's set against one of its DATs (docs/PLAN.md, "Phase 1
-// design"). The platform and DAT are chosen at the top (the DAT picked stays the
-// platform's, for Home too), the counts are tabs, and each list pages through the
-// index with its search, so a list of 40,000 missing games loads a page at a time.
+// design"). The systems are in the ribbon beside the menu, with All systems for a table
+// of every one's counts (`#/audit/all`, `#/audit/<system>`, D69); the DAT is chosen at
+// the top (the DAT picked stays the platform's, for Home too), the counts are tabs, and
+// each list pages through the index with its search, so a list of 40,000 missing games
+// loads a page at a time. A games list can be narrowed to a region, sorted by name,
+// region or year, and shown as a list or a table.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { api, toast, isDesktop, plural } from "./library.js";
 import { importDats, starterDats, reveal, scan } from "./games.js";
-import { CommandBar, SearchNote } from "./layout.js";
+import { CommandBar, SearchNote, ViewSwitch, SortMenu } from "./layout.js";
+import { useSidePanel, useRouteArg, argHash } from "./panels.js";
 import { organiseDialog, convertDialog, renameMisnamed, setAsideDuplicates } from "./organise.js";
 import { Icon } from "./icons.js";
 import { addGameDialog } from "./pcgames.js";
@@ -52,6 +56,49 @@ const HELP = {
 const WHY = { bios: "its BIOS set", device: "a device", parent: "its parent" };
 
 const prefs = () => ctx.platform?.store?.prefs;
+const GAME_TABS = ["have", "partial", "missing", "sets"];
+const LOOKS = [["list", "List", "list"], ["table", "Table", "table"]];
+const SORTS = [["name", "Name"], ["region", "Region"], ["year", "Year"]];
+/** The overview's columns: [tab, heading]. */
+const COLUMNS = [["have", "Have"], ["partial", "Partly there"], ["missing", "Missing"], ["misnamed", "Misnamed"], ["baddump", "Bad dumps"], ["unknown", "Unknown"], ["duplicates", "Duplicates"]];
+
+/** A list as a table: a games list's columns, or a files list's. */
+function Table({ items, tab, arcade, onConvert }) {
+  const games = GAME_TABS.includes(tab);
+  const show = (it) => it.path && isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label=${`Show ${it.name} in its folder`} onClick=${() => reveal(it.path)}>${Icon.folder(14)}</button>` : null;
+  if (games) {
+    return html`<table class="audit-table" id="audit-list-table"><thead><tr><th>Name</th><th>Region</th><th>Year</th>${arcade ? html`<th>Maker</th>` : null}<th>Flags</th><th>ROMs</th><th></th></tr></thead>
+      <tbody>${items.map((it) => html`<tr class="audit-row" key=${`${it.id}-${it.name}`} data-name=${it.name}>
+        <td class="audit-name" title=${it.shown || null}>${it.name}${it.clone_of ? html` <span class="muted">clone of ${it.clone_of}</span>` : null}${it.needs?.length ? html`<span class="audit-needs">Needs ${it.needs.map((n) => n.name).join(", ")}</span>` : null}</td>
+        <td>${it.regions || ""}</td><td>${it.year || ""}</td>${arcade ? html`<td>${it.manufacturer || ""}</td>` : null}<td>${it.flags || ""}</td>
+        <td>${tab === "partial" ? `${it.have} of ${it.roms}` : it.roms ?? ""}</td>
+        <td class="audit-acts">${onConvert && tab === "have" ? html`<button type="button" class="ghost compact audit-convert-one" onClick=${() => onConvert(it.name)}>Convert…</button>` : null}${show(it)}</td></tr>`)}</tbody></table>`;
+  }
+  return html`<table class="audit-table" id="audit-list-table"><thead><tr><th>File</th><th>${tab === "misnamed" ? "Should be" : "Game"}</th><th>Where</th><th></th></tr></thead>
+    <tbody>${items.map((it) => html`<tr class="audit-row" key=${`${it.id}-${it.name}`} data-name=${it.name}>
+      <td class="audit-name">${it.name}${it.method?.startsWith("crc") ? html` <span class="muted">matched by CRC</span>` : null}</td>
+      <td>${tab === "misnamed" ? it.expected : it.game || ""}</td>
+      <td class="audit-path muted" title=${it.shown || null}>${it.shown || ""}</td>
+      <td class="audit-acts">${show(it)}</td></tr>`)}</tbody></table>`;
+}
+
+/** Every system's counts, a row each. */
+function Overview({ systems, onOpen }) {
+  if (!systems) return html`<p class="muted">Reading the systems…</p>`;
+  const tot = (k) => systems.reduce((a, x) => a + (x[k] || 0), 0);
+  return html`<div class="audit-overview-page">
+    <p class="page-lead">${Icon.audit(18)} ${plural(systems.length, "system", "systems")} with a DAT: <b id="audit-all-have">${tot("have").toLocaleString()}</b> of ${tot("games").toLocaleString()} games. Click a number for that list.</p>
+    <table class="audit-table audit-overview" id="audit-overview"><thead><tr><th>System</th><th>DAT</th><th class="num">Games</th>${COLUMNS.map(([, h]) => html`<th class="num" key=${h}>${h}</th>`)}<th>Complete</th></tr></thead>
+      <tbody>${systems.map((x) => {
+        const pct = x.games ? Math.floor((100 * x.have) / x.games) : 0;
+        return html`<tr key=${x.platform} data-platform=${x.platform}>
+          <td><a href=${argHash("audit", x.platform)} onClick=${() => onOpen(x.platform, null)}>${x.platform_name}</a></td>
+          <td class="muted">${x.dat?.name || ""}</td><td class="num">${(x.games || 0).toLocaleString()}</td>
+          ${COLUMNS.map(([k]) => html`<td class="num" key=${k} data-tab=${k}>${x[k] ? html`<a href=${argHash("audit", x.platform)} onClick=${() => onOpen(x.platform, k)}>${x[k].toLocaleString()}</a>` : html`<span class="muted">0</span>`}</td>`)}
+          <td><span class="audit-bar small" role="img" aria-label=${`${pct}%`}><span style=${`width:${pct}%`}></span></span> <span class="muted">${pct}%</span></td></tr>`;
+      })}</tbody></table>
+  </div>`;
+}
 
 function Row({ it, tab, onConvert, arcade }) {
   const games = tab === "have" || tab === "partial" || tab === "missing";
@@ -76,7 +123,11 @@ function Row({ it, tab, onConvert, arcade }) {
 
 export function Audit() {
   const s = useStore(ui, (st) => ({ library: st.library, home: st.home, changes: st.changes }));
-  const [platform, setPlatform] = useState(() => prefs()?.get("gr-audit", {})?.platform || null);
+  const arg = useRouteArg("audit");
+  const all = arg === "all";
+  const [saved, setSaved] = useState(() => prefs()?.get("gr-audit", {})?.platform || null);
+  // the system in the address, else the one last shown
+  const platform = arg && !all ? arg : saved;
   const [datId, setDatId] = useState(null);
   const [data, setData] = useState(null);
   const [tab, setTab] = useState(() => prefs()?.get("gr-audit", {})?.tab || "missing");
@@ -84,6 +135,24 @@ export function Audit() {
   const [list, setList] = useState({ total: 0, items: [], loading: true });
   const [tick, setTick] = useState(0);
   const [sets, setSets] = useState(null);
+  const [systems, setSystems] = useState(null);
+  const [region, setRegion] = useState("");
+  const [sort, setSort] = useState("name");
+  const [regions, setRegions] = useState([]);
+  const [look, setLook] = useState(() => prefs()?.get("gr-audit-look", "list") || "list");
+  const pickLook = (v) => { setLook(v); prefs()?.set("gr-audit-look", v); };
+  useEffect(() => {
+    if (!arg || all || arg === saved) return;
+    setSaved(arg);
+    setDatId(null);
+    prefs()?.set("gr-audit", { ...(prefs()?.get("gr-audit", {}) || {}), platform: arg });
+  }, [arg]);
+  useEffect(() => {
+    if (!s.library) return;
+    let gone = false;
+    api("audit_overview").then((o) => { if (!gone) setSystems(o.systems); }).catch(() => { if (!gone) setSystems([]); });
+    return () => { gone = true; };
+  }, [s.library?.path, s.home, s.changes, tick]);
 
   // the summary: again when the platform or DAT changes, and after a scan or import (Home's data is read again then)
   useEffect(() => {
@@ -100,23 +169,32 @@ export function Audit() {
 
   const sum = data?.summary;
   const dat = sum?.dat?.id;
+  const games = GAME_TABS.includes(tab);
+  useEffect(() => { setRegion(""); setRegions([]); }, [dat, tab]);
+  const by = games ? { region, sort } : {};
   useEffect(() => {
-    if (!dat) return;
+    if (!dat || all) return;
     let gone = false;
     setList((l) => ({ ...l, loading: true }));
     const t = setTimeout(() => {
-      api("audit_list", { dat, tab, search: q, offset: 0, limit: PAGE })
-        .then((r) => { if (!gone) setList({ ...r, tab, loading: false }); })
+      api("audit_list", { dat, tab, search: q, ...by, offset: 0, limit: PAGE })
+        .then((r) => { if (!gone) { setList({ ...r, tab, by: games ? `${region}|${sort}` : "", loading: false }); if (r.regions) setRegions(r.regions); } })
         .catch((e) => { if (!gone) setList({ total: 0, items: [], tab, loading: false, error: e.message || String(e) }); });
     }, q ? 200 : 0);
     return () => { gone = true; clearTimeout(t); };
-  }, [dat, tab, q, sum]);
+  }, [dat, tab, q, sum, region, sort, all]);
 
   const more = async () => {
-    const r = await api("audit_list", { dat, tab, search: q, offset: list.items.length, limit: PAGE });
+    const r = await api("audit_list", { dat, tab, search: q, ...by, offset: list.items.length, limit: PAGE });
     setList((l) => ({ ...l, items: [...l.items, ...r.items] }));
   };
-  const choosePlatform = (p) => { setPlatform(p); setDatId(null); prefs()?.set("gr-audit", { platform: p, tab }); };
+  // from the overview: the system, at one of its lists
+  const openSystem = (p, t) => { if (t) { setTab(t); prefs()?.set("gr-audit", { platform: p, tab: t }); } };
+  useSidePanel(systems?.length ? {
+    id: "audit-panel", route: "audit", title: "Systems", icon: "audit", count: systems.length, current: all ? "" : sum?.dat?.platform,
+    all: { label: "All systems", href: argHash("audit", "all"), icon: "table" },
+    items: systems.map((x) => ({ id: x.platform, label: x.platform_name, sub: `${(x.have || 0).toLocaleString()} of ${(x.games || 0).toLocaleString()}`, href: argHash("audit", x.platform) })),
+  } : null);
   const chooseTab = (t) => { setTab(t); prefs()?.set("gr-audit", { platform: sum?.dat?.platform || platform, tab: t }); };
 
   const fixdat = async () => {
@@ -149,10 +227,10 @@ export function Audit() {
   const pName = sum && (sum.platform_name || data.platforms.find((p) => p.id === sum.dat.platform)?.name);
   const canConvert = !!(sum && !s.library?.read_only && ui.get().platforms?.find((p) => p.id === sum.dat.platform)?.formats?.length);
   const convert = (games) => convertDialog({ dat, platform: sum.dat.platform, platformName: pName, games });
-  const head = html`<${CommandBar} id="audit-head" title="Audit" count=${sum ? `${sum.dat.name} (${sum.dat.version})` : null}
-    primary=${html`<span class="cmd-buttons">${sum && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-organise" title="Sort this set by its DAT: copy, rename or move, with a preview and Undo"
+  const head = html`<${CommandBar} id="audit-head" title=${all ? "Audit: all systems" : pName ? `Audit: ${pName}` : "Audit"} count=${sum && !all ? `${sum.dat.name} (${sum.dat.version})` : null}
+    primary=${html`<span class="cmd-buttons">${sum && !all && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-organise" title="Sort this set by its DAT: copy, rename or move, with a preview and Undo"
         onClick=${() => organiseDialog({ dat, platform: sum.dat.platform, platformName: pName })}>${Icon.stack(15)} Organise…</button>` : null}
-      ${canConvert ? html`<button type="button" class="ghost compact" id="audit-convert" title="Convert this platform's games to another format (CHD, RVZ, CSO, ZIP), or extract them, with a preview and Undo"
+      ${canConvert && !all ? html`<button type="button" class="ghost compact" id="audit-convert" title="Convert this platform's games to another format (CHD, RVZ, CSO, ZIP), or extract them, with a preview and Undo"
         onClick=${() => convert(null)}>${Icon.convert(15)} Convert…</button>` : null}
       <button type="button" class=${sum ? "primary compact" : "ghost compact"} id="audit-scan" disabled=${!!ui.get().scanning || !!s.library?.read_only} onClick=${() => scan()}>${Icon.refresh(15)} Scan</button></span>`}
     more=${{ id: "audit-menu", title: "Export fixdat, reports, make a DAT", items: menu }} />`;
@@ -178,6 +256,7 @@ export function Audit() {
       </section>
     </div></div>`;
   }
+  if (all) return html`${head}<div class="pages audit-page" id="audit-page"><${Overview} systems=${systems} onOpen=${openSystem} /></div>`;
 
   const arc = sum.arcade;
   const n = (k) => (k === "sets" ? arc?.sets : sum[k]) || 0;
@@ -192,11 +271,7 @@ export function Audit() {
     } catch (e) { toast(`Couldn't change the set type: ${e.message || e}`, 8000); }
   };
   return html`${head}<div class="pages audit-page" id="audit-page">
-    <div class="audit-pick">
-      <label class="field-inline"><span>Platform</span>
-        <select id="audit-platform" class="compact" value=${sum.dat.platform} onChange=${(e) => choosePlatform(e.target.value)}>
-          ${data.platforms.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
-        </select></label>
+    <div class="audit-pick" id="audit-pick" data-platform=${sum.dat.platform}>
       <label class="field-inline"><span>DAT</span>
         <select id="audit-dat" class="compact" value=${String(sum.dat.id)} disabled=${data.dats.length < 2} title=${data.dats.length < 2 ? "Import another DAT for this platform to choose between them" : "The DAT this platform is audited against (kept for Home too)"}
           onChange=${(e) => setDatId(Number(e.target.value))}>
@@ -221,6 +296,11 @@ export function Audit() {
       ${label} <span class="tab-count">${n(key)}</span></button>`)}</div>
     <div class="audit-tools">
       <input type="search" id="audit-search" class="compact" placeholder="Search this list" aria-label="Search this list" value=${q} onInput=${(e) => setQ(e.target.value)} />
+      ${games && (regions.length > 1 || region) ? html`<select id="audit-region" class="compact" aria-label="Region" value=${region} onChange=${(e) => setRegion(e.target.value)}>
+        <option value="">Every region</option>
+        ${regions.map((r) => html`<option key=${r.region} value=${r.region}>${r.region} (${r.count.toLocaleString()})</option>`)}</select>` : null}
+      ${games ? html`<${SortMenu} id="audit-sort" options=${SORTS} value=${sort} onChange=${setSort} />` : null}
+      <${ViewSwitch} id="audit-look" views=${LOOKS} value=${look} onChange=${pickLook} />
       <span class="muted audit-help">${HELP[tab]}</span>
       ${tab === "misnamed" && n("misnamed") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-rename" onClick=${() => renameMisnamed(dat, platformName)}>Rename these…</button>` : null}
       ${tab === "duplicates" && n("duplicates") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-aside" onClick=${() => setAsideDuplicates(dat, platformName)}>Set aside duplicates…</button>` : null}
@@ -228,9 +308,10 @@ export function Audit() {
     <${SearchNote} q=${q} found=${list.loading ? null : plural(list.total, "match", "matches")} onClear=${() => setQ("")} />
     ${list.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
     ${!list.loading && !list.items.length ? html`<p class="muted" id="audit-none">${q ? "Nothing here matches the search." : "Nothing in this list."}</p>` : null}
-    <ul class="audit-list" id="audit-list" data-tab=${list.tab} data-total=${list.total} aria-busy=${list.loading ? "true" : "false"}>
-      ${list.items.map((it) => html`<${Row} key=${`${it.id}-${it.name}`} it=${it} tab=${list.tab} arcade=${!!arc} onConvert=${canConvert ? (g) => convert([g]) : null} />`)}
-    </ul>
+    <div class="audit-list-wrap" id="audit-list" data-tab=${list.tab} data-by=${list.by || null} data-total=${list.total} data-look=${look} aria-busy=${list.loading ? "true" : "false"}>
+      ${look === "table" && list.items.length ? html`<${Table} items=${list.items} tab=${list.tab} arcade=${!!arc} onConvert=${canConvert ? (g) => convert([g]) : null} />`
+        : html`<ul class="audit-list">${list.items.map((it) => html`<${Row} key=${`${it.id}-${it.name}`} it=${it} tab=${list.tab} arcade=${!!arc} onConvert=${canConvert ? (g) => convert([g]) : null} />`)}</ul>`}
+    </div>
     ${list.items.length < list.total ? html`<div class="home-actions"><button type="button" class="ghost" id="audit-more" onClick=${more}>Show ${Math.min(PAGE, list.total - list.items.length)} more (${list.total - list.items.length} left)</button></div>` : null}
   </div>`;
 }

@@ -4,13 +4,16 @@
 // from the index when shown. It's saved as DATs (one per system, D23) or exported to
 // ES-DE or a plain folder, as a change with a preview and Undo; each export is
 // remembered, so it can be updated and checked.
-import { html, useState, useEffect, useRef } from "../lib/html.js";
+import { html, useState, useEffect, useRef, useMemo } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, size } from "./library.js";
 import { reveal } from "./games.js";
-import { CommandBar, SearchNote } from "./layout.js";
+import { CommandBar, SearchNote, ViewSwitch, SortMenu } from "./layout.js";
+import { usePageKeys, selectAllKey, openMenu } from "./actions.js";
+import { Games, useGames, useSelection, blank, VIEWS, opened, gameHash } from "./browse.js";
+import { useSidePanel, useRouteArg, argHash } from "./panels.js";
 import { Dialog, close, confirmDialog } from "./dialogs.js";
 import { Preview, runPlan } from "./organise.js";
 import { Icon } from "./icons.js";
@@ -141,8 +144,8 @@ const WAYS = [
   ["dat", "From a DAT", "A DAT listing the collection's games (a best-of, another tool's list), read in place and matched by hash."],
 ];
 
-/** What a collection was made from, in a few words. */
-export function madeFromText(m) {
+/** A collection's source, in a few words. */
+export function sourceText(m) {
   if (!m) return "by rules";
   if (m.kind === "dat") return `from ${baseName(m.path || "a DAT")}`;
   const n = m.paths?.length || 0;
@@ -281,7 +284,7 @@ function NewCollectionDialog({ way: given = "rules", again, onMade }) {
         ${isDesktop() ? html`<button type="button" class="ghost" id="new-pick-dat" onClick=${pickDat}>Choose…</button>` : null}
       </div>
       <small class="muted">It's read where it is and not imported: the Audit page's DATs stay your full sets.</small></div>` : null}
-    ${again && !error ? html`<p class="muted">Reading ${madeFromText(again.made_from).replace(/^from /, "")}…</p>` : null}
+    ${again && !error ? html`<p class="muted">Reading ${sourceText(again.made_from).replace(/^from /, "")}…</p>` : null}
   <//>`;
 }
 
@@ -584,7 +587,7 @@ function Exports({ c, sum, exports, off, onChange }) {
     run: async () => { await api("export_forget", { id: e.id }); onChange(); },
   });
   return html`<section class="ls-section" id="collection-exports">
-    <h2>Exports</h2>
+    <h2>Exported to</h2>
     ${mine.length ? html`<ul class="ls-list change-list" id="exports">${mine.map((e) => {
       const r = checks[e.id];
       return html`<li key=${e.id} data-export=${e.id} data-target=${e.target}>
@@ -597,18 +600,18 @@ function Exports({ c, sum, exports, off, onChange }) {
         <button type="button" class="ghost" data-action="forget" disabled=${off} onClick=${() => forget(e)}>Forget</button>
       </li>`;
     })}</ul>` : html`<p class="muted" id="exports-none">Not exported yet.</p>`}
-    <div class="home-actions"><button type="button" class="ghost" id="collection-export-2" disabled=${off} onClick=${() => ui.set({ dialog: { type: "export", c, sum } })}>Export…</button></div>
+    <p class="muted">Export… (at the top) makes a new one.</p>
   </section>`;
 }
 
-// ------------------------------------------------------------ made from
+// ------------------------------------------------------------ its source
 
 /** What a collection from folders or a DAT was read from, and Read them again… */
-function MadeFrom({ c, off, onRead }) {
+function Source({ c, off, onRead }) {
   const m = c.made_from;
   const paths = m.kind === "dat" ? [m.path] : m.paths || [];
-  return html`<section class="ls-section" id="collection-made-from">
-    <h2>Made from</h2>
+  return html`<section class="ls-section" id="collection-source">
+    <h2>Source</h2>
     <ul class="ls-list" id="made-from-paths">${paths.map((p) => html`<li key=${p}><span class="op-to">${p}</span>
       ${isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label="Show in folder" onClick=${() => reveal(p)}>${Icon.folder(14)}</button>` : null}</li>`)}</ul>
     <p class="muted">Read ${m.read?.slice(0, 10) || ""}: its games are kept as ${plural(c.rules.from_files?.length || 0, "DAT", "DATs")} of its own in the library (<code>_library/collections/${c.id}/</code>), with your full sets' names and hashes, so renamed files and newer DATs still find them. ${m.kind === "dat" ? "The DAT" : "The folders"} can be changed or gone: the collection doesn't need them.</p>
@@ -618,23 +621,37 @@ function MadeFrom({ c, off, onRead }) {
 
 // ------------------------------------------------------------ the page
 
+const LIB_SORTS = [["title", "Title"], ["system", "System"], ["year", "Year"], ["size", "Size on disk"]];
+
 export function Collections() {
   const s = useStore(ui, (st) => ({ library: st.library, changes: st.changes, dats: st.dats, platforms: st.platforms }));
   const [all, setAll] = useState(null);
-  const [id, setId] = useState(() => prefs()?.get("gr-collection", null));
+  const arg = useRouteArg("collections");
+  const [fallback, setFallback] = useState(() => prefs()?.get("gr-collection", null));
+  const id = arg || fallback;
   const [data, setData] = useState(null);
   const [exports, setExports] = useState([]);
   const [view, setView] = useState("games");
   const [tab, setTab] = useState("in");
   const [platform, setPlatform] = useState("");
   const [q, setQ] = useState("");
-  const [sort, setSort] = useState("name");
-  const [games, setGames] = useState({ total: 0, items: [], loading: true });
-  const [picked, setPicked] = useState(() => new Set());
+  const [sort, setSort] = useState("title");
+  const [desc, setDesc] = useState(false);
+  const [look, setLook] = useState(() => prefs()?.get("gr-collection-view", "grid") || "grid");
+  const [out, setOut] = useState({ total: 0, items: [], loading: true });
+  const [ready, setReady] = useState(false);
   const [tick, setTick] = useState(0);
   const off = !!s.library?.read_only;
   const again = () => setTick((t) => t + 1);
-  const open = (next, v = "games") => { setId(next); setPlatform(""); setQ(""); setTab("in"); setView(v); setPicked(new Set()); };
+  const scrollRef = useRef(null);
+  const open = (next, v = "games") => {
+    setView(v);
+    if (next === id) return;
+    if (location.hash !== argHash("collections", next)) location.hash = argHash("collections", next);
+    else setFallback(next);
+  };
+  // a new collection: its games, every system, the whole of it
+  useEffect(() => { setPlatform(""); setQ(""); setTab("in"); }, [id]);
 
   useEffect(() => {
     if (!s.library) return;
@@ -643,10 +660,20 @@ export function Collections() {
       if (gone) return;
       setAll(cs);
       setExports(ex);
-      if (!cs.some((c) => c.id === id)) setId(cs[0]?.id || null);
+      if (!cs.some((c) => c.id === id)) {
+        if (arg) history.replaceState(null, "", argHash("collections", cs[0]?.id || ""));
+        setFallback(cs[0]?.id || null);
+      }
     }).catch((e) => { if (!gone) setAll({ error: err(e) }); });
     return () => { gone = true; };
-  }, [s.library?.path, s.changes, tick]);
+  }, [s.library?.path, s.changes, tick, arg]);
+  // the Library's rows, which the games are shown from
+  useEffect(() => {
+    if (!s.library) return;
+    let gone = false;
+    api("browse").then(() => { if (!gone) setReady(true); }).catch(() => {});
+    return () => { gone = true; };
+  }, [s.library?.path, s.changes]);
 
   useEffect(() => {
     if (!id) { setData(null); return; }
@@ -658,22 +685,28 @@ export function Collections() {
 
   const c = data?.collection?.id === id ? data.collection : null;
   const sum = c ? data.summary : null;
+  // the games in it, as the Library shows them
+  const lq = useMemo(() => ({ ...blank(), collection: c?.id || "", all: true, platform: platform ? [platform] : [], search: q, sort, desc }), [c?.id, platform, q, sort, desc]);
+  const games = useGames(lq, `${s.changes}|${c?.modified}|${sum?.games}`, ready && !!c && view === "games" && tab === "in");
+  const picked = useSelection(games);
+  useEffect(() => picked.clear(), [c?.id, platform, q, tab]);
+  // those left out by hand, a page at a time
   useEffect(() => {
-    if (!c) return;
+    if (!c || tab !== "out") return;
     let gone = false;
-    setGames((g) => ({ ...g, loading: true }));
+    setOut((g) => ({ ...g, loading: true }));
     const t = setTimeout(() => {
-      api("collection_games", { id: c.id, platform, removed: tab === "out", search: q, sort, offset: 0, limit: PAGE })
-        .then((r) => { if (!gone) setGames({ ...r, loading: false }); })
-        .catch((e) => { if (!gone) setGames({ total: 0, items: [], loading: false, error: err(e) }); });
+      api("collection_games", { id: c.id, platform, removed: true, search: q, sort: "name", offset: 0, limit: PAGE })
+        .then((r) => { if (!gone) setOut({ ...r, loading: false }); })
+        .catch((e) => { if (!gone) setOut({ total: 0, items: [], loading: false, error: err(e) }); });
     }, q ? 200 : 0);
     return () => { gone = true; clearTimeout(t); };
-  }, [c?.id, c?.modified, sum, tab, platform, q, sort]);
-
+  }, [c?.id, c?.modified, sum, tab, platform, q]);
   const more = async () => {
-    const r = await api("collection_games", { id: c.id, platform, removed: tab === "out", search: q, sort, offset: games.items.length, limit: PAGE });
-    setGames((g) => ({ ...g, items: [...g.items, ...r.items] }));
+    const r = await api("collection_games", { id: c.id, platform, removed: true, search: q, sort: "name", offset: out.items.length, limit: PAGE });
+    setOut((g) => ({ ...g, items: [...g.items, ...r.items] }));
   };
+
   // changes are saved one after another, each made to the collection as the last left it
   // (so quick changes, a tick then another, don't undo each other)
   const latest = useRef(null);
@@ -701,51 +734,82 @@ export function Collections() {
   const duplicate = () => ui.set({ dialog: { type: "collection-name", title: `Duplicate ${c.name}`, value: `${c.name} (copy)`, button: "Duplicate", run: async (name) => {
     const r = await save({ ...c, id: "", name });
     open(r.collection.id);
+    again();
   } } });
   const remove = () => confirmDialog({
     title: `Delete ${c.name}?`, text: `The collection's rules${c.made_from ? ", its own DATs" : ""} and the games added or left out by hand are deleted. Its games, DATs saved from it and its exports aren't touched.`, button: "Delete",
-    run: async () => { await api("collection_delete", { id: c.id }); setId(null); again(); },
+    run: async () => { await api("collection_delete", { id: c.id }); setFallback(null); if (arg) history.replaceState(null, "", "#/collections"); again(); },
   });
-  const leaveOut = (g) => quietly((x) => (g.manual ? { ...x, added: x.added.filter((k) => k !== g.key) } : { ...x, removed: [...new Set([...x.removed, g.key])] }));
+  /** Games out of it, by hand: off the added list if they were added by hand, else on the left-out list. */
+  const leaveOut = (keys) => quietly((x) => {
+    const set = new Set(keys);
+    const added = x.added.filter((k) => !set.has(k));
+    const byRules = keys.filter((k) => !x.added.includes(k));
+    return { ...x, added, removed: [...new Set([...x.removed, ...byRules])] };
+  });
   const putBack = (g) => quietly((x) => ({ ...x, removed: x.removed.filter((k) => k !== g.key) }));
   const systemsOf = () => {
     const ids = c.rules.platforms.length ? c.rules.platforms : [...new Set((s.dats || []).filter((d) => d.current).map((d) => d.platform))];
     return ids.map((p) => ({ id: p, name: (s.platforms || []).find((x) => x.id === p)?.name || p })).sort((a, b) => a.name.localeCompare(b.name));
   };
 
-  // ticked games ("system/name") and whole systems ("system/*"), for Export these…
-  const whole = (p) => picked.has(`${p}/*`);
-  const isPicked = (g) => whole(g.platform) || picked.has(g.key);
-  const toggle = (k) => setPicked((x) => { const y = new Set(x); y.has(k) ? y.delete(k) : y.add(k); return y; });
-  const pickedCount = !sum ? 0 : sum.systems.reduce((n, x) => n + (whole(x.platform) ? x.games : 0), 0)
-    + [...picked].filter((k) => !k.endsWith("/*") && !whole(k.slice(0, k.indexOf("/")))).length;
-  const scope = platform ? [platform] : (sum?.systems || []).map((x) => x.platform);
-  const allTicked = scope.length > 0 && scope.every(whole);
-  const tickAll = () => setPicked((x) => {
-    const y = new Set(x);
-    for (const p of scope) {
-      if (allTicked) y.delete(`${p}/*`);
-      else { y.add(`${p}/*`); for (const k of [...y]) if (k.startsWith(`${p}/`) && !k.endsWith("/*")) y.delete(k); }
-    }
-    return y;
+  /** The games picked, every one (asked of the core when it's all of them). */
+  const chosen = async () => (picked.all ? await api("browse_keys", { query: lq }) : [...picked.sel.values()]);
+  const exportThese = async () => {
+    const only = picked.all ? (platform ? [`${platform}/*`] : sum.systems.map((x) => `${x.platform}/*`)) : [...picked.sel.keys()];
+    ui.set({ dialog: { type: "export", c, sum, only, count: picked.count } });
+  };
+  const openGame = (g, i) => {
+    Object.assign(opened, { query: { ...lq }, index: i, total: games.total });
+    location.hash = gameHash(g.key);
+  };
+  const gameActions = [
+    { id: "open", label: "Open", icon: "external", one: true, run: () => picked.one && openGame(picked.one, picked.anchor) },
+    { id: "export-these", label: "Export these…", icon: "stack", disabled: off, run: exportThese },
+    { id: "leave-out", label: "Leave out", icon: "close", disabled: off, run: async () => { leaveOut((await chosen()).map((g) => g.key)); picked.clear(); } },
+  ];
+  const barItems = () => gameActions.filter((a) => picked.count === 1 || !a.one);
+  const onMenu = (e, g, i) => {
+    e.preventDefault();
+    const single = !picked.selected(g.key) || picked.count <= 1;
+    picked.pickForMenu(g, i);
+    openMenu(e, gameActions.filter((a) => single || !a.one).map((a) => ({
+      ...a, run: a.id === "open" ? () => openGame(g, i) : single && a.id === "leave-out" ? () => leaveOut([g.key]) : single && a.id === "export-these" ? () => ui.set({ dialog: { type: "export", c, sum, only: [g.key], count: 1 } }) : a.run,
+    })));
+  };
+  usePageKeys((e) => {
+    if (view !== "games" || tab !== "in") return;
+    if (e.key === "Escape" && picked.count) { picked.clear(); return; }
+    if (selectAllKey(e)) { e.preventDefault(); picked.selectAll(); return; }
+    if (e.key === "Enter" && picked.one) openGame(picked.one, picked.anchor);
   });
-  const exportThese = () => ui.set({ dialog: { type: "export", c, sum, only: [...picked], count: pickedCount } });
+  const pickLook = (v) => { setLook(v); prefs()?.set("gr-collection-view", v); };
+
+  // the collections, in the ribbon beside the menu
+  useSidePanel(Array.isArray(all) && all.length ? {
+    id: "collection-panel", route: "collections", title: "Collections", icon: "collection", count: all.length, current: id,
+    items: all.map((x) => ({ id: x.id, label: x.name, sub: sourceText(x.made_from), href: argHash("collections", x.id) })),
+    actions: [{ id: "collection-panel-new", label: "New collection…", icon: "plus", disabled: off, run: () => create() }],
+  } : null);
 
   const menu = () => c ? [
+    { id: "collection-new-menu", label: "New collection…", icon: "plus", disabled: off, run: () => create() },
+    { sep: true },
     { id: "collection-rename", label: "Rename…", icon: "edit", disabled: off, run: rename },
     { id: "collection-duplicate", label: "Duplicate…", icon: "copy", disabled: off, run: duplicate },
-    { id: "collection-save-dats", label: "Save as DATs…", icon: "download", run: () => ui.set({ dialog: { type: "save-dats", c } }) },
     { id: "collection-scrape", label: "Scrape its games…", icon: "scrape", disabled: off, run: () => scrapeDialog({ collection: c.id, platformName: c.name, gameName: c.name }) },
     { id: "collection-browse", label: "Show in the Library", icon: "grid", run: () => { location.hash = `#/library?collection=${encodeURIComponent(c.id)}`; } },
     { sep: true },
     { id: "collection-delete", label: "Delete…", icon: "trash", disabled: off, run: remove },
   ] : [];
-  const head = html`<${CommandBar} id="collections-head" title="Collections" count=${Array.isArray(all) && all.length ? plural(all.length, "collection", "collections") : null}
+  const selecting = view === "games" && tab === "in" && picked.count;
+  const head = html`<${CommandBar} id="collections-head" title=${html`<h1 id="collection-title">${c ? c.name : "Collections"}</h1>`} count=${c && sum ? `${plural(sum.games, "game", "games")} · ${size(sum.size)}` : Array.isArray(all) && all.length ? plural(all.length, "collection", "collections") : null}
     primary=${html`<span class="cmd-buttons">
       ${c ? html`<button type="button" class="ghost compact" id="collection-dats" title="One DAT per system, for RomVault, clrmamepro or igir" onClick=${() => ui.set({ dialog: { type: "save-dats", c } })}>${Icon.download(15)} Save as DATs…</button>
-        <button type="button" class="ghost compact" id="collection-export" disabled=${off} title="The whole collection, to ES-DE, a device or a plain folder, with a preview and Undo" onClick=${() => ui.set({ dialog: { type: "export", c, sum } })}>${Icon.stack(15)} Export…</button>` : null}
-      <button type="button" class="primary compact" id="collection-new" disabled=${off} onClick=${() => create()}>${Icon.plus(15)} New collection…</button></span>`}
-    more=${c ? { id: "collection-menu", title: "Rename, duplicate, save as DATs, scrape, delete", items: menu } : null} />`;
+        <button type="button" class="primary compact" id="collection-export" disabled=${off} title="The whole collection, to ES-DE, a device or a plain folder, with a preview and Undo" onClick=${() => ui.set({ dialog: { type: "export", c, sum } })}>${Icon.stack(15)} Export…</button>`
+        : html`<button type="button" class="primary compact" id="collection-new" disabled=${off} onClick=${() => create()}>${Icon.plus(15)} New collection…</button>`}</span>`}
+    more=${c ? { id: "collection-menu", title: "New, rename, duplicate, scrape, delete", items: menu } : null}
+    selection=${selecting ? { count: `${picked.count.toLocaleString()} selected`, onClear: picked.clear, items: barItems, buttons: 3 } : null} />`;
 
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   if (!all) return html`${head}<div class="pages"><p class="muted">Reading the collections…</p></div>`;
@@ -765,69 +829,66 @@ export function Collections() {
     </div></div>`;
   }
   const limit = c?.size_limit || 0;
-  const views = [["games", "Games"], ["rules", c?.made_from ? "Made from" : "Rules"], ["size", "Size"], ["exports", "Exports", exports.filter((e) => e.collection === c?.id).length], ["history", "History"]];
+  const views = [["games", "Games"], ["rules", c?.made_from ? "Source" : "Rules"], ["size", "Size"], ["exports", "Exported to", exports.filter((e) => e.collection === c?.id).length], ["history", "History"]];
   const sysTabs = sum && sum.systems.length > 1 ? [["", "All", sum.games], ...sum.systems.map((x) => [x.platform, x.name, x.games])] : [];
-  const sysName = platform && sum?.systems.find((x) => x.platform === platform)?.name;
-  return html`${head}<div class="pages collections-page" id="collections-page">
-    <div class="collections-layout">
-      <nav class="collection-side" aria-label="Collections">
-        <ul id="collection-side-list">${all.map((x) => html`<li key=${x.id}>
-          <button type="button" class="collection-item" data-id=${x.id} aria-current=${x.id === id ? "true" : null} onClick=${() => x.id !== id && open(x.id)}>
-            <b>${x.name}</b><small class="muted">${madeFromText(x.made_from)}</small></button></li>`)}</ul>
-      </nav>
-      <div class="collection-main" id="collection-main">
-        ${data?.error ? html`<p class="warn-note" role="alert">${data.error}</p>` : null}
-        ${!c ? html`<p class="muted">Reading the collection…</p>` : html`
-        <div class="collection-top">
-          <h2 id="collection-title">${c.name}</h2>
-          <p id="collection-totals"><b id="collection-games">${sum.games}</b> games, <b id="collection-have">${sum.have}</b> you have${sum.removed ? html`, ${sum.removed} left out by hand` : null}${sum.addons ? html`, <span id="collection-addons">${plural(sum.addons, "update or DLC", "updates and DLC")}</span>` : null}${` · ${plural(sum.systems.length, "system", "systems")} · ${size(sum.size)}`}${limit ? html` <span class=${sum.size > limit ? "fit over" : "fit"} id="collection-fit-line">${sum.size > limit ? `over its ${size(limit)} limit by ${size(sum.size - limit)}` : `of ${size(limit)}, fits`}</span>` : null}</p>
-          ${sum.no_dat.map((x) => html`<p class="warn-note" key=${x.platform}>${x.name} has no DAT, so its games aren't known.</p>`)}
-          ${sum.missing_dats.map((x) => html`<p class="warn-note" key=${x}>The DAT ${x} isn't in the library any more.</p>`)}
-        </div>
-        <div class="seg audit-tabs" role="tablist" id="collection-view">${views.map(([k, label, n]) => html`<button type="button" role="tab" key=${k} data-view=${k} aria-selected=${view === k ? "true" : "false"} onClick=${() => setView(k)}>${label}${n ? html` <span class="tab-count">${n}</span>` : null}</button>`)}</div>
-        ${view === "games" ? html`<section class="collection-games" id="collection-result">
-          ${sysTabs.length ? html`<div class="seg audit-tabs system-tabs" role="tablist" id="collection-systems">${sysTabs.map(([k, label, n]) => html`<button type="button" role="tab" key=${k || "all"} data-platform=${k} aria-selected=${platform === k ? "true" : "false"} onClick=${() => setPlatform(k)}>${label} <span class="tab-count">${n}</span></button>`)}</div>` : null}
-          <div class="audit-tools">
-            <div class="seg audit-tabs" role="tablist" id="collection-tabs">${[["in", "In it", sum.games], ["out", "Left out by hand", sum.removed]].map(([k, label, n]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${tab === k ? "true" : "false"} onClick=${() => setTab(k)}>${label} <span class="tab-count">${n}</span></button>`)}</div>
-            <input type="search" id="collection-search" class="compact" placeholder="Search the games" aria-label="Search the games" value=${q} onInput=${(e) => setQ(e.target.value)} />
-            <select id="collection-sort" class="compact" aria-label="Order" value=${sort} onChange=${(e) => setSort(e.target.value)}>
-              <option value="name">By name</option><option value="size">Biggest first</option></select>
-            <button type="button" class="ghost compact" id="collection-add" disabled=${off} onClick=${() => ui.set({ dialog: { type: "add-games", c, systems: systemsOf(), onDone: again } })}>Add games…</button>
-          </div>
-          ${tab === "in" && sum.games ? html`<div class="pick-bar" id="collection-picked" data-count=${pickedCount}>
-            <label class="check-row"><input type="checkbox" id="collection-tick-all" checked=${allTicked} onChange=${tickAll} /> ${sysName ? `All of ${sysName}` : sum.systems.length > 1 ? "Every system" : "All of them"}</label>
-            ${pickedCount ? html`<span><b>${plural(pickedCount, "game", "games")}</b> ticked</span>
-              <button type="button" class="primary compact" id="collection-export-these" disabled=${off} onClick=${exportThese}>Export these…</button>
-              <button type="button" class="linkish" id="collection-untick" onClick=${() => setPicked(new Set())}>Untick them</button>`
-              : html`<span class="muted">Tick games or whole systems to export only those.</span>`}
-          </div>` : null}
-          <${SearchNote} q=${q} found=${games.loading ? null : plural(games.total, "match", "matches")} onClear=${() => setQ("")} />
-          ${games.error ? html`<p class="warn-note" role="alert">${games.error}</p>` : null}
-          ${!games.loading && !games.items.length ? html`<p class="muted" id="collection-none">${q ? "No game here matches the search." : tab === "out" ? "No games left out by hand." : "No games: loosen the rules, or add games by hand."}</p>` : null}
-          <ul class="audit-list" id="collection-list" data-total=${games.total} aria-busy=${games.loading ? "true" : "false"}>
-            ${games.items.map((g) => html`<li class="audit-row" key=${g.key} data-name=${g.name} data-status=${g.status}>
-              ${tab === "in" ? html`<input type="checkbox" class="game-tick" aria-label=${`Tick ${g.name}`} checked=${isPicked(g)} disabled=${whole(g.platform)} title=${whole(g.platform) ? "Its whole system is ticked" : null} onChange=${() => toggle(g.key)} />` : null}
-              <div class="audit-main"><span class="audit-name">${g.name}</span>
-                <span class="muted audit-meta">${[sum.systems.length > 1 && !platform ? g.platform_name : null, g.regions, g.status === "have" ? null : g.status === "partial" ? "partly there" : "not in the library", g.manual ? "added by hand" : null].filter(Boolean).join(" · ")}</span></div>
-              <span class="muted game-size" data-bytes=${g.size || g.dat_size}>${g.size ? size(g.size) : g.dat_size ? `about ${size(g.dat_size)}` : ""}</span>
-              ${tab === "in" ? html`<button type="button" class="ghost compact" data-action="leave-out" disabled=${off} onClick=${() => leaveOut(g)}>Leave out</button>`
-                : html`<button type="button" class="ghost compact" data-action="put-back" disabled=${off} onClick=${() => putBack(g)}>Put back</button>`}
+  const top = c ? html`<div class="collection-top">
+    <p id="collection-totals"><b id="collection-games">${sum.games}</b> games, <b id="collection-have">${sum.have}</b> you have${sum.removed ? html`, ${sum.removed} left out by hand` : null}${sum.addons ? html`, <span id="collection-addons">${plural(sum.addons, "update or DLC", "updates and DLC")}</span>` : null}${` · ${plural(sum.systems.length, "system", "systems")} · ${size(sum.size)}`}${limit ? html` <span class=${sum.size > limit ? "fit over" : "fit"} id="collection-fit-line">${sum.size > limit ? `over its ${size(limit)} limit by ${size(sum.size - limit)}` : `of ${size(limit)}, fits`}</span>` : null}
+      <span class="muted"> · ${sourceText(c.made_from)}</span></p>
+    ${sum.no_dat.map((x) => html`<p class="warn-note" key=${x.platform}>${x.name} has no DAT, so its games aren't known.</p>`)}
+    ${sum.missing_dats.map((x) => html`<p class="warn-note" key=${x}>The DAT ${x} isn't in the library any more.</p>`)}
+    <div class="seg audit-tabs" role="tablist" id="collection-view">${views.map(([k, label, n]) => html`<button type="button" role="tab" key=${k} data-view=${k} aria-selected=${view === k ? "true" : "false"} onClick=${() => setView(k)}>${label}${n ? html` <span class="tab-count">${n}</span>` : null}</button>`)}</div>
+  </div>` : null;
+  if (!c) return html`${head}<div class="pages collections-page" id="collections-page">${data?.error ? html`<p class="warn-note" role="alert">${data.error}</p>` : html`<p class="muted">Reading the collection…</p>`}</div>`;
+
+  if (view === "games") {
+    const tools = html`<div class="audit-tools collection-tools">
+      ${sysTabs.length ? html`<select id="collection-systems" class="compact" aria-label="System" value=${platform} onChange=${(e) => setPlatform(e.target.value)}>
+        ${sysTabs.map(([k, label, n]) => html`<option key=${k || "all"} value=${k}>${k ? label : "Every system"} (${n})</option>`)}</select>` : null}
+      <div class="seg audit-tabs" role="tablist" id="collection-tabs">${[["in", "In it", sum.games], ["out", "Left out by hand", sum.removed]].map(([k, label, n]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${tab === k ? "true" : "false"} onClick=${() => setTab(k)}>${label} <span class="tab-count">${n}</span></button>`)}</div>
+      <input type="search" id="collection-search" class="compact" placeholder="Search the games" aria-label="Search the games" value=${q} onInput=${(e) => setQ(e.target.value)} />
+      ${tab === "in" ? html`<${ViewSwitch} id="collection-look" views=${VIEWS} value=${look} onChange=${pickLook} />
+        <${SortMenu} id="collection-sort" options=${LIB_SORTS} value=${sort} onChange=${(v) => { setSort(v); setDesc(false); }} />
+        <button type="button" class="ghost compact" id="collection-desc" title=${desc ? "Reversed: back to the usual order" : "Reverse the order"} aria-pressed=${desc ? "true" : "false"} onClick=${() => setDesc(!desc)}>${desc ? "↑" : "↓"}</button>` : null}
+      <button type="button" class="ghost compact" id="collection-add" disabled=${off} onClick=${() => ui.set({ dialog: { type: "add-games", c, systems: systemsOf(), onDone: again } })}>${Icon.plus(14)} Add games…</button>
+    </div>`;
+    if (tab === "out") {
+      return html`${head}<div class="pages collections-page" id="collections-page">${top}
+        <section class="collection-games" id="collection-result">${tools}
+          <${SearchNote} q=${q} found=${out.loading ? null : plural(out.total, "match", "matches")} onClear=${() => setQ("")} />
+          ${out.error ? html`<p class="warn-note" role="alert">${out.error}</p>` : null}
+          ${!out.loading && !out.items.length ? html`<p class="muted" id="collection-none">${q ? "No game here matches the search." : "No games left out by hand."}</p>` : null}
+          <ul class="audit-list" id="collection-out" data-total=${out.total} aria-busy=${out.loading ? "true" : "false"}>
+            ${out.items.map((g) => html`<li class="audit-row" key=${g.key} data-name=${g.name} data-key=${g.key}>
+              <div class="audit-main"><span class="audit-name">${g.name}</span><span class="muted audit-meta">${[sum.systems.length > 1 && !platform ? g.platform_name : null, g.regions].filter(Boolean).join(" · ")}</span></div>
+              <button type="button" class="ghost compact" data-action="put-back" disabled=${off} onClick=${() => putBack(g)}>Put back</button>
             </li>`)}
           </ul>
-          ${games.items.length < games.total ? html`<div class="home-actions"><button type="button" class="ghost" id="collection-more" onClick=${more}>Show ${Math.min(PAGE, games.total - games.items.length)} more (${games.total - games.items.length} left)</button></div>` : null}
-        </section>` : null}
-        ${view === "rules" ? html`<div class="collection-rules-view">
-          ${c.made_from ? html`<${MadeFrom} c=${c} off=${off} onRead=${readAgain} />` : null}
-          <section class="ls-section collection-rules-section">
-            <h2>${c.made_from ? "Rules on top" : "Rules"}</h2>
-            ${c.made_from ? html`<p class="muted">Every game of its own DATs is in it. Rules narrow it further: one per title, regions, flags left out.</p>` : null}
-            <${RulesEditor} key=${c.id} c=${c} off=${off} onSave=${quietly} />
-          </section></div>` : null}
-        ${view === "size" ? html`<${Properties} c=${c} sum=${sum} off=${off} onSave=${quietly} onPick=${(p) => { setPlatform(p); setTab("in"); setView("games"); }} />` : null}
-        ${view === "exports" ? html`<${Exports} c=${c} sum=${sum} exports=${exports} off=${off} onChange=${again} />` : null}
-        ${view === "history" ? html`<${History} c=${c} off=${off} onChange=${again} />` : null}
-        `}
+          ${out.items.length < out.total ? html`<div class="home-actions"><button type="button" class="ghost" id="collection-more" onClick=${more}>Show ${Math.min(PAGE, out.total - out.items.length)} more (${out.total - out.items.length} left)</button></div>` : null}
+        </section></div>`;
+    }
+    return html`${head}<div class="collection-games-page" id="collections-page">
+      <div class="collection-games-head">${top}${tools}
+        <p class="muted collection-hint" id="collection-hint">${picked.count ? "" : "Click a game to pick it (Ctrl or Shift for more, Ctrl+A for all of them), then Export these… or Leave out; double-click opens its page."}</p>
+        <${SearchNote} q=${q} found=${games.loading ? null : plural(games.total, "match", "matches")} onClear=${() => setQ("")} />
+        ${games.error ? html`<p class="warn-note" role="alert">${games.error}</p>` : null}</div>
+      <div class="lib-scroll collection-scroll" id="collection-result" ref=${scrollRef} aria-busy=${games.loading ? "true" : "false"} onClick=${(e) => { if (e.target === e.currentTarget || e.target.classList.contains("lib-canvas")) picked.clear(); }}>
+        ${!games.loading && !games.total ? html`<p class="muted lib-none" id="collection-none">${q ? "No game here matches the search." : "No games: loosen the rules, or add games by hand."}</p>` : null}
+        ${ready ? html`<${Games} games=${games} q=${lq} set=${(p) => { if (p.sort) { setSort(p.sort); setDesc(!!p.desc); } }} view=${look} px="medium" selected=${picked.selected} onPick=${picked.pick} onOpen=${openGame} onMenu=${onMenu} scrollRef=${scrollRef} />` : null}
       </div>
+    </div>`;
+  }
+  return html`${head}<div class="pages collections-page" id="collections-page">${top}
+    <div class="collection-main" id="collection-main">
+      ${view === "rules" ? html`<div class="collection-rules-view">
+        ${c.made_from ? html`<${Source} c=${c} off=${off} onRead=${readAgain} />` : null}
+        <section class="ls-section collection-rules-section">
+          <h2>${c.made_from ? "Rules on top" : "Rules"}</h2>
+          ${c.made_from ? html`<p class="muted">Every game of its own DATs is in it. Rules narrow it further: one per title, regions, flags left out.</p>` : null}
+          <${RulesEditor} key=${c.id} c=${c} off=${off} onSave=${quietly} />
+        </section></div>` : null}
+      ${view === "size" ? html`<${Properties} c=${c} sum=${sum} off=${off} onSave=${quietly} onPick=${(p) => { setPlatform(p); setTab("in"); setView("games"); }} />` : null}
+      ${view === "exports" ? html`<${Exports} c=${c} sum=${sum} exports=${exports} off=${off} onChange=${again} />` : null}
+      ${view === "history" ? html`<${History} c=${c} off=${off} onChange=${again} />` : null}
     </div>
   </div>`;
 }

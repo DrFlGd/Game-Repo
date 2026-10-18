@@ -180,7 +180,7 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 .app-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .view-browse { flex: 1; min-height: 0; display: flex; }
 .pages { overflow: auto; flex: 1; padding: 18px 24px 80px; }
-.pages > * { max-width: 1040px; margin-left: auto; margin-right: auto; }
+.pages > * { max-width: 1040px; }  /* left-justified (D69) */
 
 /* top bar buttons: theme, menu */
 .topbuttons { display: contents; }
@@ -229,6 +229,22 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 .cat-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; color: var(--graphite); }
 .cat-icon img { object-fit: contain; border-radius: 3px; }
 .nav-link.active .cat-icon, .cat-panel-title .cat-icon { color: var(--ink); }
+.panel-link { align-items: flex-start; }
+.panel-link-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.panel-link-text .nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-sub { font-size: 11.5px; color: var(--graphite); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-link .nav-count { margin-top: 1px; }
+.panel-all { margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid var(--steel-2); }
+.nav-inline { list-style: none; padding: 2px 0 6px 18px; }
+.nav-inline .nav-list { margin: 0; padding: 0; }
+.page-with-inspector { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.page-with-inspector > .pages { flex: 1; min-width: 0; }
+.page-with-inspector > .inspector-side { align-self: stretch; }
+.collection-games-page { display: flex; flex-direction: column; flex: 1; min-height: 0; max-width: none; }
+.collection-games-head { padding: 14px 24px 4px; }
+.collection-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.collection-tools input[type="search"] { flex: 1 1 160px; min-width: 120px; width: auto; }
+.collection-scroll { min-height: 320px; }
 /* Choose icon… */
 .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; max-height: 46vh; overflow: auto; padding: 2px; }
 .icon-choice { display: grid; justify-items: center; gap: 4px; padding: 8px 4px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); background: var(--white); font-size: 11.5px; font-weight: 600; }
@@ -1443,6 +1459,19 @@ svg g[data-sk] { display: none; }
 input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid color-mix(in srgb, var(--focus) 70%, transparent); outline-offset: 1px; }
 .audit-list { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--steel-2); }
 .audit-row { display: flex; gap: 10px; align-items: center; padding: 7px 2px; border-bottom: 1px solid var(--steel-2); font-size: 13.5px; }
+/* the audit's table view and its overview of every system (D69) */
+.audit-page > * { max-width: 1240px; }
+.audit-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.audit-table th { text-align: left; font-size: 12px; color: var(--graphite); font-weight: 700; padding: 6px 8px; border-bottom: 1px solid var(--steel-2); position: sticky; top: 0; background: var(--white); }
+.audit-table td { padding: 6px 8px; border-bottom: 1px solid var(--steel-2); vertical-align: top; }
+.audit-table tr.audit-row { display: table-row; }
+.audit-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.audit-table .audit-name { overflow-wrap: anywhere; }
+.audit-table .audit-name .audit-needs { display: block; }
+.audit-table .audit-path { max-width: 380px; overflow-wrap: anywhere; }
+.audit-table .audit-acts { white-space: nowrap; text-align: right; }
+.audit-overview tbody tr:hover { background: var(--steel); }
+.audit-bar.small { display: inline-block; width: 70px; height: 6px; vertical-align: middle; }
 .audit-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .audit-name { font-weight: 600; overflow-wrap: anywhere; }
 .audit-meta, .audit-path { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1480,15 +1509,7 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 /* a grid item with auto margins shrinks to its content, so these pages' parts would
    change width (and move) with what they show: keep them the page's width */
 .audit-page > *, .collections-page > * { width: 100%; }
-/* the collections down the left, the one chosen beside them (D50) */
-.collections-layout { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 0 24px; align-items: start; }
-.collection-side ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; position: sticky; top: 8px; }
-.collection-item { display: grid; justify-items: start; justify-content: stretch; gap: 1px; width: 100%; text-align: left; border: 0; border-radius: var(--radius-s); background: transparent; padding: 7px 10px; font-size: 13.5px; }
-.collection-item b { font-weight: 600; overflow-wrap: anywhere; }
-.collection-item small { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.collection-item:hover { background: var(--steel); }
-.collection-item[aria-current="true"] { background: var(--ink); color: var(--white); }
-.collection-item[aria-current="true"] small { color: inherit; opacity: .75; }
+/* the collection chosen in the ribbon beside the menu (D50, D69) */
 .collection-main { min-width: 0; display: grid; gap: 12px; align-content: start; }
 .collection-top h2 { margin: 0 0 2px; font-size: 18px; overflow-wrap: anywhere; }
 .collection-top p { margin: 0; font-size: 13.5px; }
@@ -1543,11 +1564,6 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 .new-system { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 100%; }
 .new-system input { flex: 1 1 200px; min-width: 0; }
 .new-system input.system-id { flex: 0 1 140px; }
-@media (max-width: 900px) {
-  .collections-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .collection-side ul { position: static; display: flex; flex-wrap: wrap; gap: 4px; }
-  .collection-item { width: auto; border: 1px solid var(--steel-2); }
-}
 
 /* Magazines (D68): each magazine's issues as covers, a comic book a page at a time */
 .magazines-page { display: grid; gap: 12px; align-content: start; width: 100%; }
@@ -1858,6 +1874,20 @@ span.game-hero { height: 320px; font-size: 96px; }
 .game-main-source { margin: 0 0 6px; font-size: 13px; }
 .game-caption { margin: 0; }
 .game-variants-label { margin: 6px 0 0; font-size: 12px; font-weight: 700; color: var(--graphite); }
+/* the game page's Media ribbon (D69) */
+.media-pane { display: grid; gap: 14px; padding: 10px 12px 24px; }
+.media-none { padding: 14px; }
+.media-kind h3 { margin: 0 0 6px; font-size: 13px; }
+.media-kind h3 .muted { font-weight: 400; font-size: 12px; }
+.media-variants { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.media-variant { display: grid; gap: 3px; justify-items: start; min-width: 0; }
+.media-thumb { box-sizing: border-box; overflow: hidden; min-width: 0; padding: 3px; border: 1px solid var(--steel-2); width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; background: var(--white); border-radius: var(--radius-s); }
+.media-thumb img, .media-thumb video { max-width: 100%; max-height: 100%; object-fit: contain; }
+.media-variant.chosen .media-thumb { border-color: var(--accent-edge); box-shadow: inset 0 0 0 1px var(--accent-edge); }
+.media-source { font-size: 12px; color: var(--graphite); }
+.media-view { position: sticky; top: 0; z-index: 1; margin: 0; padding: 8px; background: var(--panel); border: 1px solid var(--steel-2); border-radius: var(--radius-m); display: grid; gap: 6px; }
+.media-view img, .media-view video { width: 100%; max-height: 60vh; object-fit: contain; background: var(--white); border-radius: var(--radius-s); }
+.media-view figcaption { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; }
 .game-detail-from { font-size: 11.5px; min-height: 1.3em; }
 .game-pos { padding: 6px 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 /* a PC game's page: what only a PC game has, in columns (D55); in the PC games panel, one under another */
