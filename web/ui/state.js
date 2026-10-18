@@ -91,8 +91,8 @@ export function setTheme(theme) {
 let jobSeq = 0;
 /** Background work shown in the status bar. Returns a function that removes it;
  *  its .update(label) changes the text shown. */
-export function addJob(label, cancel) {
-  const job = { id: ++jobSeq, label, started: Date.now(), cancel };
+export function addJob(label, cancel, open) {
+  const job = { id: ++jobSeq, label, started: Date.now(), cancel, open };
   ui.set((s) => ({ jobs: [...s.jobs, job] }));
   const done = () => ui.set((s) => ({ jobs: s.jobs.filter((j) => j.id !== job.id) }));
   done.update = (text) => ui.set((s) => ({ jobs: s.jobs.map((j) => (j.id === job.id ? { ...j, label: text } : j)) }));

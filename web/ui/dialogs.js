@@ -24,7 +24,7 @@ export const close = () => ui.set({ dialog: null });
 
 /** A dialog: Esc or Cancel closes it (`onDismiss` and `onCancel` say otherwise); `danger` makes the button red (it deletes).
  *  Esc and the first box work as soon as it shows (a layout effect, not after a paint). */
-export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger = false, cancelLabel = "Cancel", onCancel = close, onDismiss = close, wide = false, children }) {
+export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger = false, cancelLabel = "Cancel", onCancel = close, onDismiss = close, wide = false, sticky = false, children }) {
   const form = useRef(null);
   useLayoutEffect(() => {
     const key = (e) => { if (e.key === "Escape") onDismiss(); };
@@ -33,7 +33,8 @@ export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger =
     if (f && !f.contains(document.activeElement)) (f.querySelector("input:not([type=hidden]):not([disabled]), select, textarea") || f).focus();
     return () => removeEventListener("keydown", key);
   }, []);
-  return html`<div class="dialog-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget) onDismiss(); }}>
+  // a sticky dialog stays when the page behind it is clicked (an import with work running or kept)
+  return html`<div class="dialog-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget && !sticky) onDismiss(); }}>
     <form class=${wide ? "dialog wide" : "dialog"} id=${id} ref=${form} tabindex="-1" role="dialog" aria-modal="true" aria-label=${title} onSubmit=${(e) => { e.preventDefault(); onSubmit(); }}>
       <div class="dialog-head"><h2>${title}</h2>
         <button type="button" class="ghost" aria-label="Close" title="Close (Esc)" onClick=${onDismiss}>${Icon.close(15)}</button></div>

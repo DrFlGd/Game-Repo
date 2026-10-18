@@ -592,7 +592,7 @@ pub fn rename_folders_plan(ix: &Index, lib: &Library) -> Result<crate::organise:
         conflicts: vec![],
         duplicates: vec![],
         left,
-        new_root: None,
+        new_root: None, new_roots: vec![],
         present: vec![],
         export: None,
     })

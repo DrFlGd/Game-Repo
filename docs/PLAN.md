@@ -3059,6 +3059,37 @@ Built as D75 says, with these choices:
   audited games* or *the Audit page's DATs*; the export's *Run* → *Export*; *Rules on top*
   → *More rules*; *Forget* → *Forget…*. The tab stays *Source*.
 
+### Import by system (built 2026-10-18, D77)
+
+Jerred's findings on v0.5.16 (2026-10-18): Import put a whole read's games in the first
+folder with games for every system (his Game Gear games went into a Game Boy Advance
+collection's folder). He asked for an option to force a copy or a move, for each system's
+games to go to its own folder, and for files no DAT knows to be asked about during the
+import. He also asked for the system drop-down *One game…* has, with an *every system*
+choice.
+
+**D77: where an import's games go.** For each system, the best of `addgame::places`:
+1. A folder with games for that system.
+2. The folders its games are in already (from the index, the fullest first).
+3. Its own folder inside a folder with games for every system. That folder must hold
+   several systems' games, or none yet, or that system's games: a folder with games for
+   every system that holds only another system's games is never offered.
+
+When a system has none of these, the review asks, with *Another folder…*. A folder outside
+every folder with games becomes one for its system (`Plan::new_roots`), and Undo takes it
+away again. The first step chooses *every system* or one system, and copy (hardlinked),
+always copy, or move. Files no DAT knows are grouped by folder, each taken as the system
+`platforms::guess` gives it, and they come in under their own names. *One game…* uses the
+same places and gains *always copy*.
+
+Jerred, later the same day: work that runs after Read or Preview must not be lost by
+clicking away. The import's place is kept outside its window, so closing the window loses
+nothing and *From a folder…* reopens it there. Checking the files is a job like reading
+them. While either runs, the window shows its progress with *Stop* and *Run in the
+background*. The status bar's entry for that job reopens the window, and a message with
+*Show* says when the result is ready. The page behind the window doesn't close it
+(`Dialog`'s `sticky`).
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -3193,7 +3224,7 @@ Built as D75 says, with these choices:
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D77). D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D78). D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 

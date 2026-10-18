@@ -763,7 +763,7 @@ pub fn delete_plan(ix: &Index, lib: &Library, platform: Option<&str>, folder: Op
         duplicates: vec![],
         left: vec![],
         space: vec![],
-        new_root: None,
+        new_root: None, new_roots: vec![],
         present: vec![],
         export: None,
     })

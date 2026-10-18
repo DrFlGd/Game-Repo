@@ -22,29 +22,71 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
-/// The folders with games a system's games can be added to: those for it, then those for
-/// every system.
-pub fn places(lib: &Library, platform: &str) -> Vec<Value> {
-    let mut v: Vec<(u8, Value)> = roots::list(lib)
-        .into_iter()
-        .filter(|r| r.found())
-        .filter_map(|r| match r.platform.as_deref() {
-            Some(p) if p == platform => Some((0, r.to_json())),
-            None => {
-                let mut j = r.to_json();
-                let sub = r.dir.join(platforms::by_id(platform).and_then(|p| p.folders.first().copied()).unwrap_or(platform));
-                j["into"] = json!(sub.display().to_string());
-                Some((1, j))
+/// Where a system's games can be imported to, the best first: a folder with games for
+/// it; the folders its games are in already; then, in a folder with games for every
+/// system that holds several systems' games (or none yet), the system's own folder in
+/// it. Each is `{ dir, why, platform }` (`platform`: the folder with games' own system, if
+/// it has one). A folder with games for every system that holds only another system's
+/// games isn't offered: games put there would be read as that system's. Without the
+/// index (`conn`), only the folders with games are looked at.
+pub fn places(conn: Option<&rusqlite::Connection>, lib: &Library, platform: &str) -> Vec<Value> {
+    let name = platforms::name_of(platform);
+    let rs: Vec<roots::Root> = roots::list(lib).into_iter().filter(|r| r.found()).collect();
+    let mut out: Vec<Value> = vec![];
+    let mut seen = HashSet::new();
+    let mut push = |out: &mut Vec<Value>, dir: PathBuf, why: String, own: Option<&str>| {
+        if seen.insert(key(&dir)) {
+            out.push(json!({ "dir": dir.display().to_string(), "why": why, "platform": own }));
+        }
+    };
+    for r in rs.iter().filter(|r| r.platform.as_deref() == Some(platform)) {
+        push(&mut out, r.dir.clone(), format!("A folder with games for {name}"), Some(platform));
+    }
+    // the folders this system's games are in, the fullest first
+    let mut held: Vec<(PathBuf, i64)> = vec![];
+    let mut systems_in: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    if let Some(conn) = conn {
+        let by_id: std::collections::HashMap<&str, &roots::Root> = rs.iter().map(|r| (r.id.as_str(), r)).collect();
+        if let Ok(mut q) = conn.prepare("SELECT root_id, rel_path FROM files WHERE platform = ?1 AND parent_id IS NULL AND missing_since IS NULL") {
+            let mut count: std::collections::HashMap<String, (PathBuf, i64)> = std::collections::HashMap::new();
+            if let Ok(rows) = q.query_map([platform], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+                for (root, rel) in rows.flatten() {
+                    let Some(r) = by_id.get(root.as_str()) else { continue };
+                    let dir = r.dir.join(&rel).parent().map(Path::to_path_buf).unwrap_or_else(|| r.dir.clone());
+                    count.entry(key(&dir)).or_insert((dir, 0)).1 += 1;
+                }
             }
-            _ => None,
-        })
-        .collect();
-    v.sort_by_key(|(k, _)| *k);
-    v.into_iter().map(|(_, j)| j).collect()
+            held = count.into_values().collect();
+            held.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        }
+        if let Ok(mut q) = conn.prepare("SELECT root_id, COUNT(DISTINCT platform) FROM files WHERE platform IS NOT NULL AND missing_since IS NULL GROUP BY root_id") {
+            if let Ok(rows) = q.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))) {
+                systems_in = rows.flatten().collect();
+            }
+        }
+    }
+    for (dir, n) in held.into_iter().take(3) {
+        let own = rs.iter().find(|r| dir.starts_with(&r.dir)).and_then(|r| r.platform.clone());
+        push(&mut out, dir, format!("Where {n} of your {name} games are"), own.as_deref());
+    }
+    for r in rs.iter().filter(|r| r.platform.is_none()) {
+        let systems = systems_in.get(&r.id).copied().unwrap_or(0);
+        let mine = conn.is_some_and(|c| c.query_row("SELECT 1 FROM files WHERE root_id = ?1 AND platform = ?2 LIMIT 1", rusqlite::params![r.id, platform], |_| Ok(())).is_ok());
+        if conn.is_some() && systems == 1 && !mine {
+            continue;
+        }
+        // a folder there named for the system already, else the system's usual folder name
+        let named = std::fs::read_dir(&r.dir).into_iter().flatten().flatten().filter(|e| e.path().is_dir())
+            .find(|e| platforms::from_folder(&e.file_name().to_string_lossy()).is_some_and(|p| p.id == platform))
+            .map(|e| e.path());
+        let dir = named.unwrap_or_else(|| r.dir.join(organise::safe_name(platforms::by_id(platform).and_then(|p| p.folders.first().copied()).unwrap_or(name.as_str()))));
+        push(&mut out, dir, format!("{name}'s folder in {}, a folder with games for every system", r.dir.display()), None);
+    }
+    out
 }
 
 /// The files a chosen file brings: a sheet its tracks (beside it).
-fn with_tracks(p: &Path) -> Vec<PathBuf> {
+pub(crate) fn with_tracks(p: &Path) -> Vec<PathBuf> {
     let name = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
     let mut v = vec![p.to_path_buf()];
     if cue::is_sheet(&name) {
@@ -140,7 +182,7 @@ pub fn plan(lib: &Library, files: &[PathBuf], platform: &str, into: &Path, mode:
         conflicts: vec![],
         duplicates: vec![],
         left: vec![],
-        new_root,
+        new_root, new_roots: vec![],
         present: vec![],
         export: None,
     })
@@ -249,7 +291,7 @@ mod tests {
         std::fs::write(elsewhere.join("zeta.gb"), crate::audit::tests::rom(10, 1024)).unwrap();
         std::fs::write(elsewhere.join("homebrew.gb"), b"a homebrew game nobody listed").unwrap();
         let roms = dir.join("Roms");
-        assert_eq!(places(&lib, "gb")[0]["dir"].as_str(), Some(roms.to_str().unwrap()));
+        assert_eq!(places(Some(ix.conn()), &lib, "gb")[0]["dir"].as_str(), Some(roms.to_str().unwrap()));
         let cancel = AtomicBool::new(false);
         let plan = plan(&lib, &[elsewhere.join("zeta.gb"), elsewhere.join("homebrew.gb")], "gb", &roms, "copy", true, &cancel).unwrap();
         assert_eq!((plan.games, plan.ops.len(), plan.kind.as_str()), (2, 2, "add"));

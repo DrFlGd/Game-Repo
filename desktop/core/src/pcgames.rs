@@ -1030,7 +1030,7 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
         conflicts: vec![],
         duplicates: vec![],
         left: vec![],
-        new_root: None,
+        new_root: None, new_roots: vec![],
         present: vec![],
         export: None,
     })

@@ -1975,3 +1975,8 @@ span.game-hero { display: grid; place-items: center; font-size: 96px; }
 .import-card h2 { display: flex; align-items: center; gap: 8px; font-size: 15px; margin: 0; }
 .import-card p { margin: 0; font-size: 13px; }
 .import-card .home-actions { margin-top: 6px; }
+.import-places li.import-place { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr); gap: 2px 12px; align-items: center; }
+.import-places li.import-place select { width: 100%; min-width: 0; }
+.import-places li.import-place small { grid-column: 2; }
+.import-places li.import-place small.warn { color: var(--warn, #b45309); }
+.subset-unknown li.import-unknown { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: nowrap; }

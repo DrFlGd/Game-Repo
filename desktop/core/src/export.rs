@@ -411,7 +411,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         dat: json!({ "id": null, "name": c.name, "version": "" }),
         platform: if systems.iter().all(|s| s.platform == systems[0].platform) && !systems.is_empty() { systems[0].platform.clone() } else { String::new() },
         mode: "copy".into(), format: "keep".into(), out: Some(out.display().to_string()),
-        ops: vec![], games: 0, in_place: 0, conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None,
+        ops: vec![], games: 0, in_place: 0, conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, new_roots: vec![],
         present: vec![], export: None,
     };
     let mut wanted: Vec<Value> = vec![];

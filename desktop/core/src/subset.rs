@@ -225,7 +225,10 @@ pub fn review(ix: &Index, lib: &Library, found: &[Found]) -> Result<Value> {
         }
         let ids = games_of(conn, &dats, &f.roms)?;
         if ids.is_empty() {
-            unknown.push(json!({ "path": f.shown, "why": "No system's audit DAT has it." }));
+            // the system it may be, from the folders it's in and its extension
+            let dirs: Vec<&str> = f.shown.split('/').collect();
+            let system = platforms::guess(None, &dirs[..dirs.len().saturating_sub(1)], &f.shown).filter(|p| p != "pc");
+            unknown.push(json!({ "path": f.shown, "file": f.path, "system": system, "why": "No system's audit DAT has it." }));
         }
         for id in ids {
             games.entry(id).or_default().push((f.shown.clone(), f.path.clone()));
@@ -253,7 +256,8 @@ pub fn review(ix: &Index, lib: &Library, found: &[Found]) -> Result<Value> {
             }
         }
         let have = list.iter().filter(|g| g["status"] == "have").count();
-        systems.push(json!({ "platform": platform, "name": platforms::name_of(&platform), "dat": dat_id, "games": list, "have": have }));
+        let places = crate::addgame::places(Some(conn), lib, &platform);
+        systems.push(json!({ "platform": platform, "name": platforms::name_of(&platform), "dat": dat_id, "games": list, "have": have, "places": places }));
     }
     systems.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
     Ok(json!({
@@ -347,12 +351,29 @@ pub fn save(ix: &Index, lib: &Library, into: Target, games: &[i64], made_from: V
     collection::save(lib, c)
 }
 
-/// Bring into the library the games of a subset its full set lacks (D53): each game's
-/// files copied (hardlinked on the same drive) into the first folder with games for its
-/// system, named as the audit DAT names it, as an Organise change with the preview and
-/// Undo. `games`: DAT game ids with the files that were found to be them. The folders
-/// read are never changed (D5); byte-identical copies of a file are brought in once.
-pub fn bring_plan(ix: &Index, lib: &Library, games: &[(i64, Vec<PathBuf>)], cancel: &AtomicBool) -> Result<organise::Plan> {
+/// What to import (D53, D73): the games found, the files no DAT knows that were given a
+/// system, where each system's games go, and how.
+#[derive(Debug, Default)]
+pub struct Import {
+    /// DAT game ids, with the files that were found to be them
+    pub games: Vec<(i64, Vec<PathBuf>)>,
+    /// Files no DAT knows, each with the system it was given: kept as they're named
+    pub files: Vec<(String, Vec<PathBuf>)>,
+    /// The folder each system's games go to; a system not named goes to the first of
+    /// `addgame::places`
+    pub places: HashMap<String, PathBuf>,
+    /// copy (hardlinked on the same drive unless `always_copy`) or move
+    pub mode: String,
+    pub always_copy: bool,
+}
+
+/// Import games into the library (D53, D73): each game's files copied (hardlinked on the
+/// same drive), or moved, into the folder chosen for its system, named as its audit DAT
+/// names it, as an Organise change with the preview and Undo; a file no DAT knows keeps
+/// its name. A folder chosen outside every folder with games becomes one for its system.
+/// Copying never changes the folders read (D5); byte-identical copies of a file are
+/// imported once.
+pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, progress: &mut dyn FnMut(Value)) -> Result<organise::Plan> {
     lib.writable()?;
     let conn = ix.conn();
     let mut q = conn.prepare("SELECT g.name, d.platform, (SELECT COUNT(*) FROM dat_roms r WHERE r.game_id = g.id AND COALESCE(r.status, '') <> 'nodump'), (SELECT r.name FROM dat_roms r WHERE r.game_id = g.id LIMIT 1) FROM dat_games g JOIN dats d ON d.id = g.dat_id WHERE g.id = ?1")?;
@@ -360,10 +381,52 @@ pub fn bring_plan(ix: &Index, lib: &Library, games: &[(i64, Vec<PathBuf>)], canc
     let mut seen = HashSet::new();
     let mut outs: HashSet<String> = HashSet::new();
     let mut count = 0;
-    for (id, files) in games {
+    let mut chosen: HashMap<String, Option<PathBuf>> = HashMap::new();
+    let mut place_of = |platform: &str| -> Option<PathBuf> {
+        chosen
+            .entry(platform.to_string())
+            .or_insert_with(|| {
+                imp.places.get(platform).cloned().filter(|p| !p.as_os_str().is_empty()).or_else(|| {
+                    crate::addgame::places(Some(conn), lib, platform).into_iter().find_map(|p| p["dir"].as_str().map(PathBuf::from))
+                })
+            })
+            .clone()
+    };
+    let how = |from: &Path, place: &Path| match imp.mode.as_str() {
+        "move" => "move",
+        _ if !imp.always_copy && organise::same_drive(from, place) => "link",
+        _ => "copy",
+    };
+    let nowhere = |platform: &str, game: &str| {
+        let name = platforms::name_of(platform);
+        json!({ "path": format!("{name} › {game}"), "why": format!("Choose where {name}'s games go.") })
+    };
+    let mut used: Vec<(PathBuf, String)> = vec![];
+    let src_of = |f: &Path, cancel: &AtomicBool| -> Result<organise::Src> {
+        let name = f.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let mut r = std::fs::File::open(f).with_context(|| format!("couldn't read {}", f.display()))?;
+        let size = r.metadata()?.len();
+        let h = hash::hash_reader(&mut r, size, "", cancel)?;
+        Ok(organise::Src {
+            file_id: 0, root: format!("dir:{}", f.parent().unwrap_or(Path::new(".")).display()), rel: name, path: f.display().to_string(),
+            member: None, size, crc32: h.crc32, sha1: h.sha1,
+        })
+    };
+    let items = imp.games.len() + imp.files.iter().map(|(_, f)| f.len()).sum::<usize>();
+    let mut item = 0;
+    let mut step = |progress: &mut dyn FnMut(Value)| -> Result<()> {
+        if cancel.load(Ordering::Relaxed) {
+            bail!("Stopped.");
+        }
+        progress(json!({ "text": "Checking the files", "item": item, "items": items }));
+        item += 1;
+        Ok(())
+    };
+    for (id, files) in &imp.games {
+        step(progress)?;
         let (game, platform, roms, first_rom): (String, String, i64, Option<String>) = q.query_row([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).with_context(|| format!("There's no DAT game {id}."))?;
-        let Some(place) = crate::addgame::places(lib, &platform).into_iter().find_map(|p| p["path"].as_str().map(PathBuf::from)) else {
-            left.push(json!({ "path": format!("{} › {game}", platforms::name_of(&platform)), "why": format!("There's no folder with games for {} to import it into: add one on the Import page.", platforms::name_of(&platform)) }));
+        let Some(place) = place_of(&platform) else {
+            left.push(nowhere(&platform, &game));
             continue;
         };
         // one file of a game of one ROM, or an archive holding it; every file of a game of several
@@ -379,10 +442,8 @@ pub fn bring_plan(ix: &Index, lib: &Library, games: &[(i64, Vec<PathBuf>)], canc
             if whole && roms > 1 && !is_archive {
                 continue;
             }
-            let mut r = std::fs::File::open(f).with_context(|| format!("couldn't read {}", f.display()))?;
-            let size = r.metadata()?.len();
-            let h = hash::hash_reader(&mut r, size, "", cancel)?;
-            if !seen.insert(h.sha1.clone().unwrap_or_else(|| format!("{}:{size}", h.crc32))) {
+            let src = src_of(f, cancel)?;
+            if !seen.insert(src.sha1.clone().unwrap_or_else(|| format!("{}:{}", src.crc32, src.size))) {
                 continue;
             }
             // named as the DAT names it: the game (an archive or image) or its one ROM
@@ -396,26 +457,81 @@ pub fn bring_plan(ix: &Index, lib: &Library, games: &[(i64, Vec<PathBuf>)], canc
                 left.push(json!({ "path": f.display().to_string(), "why": format!("There's a file called {} in {} already.", to.file_name().unwrap_or_default().to_string_lossy(), place.display()) }));
                 continue;
             }
-            let src = organise::Src {
-                file_id: 0, root: format!("dir:{}", f.parent().unwrap_or(Path::new(".")).display()), rel: name.clone(), path: f.display().to_string(),
-                member: None, size, crc32: h.crc32, sha1: h.sha1,
-            };
-            let op = if organise::same_drive(f, &place) { "link" } else { "copy" };
-            ops.push(organise::Op { op: op.into(), game: game.clone(), to: to.display().to_string(), from: vec![src], names: vec![], aside: vec![], size, note: None });
+            let size = src.size;
+            ops.push(organise::Op { op: how(f, &place).into(), game: game.clone(), to: to.display().to_string(), from: vec![src], names: vec![], aside: vec![], size, note: None });
+            used.push((place.clone(), platform.clone()));
             brought = true;
         }
         if brought {
             count += 1;
         }
     }
+    // files no DAT knows, in the system they were given (a sheet brings its tracks)
+    for (platform, files) in &imp.files {
+        if platforms::by_id(platform).is_none() || platform == "pc" {
+            bail!("There's no system {platform} to import them into.");
+        }
+        for f in files {
+            step(progress)?;
+            let game = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            let Some(place) = place_of(platform) else {
+                left.push(nowhere(platform, &game));
+                continue;
+            };
+            let mut brought = false;
+            for p in crate::addgame::with_tracks(f) {
+                let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                let to = place.join(organise::safe_name(&name));
+                if !p.is_file() {
+                    continue;
+                }
+                if to.exists() || !outs.insert(key(&to)) {
+                    left.push(json!({ "path": p.display().to_string(), "why": format!("There's a file called {name} in {} already.", place.display()) }));
+                    continue;
+                }
+                let src = src_of(&p, cancel)?;
+                if !seen.insert(src.sha1.clone().unwrap_or_else(|| format!("{}:{}", src.crc32, src.size))) {
+                    continue;
+                }
+                let size = src.size;
+                ops.push(organise::Op { op: how(&p, &place).into(), game: game.clone(), to: to.display().to_string(), from: vec![src], names: vec![], aside: vec![], size, note: None });
+                used.push((place.clone(), platform.clone()));
+                brought = true;
+            }
+            if brought {
+                count += 1;
+            }
+        }
+    }
+    // a folder chosen outside the folders with games becomes one, for its system (or for
+    // every system, when several systems' games go there)
+    let rs = crate::roots::list(lib);
+    let mut new_roots: Vec<[String; 2]> = vec![];
+    for (dir, platform) in &used {
+        if organise::in_root(&rs, &dir.join("x")).is_some() {
+            continue;
+        }
+        if dir.starts_with(lib.root().join(crate::library::APP_DIR)) {
+            bail!("Games can't go in the library's own _library folder.");
+        }
+        let d = dir.display().to_string();
+        match new_roots.iter_mut().find(|[x, _]| *x == d) {
+            Some(r) if r[1] != *platform => r[1] = String::new(),
+            Some(_) => {}
+            None => new_roots.push([d, platform.clone()]),
+        }
+    }
     let places: HashSet<String> = ops.iter().filter_map(|o| Path::new(&o.to).parent().map(|p| p.display().to_string())).collect();
+    let systems: HashSet<&str> = used.iter().map(|(_, p)| p.as_str()).collect();
+    let s = if count == 1 { "" } else { "s" };
     Ok(organise::Plan {
         id: organise::new_id(), created: crate::library::now(), kind: "bring".into(),
-        label: format!("Imported {count} game{} into the library", if count == 1 { "" } else { "s" }),
-        title: format!("Import {count} game{} into the library", if count == 1 { "" } else { "s" }),
-        dat: Value::Null, platform: String::new(), mode: "copy".into(), format: "keep".into(),
+        label: format!("Imported {count} game{s} into the library"),
+        title: format!("Import {count} game{s} into the library"),
+        dat: Value::Null, platform: if systems.len() == 1 { systems.into_iter().next().unwrap_or_default().to_string() } else { String::new() },
+        mode: if imp.mode == "move" { "move".into() } else { "copy".into() }, format: "keep".into(),
         out: if places.len() == 1 { places.into_iter().next() } else { None },
-        space: organise::space_needed(&ops), ops, games: count, in_place: 0, conflicts: vec![], duplicates: vec![], left, new_root: None, present: vec![], export: None,
+        space: organise::space_needed(&ops), ops, games: count, in_place: 0, conflicts: vec![], duplicates: vec![], left, new_root: None, new_roots, present: vec![], export: None,
     })
 }
 
@@ -506,13 +622,72 @@ mod tests {
             .map(|g| (g["id"].as_i64().unwrap(), g["files"].as_array().unwrap().iter().map(|f| PathBuf::from(f.as_str().unwrap())).collect()))
             .collect();
         assert_eq!(lacking.len(), 2, "{r}");
-        let plan = bring_plan(&ix, &lib, &lacking, &none).unwrap();
+        let plan = bring_plan(&ix, &lib, &Import { games: lacking, ..Default::default() }, &none, &mut |_| {}).unwrap();
         let mut to: Vec<String> = plan.ops.iter().map(|o| Path::new(&o.to).file_name().unwrap().to_string_lossy().into_owned()).collect();
         to.sort();
         assert_eq!(to, ["Alpha (USA).gb", "Zeta (Japan).gb"]);
         assert_eq!(plan.games, 2);
         organise::run(&ix, &lib, &plan, &none, &mut |_| {}).unwrap();
         assert!(dir.join("Roms/Zeta (Japan).gb").is_file() && sub.join("zeta copy.gb").is_file(), "the folder read isn't changed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn each_systems_games_are_imported_into_its_own_folder_copied_or_moved() {
+        let (dir, lib, ix) = fixture("subset-import-systems");
+        let none = AtomicBool::new(false);
+        // a Game Gear DAT, and a folder with games for every system that holds only Game Boy games
+        let gg = vec![("Sonic (World)", None, crate::audit::tests::rom_xml("Sonic (World).gg", &rom(50, 1024)))];
+        std::fs::write(dir.join("gg.dat"), crate::audit::tests::dat_xml("Sega - Game Gear", "1", &gg)).unwrap();
+        crate::dat::import(&ix, &lib, &dir.join("gg.dat"), &serde_json::Map::new()).unwrap();
+        let champion = dir.join("Champion");
+        std::fs::create_dir_all(&champion).unwrap();
+        std::fs::write(champion.join("Delta (World).gb"), rom(8, 1024)).unwrap();
+        crate::roots::add(&lib, &champion, None).unwrap();
+        crate::scan::scan(&ix, &lib, &crate::scan::Options::default(), &none, &mut |_| {}).unwrap();
+        // a folder of both systems' games, and a file no DAT knows
+        let src = dir.join("Downloads");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("sonic.gg"), rom(50, 1024)).unwrap();
+        std::fs::write(src.join("zeta.gb"), rom(10, 1024)).unwrap();
+        std::fs::write(src.join("homebrew.gg"), b"a game nobody listed").unwrap();
+        let r = review(&ix, &lib, &read_folders(&[src.clone()], &none, &mut |_| {}).unwrap()).unwrap();
+        let systems: Vec<&str> = r["systems"].as_array().unwrap().iter().map(|x| x["platform"].as_str().unwrap()).collect();
+        assert_eq!(systems, ["gb", "gamegear"], "{r}");
+        let unknown = &r["unknown"][0];
+        assert_eq!((unknown["system"].as_str(), unknown["file"].as_str()), (Some("gamegear"), src.join("homebrew.gg").to_str()));
+        // the Game Boy's games go to its folder; the Game Gear has none, and the folder for
+        // every system holds only the Game Boy's games, so it isn't offered
+        let gb = r["systems"].as_array().unwrap().iter().find(|x| x["platform"] == "gb").unwrap();
+        let gg = r["systems"].as_array().unwrap().iter().find(|x| x["platform"] == "gamegear").unwrap();
+        assert_eq!(gb["places"][0]["dir"].as_str(), dir.join("Roms").to_str());
+        assert!(gg["places"].as_array().unwrap().is_empty(), "{}", gg["places"]);
+        let games: Vec<(i64, Vec<PathBuf>)> = [gb, gg].iter().flat_map(|x| x["games"].as_array().unwrap().iter())
+            .filter(|g| g["status"] == "missing")
+            .map(|g| (g["id"].as_i64().unwrap(), g["files"].as_array().unwrap().iter().map(|f| PathBuf::from(f.as_str().unwrap())).collect()))
+            .collect();
+        let files = vec![("gamegear".to_string(), vec![src.join("homebrew.gg")])];
+        let asked = bring_plan(&ix, &lib, &Import { games: games.clone(), files: files.clone(), ..Default::default() }, &none, &mut |_| {}).unwrap();
+        assert!(asked.left.iter().any(|l| l["why"].as_str().unwrap().contains("Choose where Sega Game Gear's games go")), "{:?}", asked.left);
+        assert!(asked.ops.iter().all(|o| !o.to.contains("Champion")));
+        // a folder chosen for it becomes a folder with games for the Game Gear; moved, not copied
+        let gg_dir = dir.join("Games/Game Gear");
+        let imp = Import { games, files, places: [("gamegear".to_string(), gg_dir.clone())].into(), mode: "move".into(), ..Default::default() };
+        let plan = bring_plan(&ix, &lib, &imp, &none, &mut |_| {}).unwrap();
+        let mut to: Vec<String> = plan.ops.iter().map(|o| o.to.replace('\\', "/")).collect();
+        to.sort();
+        let at = |p: &Path| p.to_string_lossy().replace('\\', "/");
+        assert_eq!(to, [at(&gg_dir.join("Sonic (World).gg")), at(&gg_dir.join("homebrew.gg")), at(&dir.join("Roms/Zeta (Japan).gb"))]);
+        assert!(plan.ops.iter().all(|o| o.op == "move") && plan.games == 3);
+        assert_eq!(plan.new_roots, [[gg_dir.display().to_string(), "gamegear".to_string()]]);
+        organise::run(&ix, &lib, &plan, &none, &mut |_| {}).unwrap();
+        assert!(gg_dir.join("Sonic (World).gg").is_file() && !src.join("sonic.gg").exists());
+        let added = crate::roots::list(&lib).into_iter().find(|r| r.dir == gg_dir).expect("a folder with games for the Game Gear");
+        assert_eq!(added.platform.as_deref(), Some("gamegear"));
+        // Undo puts them back and takes the new folder away
+        organise::undo(&ix, &lib, &plan.id, &none, &mut |_| {}).unwrap();
+        assert!(src.join("sonic.gg").is_file() && !gg_dir.exists());
+        assert!(!crate::roots::list(&lib).iter().any(|r| r.dir == gg_dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
