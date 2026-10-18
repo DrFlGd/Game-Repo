@@ -601,7 +601,7 @@ export function Browse() {
     { sep: true },
     { id: "lib-save", label: "Save as a collection…", icon: "collection", disabled: off || !filtered(q) ? (off ? true : "Choose some filters first") : false, run: () => ui.set({ dialog: { type: "lib-save", q } }) },
     { id: "lib-scrape-shown", label: `Scrape the ${plural(games.total, "game", "games")} shown…`, icon: "scrape", disabled: off || !games.total, run: async () => { const list = (await api("browse_keys", { query: q })).filter((g) => g.dat_game); if (list.length) scrapeDialog({ platform: list[0].platform, platformName: "", games: list.map((g) => g.dat_game), gameName: plural(list.length, "game", "games") }); } },
-    { id: "lib-rename-folders", label: "Rename game folders to their DAT names…", icon: "edit", disabled: off, run: renameFolders },
+    { id: "lib-rename-folders", label: "Rename games' library folders to their DAT names…", icon: "edit", disabled: off, run: renameFolders },
   ];
   const search = html`<input type="search" id="lib-search" data-search="1" class="compact" placeholder="Search titles, developers, descriptions" aria-label="Search the library" value=${box} onInput=${(e) => setBox(e.target.value)} />`;
   const tools = html`<${ViewSwitch} id="lib-view" views=${VIEWS} value=${view} onChange=${pickView} />
@@ -640,7 +640,7 @@ export function Browse() {
 export async function renameFolders() {
   try {
     const plan = await api("organise_rename_folders");
-    if (!plan.ops) { toast(plan.left ? `Nothing to rename: ${plural(plan.left, "folder is", "folders are")} left as they are (see why in the preview).` : "Every game folder has its game's name already.", 8000); if (!plan.left) return; }
+    if (!plan.ops) { toast(plan.left ? `Nothing to rename: ${plural(plan.left, "folder is", "folders are")} left as they are (see why in the preview).` : "Every game's library folder has its game's name already.", 8000); if (!plan.left) return; }
     ui.set({ dialog: { type: "organise", plan, platformName: "" } });
   } catch (e) {
     toast(`Couldn't plan it: ${err(e)}`, 8000);
