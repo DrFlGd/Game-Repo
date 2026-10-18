@@ -418,6 +418,33 @@ pub enum Imported {
     NeedsPlatform { name: String, file: String },
 }
 
+/// The DAT (or the DATs in a ZIP) at `path`, read without importing them (a collection
+/// made from a DAT, D49).
+pub fn read_file(path: &Path) -> Result<Vec<Dat>> {
+    let bytes = std::fs::read(path).with_context(|| format!("couldn't read {}", path.display()))?;
+    let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if !bytes.starts_with(b"PK\x03\x04") {
+        return Ok(vec![parse(&bytes).with_context(|| format!("{file} isn't a DAT that can be read"))?]);
+    }
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).map_err(|e| anyhow!("{file} isn't a ZIP that can be read: {e}"))?;
+    let mut out = vec![];
+    for i in 0..zip.len() {
+        let mut m = zip.by_index(i)?;
+        let name = m.name()?.into_owned();
+        let ext = platforms::ext_of(&name);
+        if m.is_dir() || !(ext == "dat" || ext == "xml") {
+            continue;
+        }
+        let mut inner = vec![];
+        std::io::Read::read_to_end(&mut m, &mut inner)?;
+        out.push(parse(&inner).with_context(|| format!("{file} › {name} isn't a DAT that can be read"))?);
+    }
+    if out.is_empty() {
+        bail!("{file} has no .dat or .xml file inside.");
+    }
+    Ok(out)
+}
+
 /// Import the DAT (or the DATs in a ZIP) at `path`. `answers` maps a DAT's name to its
 /// platform, for those whose platform couldn't be worked out.
 pub fn import(ix: &Index, lib: &Library, path: &Path, answers: &Map<String, Value>) -> Result<Vec<Imported>> {

@@ -45,6 +45,9 @@ pub struct Options {
     pub export_id: Option<String>,
     /// What it carries besides the games (D30, D34, D40)
     pub carry: Carry,
+    /// Only these of the collection's games ("system/name", or "system/*" for all of a
+    /// system's); empty: all of them (D50, Export these…)
+    pub only: Vec<String>,
 }
 
 impl Options {
@@ -138,6 +141,7 @@ pub fn options_of(lib: &Library, id: &str) -> Result<Options> {
         short_names: e["short_names"].as_bool().unwrap_or(true),
         export_id: Some(id.into()),
         carry: serde_json::from_value(e["carry"].clone()).unwrap_or_default(),
+        only: e["only"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect()).unwrap_or_default(),
         ..Default::default()
     })
 }
@@ -221,6 +225,26 @@ fn text_op(game: &str, to: &Path, top: &Path, text: String, note: &str) -> Op {
 }
 
 /// Plan an export (nothing is written).
+/// The systems' games that `only` names (all of them when it names none).
+fn only_these(systems: &[collection::System], only: &[String]) -> Vec<collection::System> {
+    if only.is_empty() {
+        return systems.to_vec();
+    }
+    let keys: HashSet<&str> = only.iter().map(String::as_str).collect();
+    systems
+        .iter()
+        .map(|s| {
+            let all = keys.contains(format!("{}/*", s.platform).as_str());
+            let mut s = s.clone();
+            if !all {
+                s.games.retain(|g| keys.contains(format!("{}/{}", g.platform, g.name).as_str()));
+            }
+            s
+        })
+        .filter(|s| !s.games.is_empty())
+        .collect()
+}
+
 pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     let conn = ix.conn();
     let l = layout::get(Some(lib), &o.layout_id()).map_err(|_| anyhow!("There's no export layout {}.", o.layout_id()))?;
@@ -261,6 +285,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         .collect();
     let c = collection::load(lib, &o.collection)?;
     let w = collection::work_out(ix, lib, &c)?;
+    let systems = only_these(&w.systems, &o.only);
     let first = record.is_none();
     let export_id = o.export_id.clone().unwrap_or_else(organise::new_id);
     let target_name = if l.id == "folder" { organise::shown(&out) } else { format!("{} ({})", l.name, organise::shown(&out)) };
@@ -272,7 +297,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     let mut plan = Plan {
         id: organise::new_id(), created: now(), kind: "export".into(), label, title,
         dat: json!({ "id": null, "name": c.name, "version": "" }),
-        platform: if w.systems.len() == 1 { w.systems[0].platform.clone() } else { String::new() },
+        platform: if systems.len() == 1 { systems[0].platform.clone() } else { String::new() },
         mode: "copy".into(), format: "keep".into(), out: Some(out.display().to_string()),
         ops: vec![], games: 0, in_place: 0, conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None,
         present: vec![], export: None,
@@ -283,7 +308,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     // each system's games folder, and its games' DAT ids by name
     let mut folders: BTreeMap<String, PathBuf> = BTreeMap::new();
     let mut ids: HashMap<(String, String), i64> = HashMap::new();
-    for s in &w.systems {
+    for s in &systems {
         if s.games.is_empty() {
             continue;
         }
@@ -559,7 +584,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     plan.export = Some(json!({
         "id": export_id, "collection": c.id, "name": c.name, "layout": l.id, "layout_name": l.name, "target": l.id, "places": asked,
         "out": out.display().to_string(), "esde": places.get("esde").map(|e| e.display().to_string()),
-        "always_copy": o.always_copy, "short_names": o.short_names, "carry": o.carry,
+        "always_copy": o.always_copy, "short_names": o.short_names, "carry": o.carry, "only": o.only,
         "first": first, "files": wanted, "drop": drop, "total": total, "limit": c.size_limit,
     }));
     Ok(plan)
@@ -766,7 +791,7 @@ pub fn record(lib: &Library, plan: &Plan, undone: bool) -> Result<()> {
     let mut v = json!({
         "id": id, "collection": e["collection"], "name": e["name"], "layout": e["layout"], "layout_name": e["layout_name"], "places": e["places"],
         "target": e["target"], "out": e["out"], "esde": e["esde"],
-        "always_copy": e["always_copy"], "short_names": e["short_names"], "carry": e["carry"],
+        "always_copy": e["always_copy"], "short_names": e["short_names"], "carry": e["carry"], "only": e["only"],
         "created": old["created"].as_str().map(String::from).unwrap_or_else(now), "updated": now(), "change": plan.id,
         "files": files.into_values().collect::<Vec<_>>(),
     });
@@ -1097,7 +1122,7 @@ mod tests {
     use crate::collection::{Collection, Rules};
 
     fn collection(lib: &Library, f: impl FnOnce(&mut Rules)) -> Collection {
-        let mut c = Collection { id: String::new(), name: "Best Of".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, created: String::new(), modified: String::new() };
+        let mut c = Collection { id: String::new(), name: "Best Of".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new() };
         c.rules.platforms = vec!["gb".into()];
         f(&mut c.rules);
         collection::save(lib, c).unwrap()
@@ -1228,7 +1253,7 @@ mod tests {
         roots::add(&lib, &src, Some("psx")).unwrap();
         crate::scan::scan(&ix, &lib, &crate::scan::Options::default(), &AtomicBool::new(false), &mut |_| {}).unwrap();
         crate::dat::import(&ix, &lib, &dir.join("psx.dat"), &serde_json::Map::new()).unwrap();
-        let mut c = Collection { id: String::new(), name: "Discs".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, created: String::new(), modified: String::new() };
+        let mut c = Collection { id: String::new(), name: "Discs".into(), rules: Rules::default(), added: vec![], removed: vec![], size_limit: None, made_from: None, created: String::new(), modified: String::new() };
         c.rules.platforms = vec!["psx".into()];
         let c = collection::save(&lib, c).unwrap();
         let roms = dir.join("ROMs");
@@ -1242,6 +1267,28 @@ mod tests {
         assert_eq!(r["ok"], 3, "{r}");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn export_these_takes_only_the_games_ticked_and_its_update_keeps_to_them() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-only");
+        let c = collection(&lib, |_| {});
+        let out = dir.join("Picked");
+        let o = Options { collection: c.id.clone(), target: "folder".into(), out: out.clone(), only: vec!["gb/Alpha (Europe)".into(), "gb/Delta (World)".into()], ..Default::default() };
+        let p = run(&ix, &lib, &o);
+        assert_eq!(p.games, 2);
+        assert_eq!(tree(&out), ["Nintendo - Game Boy/Alpha (Europe).gb", "Nintendo - Game Boy/Delta (World).gb"]);
+        let eid = list(&lib)[0]["id"].as_str().unwrap().to_string();
+        let again = options_of(&lib, &eid).unwrap();
+        assert_eq!(again.only, o.only);
+        let p2 = plan(&ix, &lib, &again).unwrap();
+        assert_eq!((p2.ops.len(), p2.present.len()), (0, 2), "nothing new to copy");
+        // a whole system by "system/*"
+        let all = Options { only: vec!["gb/*".into()], out: dir.join("All"), ..o };
+        assert_eq!(run(&ix, &lib, &all).games, 4);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn an_export_carries_details_smaller_pictures_and_the_manual_and_they_are_undone() {
         let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
