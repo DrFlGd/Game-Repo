@@ -1379,6 +1379,64 @@ async def main():
                   "Game Boy" in shown and "Box front" in shown and sizes.get("kinds", {}).get("cover", 0) > 0 and await pg.locator('#details-from select[data-field="description"]').count() == 1, (shown[:300], sizes.get("kinds")))
             await pg.screenshot(path=str(out / "55-settings-metadata.png"), full_page=True)
 
+            # Phase 7: an arcade set (MAME's -listxml), with its BIOS set, a device it lacks, and its set type
+            arc = fx / "Roms" / "MAME"
+            arc.mkdir(parents=True, exist_ok=True)
+            ab = lambda n: make_fixtures.rom(2000 + n, 64)
+
+            def zipped(path, members):
+                with zipfile.ZipFile(path, "w") as z:
+                    for name, data in members:
+                        z.writestr(name, data)
+            zipped(arc / "alpha.zip", [("a.1", ab(1)), ("shared.2", ab(2))])
+            zipped(arc / "alphaj.zip", [("aj.1", ab(3)), ("shared.2", ab(2))])
+            zipped(arc / "bios1.zip", [("bios.bin", ab(4))])
+            zipped(arc / "beta.zip", [("b.1", ab(5))])
+            rx = lambda n, x, merge=None: make_fixtures.rom_xml(n, ab(x)).replace("<rom ", f'<rom merge="{merge}" ' if merge else "<rom ")
+            mame = home / "mame.xml"
+            mame.write_text('<?xml version="1.0"?>\n<mame build="0.271 (mame0271)">\n'
+                            f'<machine name="bios1" isbios="yes"><description>Test BIOS</description>{rx("bios.bin", 4)}</machine>\n'
+                            f'<machine name="dev1" isdevice="yes" runnable="no"><description>Test device</description>{rx("dev.bin", 6)}</machine>\n'
+                            f'<machine name="alpha"><description>Alpha Fighter (World)</description><year>1991</year><manufacturer>Acme</manufacturer>{rx("a.1", 1)}{rx("shared.2", 2)}</machine>\n'
+                            f'<machine name="alphaj" cloneof="alpha" romof="alpha"><description>Alpha Fighter (Japan)</description>{rx("aj.1", 3)}{rx("shared.2", 2, "shared.2")}</machine>\n'
+                            f'<machine name="beta" romof="bios1"><description>Beta Quest</description>{rx("bios.bin", 4, "bios.bin")}{rx("b.1", 5)}<device_ref name="dev1"/></machine>\n'
+                            '</mame>\n')
+            pick(mame)
+            await pg.click("#import-dats")
+            await toast_text(pg, "Imported")
+            await pg.goto(B + "#/")
+            await pg.click("#home-scan-button")
+            await toast_text(pg, "Scanned")
+            await pg.click('.sidebar a[href="#/audit"]')
+            await pg.wait_for_selector("#audit-page")
+            await pg.select_option("#audit-platform", "mame")
+            await pg.wait_for_selector("#audit-playable")
+            totals = await pg.inner_text("#audit-totals")
+            await pg.click('#audit-tabs [data-tab="have"]')
+            await pg.wait_for_selector('#audit-list[data-tab="have"] li[data-name="beta"] .audit-needs')
+            needs = await pg.inner_text('#audit-list li[data-name="beta"] .audit-needs')
+            alpha_row = await pg.inner_text('#audit-list li[data-name="alpha"]')
+            await pg.screenshot(path=str(out / "56-arcade-audit.png"), full_page=True)
+            await pg.click('#audit-tabs [data-tab="sets"]')
+            await pg.wait_for_selector('#audit-list[data-tab="sets"] li[data-name="bios1"]')
+            sets = await pg.inner_text("#audit-list")
+            check("an arcade DAT (MAME's -listxml) is audited: BIOS sets and devices apart from the games, what's playable, and what a game needs",
+                  "3 of 3 games" in totals.replace("\n", " ") and "2 playable" in totals and "1 of 2" in totals
+                  and "dev1" in needs and "Alpha Fighter" in alpha_row and "1991" in alpha_row and "bios1" in sets and "dev1" in sets and "missing" in sets,
+                  (totals, needs, alpha_row, sets))
+            await pg.select_option("#audit-set-type", "split")
+            await toast_text(pg, "split set")
+            await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"misnamed\"] .tab-count')?.textContent === '1'", timeout=15000)
+            kept = json.loads((library / "_library/library.json").read_text()).get("arcade_sets", {})
+            await pg.click('.sidebar a[href="#/settings"]')
+            await pg.wait_for_selector('#arcade-set-types li[data-system="mame"] select')
+            in_settings = await pg.input_value('#arcade-set-types li[data-system="mame"] select')
+            await pg.select_option('#arcade-set-types li[data-system="mame"] select', "non-merged")
+            await toast_text(pg, "non-merged set")
+            back_to = json.loads((library / "_library/library.json").read_text()).get("arcade_sets", {})
+            check("an arcade system's set type is kept in the library: split lists a clone's copy of its parent's ROM as misnamed, and Settings › Systems shows and changes it",
+                  kept.get("mame") == "split" and in_settings == "split" and back_to.get("mame") == "non-merged", (kept, in_settings, back_to))
+
             await pg.click('.sidebar a[href="#/settings"]')
             await pg.wait_for_selector("#theme-select")
 

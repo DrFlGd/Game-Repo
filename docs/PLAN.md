@@ -2466,6 +2466,38 @@ How a clone's ROMs are spread between its ZIP and its parent's is the *set type*
 Not in Phase 7: MAME's software lists, reading MAME's `-listxml` by running MAME (the file
 is imported like any DAT), CHDs made or checked by chdman for arcade, catver/history files.
 
+### Phase 7 notes (built 2026-10-18)
+
+D57–D61 as written, with these choices:
+- **Where it lives.** `arcade.rs`: `Machines` (a DAT's machines from the index), `origin`
+  (the machine a shared ROM comes from: its `merge`, else the same name and contents in the
+  set it leans on), `places` (where each ROM goes in a set type), `needs` (the BIOS sets,
+  devices and, for a split DAT's clone, the parent a machine needs), `containers_for` (what
+  an export or Organise of some games takes) and `needs` per DAT (playable, missing samples),
+  kept with the summaries. The index's step "arcade sets" adds the columns and `dat_links`,
+  `dat_places` (the set type's places, for the audit's *named*) and `files.chd_sha1`.
+- **The audit.** `audit::GAMES` leaves BIOS sets and devices out (every page that lists
+  games uses it); `audit::MACHINES` has them. An arcade DAT's *named* is
+  `MATCHED_ARCADE`, against `dat_places`. A clone is taken as split-listed (needing its
+  parent) when none of its ROMs comes from its parent.
+- **Disks.** A scan reads each CHD's header once (`scan::chd_headers`; "" for one that
+  can't be read); hard disk and laserdisc CHDs aren't unpacked. Disks match with method
+  `chd`. The tracks of a CHD matched as a disk aren't *unknown*.
+- **Organise.** For an arcade DAT, `organise::arcade_rows` turns the machines into the
+  ZIPs the set type keeps (a member of a merged parent's ZIP that's a clone's is
+  *optional*: the ZIP is complete without it), and `place_disks` puts each disk at
+  `<machine>/<disk>.chd`. Machines are always named by their short names (no naming
+  template, no folder per game). Set aside duplicates uses the same rows, so a ROM a
+  non-merged clone shares with its parent is kept in both ZIPs. Convert doesn't apply.
+- **Exports** pass `set_type: non-merged` to Organise with the collection's games, so the
+  BIOS sets and devices they need are copied too and left out of the gamelist. muOS's
+  layout lists `mame` and `fbneo` (catalogue "Arcade", unconfirmed); the others use the ids.
+- **Starter DATs** skip the arcade systems (libretro's No-Intro and Redump copies have no
+  arcade DATs). ScreenScraper's, IGDB's and TheGamesDB's arcade ids are set for scraping.
+- **Not built:** samples aren't exported, merged sets' clones get no gamelist entry of their
+  own (exports are non-merged, so it doesn't arise), and an arcade machine's CHD isn't
+  checked with chdman.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been

@@ -28,6 +28,9 @@ export const TERMS = [
   ["game-library-folder", "A game's library folder", "Where a game's details, pictures and documents are kept: _library/games/<system>/<the DAT's name for it>/. It follows the game by its files' hashes, so renaming a ROM doesn't lose anything."],
   ["documents", "Documents", "Guides, FAQs, manuals, maps, posters and scans of your own, kept with their games (or by system) and searchable by their words."],
   ["bios", "BIOS files", "The firmware files emulators need, audited against libretro's list and kept in the library's BIOS folder. The app never downloads them or says where to get them."],
+  ["arcade", "Arcade sets", "MAME's and FinalBurn Neo's games: a ZIP per machine named by its short name (sf2.zip), clones leaning on their parents, BIOS sets (neogeo.zip) and devices as ZIPs of their own, hard disks as CHDs in a folder named for the machine, and sounds in samples/. BIOS sets and devices aren't counted as games."],
+  ["set-type", "Set type", "How an arcade system's ZIPs are made up: non-merged (every game's ZIP holds all it needs but its BIOS's), split (a clone's ZIP holds only what its parent's doesn't) or merged (a parent's ZIP holds its clones' too). Chosen on the Audit page or in Settings › Systems; Organise builds ZIPs that way, and an export is always non-merged."],
+  ["playable", "Playable", "An arcade game you have, with the BIOS set and devices it needs (and, in a split DAT, its parent). A game that isn't says what it needs; missing sounds are listed but don't stop it."],
   ["pc-game", "PC game", "A game for Windows, kept in its own folder under PC/<Title> (<Year>)/ with a game.json saying what it is and how it starts. Installers are never run: Unpack opens GOG's and zipped ones."],
   ["inbox", "Inbox", "A folder you drop PC installers, archives, disc images and game folders into; Import… reads it and brings them into the PC folder."],
 ];
@@ -47,6 +50,7 @@ export const PAGES = [
     "The lists of games you have, have in part and are missing, with reports and Export fixdat for what's missing.",
     "Organise… sorts, renames and packs a system's games; Rename these, Set aside duplicates, Convert… (to CHD, RVZ, CSO, ZIP) and Extract are changes too.",
     "Make a DAT from a set… you trust; Add a game… for one ROM or disc from anywhere.",
+    "For an arcade system (MAME, FinalBurn Neo): how many games are playable, what each needs, its BIOS sets and devices on a tab of their own, and its set type.",
   ]],
   ["bios", "BIOS files", "Each system's BIOS files: which you have, which are missing, and where they are.", [
     "Get libretro's list… or Import a BIOS DAT…, then Gather… copies the ones you have into the library's BIOS folder; an export can take them with a collection's games.",
