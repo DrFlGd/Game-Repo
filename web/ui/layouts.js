@@ -397,14 +397,14 @@ export function Layouts() {
   return html`${head}<div class="pages layouts-page" id="layouts-page">
     <p class="page-lead">${Icon.archive(18)} Where an export puts the games, gamelists, pictures, manuals and BIOS files for ES-DE, a device's firmware or a folder. Change one for a new firmware or frontend: a built-in layout is kept, and your change is saved as a new one.</p>
     <div class="layouts-body">
-      <ul class="pc-list lt-layouts" id="layout-list">${list.map((l) => html`<li key=${l.id}>
+      <ul class="pc-list lt-layouts" id="layout-list">${list.map((l, i) => html`${i === 0 || l.builtin !== list[i - 1].builtin ? html`<li class="lt-head" key=${`h-${l.builtin}`} aria-hidden="true">${l.builtin ? "Built in" : "Yours"}</li>` : null}<li key=${l.id}>
         <button type="button" class=${`pc-row${l.id === id ? " active" : ""}`} data-id=${l.id} aria-pressed=${l.id === id ? "true" : "false"} onClick=${() => {
           if (l.id === id) return;
           if (dirty) confirmDialog({ title: "Leave your changes?", text: `The changes to ${summary?.name} aren't saved.`, button: "Leave them", run: () => select(l.id) });
           else select(l.id);
         }}>
           <span class="pc-row-main"><span class="pc-row-title">${l.name}</span>
-            <span class="muted pc-row-meta">${l.builtin ? "built in" : l.copied_from ? `yours, from ${l.copied_from.name || l.copied_from.id}${l.copied_from.newer ? " (changed since)" : ""}` : "yours"}</span></span>
+            ${!l.builtin && l.copied_from ? html`<span class="muted pc-row-meta">from ${l.copied_from.name || l.copied_from.id}${l.copied_from.newer ? " (changed since)" : ""}</span>` : null}</span>
         </button></li>`)}</ul>
       <div class="lt-middle">
         <div class="audit-pick">

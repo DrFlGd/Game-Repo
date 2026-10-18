@@ -254,8 +254,8 @@ pub fn gather_plan(ix: &Index, lib: &Library) -> Result<Plan> {
         dat_id: *dat_id, mode: "copy".into(), out: Some(out.clone()), format: "loose".into(), partial: true, per_game_folder: true,
         ..Default::default()
     })?;
-    plan.label = "Gathered the BIOS files into the library's BIOS folder".into();
-    plan.title = "Gather the BIOS files into the library's BIOS folder".into();
+    plan.label = "Imported the BIOS files into the library's BIOS folder".into();
+    plan.title = "Import the BIOS files into the library's BIOS folder".into();
     if organise::in_root(&roots::list(lib), &out.join("x")).is_none() {
         roots::check_new(lib, &out).map_err(|e| anyhow!("The BIOS files can't go to {}: {e:#}", out.display()))?;
         plan.new_root = Some(out.display().to_string());

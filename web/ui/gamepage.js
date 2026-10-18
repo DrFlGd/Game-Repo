@@ -340,5 +340,5 @@ export function GamePage() {
       <button type="button" class="ghost compact" id="game-add" disabled=${off} onClick=${() => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } })}>${Icon.collection(14)} Add to a collection…</button>
     </section>` : null}
   </div>
-  <${Inspector} page="game" label="Media" tabs=${[{ id: "media", label: "Media", icon: "image", body: html`<${MediaPane} g=${g} off=${off || busy} onChoose=${choose} />` }]} /></div>`;
+  <${Inspector} page="game" label="Media" open=${false} tabs=${[{ id: "media", label: "Media", icon: "image", body: html`<${MediaPane} g=${g} off=${off || busy} onChoose=${choose} />` }]} /></div>`;
 }

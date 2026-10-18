@@ -2938,11 +2938,15 @@ choosing games (rules, a DAT, or folders, as a collection does now); one group c
 systems, and a system can have several groups (*SNES*, *SNES translations*, *SNES
 language packs*). The page shows each group as a section of the games view, the ribbon
 shows a collection's groups under it, and *Add a group…* is in the collection's menu. An
-existing collection becomes one group, so nothing changes until a group is added. Exports
-place a group's games by the layout's new `{group}` token; the built-in layouts put the
-first group at the system's folder and every other group in a subfolder of it
-(`roms/snes/Translations/`), and ES-DE, Pegasus and RetroArch also get a custom collection
-or playlist per group. (Placement asked of Jerred, 2026-10-18.)
+existing collection becomes one group, so nothing changes until a group is added. Where a
+group's games go (Jerred, 2026-10-18): every export puts all of a system's games in its
+system folder, and each group becomes a custom collection or playlist where the frontend has
+them (ES-DE, Pegasus, RetroArch, LaunchBox, Playnite). An ES-DE export (the ES-DE layouts and
+the devices that use ES-DE) asks which, at export: *collections only* (that default),
+*subfolders* (the first group at the system's folder, each other group in a subfolder,
+`roms/snes/Translations/`, which ES-DE shows as a folder) or *separate systems* (each group
+its own system folder, `roms/snes-translations/`, set up in ES-DE as a system of its own).
+Layouts get a `{group}` token for a layout of your own.
 
 **D76: wording.** One word per idea across the app, from a review of every label: see "UI
 pass 3 notes" for the table. *Import* for everything that brings files in (not *gather*,

@@ -8,6 +8,7 @@
 // shows what it has, scrapes it alone, picks from the candidates a scrape wasn't sure
 // about and attaches documents. Scrape again… and Delete metadata… (D48) work on a
 // system or a game. What an export carries (CarryChoices) is chosen in the Export dialog.
+// The systems are in the ribbon, as the Audit's are (`#/metadata/<system>`, D74).
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -19,6 +20,7 @@ import { Dialog, close } from "./dialogs.js";
 import { identifyDialog } from "./pcgames.js";
 import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
 import { Icon } from "./icons.js";
+import { useSidePanel, useRouteArg, argHash } from "./panels.js";
 
 const PAGE = 200;
 const err = (e) => e.message || String(e);
@@ -329,7 +331,9 @@ function MetaPanel({ id, off, version, onChange }) {
 export function Metadata() {
   const s = useStore(ui, (st) => ({ library: st.library, changes: st.changes, home: st.home }));
   const saved = prefs()?.get("gr-meta", {}) || {};
-  const [platform, setPlatform] = useState(saved.platform || null);
+  const arg = useRouteArg("metadata");
+  const [platform, setPlatform] = useState(arg || saved.platform || null);
+  useEffect(() => { if (arg && arg !== platform) { setPlatform(arg); setSel(null); prefs()?.set("gr-meta", { ...(prefs()?.get("gr-meta", {}) || {}), platform: arg }); } }, [arg]);
   const [show, setShow] = useState(saved.show || "have");
   const [summary, setSummary] = useState(null);
   const [q, setQ] = useState("");
@@ -366,6 +370,10 @@ export function Metadata() {
     prefs()?.set("gr-meta", next);
   };
   const platforms = summary?.platforms || [];
+  useSidePanel(platforms.length ? {
+    id: "meta-panel", route: "metadata", title: "Systems", icon: "scrape", count: platforms.length, current: p,
+    items: platforms.map((x) => ({ id: x.id, label: x.name, href: argHash("metadata", x.id) })),
+  } : null);
   const pName = platforms.find((x) => x.id === p)?.name || p;
   const counts = list.counts || {};
   const head = html`<${CommandBar} id="meta-head" title="Metadata" count=${p ? pName : null}
@@ -394,10 +402,6 @@ export function Metadata() {
   const current = sel && list.items.some((g) => g.id === sel) ? sel : null;
   return html`${head}<div class="pages pc-page meta-page" id="meta-page">
     <div class="audit-pick">
-      <label class="field-inline"><span>System</span>
-        <select id="meta-platform" class="compact" value=${p} onChange=${(e) => choose({ platform: e.target.value })}>
-          ${platforms.map((x) => html`<option key=${x.id} value=${x.id}>${x.name}</option>`)}
-        </select></label>
       <span class="muted" id="meta-counts">${counts.all != null ? `${(counts.have || 0).toLocaleString()} of ${(counts.all || 0).toLocaleString()} games in the library · ${(counts.details || 0).toLocaleString()} with details · ${(counts.media || 0).toLocaleString()} with pictures` : ""}</span>
     </div>
     <div class="seg audit-tabs" role="tablist" id="meta-tabs">${SHOWS.map(([k, label, key]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${show === k ? "true" : "false"} onClick=${() => choose({ show: k })}>

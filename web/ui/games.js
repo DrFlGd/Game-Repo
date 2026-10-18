@@ -72,7 +72,7 @@ export async function removeRoot(root) {
 export async function scan(full) {
   if (!ui.get().roots?.length) await refreshGames();
   if (!ui.get().roots?.length) {
-    toast("Add a folder with games first (Settings › Folders with games).", 6000);
+    toast("Add a folder with games first (Import › Folders with games).", 6000);
     return null;
   }
   try {

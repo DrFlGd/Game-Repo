@@ -12,7 +12,7 @@ import { ui } from "./state.js";
 import { ctx } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, size, libraryUrl } from "./library.js";
 import { reveal } from "./games.js";
-import { CommandBar } from "./layout.js";
+import { CommandBar, EditBox } from "./layout.js";
 import { Dialog, close, confirmDialog } from "./dialogs.js";
 import { Preview, runPlan } from "./organise.js";
 import { viewDoc, useDroppedFiles } from "./documents.js";
@@ -195,7 +195,7 @@ export function Magazines() {
           <h2 id="mag-title">${m.title}</h2>
           <p class="muted" id="mag-totals">${[m.publisher, plural(m.issues.length, "issue", "issues"), m.listed ? `${m.listed - (m.missing?.length || 0)} of the ${m.listed} listed` : null].filter(Boolean).join(" · ")}</p>
           ${!m.none ? html`<div class="pick-row">
-            <input type="text" class="compact" id="mag-publisher" aria-label="Publisher" placeholder="Publisher" value=${m.publisher || ""} disabled=${off} onChange=${(e) => edit(null, { publisher: e.target.value })} />
+            <${EditBox} id="mag-publisher" label="Publisher" title="Its publisher: click to change it" placeholder="Publisher" value=${m.publisher || ""} off=${off} onSave=${(v) => edit(null, { publisher: v })} />
             ${isDesktop() && m.folder ? html`<button type="button" class="ghost compact" onClick=${() => reveal(m.issues[0] ? `${s.library.path}/${m.issues[0].path}` : s.library.path)}>${Icon.folder(14)} Show its folder</button>` : null}
           </div>` : null}
         </div>
@@ -203,7 +203,7 @@ export function Magazines() {
           <button type="button" class="mag-open" title=${i.doc ? `Read ${i.title}` : i.title} disabled=${!i.doc} onClick=${() => { setFocus(i); viewDoc(i.doc); }} onFocus=${() => setFocus(i)}>
             <${Cover} issue=${i} stamp=${stamp} /><span class="mag-issue-title">${i.number ? `No. ${i.number}` : i.title}</span><small class="muted">${[i.date, size(i.size)].filter(Boolean).join(" · ")}</small></button>
           <span class="seg">
-            <input type="text" class="compact mag-issue-date" aria-label="Date (YYYY-MM)" placeholder="YYYY-MM" value=${i.date || ""} disabled=${off} onChange=${(e) => edit(i, { date: e.target.value })} />
+            <${EditBox} cls="mag-issue-date" label="Date (YYYY-MM)" title="Its date: click to change it" placeholder="YYYY-MM" value=${i.date || ""} off=${off} onSave=${(v) => edit(i, { date: v })} />
             <button type="button" class="ghost compact" data-action="cover" disabled=${off || !isDesktop()} title="Choose a picture for its cover (or drop one on the page)" onClick=${() => { setFocus(i); chooseCover(i); }}>${Icon.image(14)}</button>
           </span></li>`)}</ul>` : html`<p class="muted">You have none of its issues.</p>`}
         ${m.missing?.length ? html`<section class="ls-section" id="mag-missing"><h2>Missing</h2>

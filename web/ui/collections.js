@@ -164,7 +164,6 @@ function NewCollectionDialog({ way: given = "rules", again, onMade }) {
   const [datPath, setDatPath] = useState(again?.made_from?.kind === "dat" ? again.made_from.path || "" : "");
   const [review, setReview] = useState(null);
   const [off, setOff] = useState(new Set());
-  const [bring, setBring] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const named = (n) => setName((v) => v || n);
@@ -219,14 +218,6 @@ function NewCollectionDialog({ way: given = "rules", again, onMade }) {
       const games = review.systems.flatMap((x) => x.games).map((g) => g.id).filter((id) => !off.has(id));
       const r = await api("collection_from", { name: name.trim(), id: again?.id || null, games, made_from: review.made_from });
       ui.set((st) => ({ changes: (st.changes || 0) + 1 }));
-      const lacking = bring ? missing() : [];
-      if (lacking.length) {
-        // the games the full set lacks, brought in after a preview
-        const plan = await api("collection_bring_plan", { games: lacking.map((g) => ({ id: g.id, files: g.files })) });
-        onMade?.(r.collection, "games");
-        ui.set({ dialog: { type: "bring", plan } });
-        return;
-      }
       close();
       toast(again ? `Read ${again.name} again: ${plural(games.length, "game", "games")}.` : `Made ${r.collection.name}: ${plural(games.length, "game", "games")}, kept as its own DATs in the library.`, 8000);
       onMade?.(r.collection, "games");
@@ -257,8 +248,7 @@ function NewCollectionDialog({ way: given = "rules", again, onMade }) {
       ${review.unknown.length ? html`<details class="field-block subset-unknown" id="subset-unknown"><summary>${plural(review.unknown.length, "file", "files")} not in any audit DAT</summary>
         <ul class="ls-list">${review.unknown.slice(0, 500).map((u, i) => html`<li key=${i} data-path=${u.path}><span class="op-to">${u.path}</span> <span class="muted">${u.why}</span></li>`)}</ul>
         <small class="muted">Import the DAT of a system they belong to on the Audit page, then read them again.</small></details>` : null}
-      ${lacking ? html`<label class="check-row bring-row"><input type="checkbox" id="subset-bring" checked=${bring} onChange=${(e) => setBring(e.target.checked)} />
-        <span>Also bring the ${plural(lacking, "game", "games")} your full set doesn't have into the library: copied into its folder with games and named as your audit DAT names ${lacking === 1 ? "it" : "them"} (with a preview first, and Undo)</span></label>` : null}
+      ${lacking ? html`<p class="muted bring-row" id="subset-lacking">${plural(lacking, "game", "games")} in the folders ${lacking === 1 ? "isn't" : "aren't"} in your full set yet: <a href=${routeHash("import")} onClick=${close}>Import › Games to copy into the library</a> brings ${lacking === 1 ? "it" : "them"} in.</p>` : null}
       <p class="muted">The collection is kept as DATs of its own (one per system, with your full sets' names and hashes) in the library. Its games are exported from your full sets; ${way === "dat" ? "the DAT" : "the folders"} aren't changed.</p>
     <//>`;
   }
@@ -285,16 +275,6 @@ function NewCollectionDialog({ way: given = "rules", again, onMade }) {
       </div>
       <small class="muted">It's read where it is and not imported: the Audit page's DATs stay your full sets.</small></div>` : null}
     ${again && !error ? html`<p class="muted">Reading ${sourceText(again.made_from).replace(/^from /, "")}…</p>` : null}
-  <//>`;
-}
-
-/** The preview of bringing a collection's missing games into the library; Run starts it. */
-function BringDialog({ plan }) {
-  const nothing = !plan.ops;
-  return html`<${Dialog} title=${plan.title || "Bring the games into the library"} id="bring-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} submitLabel=${nothing ? "OK" : "Run"} cancelLabel=${nothing ? null : "Not now"}>
-    <${Preview} plan=${plan} />
-    ${nothing ? html`<p id="organise-nothing">Nothing to bring in: ${plan.left?.length ? "see what's left alone." : "your full set has them all."}</p>`
-      : html`<p class="muted">The files are hardlinked where the folder with games is on the same drive (they take no space), else copied, and checked; the folders you read aren't changed. The games are scanned afterwards, so your full set has them. It can be undone from the message afterwards or from Settings › History.</p>`}
   <//>`;
 }
 
@@ -368,7 +348,7 @@ function ExportDialog({ c, sum, plan: given, only, count }) {
       ${plan.layout_name ? html`<p class="muted" id="export-layout-used">In the layout ${plan.layout_name}.</p>` : null}
       <${Preview} plan=${plan} />
       ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.in_place ? "the export is up to date." : "none of the collection's games are in the library."}</p>`
-        : html`<p class="muted">Files are hardlinked where the folder is on the same drive as the library's games (they take no space), else copied, and every one written is read back and checked. Files the export placed before that the collection no longer has are set aside, never deleted. The change can be undone from the message afterwards or from Settings › History.</p>`}
+        : html`<p class="muted">Files are hardlinked where the folder is on the same drive as the library's games (they take no space), else copied, and every one written is read back and checked. Files the export placed before that the collection no longer has are set aside, never deleted. The change can be undone from the message afterwards or from History.</p>`}
     <//>`;
   }
   return html`<${Dialog} title=${only?.length ? `Export ${plural(count, "game", "games")} of ${c.name}` : `Export ${c.name}`} id="export-dialog" onSubmit=${preview} busy=${busy || !ready} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
@@ -393,7 +373,6 @@ function ExportDialog({ c, sum, plan: given, only, count }) {
 export function CollectionDialogs({ dialog }) {
   if (dialog.type === "collection-name") return html`<${NameDialog} ...${dialog} />`;
   if (dialog.type === "collection-new") return html`<${NewCollectionDialog} ...${dialog} />`;
-  if (dialog.type === "bring") return html`<${BringDialog} ...${dialog} />`;
   if (dialog.type === "add-games") return html`<${AddGamesDialog} ...${dialog} />`;
   if (dialog.type === "save-dats") return html`<${SaveDatsDialog} ...${dialog} />`;
   if (dialog.type === "export") return html`<${ExportDialog} key=${dialog.plan?.id || "new"} ...${dialog} />`;

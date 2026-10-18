@@ -3,27 +3,32 @@
 // of every one's counts (`#/audit/all`, `#/audit/<system>`, D69); the DAT is chosen at
 // the top (the DAT picked stays the platform's, for Home too), the counts are tabs, and
 // each list pages through the index with its search, so a list of 40,000 missing games
-// loads a page at a time. A games list can be narrowed to a region, sorted by name,
-// region or year, and shown as a list or a table.
+// loads a page at a time. A games list can be narrowed to a region and sorted by name,
+// region or year. Every list is a table (D74), whose rows open the game's page; Convert…
+// and Show in folder are in a row's right-click menu.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { api, toast, isDesktop, plural } from "./library.js";
 import { importDats, starterDats, reveal, scan } from "./games.js";
-import { CommandBar, SearchNote, ViewSwitch, SortMenu } from "./layout.js";
+import { CommandBar, SearchNote, SortMenu } from "./layout.js";
 import { useSidePanel, useRouteArg, argHash } from "./panels.js";
 import { organiseDialog, convertDialog, renameMisnamed, setAsideDuplicates } from "./organise.js";
 import { Icon } from "./icons.js";
 import { addGameDialog } from "./pcgames.js";
+import { gameHash } from "./browse.js";
+import { openMenu } from "./actions.js";
 
 const PAGE = 200;
 
 /** The lists, with the summary count each shows. */
 export const TABS = [
+  // the games
   ["have", "Have", "have"],
   ["partial", "Partly there", "partial"],
   ["missing", "Missing", "missing"],
+  // the files
   ["matched", "Named right", "matched"],
   ["misnamed", "Misnamed", "misnamed"],
   ["baddump", "Bad dumps", "baddump"],
@@ -57,29 +62,52 @@ const WHY = { bios: "its BIOS set", device: "a device", parent: "its parent" };
 
 const prefs = () => ctx.platform?.store?.prefs;
 const GAME_TABS = ["have", "partial", "missing", "sets"];
-const LOOKS = [["list", "List", "list"], ["table", "Table", "table"]];
 const SORTS = [["name", "Name"], ["region", "Region"], ["year", "Year"]];
 /** The overview's columns: [tab, heading]. */
 const COLUMNS = [["have", "Have"], ["partial", "Partly there"], ["missing", "Missing"], ["misnamed", "Misnamed"], ["baddump", "Bad dumps"], ["unknown", "Unknown"], ["duplicates", "Duplicates"]];
 
-/** A list as a table: a games list's columns, or a files list's. */
-function Table({ items, tab, arcade, onConvert }) {
+/** A list as a table: a games list's columns, or a files list's. A row's name opens its
+ *  game's page; its right-click menu has Convert… and Show in folder. */
+function Table({ items, tab, arcade, platform, onConvert }) {
   const games = GAME_TABS.includes(tab);
+  const keyOf = (it) => (games ? it.name : it.game) || null;
+  const name = (it, text) => {
+    const k = keyOf(it);
+    return k && platform ? html`<a class="audit-open" href=${gameHash(`${platform}/${k}`)} title=${`Open ${k}'s page`}>${text}</a>` : text;
+  };
+  const menu = (e, it) => {
+    const k = keyOf(it);
+    const items = [
+      ...(k && platform ? [{ id: "audit-open", label: "Open its page", icon: "external", run: () => { location.hash = gameHash(`${platform}/${k}`); } }] : []),
+      ...(onConvert && tab === "have" ? [{ id: "audit-convert-one", label: "Convert…", icon: "convert", run: () => onConvert(it.name) }] : []),
+      ...(it.path && isDesktop() ? [{ id: "audit-reveal", label: "Show in folder", icon: "folder", run: () => reveal(it.path) }] : []),
+    ];
+    if (!items.length) return;
+    e.preventDefault();
+    openMenu(e, items);
+  };
   const show = (it) => it.path && isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label=${`Show ${it.name} in its folder`} onClick=${() => reveal(it.path)}>${Icon.folder(14)}</button>` : null;
+  const open = (it) => { const k = keyOf(it); if (k && platform) location.hash = gameHash(`${platform}/${k}`); };
+  const row = (it, cells) => html`<tr class="audit-row" key=${`${it.id}-${it.name}`} data-name=${it.name} tabindex="0"
+    onDblClick=${() => open(it)} onKeyDown=${(e) => { if (e.key === "Enter" && e.target === e.currentTarget) open(it); }} onContextMenu=${(e) => menu(e, it)}>${cells}<td class="audit-acts">${show(it)}</td></tr>`;
+  if (tab === "sets") {
+    return html`<table class="audit-table" id="audit-list-table"><thead><tr><th>Name</th><th>Kind</th><th>Status</th><th>Maker</th><th></th></tr></thead>
+      <tbody>${items.map((it) => row(it, html`<td class="audit-name">${it.name}${it.title && it.title !== it.name ? html` <span class="muted">${it.title}</span>` : null}</td>
+        <td>${it.kind === "bios" ? "BIOS set" : "Device"}</td><td>${it.status === "have" ? "Have" : it.status === "partial" ? "Partly there" : "Missing"}</td><td>${it.manufacturer || ""}</td>`))}</tbody></table>`;
+  }
   if (games) {
     return html`<table class="audit-table" id="audit-list-table"><thead><tr><th>Name</th><th>Region</th><th>Year</th>${arcade ? html`<th>Maker</th>` : null}<th>Flags</th><th>ROMs</th><th></th></tr></thead>
-      <tbody>${items.map((it) => html`<tr class="audit-row" key=${`${it.id}-${it.name}`} data-name=${it.name}>
-        <td class="audit-name" title=${it.shown || null}>${it.name}${it.clone_of ? html` <span class="muted">clone of ${it.clone_of}</span>` : null}${it.needs?.length ? html`<span class="audit-needs">Needs ${it.needs.map((n) => n.name).join(", ")}</span>` : null}</td>
+      <tbody>${items.map((it) => row(it, html`<td class="audit-name" title=${it.shown || null}>${name(it, it.name)}${arcade && it.title && it.title !== it.name ? html` <span class="muted">${it.title}</span>` : null}${it.clone_of ? html` <span class="muted">clone of ${it.clone_of}</span>` : null}
+          ${it.needs?.length ? html`<span class="audit-needs" title="It runs once these are in your folders too">Needs ${it.needs.map((n) => `${n.name} (${WHY[n.why] || n.why})`).join(", ")}</span>` : null}
+          ${it.samples?.length ? html`<span class="muted audit-samples" title=${`Its sounds, in samples/${it.name}.zip; it runs without them`}>No sounds for ${it.samples.join(", ")}</span>` : null}</td>
         <td>${it.regions || ""}</td><td>${it.year || ""}</td>${arcade ? html`<td>${it.manufacturer || ""}</td>` : null}<td>${it.flags || ""}</td>
-        <td>${tab === "partial" ? `${it.have} of ${it.roms}` : it.roms ?? ""}</td>
-        <td class="audit-acts">${onConvert && tab === "have" ? html`<button type="button" class="ghost compact audit-convert-one" onClick=${() => onConvert(it.name)}>Convert…</button>` : null}${show(it)}</td></tr>`)}</tbody></table>`;
+        <td>${tab === "partial" ? `${it.have} of ${it.roms}` : it.roms ?? ""}</td>`))}</tbody></table>`;
   }
-  return html`<table class="audit-table" id="audit-list-table"><thead><tr><th>File</th><th>${tab === "misnamed" ? "Should be" : "Game"}</th><th>Where</th><th></th></tr></thead>
-    <tbody>${items.map((it) => html`<tr class="audit-row" key=${`${it.id}-${it.name}`} data-name=${it.name}>
-      <td class="audit-name">${it.name}${it.method?.startsWith("crc") ? html` <span class="muted">matched by CRC</span>` : null}</td>
-      <td>${tab === "misnamed" ? it.expected : it.game || ""}</td>
-      <td class="audit-path muted" title=${it.shown || null}>${it.shown || ""}</td>
-      <td class="audit-acts">${show(it)}</td></tr>`)}</tbody></table>`;
+  const note = (it) => [it.method?.startsWith("crc") ? "matched by the ZIP's checksum" : null, it.baddump ? "a bad dump in the DAT" : null, it.offline ? "folder not found on this computer" : null].filter(Boolean).join(" · ");
+  return html`<table class="audit-table" id="audit-list-table"><thead><tr><th>File</th>${tab === "unknown" ? null : html`<th>${tab === "misnamed" ? "Should be" : "Game"}</th>`}<th>Folder</th><th></th></tr></thead>
+    <tbody>${items.map((it) => row(it, html`<td class="audit-name">${it.name}${note(it) ? html` <span class="muted">${note(it)}</span>` : null}</td>
+      ${tab === "unknown" ? null : html`<td>${tab === "misnamed" ? name(it, it.expected) : name(it, it.game || "")}</td>`}
+      <td class="audit-path muted" title=${it.shown || null}>${it.shown || ""}</td>`))}</tbody></table>`;
 }
 
 /** Every system's counts, a row each. */
@@ -100,27 +128,6 @@ function Overview({ systems, onOpen }) {
   </div>`;
 }
 
-function Row({ it, tab, onConvert, arcade }) {
-  const games = tab === "have" || tab === "partial" || tab === "missing";
-  const meta = games || tab === "sets"
-    ? [arcade && it.title && it.title !== it.name ? it.title : null, it.year, it.manufacturer, it.regions, it.flags, it.clone_of ? `clone of ${it.clone_of}` : null,
-       tab === "sets" ? (it.kind === "bios" ? "BIOS set" : "device") : null, tab === "sets" && it.status !== "have" ? (it.status === "partial" ? "partly there" : "missing") : null,
-       tab === "partial" ? `${it.have} of ${plural(it.roms, "ROM", "ROMs")}` : null].filter(Boolean).join(" · ")
-    : [it.game && tab !== "unknown" && tab !== "baddump" ? it.game : null, it.method?.startsWith("crc") ? "matched by CRC" : null, it.baddump ? "a bad dump in the DAT" : null, it.offline ? "folder not found on this computer" : null].filter(Boolean).join(" · ");
-  return html`<li class="audit-row" data-name=${it.name}>
-    <div class="audit-main">
-      <span class="audit-name">${it.name}</span>
-      ${meta ? html`<span class="muted audit-meta">${meta}</span>` : null}
-      ${tab === "misnamed" ? html`<span class="audit-expected">→ ${it.expected}</span>` : null}
-      ${it.needs?.length ? html`<span class="audit-needs" title="It runs once these are in your folders too">Needs ${it.needs.map((n) => `${n.name} (${WHY[n.why] || n.why})`).join(", ")}</span>` : null}
-      ${it.samples?.length ? html`<span class="muted audit-samples" title="Its sounds, in samples/${it.name}.zip; it runs without them">No sounds for ${it.samples.join(", ")}</span>` : null}
-      ${it.shown ? html`<span class="audit-path muted" title=${it.shown}>${it.shown}</span>` : null}
-    </div>
-    ${onConvert && tab === "have" ? html`<button type="button" class="ghost compact audit-convert-one" title=${`Convert ${it.name} to another format, or extract it`} onClick=${() => onConvert(it.name)}>Convert…</button>` : null}
-    ${it.path && isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label=${`Show ${it.name} in its folder`} onClick=${() => reveal(it.path)}>${Icon.folder(14)}</button>` : null}
-  </li>`;
-}
-
 export function Audit() {
   const s = useStore(ui, (st) => ({ library: st.library, home: st.home, changes: st.changes }));
   const arg = useRouteArg("audit");
@@ -139,8 +146,6 @@ export function Audit() {
   const [region, setRegion] = useState("");
   const [sort, setSort] = useState("name");
   const [regions, setRegions] = useState([]);
-  const [look, setLook] = useState(() => prefs()?.get("gr-audit-look", "list") || "list");
-  const pickLook = (v) => { setLook(v); prefs()?.set("gr-audit-look", v); };
   useEffect(() => {
     if (!arg || all || arg === saved) return;
     setSaved(arg);
@@ -193,7 +198,8 @@ export function Audit() {
   useSidePanel(systems?.length ? {
     id: "audit-panel", route: "audit", title: "Systems", icon: "audit", count: systems.length, current: all ? "" : sum?.dat?.platform,
     all: { label: "All systems", href: argHash("audit", "all"), icon: "table" },
-    items: systems.map((x) => ({ id: x.platform, label: x.platform_name, sub: `${(x.have || 0).toLocaleString()} of ${(x.games || 0).toLocaleString()}`, href: argHash("audit", x.platform) })),
+    // one line each, the count beside the name (D74)
+    items: systems.map((x) => ({ id: x.platform, label: x.platform_name, count: `${(x.have || 0).toLocaleString()} of ${(x.games || 0).toLocaleString()}`, href: argHash("audit", x.platform) })),
   } : null);
   const chooseTab = (t) => { setTab(t); prefs()?.set("gr-audit", { platform: sum?.dat?.platform || platform, tab: t }); };
 
@@ -244,7 +250,7 @@ export function Audit() {
       <section class="ls-section">
         <h2>To start</h2>
         <ol class="coming-list">
-          <li>Add the folders your games are in: <a href=${routeHash("settings")}>Settings › Folders with games</a>.</li>
+          <li>Add the folders your games are in: <a href=${routeHash("import")}>Import › Folders with games</a>.</li>
           <li>Get the starter DATs (No-Intro's, from libretro's public copy), or import your own: a No-Intro daily pack, a single <code>.dat</code> or <code>.zip</code>.</li>
           <li>Scan. Each file is read once; a second scan only reads what changed.</li>
         </ol>
@@ -272,11 +278,11 @@ export function Audit() {
   };
   return html`${head}<div class="pages audit-page" id="audit-page">
     <div class="audit-pick" id="audit-pick" data-platform=${sum.dat.platform}>
-      <label class="field-inline"><span>DAT</span>
+      ${data.dats.length > 1 ? html`<label class="field-inline"><span>DAT</span>
         <select id="audit-dat" class="compact" value=${String(sum.dat.id)} disabled=${data.dats.length < 2} title=${data.dats.length < 2 ? "Import another DAT for this platform to choose between them" : "The DAT this platform is audited against (kept for Home too)"}
           onChange=${(e) => setDatId(Number(e.target.value))}>
           ${data.dats.map((d) => html`<option key=${d.id} value=${String(d.id)}>${d.name} (${d.version})</option>`)}
-        </select></label>
+        </select></label>` : null}
       ${arc && setType ? html`<label class="field-inline"><span>Set type</span>
         <select id="audit-set-type" class="compact" value=${setType} disabled=${!!s.library?.read_only} title=${SET_TYPES.find((t) => t[0] === setType)?.[2]}
           onChange=${(e) => chooseSetType(e.target.value)}>
@@ -288,19 +294,19 @@ export function Audit() {
       <p><b id="audit-have">${n("have")}</b> of <b id="audit-games">${n("games")}</b> games
         ${arc ? html` · <b id="audit-playable" title="Games had, with the BIOS sets and devices they need">${arc.playable}</b> playable
           · BIOS and devices <b id="audit-sets">${arc.sets_have} of ${arc.sets}</b>` : null}
-        · 1G1R <b id="audit-1g1r">${n("groups_have")} of ${n("groups")}</b>
-        ${n("by_crc") ? html` · <span class="muted" title="Files inside ZIPs matched by the CRC the ZIP records. Settings › Scan ZIPs › Unpack and hash checks them in full.">${plural(n("by_crc"), "file", "files")} matched by CRC</span>` : null}</p>
+        · <span title="1G1R: titles (a game and its clones) you have at least one version of">One per title</span> <b id="audit-1g1r">${n("groups_have")} of ${n("groups")}</b>
+        ${n("by_crc") ? html` · <span class="muted" title="Files inside ZIPs matched by the checksum the ZIP records. Settings › Scanning › Scan ZIPs › Unpack and hash every file checks them in full.">${plural(n("by_crc"), "file", "files")} matched by the ZIP's checksum</span>` : null}</p>
       ${n("needs_tool") ? html`<p class="warn-note" id="audit-needs-tool">${plural(n("needs_tool"), "RVZ file waits", "RVZ files wait")} for dolphin-tool before ${n("needs_tool") === 1 ? "it" : "they"} can be checked. Set where it is in <a href=${routeHash("settings")}>Settings › Tools</a>, then scan.</p>` : null}
     </div>
-    <div class="seg audit-tabs" role="tablist" id="audit-tabs">${tabs.map(([k, label, key]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${tab === k ? "true" : "false"} onClick=${() => chooseTab(k)}>
-      ${label} <span class="tab-count">${n(key)}</span></button>`)}</div>
+    <div class="audit-tab-groups" id="audit-tabs" role="tablist">${[["Games", tabs.filter(([k]) => GAME_TABS.includes(k))], ["Files", tabs.filter(([k]) => !GAME_TABS.includes(k))]].map(([group, list]) => html`<div class="audit-tab-group" key=${group}>
+      <span class="audit-tab-label">${group}</span><div class="seg audit-tabs">${list.map(([k, label, key]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${tab === k ? "true" : "false"} onClick=${() => chooseTab(k)}>
+      ${label} <span class="tab-count">${n(key)}</span></button>`)}</div></div>`)}</div>
     <div class="audit-tools">
       <input type="search" id="audit-search" class="compact" placeholder="Search this list" aria-label="Search this list" value=${q} onInput=${(e) => setQ(e.target.value)} />
       ${games && (regions.length > 1 || region) ? html`<select id="audit-region" class="compact" aria-label="Region" value=${region} onChange=${(e) => setRegion(e.target.value)}>
         <option value="">Every region</option>
         ${regions.map((r) => html`<option key=${r.region} value=${r.region}>${r.region} (${r.count.toLocaleString()})</option>`)}</select>` : null}
       ${games ? html`<${SortMenu} id="audit-sort" options=${SORTS} value=${sort} onChange=${setSort} />` : null}
-      <${ViewSwitch} id="audit-look" views=${LOOKS} value=${look} onChange=${pickLook} />
       <span class="muted audit-help">${HELP[tab]}</span>
       ${tab === "misnamed" && n("misnamed") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-rename" onClick=${() => renameMisnamed(dat, platformName)}>Rename these…</button>` : null}
       ${tab === "duplicates" && n("duplicates") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-aside" onClick=${() => setAsideDuplicates(dat, platformName)}>Set aside duplicates…</button>` : null}
@@ -308,9 +314,8 @@ export function Audit() {
     <${SearchNote} q=${q} found=${list.loading ? null : plural(list.total, "match", "matches")} onClear=${() => setQ("")} />
     ${list.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
     ${!list.loading && !list.items.length ? html`<p class="muted" id="audit-none">${q ? "Nothing here matches the search." : "Nothing in this list."}</p>` : null}
-    <div class="audit-list-wrap" id="audit-list" data-tab=${list.tab} data-by=${list.by || null} data-total=${list.total} data-look=${look} aria-busy=${list.loading ? "true" : "false"}>
-      ${look === "table" && list.items.length ? html`<${Table} items=${list.items} tab=${list.tab} arcade=${!!arc} onConvert=${canConvert ? (g) => convert([g]) : null} />`
-        : html`<ul class="audit-list">${list.items.map((it) => html`<${Row} key=${`${it.id}-${it.name}`} it=${it} tab=${list.tab} arcade=${!!arc} onConvert=${canConvert ? (g) => convert([g]) : null} />`)}</ul>`}
+    <div class="audit-list-wrap" id="audit-list" data-tab=${list.tab} data-by=${list.by || null} data-total=${list.total} aria-busy=${list.loading ? "true" : "false"}>
+      ${list.items.length ? html`<${Table} items=${list.items} tab=${list.tab} arcade=${!!arc} platform=${sum.dat.platform} onConvert=${canConvert ? (g) => convert([g]) : null} />` : null}
     </div>
     ${list.items.length < list.total ? html`<div class="home-actions"><button type="button" class="ghost" id="audit-more" onClick=${more}>Show ${Math.min(PAGE, list.total - list.items.length)} more (${list.total - list.items.length} left)</button></div>` : null}
   </div>`;
