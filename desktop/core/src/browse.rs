@@ -1197,7 +1197,7 @@ mod tests {
         let g = game(&ix, &lib, "gb/Delta (World) (Rev 1)").unwrap();
         assert_eq!(g["details"]["developer"], "Acme");
         let plan = meta::rename_folders_plan(&ix, &lib).unwrap();
-        assert_eq!((plan.ops.len(), plan.in_place, plan.label.as_str()), (1, 1, "Renamed 1 game's folder to its DAT name"));
+        assert_eq!((plan.ops.len(), plan.in_place, plan.label.as_str()), (1, 1, "Renamed 1 game's library folder to its DAT name"));
         assert!(plan.ops[0].to.ends_with("Delta (World) (Rev 1)"));
         let old = PathBuf::from(&plan.ops[0].from[0].path);
         let none = std::sync::atomic::AtomicBool::new(false);

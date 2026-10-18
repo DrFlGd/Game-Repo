@@ -252,9 +252,24 @@ async def main():
             active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
             lead = await pg.inner_text("#audit-empty")
             check("the menu's places open, with the pages still to come saying what they'll do",
-                  labels == ["Game Repo", "Home", "Library", "Audit", "BIOS files", "Collections", "Export layouts", "PC games", "Metadata", "Documents", "Settings", "About", "Theme: System"]
+                  labels == ["Game Repo", "Home", "Library", "Audit", "BIOS files", "Collections", "Export layouts", "PC games", "Metadata", "Documents", "Settings", "Help", "About", "Theme: System"]
                   and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
             await pg.screenshot(path=str(out / "01-coming.png"))
+
+            # Help (D54): the words the app uses, and a section for every page in the menu
+            await pg.click('.sidebar a[href="#/help"]')
+            await pg.wait_for_selector("#help-terms dl")
+            menu = await pg.eval_on_selector_all(".sidebar a.nav-link[href]", "els => els.map(e => e.getAttribute('href').replace(/^#\\/?/, '') || 'home').filter(r => r !== 'help')")
+            sections = await pg.eval_on_selector_all("#help-pages .help-section", "els => els.map(e => e.dataset.route)")
+            terms = await pg.eval_on_selector_all("#help-terms [data-term]", "els => els.map(e => e.dataset.term)")
+            await pg.screenshot(path=str(out / "01b-help.png"), full_page=True)
+            await pg.fill("#help-search", "set aside")
+            await pg.wait_for_function("() => document.querySelectorAll('#help-terms [data-term]').length < 10")
+            found_terms = await pg.eval_on_selector_all("#help-terms [data-term]", "els => els.map(e => e.dataset.term)")
+            check("Help explains the words the app uses and has a section for every page in the menu, and its search narrows both",
+                  set(menu) <= set(sections) and {"full-set", "collection", "set-aside", "change", "folders-with-games"} <= set(terms) and "set-aside" in found_terms,
+                  (menu, sections, found_terms))
+            await pg.fill("#help-search", "")
 
             # 4. checking the index from Home's Library menu runs as a job
             await pg.click('.sidebar a[href="#/"]')
@@ -859,6 +874,28 @@ async def main():
             await pg.click("#subset-review button[type=submit]")
             await toast_text(pg, "Read my list again")
             check("Read it again… reads the DAT again and keeps the collection", (await pg.inner_text("#collection-games")) == "1")
+            # a game the full set lacks, brought into the library from the folder, named as the DAT says
+            wanted = home / "Subsets" / "Wanted"
+            wanted.mkdir(parents=True)
+            (wanted / "europe one.gb").write_bytes(make_fixtures.rom(11, 32768))
+            await pg.click("#collection-new")
+            await pg.check('#collection-way input[value="folders"]')
+            pick(wanted)
+            await pg.click("#new-add-folder")
+            await pg.wait_for_selector("#new-folders li")
+            await pg.click("#collection-new-dialog button[type=submit]")
+            await pg.wait_for_selector("#subset-review", timeout=30000)
+            lacking = await pg.eval_on_selector_all("#subset-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
+            await pg.check("#subset-bring")
+            await pg.click("#subset-review button[type=submit]")
+            await pg.wait_for_selector("#bring-dialog #organise-totals")
+            await pg.screenshot(path=str(out / "23d-bring-in.png"))
+            await pg.click("#bring-dialog button[type=submit]")
+            said = await toast_text(pg, "Brought 1 game into the library")
+            brought = [x for x in (fx / "Roms").rglob("Alpha (Europe).gb") if ".gamerepo-set-aside" not in x.parts]
+            await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Wanted' && document.querySelector('#collection-have')?.textContent === '1'", timeout=30000)
+            check("Bring these into the library copies a game the full set lacks into its folder with games, named as the DAT says, and scans it",
+                  lacking == [["Alpha (Europe)", "missing"]] and len(brought) == 1 and (wanted / "europe one.gb").is_file(), (lacking, said, brought))
             await pg.click('#collection-side-list .collection-item:has-text("Best Of")')
             await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Best Of'")
 

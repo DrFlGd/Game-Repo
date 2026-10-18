@@ -1,4 +1,4 @@
-// The menu on the left: Home, Library, Audit, BIOS files, Collections, Export layouts, PC games, Metadata, Documents, the pages each phase still brings, and Settings. In a
+// The menu on the left: Home, Library, Audit, BIOS files, Collections, Export layouts, PC games, Metadata, Documents, the pages each phase still brings, Settings, Help and About. In a
 // narrow window it's a drawer; on a wide one it folds to its icons.
 import { html } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
@@ -42,6 +42,7 @@ export function Sidebar() {
       </ul>` : null}
       <ul class="nav-list nav-foot">
         <${NavLink} route="settings" label="Settings" icon="cog" current=${s.route} />
+        <${NavLink} route="help" label="Help" icon="help" current=${s.route} />
         <${NavLink} route="about" label="About" icon="info" current=${s.route} />
         <${ThemeButton} />
       </ul>

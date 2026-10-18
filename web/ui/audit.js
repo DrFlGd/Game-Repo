@@ -140,7 +140,7 @@ export function Audit() {
   if (data.error) return html`${head}<div class="pages"><p class="warn-note" role="alert">${data.error}</p></div>`;
   if (!sum) {
     return html`${head}<div class="pages"><div class="library-settings" id="audit-empty">
-      <p class="page-lead">${Icon.audit(18)} Check your ROM sets against DAT files from No-Intro, Redump, TOSEC or your own.</p>
+      <p class="page-lead">${Icon.audit(18)} Check your folders with games against each system's full set: a DAT from No-Intro, Redump, TOSEC or your own.</p>
       <section class="ls-section">
         <h2>To start</h2>
         <ol class="coming-list">

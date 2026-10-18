@@ -2378,7 +2378,7 @@ full set, so only the full set needs keeping.
   from*, for a folder or DAT one) and *Exports*. Games and whole systems can be ticked:
   *Export these…* exports only those (`only` in the export, remembered so *Update*
   keeps to the same part), *Export…* the whole collection.
-- **D51 (proposed).** After a collection from folders is saved, *Set aside these
+- **D51 (proposed; dropped 2026-10-18, Jerred: not needed, he deletes the old folders himself once the full set holds their games).** After a collection from folders is saved, *Set aside these
   folders…* offers to set the subset folders aside (D20's hidden folder on the same
   drive, a change with a preview and Undo), but only the files whose games the full set
   has: anything the full set lacks is kept where it is. Nothing is touched unless asked
@@ -2401,6 +2401,20 @@ full set, so only the full set needs keeping.
   every game added or left out (by hand, by a rules change, or by *Read them again…*) is
   recorded with when and how, shown in a history view on the collection, and each step
   can be undone there.
+- **D53 (agreed 2026-10-18).** *Bring these into the library*: in the review of a
+  collection from folders, the games the full set doesn't have at all can be brought in:
+  each one's files copied (hardlinked on the same drive) into the first folder with games
+  for its system, named as the audit DAT names the game (an archive or image as the game,
+  a loose file of a one-ROM game as its ROM; a multi-file game keeps its files' names
+  for Organise to put right), byte-identical copies once, as a change of kind `bring` with
+  the preview and Undo, scanned after it runs. The folders read are never changed (D5).
+  Games the full set has in part aren't brought in (Organise or Add a game… does that).
+- **D54 (agreed 2026-10-18).** A **Help** page in the menu: the words the app uses, each
+  defined once (`TERMS` in `web/ui/help.js`), and what each page in the menu is for with
+  its main actions (`PAGES`), with a search; the page test checks every page in the menu
+  has a section. Pages use the words as Help defines them: a game's folder under
+  `_library/games/` is *its library folder* (not to be confused with a PC game's folder),
+  a system's audit DAT is its *full set*.
 
 ### PC game page design (written 2026-10-18)
 
@@ -2603,7 +2617,7 @@ PC games get the same.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D57). D49–D52 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled.
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D57). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled.
 
 ---
 
