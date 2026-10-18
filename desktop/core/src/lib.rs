@@ -28,6 +28,7 @@
 //! - [`torrentzip`]: writing ZIPs that are the same bytes every time
 //! - [`watch`]: noticing changes in the folders with games while the app is open
 //! - [`sources`]: each source's answer kept apart, the pictures' variants, deleting metadata
+//! - [`pcmeta`]: a PC game's details, pictures and documents in the layout every game's has
 //! - [`api`]: the commands the page calls
 //!
 //! The layout, the phases and every design decision are in docs/PLAN.md.
@@ -57,6 +58,7 @@ pub mod makedat;
 pub mod meta;
 pub mod organise;
 pub mod pcgames;
+pub mod pcmeta;
 pub mod platforms;
 pub mod roots;
 pub mod scan;

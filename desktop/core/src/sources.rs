@@ -213,6 +213,16 @@ fn plain_title(v: &Value) -> Option<String> {
 
 /// Make a game's details, title, year and ids from its sources' answers (D46).
 pub fn make(v: &mut Value, dir: &Path, rules: &Rules) {
+    make_fields(v, dir, rules, true)
+}
+
+/// Make a game's details and ids alone: a PC game's title and year are its own, since its
+/// folder is named by them (D55).
+pub fn make_details(v: &mut Value, dir: &Path, rules: &Rules) {
+    make_fields(v, dir, rules, false)
+}
+
+fn make_fields(v: &mut Value, dir: &Path, rules: &Rules, titled: bool) {
     let have = answers(dir);
     let ed = edited(v);
     if !v["details"].is_object() {
@@ -222,7 +232,7 @@ pub fn make(v: &mut Value, dir: &Path, rules: &Rules) {
         v["scraped"] = json!({});
     }
     let pinned = v["pinned"].clone();
-    let fields = FIELDS.iter().map(|(k, _)| *k).chain(["title", "year"]);
+    let fields = FIELDS.iter().map(|(k, _)| *k).chain(["title", "year"].into_iter().filter(|_| titled));
     for k in fields {
         if ed.iter().any(|e| e == k) {
             v["scraped"][k] = json!("you");
@@ -274,7 +284,11 @@ pub fn make(v: &mut Value, dir: &Path, rules: &Rules) {
 }
 
 /// Read a game's folder, split it if it's from before, make its details again and write it.
+/// A PC game's (D55) is brought across from before and made by its own rules.
 pub fn remake(ix: &Index, lib: &Library, dir: &Path, rules: &Rules) -> Result<()> {
+    if crate::pcmeta::is_pc(lib, dir) {
+        return crate::pcmeta::remake(ix, lib, dir);
+    }
     let mut v = meta::read_game(dir);
     if v.as_object().is_none_or(|o| o.is_empty()) || v["platform"] == "pc" {
         return Ok(());
@@ -287,6 +301,27 @@ pub fn remake(ix: &Index, lib: &Library, dir: &Path, rules: &Rules) -> Result<()
 /// Before a scrape writes a game's answers: a folder from before is split first.
 pub fn prepare(dir: &Path, v: &Value) -> Result<()> {
     split(dir, v)
+}
+
+/// A game's folder ready to change: a DAT game's from before split, a PC game's brought
+/// across from before (D55). Its `game.json` as it is then.
+fn ready(ix: &Index, lib: &Library, dir: &Path) -> Result<Value> {
+    if crate::pcmeta::is_pc(lib, dir) {
+        crate::pcmeta::ensure_dir(ix, lib, dir)?;
+        return Ok(meta::read_game(dir));
+    }
+    let v = meta::read_game(dir);
+    split(dir, &v)?;
+    Ok(v)
+}
+
+/// Make a game's details again by its kind's rules (a PC game's, D55).
+fn remade(lib: &Library, dir: &Path, v: &mut Value) {
+    if crate::pcmeta::is_pc(lib, dir) {
+        crate::pcmeta::make(lib, dir, v)
+    } else {
+        make(v, dir, &Rules::of(lib))
+    }
 }
 
 /// Every game folder (each system's, not PC games'), skipping set-aside folders.
@@ -312,7 +347,8 @@ fn game_dirs(lib: &Library, platform: Option<&str>) -> Vec<PathBuf> {
 pub fn remake_all(ix: &Index, lib: &Library, cancel: &std::sync::atomic::AtomicBool, progress: &mut dyn FnMut(Value)) -> Result<usize> {
     lib.writable()?;
     let rules = Rules::of(lib);
-    let dirs = game_dirs(lib, None);
+    let mut dirs = game_dirs(lib, None);
+    dirs.extend(crate::pcmeta::dirs(lib));
     let tx = ix.conn().unchecked_transaction()?;
     let mut n = 0;
     for (i, d) in dirs.iter().enumerate() {
@@ -356,8 +392,10 @@ pub fn pin(ix: &Index, lib: &Library, dir: &Path, field: &str, source: Option<&s
     if field != "title" && field != "year" && !FIELDS.iter().any(|(k, _)| *k == field) {
         bail!("There's no detail called {field}.");
     }
-    let mut v = meta::read_game(dir);
-    split(dir, &v)?;
+    if crate::pcmeta::is_pc(lib, dir) && (field == "title" || field == "year") {
+        bail!("A PC game's {field} is its own (its folder is named by it): change it on its page.");
+    }
+    let mut v = ready(ix, lib, dir)?;
     if !v["pinned"].is_object() {
         v["pinned"] = json!({});
     }
@@ -376,7 +414,7 @@ pub fn pin(ix: &Index, lib: &Library, dir: &Path, field: &str, source: Option<&s
             v["pinned"].as_object_mut().unwrap().remove(field);
         }
     }
-    make(&mut v, dir, &Rules::of(lib));
+    remade(lib, dir, &mut v);
     meta::write_game(ix, lib, dir, &v)
 }
 
@@ -434,7 +472,7 @@ pub fn names(dir: &Path, v: &Value, kind: &str) -> Vec<String> {
 /// A game's variants of each kind it has, as its page shows them.
 pub fn variants(lib: &Library, dir: &Path, v: &Value) -> Map<String, Value> {
     let mut out = Map::new();
-    for (kind, _, _) in MEDIA {
+    for (kind, _, _) in meta::all_media() {
         let entry = |name: &str, p: &Path, chosen: bool| {
             json!({
                 "name": name, "source_name": source_name(name), "chosen": chosen, "pinned": v["pinned_media"][*kind] == name,
@@ -529,10 +567,10 @@ pub fn choose_in(dir: &Path, v: &mut Value, kind: &str, name: &str) -> Result<()
 /// Show this variant of a kind (the game page's *Use this*), kept over later scrapes.
 pub fn choose(ix: &Index, lib: &Library, dir: &Path, kind: &str, name: &str) -> Result<()> {
     lib.writable()?;
-    if !MEDIA.iter().any(|(k, _, _)| *k == kind) {
+    if !meta::all_media().any(|(k, _, _)| *k == kind) {
         bail!("There's no kind of picture called {kind}.");
     }
-    let mut v = meta::read_game(dir);
+    let mut v = ready(ix, lib, dir)?;
     choose_in(dir, &mut v, kind, name)?;
     if !v["pinned_media"].is_object() {
         v["pinned_media"] = json!({});
@@ -596,13 +634,13 @@ pub fn sizes(lib: &Library) -> Value {
             *total.entry(k.clone()).or_default() += n;
         }
         systems.push(json!({
-            "platform": platform, "name": crate::platforms::name_of(platform), "games": games,
+            "platform": platform, "name": crate::browse::system_name(platform), "games": games,
             "total": kinds.values().sum::<u64>(), "kinds": kinds,
         }));
     }
     let names: Vec<Value> = [("details", "Details")]
         .into_iter()
-        .chain(MEDIA.iter().map(|(k, n, _)| (*k, *n)))
+        .chain(meta::all_media().map(|(k, n, _)| (*k, *n)))
         .chain([("manual", "Scraped manuals"), ("docs", "Your documents")])
         .map(|(k, n)| json!({ "id": k, "name": n }))
         .collect();
@@ -621,6 +659,15 @@ pub fn what_choices() -> Vec<Value> {
         .collect()
 }
 
+/// What a PC game's Delete metadata… offers: its details and its kinds of artwork (D55).
+pub fn pc_what_choices() -> Vec<Value> {
+    [("details", "Details from sources"), ("cover", "Cover")]
+        .into_iter()
+        .chain(meta::PC_ART.iter().map(|(k, n, _)| (*k, *n)))
+        .map(|(k, n)| json!({ "id": k, "name": n }))
+        .collect()
+}
+
 /// A change setting aside a system's or a game's metadata: the sources' answers, the
 /// kinds of picture and video chosen, the manuals sources gave. The user's documents and
 /// hand edits stay. After it (and after its Undo) the games' details are made again.
@@ -630,7 +677,7 @@ pub fn delete_plan(ix: &Index, lib: &Library, platform: Option<&str>, folder: Op
         bail!("Choose what to delete.");
     }
     for w in what {
-        if !what_choices().iter().any(|c| c["id"] == w.as_str()) {
+        if !what_choices().iter().chain(pc_what_choices().iter()).any(|c| c["id"] == w.as_str()) {
             bail!("There's no metadata called {w}.");
         }
     }
@@ -666,7 +713,7 @@ pub fn delete_plan(ix: &Index, lib: &Library, platform: Option<&str>, folder: Op
                 aside(dir.join(DIR));
             }
         }
-        for (kind, _, _) in MEDIA {
+        for (kind, _, _) in meta::all_media() {
             if !what.iter().any(|w| w == kind) {
                 continue;
             }
@@ -691,9 +738,10 @@ pub fn delete_plan(ix: &Index, lib: &Library, platform: Option<&str>, folder: Op
         }
         let _ = rel_game;
     }
-    let label_what = if what.len() == 1 { what_choices().into_iter().find(|c| c["id"] == what[0].as_str()).and_then(|c| c["name"].as_str().map(str::to_lowercase)).unwrap_or_default() } else { "metadata".into() };
+    let label_what = if what.len() == 1 { what_choices().into_iter().chain(pc_what_choices()).find(|c| c["id"] == what[0].as_str()).and_then(|c| c["name"].as_str().map(str::to_lowercase)).unwrap_or_default() } else { "metadata".into() };
     let whose = match (folder, platform) {
-        (Some(f), _) => f.rsplit('/').next().unwrap_or(f).to_string(),
+        // a PC game's folder is named by its id: its title instead
+        (Some(f), _) => dirs.first().and_then(|d| crate::pcmeta::title_of(lib, d)).unwrap_or_else(|| f.rsplit('/').next().unwrap_or(f).to_string()),
         (None, Some(p)) => format!("{} game{} on {}", games, if games == 1 { "" } else { "s" }, crate::platforms::name_of(p)),
         _ => String::new(),
     };

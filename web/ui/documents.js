@@ -157,9 +157,10 @@ function GamePick({ it, platforms, onPick, onCancel }) {
   </div>`;
 }
 
-/** Import documents… (or Attach documents… on a game, with `game`): read `paths` into
- *  items paired with games, adjusted here, then planned and run as a change. */
-function DocsImportDialog({ paths, game = null, gameName = "", platform = null }) {
+/** Import documents… (or Attach documents… on a game, with `game`, or `folder` for a PC
+ *  game's, D55): read `paths` into items paired with games, adjusted here, then planned
+ *  and run as a change. */
+function DocsImportDialog({ paths, game = null, folder = null, gameName = "", platform = null }) {
   const platforms = (useStore(ui, (s) => s.platforms) || []).filter((p) => p.id !== "pc");
   const [items, setItems] = useState(null);
   const [kinds, setKinds] = useState([]);
@@ -175,7 +176,7 @@ function DocsImportDialog({ paths, game = null, gameName = "", platform = null }
     let gone = false;
     (async () => {
       try {
-        const { job } = await api("docs_items", { paths, platform, game });
+        const { job } = await api("docs_items", { paths, platform, game, folder, game_name: gameName });
         const done = await followJob(job, "Reading the documents", (j) => {
           const p = j.progress || {};
           if (!gone && p.items) setProgress(`${p.item} of ${p.items}: ${p.name || ""}`);
@@ -207,7 +208,8 @@ function DocsImportDialog({ paths, game = null, gameName = "", platform = null }
       setBusy(false);
     }
   };
-  const title = game ? `Attach documents to ${gameName}` : "Import documents";
+  const one = game || folder;
+  const title = one ? `Attach documents to ${gameName}` : "Import documents";
   if (plan) {
     return html`<${Dialog} title=${plan.label} id="docs-import-dialog" wide=${true} onSubmit=${() => { close(); runPlan(plan).then(again); }} busy=${plan.short || !plan.ops} submitLabel="Bring them in"
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
@@ -220,7 +222,7 @@ function DocsImportDialog({ paths, game = null, gameName = "", platform = null }
   const included = (items || []).filter((i) => i.include).length;
   return html`<${Dialog} title=${title} id="docs-import-dialog" wide=${true} onSubmit=${preview} busy=${busy || !items || !included} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
     ${!items ? html`<p class="muted" id="docs-reading">Reading the files and pairing each with a game${progress ? html` (${progress})` : null}…</p>` : html`
-      ${!game ? html`<div class="seg audit-tabs" role="tablist" id="docs-import-tabs">${[["all", "All", items.length], ["sure", "Sure", n("sure")], ["likely", "Likely", n("likely")], ["none", "No game", n("none")], ["you", "You chose", n("you")]].filter(([k, , c]) => k === "all" || c).map(([k, l, c]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${only === k ? "true" : "false"} onClick=${() => setOnly(k)}>${l} <span class="tab-count">${c}</span></button>`)}</div>` : null}
+      ${!one ? html`<div class="seg audit-tabs" role="tablist" id="docs-import-tabs">${[["all", "All", items.length], ["sure", "Sure", n("sure")], ["likely", "Likely", n("likely")], ["none", "No game", n("none")], ["you", "You chose", n("you")]].filter(([k, , c]) => k === "all" || c).map(([k, l, c]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${only === k ? "true" : "false"} onClick=${() => setOnly(k)}>${l} <span class="tab-count">${c}</span></button>`)}</div>` : null}
       <ul class="ls-list pc-items doc-items" id="doc-items">${shown.map((it) => {
         const [badge, why] = PAIRING[it.pairing] || [it.pairing, ""];
         return html`<li key=${it.path} class="pc-item" data-path=${it.path} data-name=${it.name} data-pairing=${it.pairing} data-include=${it.include ? "yes" : "no"}>
@@ -233,10 +235,10 @@ function DocsImportDialog({ paths, game = null, gameName = "", platform = null }
                 ${kinds.map((k) => html`<option key=${k.id} value=${k.id}>${k.name}</option>`)}</select>
             </span>
             <span class="muted pc-item-meta"><span class=${`pc-badge doc-pairing-${it.pairing}`} title=${why}>${badge}</span>
-              <span class="doc-item-game">${it.game ? it.game_name : it.platform ? `with ${platforms.find((p) => p.id === it.platform)?.name || it.platform}'s documents` : "with the general documents"}</span></span>
+              <span class="doc-item-game">${it.game || it.folder ? it.game_name : it.platform ? `with ${platforms.find((p) => p.id === it.platform)?.name || it.platform}'s documents` : "with the general documents"}</span></span>
             ${picking === it.path ? html`<${GamePick} it=${it} platforms=${platforms} onPick=${(g, p) => pickGame(it, g, p)} onCancel=${() => setPicking(null)} />` : null}
           </div>
-          ${picking !== it.path && !game ? html`<button type="button" class="ghost compact" data-action="change-game" disabled=${!it.include} onClick=${() => setPicking(it.path)}>Change game…</button>` : null}
+          ${picking !== it.path && !one ? html`<button type="button" class="ghost compact" data-action="change-game" disabled=${!it.include} onClick=${() => setPicking(it.path)}>Change game…</button>` : null}
         </li>`;
       })}</ul>
       <div class="field-block" role="radiogroup" aria-label="How">
@@ -248,19 +250,21 @@ function DocsImportDialog({ paths, game = null, gameName = "", platform = null }
   <//>`;
 }
 
-/** Import documents… (files or a folder), or Attach documents… to `game`. */
-export async function attachDocs({ game = null, gameName = "", platform = null, how = null, paths: given = null } = {}) {
+/** Import documents… (files or a folder), or Attach documents… to `game` (a DAT game's id)
+ *  or `folder` (a PC game's folder in the library). */
+export async function attachDocs({ game = null, folder = null, gameName = "", platform = null, how = null, paths: given = null } = {}) {
   let paths = given || [];
+  const one = game || folder;
   if (given) {
     // dropped on the page
-  } else if ((how || (game ? "files" : "folder")) === "files") {
-    paths = (await ctx.platform.library.pickFiles(game ? `Documents for ${gameName}` : "The documents to bring in")) || [];
+  } else if ((how || (one ? "files" : "folder")) === "files") {
+    paths = (await ctx.platform.library.pickFiles(one ? `Documents for ${gameName}` : "The documents to bring in")) || [];
   } else {
     const p = await ctx.platform.library.pickFolder("A folder of documents (guides, manuals, maps, scans)");
     if (p) paths = [p];
   }
   if (!paths.length) return;
-  ui.set({ dialog: { type: "docs-import", paths, game, gameName, platform } });
+  ui.set({ dialog: { type: "docs-import", paths, game, folder, gameName, platform } });
 }
 
 let dropping = null;

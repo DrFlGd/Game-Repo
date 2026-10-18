@@ -20,7 +20,8 @@ ISO audited against disc DATs, Organise keeping disc images whole, Convert… to
 in place, Extract to cue/bin into a folder, Undo of both, Preferred formats, and
 Settings › Tools with a stand-in for dolphin-tool; (Phase 3) collections, their
 properties, DATs and exports; (Phase 4) PC games imported from an inbox and identified
-from stand-ins for Steam and GOG, unpacked, added to a stand-in Steam, and Add a game…;
+from stand-ins for Steam and GOG, unpacked, added to a stand-in Steam, a PC game's page
+with its PC section, a detail, picture and document, and Add a game…;
 (Phase 5) a source's key, a scrape from a stand-in for TheGamesDB, a game's panel,
 documents imported from a folder with a pairing changed, searched and read, and an
 export carrying pictures and documents; (Phase 5b) BIOS files from a stand-in for
@@ -822,6 +823,8 @@ async def main():
             await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Handheld picks' && +document.querySelector('#collection-games').textContent === 2")
             made = next(x for x in (json.loads(f.read_text()) for f in (library / "_library/collections").glob("*.json")) if x["name"] == "Handheld picks")
             own = library / made["rules"]["from_files"][0] if made["rules"].get("from_files") else None
+            # the list down the left is read again just after the collection opens
+            await pg.wait_for_function("() => [...document.querySelectorAll('#collection-side-list .collection-item')].some(e => e.innerText.includes('Handheld picks'))")
             side = await pg.eval_on_selector_all("#collection-side-list .collection-item", "els => els.map(e => e.innerText)")
             check("it's kept as its own DAT in the library, listed on the left with how it was made",
                   own is not None and own.is_file() and own.read_text().count("<game ") == 2 and made["made_from"]["kind"] == "folders"
@@ -898,7 +901,8 @@ async def main():
 
             # Phase 4: PC games. The inbox (set in Settings), Import… with its review list
             # (one found by its goggame file, one by a search of the sources), the preview,
-            # each game's folder, artwork, Unpack and its program, Identify, Add to Steam
+            # each game's folder, artwork, Unpack and its program, Identify, Add to Steam, and a
+            # PC game's page: the shared game page with its PC section (D55)
             inbox = home / "Inbox"
             zeta = inbox / "Zeta Quest (1999)"
             (zeta / "bin").mkdir(parents=True)
@@ -965,13 +969,22 @@ async def main():
             await pg.screenshot(path=str(out / "26-identify.png"))
             await pg.click('#identify-results li[data-source="gog"] [data-action="pick"]')
             await pg.wait_for_selector("#identify-dialog", state="detached")
-            await pg.wait_for_selector("#pc-panel .pc-description")
             zeta_json = json.loads((library / "PC/Zeta Quest (1999)/game.json").read_text())
-            zeta_media = sorted(x.name for x in (library / f"_library/games/pc/{zeta_json['id']}/media").iterdir())
-            check("Identify searches the sources in order; the pick keeps its id and details with the game and gets its artwork",
-                  sources == ["steam", "gog"] and zeta_json["ids"].get("gog") == "1207658930" and zeta_json["details"].get("description", "").startswith("Quest")
-                  and "cover.png" in zeta_media and "hero.png" in zeta_media,
-                  (sources, zeta_json.get("details"), zeta_media))
+            zeta_meta = library / f"_library/games/pc/{zeta_json['id']}"
+            zeta_shared, zeta_gog = {}, {}
+            for _ in range(50):
+                zeta_shared = json.loads((zeta_meta / "game.json").read_text()) if (zeta_meta / "game.json").exists() else {}
+                if zeta_shared.get("identified_by") == "gog":
+                    break
+                await asyncio.sleep(0.2)
+            zeta_json = json.loads((library / "PC/Zeta Quest (1999)/game.json").read_text())
+            zeta_gog = json.loads((zeta_meta / "sources/gog.json").read_text()) if (zeta_meta / "sources/gog.json").exists() else {}
+            zeta_media = sorted(x.name for x in (zeta_meta / "media").iterdir())
+            check("Identify searches the sources in order; the pick keeps its id with the game, its answer kept as the source's, and its artwork",
+                  sources == ["steam", "gog"] and zeta_json["ids"].get("gog") == "1207658930" and "description" not in zeta_json.get("details", {})
+                  and zeta_gog.get("details", {}).get("description", "").startswith("Quest") and zeta_shared.get("details", {}).get("description", "").startswith("Quest")
+                  and zeta_shared.get("identified_by") == "gog" and "cover.png" in zeta_media and "hero.png" in zeta_media,
+                  (sources, zeta_json.get("details"), zeta_shared.get("details"), zeta_media))
             await pg.click("#pc-steam")
             await pg.wait_for_selector("#steam-preview")
             preview = await pg.inner_text("#steam-preview")
@@ -982,6 +995,52 @@ async def main():
             grid = sorted(x.name for x in (steam / "userdata/22222/config/grid").iterdir()) if (steam / "userdata/22222/config/grid").is_dir() else []
             check("Add to Steam writes the PC games as non-Steam shortcuts, tagged as the app's, with their artwork in Steam's grid",
                   "2 shortcuts to add" in preview and b"Zeta Quest" in vdf and b"Alpha Strike" in vdf and b"Game Repo" in vdf and any(g.endswith("p.png") for g in grid), (preview, said, grid))
+            # Zeta's page: the shared game page, with the PC section; a detail edited, Steam's
+            # answer added by Identify…, a picture and a detail taken from another source, and
+            # a document dropped on it
+            zeta_key = f"pc/{zeta_json['id']}"
+            await pg.click('#pc-list .pc-row:has-text("Zeta Quest")')
+            await pg.click("#pc-open")
+            await pg.wait_for_selector(f'#game-page[data-key="{zeta_key}"][data-kind="pc"] #game-pc #pc-parts')
+            parts = await pg.evaluate("() => [!!document.querySelector('#game-pc #pc-program, #game-pc #pc-no-program'), !!document.querySelector('#game-pc #pc-reveal'), document.querySelector('#game-pc-line')?.textContent || '', !!document.querySelector('#game-files')]")
+            check("a PC game's page is the game page, with a PC section for its program, its folder and files",
+                  parts[0] and parts[1] and "GOG" in parts[2] and not parts[3] and await pg.locator("#game-developer").count() == 1, parts)
+            await pg.fill("#game-developer", "Zeta Folk")
+            await pg.press("#game-developer", "Tab")
+            await pg.wait_for_selector('.game-detail[data-field="developer"][data-edited="yes"]')
+            await pg.click("#game-identify-pc")
+            await pg.wait_for_selector('#identify-results li[data-source="steam"] [data-action="pick"]')
+            await pg.click('#identify-results li[data-source="steam"] [data-action="pick"]')
+            await pg.wait_for_selector("#identify-dialog", state="detached")
+            await pg.wait_for_selector('#game-variants[data-kind="cover"] button[data-name="steam"][aria-pressed="true"]')
+            await pg.click('#game-variants button[data-name="gog"]')
+            await pg.wait_for_selector('#game-variants button[data-name="gog"][aria-pressed="true"]')
+            row = '.game-detail[data-field="description"]'
+            await pg.click(f"{row} .game-detail-others summary")
+            await pg.click(f'{row} .game-detail-others [data-source="gog"] [data-action="use"]')
+            await pg.wait_for_function("() => document.querySelector('#game-description')?.value.startsWith('Quest')")
+            zeta_shared = json.loads((zeta_meta / "game.json").read_text())
+            zeta_json = json.loads((library / "PC/Zeta Quest (1999)/game.json").read_text())
+            covers = sorted(x.name for x in (zeta_meta / "media/cover").iterdir()) if (zeta_meta / "media/cover").is_dir() else []
+            check("on its page a PC game's details and pictures are kept as any game's: each source's answer, a picture from each, Use this, and your edits over them",
+                  zeta_shared.get("details", {}).get("developer") == "Zeta Folk" and "developer" in zeta_shared.get("edited", []) and zeta_shared.get("pinned", {}).get("description") == "gog"
+                  and zeta_shared.get("chosen", {}).get("cover") == "gog" and len(covers) == 1 and covers[0].startswith("steam.") and (zeta_meta / "sources/steam.json").is_file()
+                  and zeta_json["ids"] == {"gog": "1207658930", "steam": "4001"} and zeta_shared.get("identified_by") == "steam",
+                  (zeta_shared.get("details"), zeta_shared.get("chosen"), zeta_shared.get("pinned"), covers, zeta_json.get("ids")))
+            dropped = home / "PC guides" / "Zeta Map.txt"
+            dropped.parent.mkdir(exist_ok=True)
+            dropped.write_text("The map of Zeta's first world.")
+            await pg.evaluate("(p) => window.__shimEmit('tauri://drag-drop', { paths: [p], position: { x: 400, y: 400 } })", str(dropped))
+            await pg.wait_for_selector("#docs-import-dialog #doc-items li")
+            await pg.click("#docs-import-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-totals")
+            await pg.click("#docs-import-dialog button[type=submit]")
+            said = await toast_text(pg, "Brought in 1 document")
+            await pg.wait_for_function("() => document.querySelector('#game-docs')?.textContent.includes('Zeta Map')")
+            check("a file dropped on a PC game's page is attached to it as a document, kept with its details", (zeta_meta / "docs/Zeta Map.txt").is_file(), said)
+            await pg.screenshot(path=str(out / "26c-pc-game-page.png"), full_page=True)
+            await pg.locator("#game-pc").scroll_into_view_if_needed()
+            await pg.screenshot(path=str(out / "26d-pc-game-section.png"))
 
             # Add a game… (a system's ROM from outside its folders), scanned and checked against its DAT
             downloads = home / "Downloads"
@@ -1083,7 +1142,9 @@ async def main():
                   (pairings, said, alpha_docs, delta_docs))
             await pg.click('.sidebar a[href="#/documents"]')
             await pg.wait_for_selector("#docs-page #docs-list .pc-row")
+            # the three brought in, and the map dropped on Zeta Quest's page in Phase 4
             listed = await pg.eval_on_selector_all("#docs-list .pc-row", "els => els.length")
+            zeta_doc = await pg.locator('#docs-list .pc-row:has-text("Zeta Map")').inner_text() if await pg.locator('#docs-list .pc-row:has-text("Zeta Map")').count() else ""
             await pg.fill("#docs-search", "zebrafish")
             await pg.wait_for_function("() => document.querySelectorAll('#docs-list .pc-row').length === 1 && document.querySelector('#docs-list mark')")
             hit = await pg.inner_text("#docs-list .pc-row")
@@ -1099,8 +1160,8 @@ async def main():
             await pg.select_option("#docs-kind", "")
             cli = cli_json("docs", "--home", str(home), "--search", "waterfall", "--json")
             check("Documents lists every document, searches their words with the words marked, and shows one (Markdown made into text); the command line searches them too",
-                  listed == 3 and "Alpha Manual" in hit and "zebrafish" in hit.lower() and "zebrafish button" in text and cli.get("total") == 1 and cli["items"][0]["kind"] == "guide",
-                  (listed, hit, text[:100], cli.get("total")))
+                  listed == 4 and "Zeta Quest · PC" in zeta_doc and "Alpha Manual" in hit and "zebrafish" in hit.lower() and "zebrafish button" in text and cli.get("total") == 1 and cli["items"][0]["kind"] == "guide",
+                  (listed, zeta_doc, hit, text[:100], cli.get("total")))
 
             # the export carries the pictures and the documents (a plain folder)
             flat = home / "Flat"

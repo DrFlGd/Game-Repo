@@ -65,7 +65,8 @@ export const PAGES = [
   ]],
   ["pc", "PC games", "Your PC games, each in its own folder with what it is and how it starts.", [
     "Import… from the inbox, or Import files… and Import a game's folder…; Unpack GOG installers and archives; choose the program it starts with.",
-    "Identify finds the game on Steam, GOG or LaunchBox; Add to Steam makes it a Steam shortcut with its artwork.",
+    "Identify… finds the game on Steam, GOG or LaunchBox; each source's details and pictures are kept apart, as for every other game.",
+    "Open its page: the same page as any game, with a PC game section for its program, Unpack and its folder; Add to Steam makes the games Steam shortcuts with their artwork.",
   ]],
   ["metadata", "Metadata", "Each game's details, pictures, video and manual, and how much of it you have.", [
     "Scrape… a system, a collection or a game, choosing the sources and the kinds of pictures.",

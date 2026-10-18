@@ -2416,6 +2416,73 @@ full set, so only the full set needs keeping.
   `_library/games/` is *its library folder* (not to be confused with a PC game's folder),
   a system's audit DAT is its *full set*.
 
+### PC game page design (written 2026-10-18)
+
+Until now a PC game had a page of its own on the PC games page (its panel), with one
+source's details and artwork kept in `PC/<Title> (<Year>)/game.json`, while every other
+game's page kept each source's answer, a picture from each and the user's edits (D46–D48).
+PC games get the same.
+
+- **D55 (agreed 2026-10-17 by Jerred).** A PC game's page is the shared game page. What
+  only a PC game has stays in `PC/<Title> (<Year>)/game.json` (D6): its id, source,
+  version, ids, what's installed and its program. Its details, pictures and documents are
+  kept as any game's, in `_library/games/pc/<id>/`:
+  - `game.json`: the details made from the sources' answers, `edited`, `pinned`, `chosen`,
+    `pinned_media`, `scraped` and `identified_by`;
+  - `sources/<source>.json`: each source's answer, kept by Identify… and the import as a
+    scrape keeps one (D46);
+  - `media/<kind>.<ext>`: the chosen picture, with the other sources' at
+    `media/<kind>/<source>.<ext>` (D47). PC games have banners, heroes, logos and icons as
+    well as boxes;
+  - `docs/`: documents attached to it.
+- **Its title and year are its own.** They name its folder, so they aren't made from the
+  sources. They're changed by hand (the folder is renamed with them), or by Identify… when
+  a match is picked, or from a source's answer with *Use this*.
+- **Its details** are made as a DAT game's are (D46). The order is the game's own pick
+  (`pinned`), then the source it was last identified by, then the library's *Details from*
+  and scrape order, then Steam's and GOG's. A hand edit wins over all of them.
+- **The page** has everything a DAT game's page has: details with what the other sources
+  said, the pictures from each source, edits, documents (attached or dropped on the page),
+  Delete metadata… and Show its folder. *Identify…* takes the place of *Scrape…*, and a
+  **PC game** section has what only a PC game has: the program and its arguments, Unpack
+  (and removing what was unpacked), its folder and its files. *Add to Steam* stays on the
+  PC games page: it writes all the PC games at once, not one game.
+- **The PC games page** keeps its list. A game's panel there has its picture, title and
+  facts, *Open its page*, *Identify…* and the same PC parts as the page.
+- **Libraries from before** keep working. A PC game's details from before are read where
+  they were, as the answer of the source that gave them (`identified_by`, else its one id's
+  source, else "an earlier scrape"), until its metadata is first changed. They're then
+  brought across: kept as that source's answer, its pictures marked as that source's,
+  `_library/games/pc/<id>/game.json` written, and only then the details taken out of
+  `PC/…/game.json`. Run again it finds nothing to do, and an interrupted run carries on
+  from what was written. Nothing is lost.
+
+- **D56 (requirement from Jerred, not scheduled).** Updates, DLC and patches for 3DS, Xbox
+  and PS4 games, often in the same file format as the game itself, must be tied to the
+  game they belong to. Not built. The DATs list them as separate games, so the audit
+  already knows them by hash. What's missing is a "belongs to" link in the library: the
+  update's or DLC's own entry pointing at its base game, kept beside the game's metadata
+  (as a PC game's `patches/` already are, D6), so the game's page lists them, the Library
+  shows the base game once, and exports and collections carry them with it.
+
+**As built (2026-10-18).** D55 as written, with these choices:
+- `pcmeta.rs` holds the layout; sources.rs, meta.rs, browse.rs and docs.rs treat a folder
+  under `_library/games/pc/` as a PC game's. Delete metadata…, Undo, *Details from* and
+  Settings › Metadata's sizes work on PC games as on any game.
+- Bringing a game across is lazy, on its first change (an edit, *Use this*, a picture
+  chosen, Identify…, Delete metadata…). Until then the Library, the page and the command
+  line read the old place. Keys a game from before has that aren't details (`gog_slug`)
+  stay in `PC/…/game.json`.
+- An import plans its files and `PC/…/game.json` as before (a change with Undo). After it
+  runs, each game's details are kept as the answer of the source that found it, and that
+  source's artwork is fetched as its pictures, so Undo is unchanged.
+- Identify… on a game already identified adds the new source's answer beside the others
+  and makes its pictures the ones shown, unless the user picked another source's on the
+  page. The game's `ids` in `PC/…/game.json` gain the new source's id, and the page shows
+  them with the ids the answers have.
+- The panel on the PC games page no longer edits the title or shows the description:
+  those are on the page.
+
 ### Phase 7 design (written 2026-10-18; Jerred asked for it to be built and released for testing)
 
 Arcade sets are kept the way MAME and FinalBurn Neo want them: a ZIP per machine named by
@@ -2632,7 +2699,7 @@ D57–D61 as written, with these choices:
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D55). D49–D54 are in "Collections rework design".
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D62). D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes").
 
 ---
 
