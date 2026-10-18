@@ -1171,6 +1171,7 @@ async def main():
             said = await toast_text(pg, "Exported Best Of")
             on_card = sorted(str(x.relative_to(card)).replace("\\", "/") for x in card.rglob("*") if x.is_file() and ".gamerepo" not in str(x)) if card.is_dir() else []
             gl = (card / "roms/gameboy/gamelist.xml").read_text() if (card / "roms/gameboy/gamelist.xml").exists() else ""
+            await pg.click('#collection-view [data-view="exports"]')
             await pg.wait_for_selector('#exports li[data-target="knulli-mine"]')
             listed = await pg.inner_text('#exports li[data-target="knulli-mine"]')
             check("an export to a card in the new layout puts the games in its folders, with a gamelist, small pictures and the BIOS files",

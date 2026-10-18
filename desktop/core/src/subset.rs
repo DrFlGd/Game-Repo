@@ -159,7 +159,8 @@ fn audit_dats(conn: &Connection, lib: &Library) -> Result<HashMap<i64, String>> 
 }
 
 /// The games (DAT game ids) whose ROMs a file's hashes are, in the audit DATs: the
-/// games most of its ROMs belong to. A SHA1 that differs from the DAT's rules a CRC out.
+/// games most of its ROMs belong to (of those, the ones it holds all of). A SHA1 that
+/// differs from the DAT's rules a CRC out.
 fn games_of(conn: &Connection, dats: &HashMap<i64, String>, roms: &[Hashes]) -> Result<Vec<i64>> {
     let mut q = conn.prepare_cached("SELECT game_id, dat_id, sha1 FROM dat_roms WHERE crc32 = ?1 AND size = ?2")?;
     let mut count: HashMap<i64, usize> = HashMap::new();
@@ -186,6 +187,20 @@ fn games_of(conn: &Connection, dats: &HashMap<i64, String>, roms: &[Hashes]) -> 
     }
     let best = count.values().copied().max().unwrap_or(0);
     let mut v: Vec<i64> = count.into_iter().filter(|(_, n)| *n == best).map(|(g, _)| g).collect();
+    // a ROM two games share (a game and a set holding it too): the games it makes whole
+    if v.len() > 1 {
+        let mut roms_of = conn.prepare_cached("SELECT COUNT(*) FROM dat_roms WHERE game_id = ?1 AND COALESCE(status, '') <> 'nodump'")?;
+        let mut whole = vec![];
+        for g in &v {
+            let n: i64 = roms_of.query_row([g], |r| r.get(0))?;
+            if n as usize <= best {
+                whole.push(*g);
+            }
+        }
+        if !whole.is_empty() {
+            v = whole;
+        }
+    }
     v.sort();
     Ok(v)
 }

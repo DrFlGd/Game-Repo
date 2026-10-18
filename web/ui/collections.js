@@ -191,6 +191,7 @@ function NewCollectionDialog({ way: given = "rules", again, onMade }) {
         r = done.result;
       } else {
         r = await api("collection_read_dat", { path: datPath.trim() });
+        named(baseName(datPath.trim()).replace(/\.(dat|xml|zip)$/i, ""));
       }
       setOff(new Set());
       setReview(r);
@@ -713,8 +714,7 @@ export function Collections() {
         ${!c ? html`<p class="muted">Reading the collection…</p>` : html`
         <div class="collection-top">
           <h2 id="collection-title">${c.name}</h2>
-          <p id="collection-totals"><b id="collection-games">${sum.games}</b> games, <b id="collection-have">${sum.have}</b> you have${sum.removed ? html`, ${sum.removed} left out by hand` : null}
-            · ${plural(sum.systems.length, "system", "systems")} · ${size(sum.size)}${limit ? html` <span class=${sum.size > limit ? "fit over" : "fit"} id="collection-fit-line">${sum.size > limit ? `over its ${size(limit)} limit by ${size(sum.size - limit)}` : `of ${size(limit)}, fits`}</span>` : null}</p>
+          <p id="collection-totals"><b id="collection-games">${sum.games}</b> games, <b id="collection-have">${sum.have}</b> you have${sum.removed ? html`, ${sum.removed} left out by hand` : null}${` · ${plural(sum.systems.length, "system", "systems")} · ${size(sum.size)}`}${limit ? html` <span class=${sum.size > limit ? "fit over" : "fit"} id="collection-fit-line">${sum.size > limit ? `over its ${size(limit)} limit by ${size(sum.size - limit)}` : `of ${size(limit)}, fits`}</span>` : null}</p>
           ${sum.no_dat.map((x) => html`<p class="warn-note" key=${x.platform}>${x.name} has no DAT, so its games aren't known.</p>`)}
           ${sum.missing_dats.map((x) => html`<p class="warn-note" key=${x}>The DAT ${x} isn't in the library any more.</p>`)}
         </div>

@@ -356,13 +356,17 @@ struct Sources {
     names: HashSet<String>,
     sha1: HashSet<String>,
     crc: HashSet<(String, i64)>,
+    /// The collection's own DATs' (`from_files`): a game is theirs only when they hold
+    /// every ROM of it, so a ROM it shares with another game doesn't bring that one in
+    own_sha1: HashSet<String>,
+    own_crc: HashSet<(String, i64)>,
 }
 
 fn sources(conn: &Connection, lib: &Library, names: &[String], files: &[String], missing: &mut Vec<String>) -> Result<Option<Sources>> {
     if names.is_empty() && files.is_empty() {
         return Ok(None);
     }
-    let mut s = Sources { names: HashSet::new(), sha1: HashSet::new(), crc: HashSet::new() };
+    let mut s = Sources { names: HashSet::new(), sha1: HashSet::new(), crc: HashSet::new(), own_sha1: HashSet::new(), own_crc: HashSet::new() };
     for f in files {
         let read = lib.resolve(f).ok().filter(|p| p.is_file()).and_then(|p| crate::dat::read_file(&p).ok());
         let Some(read) = read else {
@@ -372,10 +376,10 @@ fn sources(conn: &Connection, lib: &Library, names: &[String], files: &[String],
         for g in read.into_iter().flat_map(|d| d.games) {
             for rom in &g.roms {
                 if let Some(h) = &rom.sha1 {
-                    s.sha1.insert(h.clone());
+                    s.own_sha1.insert(h.clone());
                 }
                 if let (Some(c), Some(z)) = (&rom.crc32, rom.size) {
-                    s.crc.insert((c.clone(), z as i64));
+                    s.own_crc.insert((c.clone(), z as i64));
                 }
             }
             s.names.insert(g.name);
@@ -452,18 +456,27 @@ fn work_out_fresh(conn: &Connection, lib: &Library, c: &Collection, dats: &[(Str
         let by_hash: HashSet<i64> = match &src {
             Some(s) => {
                 let mut ids = HashSet::new();
-                let mut q = conn.prepare("SELECT game_id, sha1, crc32, size FROM dat_roms WHERE dat_id = ?1")?;
+                // each game's ROMs (nodumps aside), and how many its own DATs hold
+                let mut own: HashMap<i64, (usize, usize)> = HashMap::new();
+                let mut q = conn.prepare("SELECT game_id, sha1, crc32, size FROM dat_roms WHERE dat_id = ?1 AND COALESCE(status, '') <> 'nodump'")?;
                 let mut rows = q.query([dat_id])?;
                 while let Some(x) = rows.next()? {
+                    let game: i64 = x.get(0)?;
                     let sha1: Option<String> = x.get(1)?;
                     let crc: Option<(String, i64)> = match (x.get::<_, Option<String>>(2)?, x.get::<_, Option<i64>>(3)?) {
                         (Some(c), Some(z)) => Some((c, z)),
                         _ => None,
                     };
-                    if sha1.is_some_and(|h| s.sha1.contains(&h)) || crc.is_some_and(|k| s.crc.contains(&k)) {
-                        ids.insert(x.get(0)?);
+                    if sha1.as_ref().is_some_and(|h| s.sha1.contains(h)) || crc.as_ref().is_some_and(|k| s.crc.contains(k)) {
+                        ids.insert(game);
+                    }
+                    let e = own.entry(game).or_default();
+                    e.0 += 1;
+                    if sha1.as_ref().is_some_and(|h| s.own_sha1.contains(h)) || crc.as_ref().is_some_and(|k| s.own_crc.contains(k)) {
+                        e.1 += 1;
                     }
                 }
+                ids.extend(own.into_iter().filter(|(_, (all, held))| *held > 0 && held == all).map(|(g, _)| g));
                 ids
             }
             None => HashSet::new(),

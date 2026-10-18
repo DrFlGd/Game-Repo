@@ -2372,7 +2372,7 @@ full set, so only the full set needs keeping.
   files and newer DATs. `made_from` remembers the folders or the DAT, for *Read them
   again…*, which replaces its DATs after the same review. Its rules can still be edited
   (say, 1G1R on top), and games added or left out by hand as before.
-- **D50 (proposed).** **The Collections page**: the collections listed down the left
+- **D50 (proposed, built).** **The Collections page**: the collections listed down the left
   (name, games, how it was made); the one chosen opens on its games, with a tab per
   system, its size against its limit in one line above, and tabs for *Rules* (or *Made
   from*, for a folder or DAT one) and *Exports*. Games and whole systems can be ticked:
@@ -2383,6 +2383,24 @@ full set, so only the full set needs keeping.
   drive, a change with a preview and Undo), but only the files whose games the full set
   has: anything the full set lacks is kept where it is. Nothing is touched unless asked
   (D5).
+
+**As built (2026-10-18).** D49 and D50 as written, with these choices:
+- The page's tabs are *Games*, *Rules* (*Made from* with the rules under it, for a
+  collection from folders or a DAT), *Size* (the properties and size limit, which needed a
+  home of their own) and *Exports*. A ticked system is `<system>/*` in `only`; its games
+  can't be unticked one by one while it is.
+- A file whose ROM two games of the DAT share counts as the game it makes whole (a game
+  and a set that also holds it: the game).
+- Duplicating a collection from folders or a DAT copies its DATs, so each has its own.
+- **D51 isn't built yet.** The subset folders are outside the folders with games, and
+  setting aside, Undo and the journal work on the index's files; it needs them to take
+  files the index doesn't hold. Until then the old folders can be deleted by hand once the
+  collection is made (nothing in it depends on them).
+
+- **D52 (asked by Jerred 2026-10-18, for a later phase).** A collection keeps a history:
+  every game added or left out (by hand, by a rules change, or by *Read them again…*) is
+  recorded with when and how, shown in a history view on the collection, and each step
+  can be undone there.
 
 ## 8. Working in a cloud session
 
@@ -2518,7 +2536,7 @@ full set, so only the full set needs keeping.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D52). D49–D51 are in "Collections rework design".
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D53). D49–D52 are in "Collections rework design".
 
 ---
 
