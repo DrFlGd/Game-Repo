@@ -64,6 +64,29 @@ function PdfView({ url, title }) {
   </div>`;
 }
 
+/** A comic book archive (CBZ or CBR), a page at a time (D68). */
+function ComicView({ path, title }) {
+  const [count, setCount] = useState(null);
+  const [page, setPage] = useState(0);
+  useEffect(() => {
+    setCount(null);
+    setPage(0);
+    api("magazine_pages", { path }).then((r) => setCount(r.count)).catch(() => setCount(0));
+  }, [path]);
+  if (count === null) return html`<p class="muted">Opening…</p>`;
+  if (!count) return html`<p class="muted" id="comic-empty">There are no pictures in this file.</p>`;
+  const move = (n) => setPage((p) => Math.max(0, Math.min(count - 1, p + n)));
+  return html`<div class="pdf-viewer comic-viewer" id="comic-view" aria-label="Comic book" tabIndex="0"
+      onKeyDown=${(e) => { if (e.key === "ArrowRight" || e.key === "PageDown") move(1); else if (e.key === "ArrowLeft" || e.key === "PageUp") move(-1); }}>
+    <div class="pdf-controls" role="toolbar" aria-label="Page controls">
+      <button type="button" class="ghost" id="comic-back" disabled=${page <= 0} aria-label="Previous page" onClick=${() => move(-1)}>‹</button>
+      <span class="pdf-page-label" id="comic-page">Page ${page + 1} of ${count}</span>
+      <button type="button" class="ghost" id="comic-next" disabled=${page >= count - 1} aria-label="Next page" onClick=${() => move(1)}>›</button>
+    </div>
+    <div class="comic-page"><img key=${page} src=${libraryUrl(`~page/${page}/${path}`)} alt=${`${title}, page ${page + 1}`} onClick=${() => move(1)} /></div>
+  </div>`;
+}
+
 /** One document: its kind and title (changed here), and the document itself. */
 function DocView({ id, off, onChange, onClose }) {
   const [d, setD] = useState(null);
@@ -85,6 +108,8 @@ function DocView({ id, off, onChange, onClose }) {
   if (error) return html`<aside class="pc-panel doc-panel" id="doc-view"><p class="warn-note" role="alert">${error}</p></aside>`;
   if (!d) return html`<aside class="pc-panel doc-panel" id="doc-view"><p class="muted">Opening…</p></aside>`;
   const url = libraryUrl(d.path);
+  // a magazine's issue is named and changed on the Magazines page
+  const magazine = d.path.startsWith("Magazines/");
   return html`<aside class="pc-panel doc-panel" id="doc-view" data-id=${d.id} data-view=${d.view}>
     <div class="doc-head">
       <div class="doc-head-main"><h2 id="doc-title">${d.title}</h2>
@@ -92,8 +117,8 @@ function DocView({ id, off, onChange, onClose }) {
       ${onClose ? html`<button type="button" class="ghost" aria-label="Close" title="Close" onClick=${onClose}>${Icon.close(15)}</button>` : null}
     </div>
     <div class="pick-row doc-edit">
-      <input type="text" class="compact" id="doc-edit-title" aria-label="Title" value=${d.title} disabled=${off} onChange=${(e) => e.target.value.trim() && set({ title: e.target.value.trim() })} />
-      <select class="compact" id="doc-edit-kind" aria-label="Kind" value=${d.kind} disabled=${off} onChange=${(e) => set({ kind: e.target.value })}>
+      <input type="text" class="compact" id="doc-edit-title" aria-label="Title" value=${d.title} disabled=${off || magazine} title=${magazine ? "A magazine's issue is changed on the Magazines page" : null} onChange=${(e) => e.target.value.trim() && set({ title: e.target.value.trim() })} />
+      <select class="compact" id="doc-edit-kind" aria-label="Kind" value=${d.kind} disabled=${off || magazine} onChange=${(e) => set({ kind: e.target.value })}>
         ${(kinds || []).map((k) => html`<option key=${k.id} value=${k.id}>${k.name}</option>`)}
       </select>
       ${isDesktop() ? html`<button type="button" class="ghost compact" id="doc-open" title="Open it in its own program" onClick=${() => ctx.platform.library.openPath(d.full)}>${Icon.external(14)} Open</button>
@@ -101,6 +126,7 @@ function DocView({ id, off, onChange, onClose }) {
     </div>
     <div class="doc-body">
       ${d.view === "pdf" ? html`<${PdfView} url=${url} title=${d.title} />`
+        : d.view === "comic" ? html`<${ComicView} path=${d.path} title=${d.title} />`
         : d.view === "image" ? html`<img class="doc-image" src=${url} alt=${d.title} />`
         : d.view === "audio" ? html`<audio class="doc-audio" src=${url} controls preload="metadata"></audio>`
         : d.view === "text" || d.view === "markdown" ? html`<div class="doc-text-view" id="doc-text" dangerouslySetInnerHTML=${{ __html: d.html || "" }}></div>`

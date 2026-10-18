@@ -423,7 +423,7 @@ impl App {
         if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
             return self.collection_call(cmd, args).await;
         }
-        if ["layout", "bios"].iter().any(|p| cmd.starts_with(p)) {
+        if ["layout", "bios", "magazine"].iter().any(|p| cmd.starts_with(p)) {
             return self.device_call(cmd, args).await;
         }
         match cmd {
@@ -855,6 +855,7 @@ impl App {
                     "add" => "Adding",
                     "bring" => "Bringing in games",
                     "docs" => "Bringing in documents",
+                    "magazines" => "Bringing in magazines",
                     "metadata" => "Deleting metadata",
                     _ => "Organising",
                 };
@@ -888,8 +889,8 @@ impl App {
                             }
                             r["added"] = crate::addgame::results(&ix, &lib, &plan)?;
                         }
-                        // the documents brought in, listed and their text read for search
-                        "docs" => {
+                        // the documents (or magazines) brought in, listed and their text read for search
+                        "docs" | "magazines" => {
                             crate::meta::sync(&ix, &lib)?;
                             app.job_progress(&jid, json!({ "text": "Reading the documents" }));
                             crate::docs::read_texts(&ix, &lib, &cancel, &mut |p| app.job_progress(&jid, p))?;
@@ -1583,6 +1584,89 @@ impl App {
                     })
                     .await?)
             }
+            // the Magazines page (D68)
+            "magazines" => {
+                let lib = self.library()?;
+                j(self.with_index(move |ix| {
+                    crate::docs::sync(ix, &lib)?;
+                    crate::magazines::overview(ix, &lib)
+                })
+                .await?)
+            }
+            "magazine_items" => {
+                // the issues in the files and folders picked (a job: they're hashed)
+                let lib = self.library()?;
+                let paths: Vec<PathBuf> = args["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).map(PathBuf::from).collect();
+                if paths.is_empty() {
+                    return Err("Choose the magazines' files or a folder of them.".into());
+                }
+                let label = "Reading the magazines";
+                self.not_running(label)?;
+                j(self.spawn_job(label, move |app, jid, cancel| {
+                    let items = crate::magazines::read_items(&lib, &paths, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    Ok(json!({ "items": items }))
+                }))
+            }
+            "magazine_plan" => {
+                let lib = self.library()?;
+                let items: Vec<crate::magazines::Item> = serde_json::from_value(args["items"].clone()).map_err(|e| e.to_string())?;
+                let always_copy = args["always_copy"].as_bool().unwrap_or(false);
+                j(blocking(Box::new(move || {
+                    let plan = crate::magazines::plan(&lib, &items, always_copy)?;
+                    organise::save_pending(&data_dir, &plan)?;
+                    Ok(plan.summary())
+                }))
+                .await?)
+            }
+            "magazine_edit" => {
+                let lib = self.library()?;
+                let title = arg(&args, "title").map_err(e2s)?.to_string();
+                let file = args["file"].as_str().map(String::from);
+                let patch = args["patch"].clone();
+                j(self.with_index(move |ix| {
+                    let r = crate::magazines::edit(&lib, &title, file.as_deref(), &patch)?;
+                    crate::docs::sync(ix, &lib)?;
+                    Ok(r)
+                })
+                .await?)
+            }
+            "magazine_cover" => {
+                let lib = self.library()?;
+                let (title, file, picture) = (arg(&args, "title").map_err(e2s)?.to_string(), arg(&args, "file").map_err(e2s)?.to_string(), PathBuf::from(arg(&args, "picture").map_err(e2s)?));
+                blocking(Box::new(move || crate::magazines::set_cover(&lib, &title, &file, &picture).map(|_| json!({ "ok": true })))).await.and_then(j)
+            }
+            "magazine_pages" => {
+                let lib = self.library()?;
+                let rel = arg(&args, "path").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || Ok(json!({ "count": crate::magazines::pages(&lib.resolve(&rel)?)?.len() })))).await?)
+            }
+            "magazine_list_import" => {
+                let lib = self.library()?;
+                let path = PathBuf::from(arg(&args, "path").map_err(e2s)?);
+                j(blocking(Box::new(move || crate::magazines::import_list(&lib, &path))).await?)
+            }
+            "magazine_list_remove" => {
+                let lib = self.library()?;
+                let name = arg(&args, "name").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || crate::magazines::remove_list(&lib, &name).map(|_| json!({ "ok": true })))).await?)
+            }
+            "magazine_missing" => {
+                // the issues missing, saved as a list (in the library's reports, or where asked)
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let title = args["title"].as_str().filter(|t| !t.is_empty()).map(String::from);
+                let to = args["to"].as_str().filter(|t| !t.trim().is_empty()).map(PathBuf::from);
+                j(blocking(Box::new(move || {
+                    let name = format!("Magazines missing{} ({}).csv", title.as_deref().map(|t| format!(", {t}")).unwrap_or_default(), &crate::library::now()[..10]);
+                    let path = to.unwrap_or_else(|| lib.root().join(crate::library::APP_DIR).join("reports").join(organise::safe_name(&name)));
+                    if let Some(d) = path.parent() {
+                        std::fs::create_dir_all(d)?;
+                    }
+                    let n = crate::magazines::save_missing(&lib, title.as_deref(), &path)?;
+                    Ok(json!({ "path": path.display().to_string(), "rel": lib.relative(&path), "issues": n }))
+                }))
+                .await?)
+            }
             other => Err(format!("unknown command {other}")),
         }
     }
@@ -1852,6 +1936,18 @@ impl App {
         Ok(std::fs::read(self.served_path(rel)?)?)
     }
 
+    /// The name a `library://` path's type is told by: its own, but for a magazine's cover
+    /// or page, whose file (a JPEG, a plain SVG cover, a comic's PNG) differs from the issue's.
+    pub fn served_name(&self, rel: &str) -> String {
+        let bare = rel.trim_start_matches('/');
+        if bare.starts_with("~cover/") || bare.starts_with("~page/") {
+            if let Ok(p) = self.served_path(rel) {
+                return p.to_string_lossy().into_owned();
+            }
+        }
+        rel.split('?').next().unwrap_or("").to_string()
+    }
+
     /// What a `library://` path is: a file in the open library.
     fn served_path(&self, rel: &str) -> Result<PathBuf> {
         let rel = percent_decode(rel.trim_start_matches('/'));
@@ -1862,6 +1958,14 @@ impl App {
         if let Some(rest) = rel.strip_prefix("~thumb/") {
             let (size, pic) = rest.split_once('/').ok_or_else(|| anyhow!("no picture"))?;
             return crate::browse::thumb(&lib, &self.paths.data_dir, pic, size.parse().unwrap_or(0));
+        }
+        // ~cover/<path>: a magazine issue's cover; ~page/<n>/<path>: a page of a CBZ or CBR (D68)
+        if let Some(rest) = rel.strip_prefix("~cover/") {
+            return crate::magazines::cover_file(&lib, &self.paths.data_dir, rest);
+        }
+        if let Some(rest) = rel.strip_prefix("~page/") {
+            let (n, issue) = rest.split_once('/').ok_or_else(|| anyhow!("no issue"))?;
+            return crate::magazines::page_file(&lib, &self.paths.data_dir, n.parse().unwrap_or(1), issue);
         }
         lib.resolve(&rel)
     }

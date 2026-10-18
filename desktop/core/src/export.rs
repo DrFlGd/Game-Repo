@@ -90,6 +90,8 @@ pub struct Carry {
     pub image_size: u32,
     /// The BIOS files the collection's systems need, those the library has (D40)
     pub bios: bool,
+    /// The library's magazines, in `Magazines/<Title>/` in the export's folder (D68)
+    pub magazines: bool,
 }
 
 /// The pictures an export can make smaller or write in another format.
@@ -520,6 +522,14 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                         files.push((src, to, "bios", format!("BIOS › {name}"), system.clone()));
                     }
                 }
+            }
+        }
+    }
+    // the magazines, each in a folder of its own with its issues and covers
+    if o.carry.magazines {
+        for (src, to, title) in crate::magazines::export_files(lib, &out) {
+            if !files.iter().any(|f| key(&f.1) == key(&to)) {
+                files.push((src, to, "magazine", title, String::new()));
             }
         }
     }

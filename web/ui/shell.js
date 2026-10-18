@@ -18,6 +18,7 @@ import { Collections } from "./collections.js";
 import { PcGames } from "./pcgames.js";
 import { Metadata } from "./metadata.js";
 import { Documents } from "./documents.js";
+import { Magazines } from "./magazines.js";
 import { Bios } from "./bios.js";
 import { Layouts } from "./layouts.js";
 import { Browse } from "./browse.js";
@@ -38,6 +39,7 @@ function Main() {
   if (route === "pc" && !blocked) return html`<${PcGames} />`;
   if (route === "metadata" && !blocked) return html`<${Metadata} />`;
   if (route === "documents" && !blocked) return html`<${Documents} />`;
+  if (route === "magazines" && !blocked) return html`<${Magazines} />`;
   if (route === "bios" && !blocked) return html`<${Bios} />`;
   if (route === "layouts" && !blocked) return html`<${Layouts} />`;
   if (COMING[route] && !blocked) return html`<${Coming} key=${route} page=${route} />`;

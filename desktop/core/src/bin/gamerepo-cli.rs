@@ -1616,7 +1616,7 @@ async fn serve(mut a: Args) -> Result<()> {
                             Ok((code, b, cr)) => respond_with(
                                 &mut stream,
                                 code,
-                                content_type(rel),
+                                content_type(&app.served_name(rel)),
                                 &b,
                                 &cr.map(|c| format!("content-range: {c}\r\n"))
                                     .unwrap_or_default(),

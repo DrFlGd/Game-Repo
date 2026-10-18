@@ -58,6 +58,7 @@ pub fn view_of(name: &str) -> &'static str {
     let e = ext(name);
     match e.as_str() {
         "pdf" => "pdf",
+        "cbz" | "cbr" => "comic",
         "md" | "markdown" => "markdown",
         _ if TEXT.contains(&e.as_str()) => "text",
         _ if IMAGES.contains(&e.as_str()) => "image",
@@ -133,15 +134,16 @@ fn stamp(p: &Path) -> Option<(i64, i64)> {
     Some((m.len() as i64, t))
 }
 
-/// Each documents folder in the library: (the folder, the game's folder if it's a game's, its system).
-fn doc_folders(lib: &Library) -> Vec<(PathBuf, Option<String>, Option<String>)> {
+/// Each documents folder in the library: (the folder, the game's folder if it's a game's,
+/// its system, what its files are when it isn't its `docs.json` that says: a magazine's).
+fn doc_folders(lib: &Library) -> Vec<(PathBuf, Option<String>, Option<String>, Option<Value>)> {
     let mut v = vec![];
     for sys in std::fs::read_dir(meta::games_root(lib)).into_iter().flatten().flatten() {
         let platform = sys.file_name().to_string_lossy().into_owned();
         for g in std::fs::read_dir(sys.path()).into_iter().flatten().flatten() {
             let d = g.path().join("docs");
             if d.is_dir() {
-                v.push((d, lib.relative(&g.path()), Some(platform.clone())));
+                v.push((d, lib.relative(&g.path()), Some(platform.clone()), None));
             }
         }
     }
@@ -149,7 +151,13 @@ fn doc_folders(lib: &Library) -> Vec<(PathBuf, Option<String>, Option<String>)> 
         if sub.path().is_dir() {
             let name = sub.file_name().to_string_lossy().into_owned();
             let platform = (name != "General").then_some(name);
-            v.push((sub.path(), None, platform));
+            v.push((sub.path(), None, platform, None));
+        }
+    }
+    // each magazine's issues (D68), only the files its magazine.json lists
+    for m in std::fs::read_dir(crate::magazines::folder(lib)).into_iter().flatten().flatten() {
+        if let Some(manifest) = crate::magazines::docs_manifest(&m.path()) {
+            v.push((m.path(), None, None, Some(manifest)));
         }
     }
     v
@@ -165,11 +173,12 @@ pub fn sync(ix: &Index, lib: &Library) -> Result<()> {
     };
     let mut seen = HashSet::new();
     let tx = conn.unchecked_transaction()?;
-    for (dir, folder, platform) in doc_folders(lib) {
-        let manifest = read_json_object(&dir.join(MANIFEST));
+    for (dir, folder, platform, given) in doc_folders(lib) {
+        let only_listed = given.is_some();
+        let manifest = given.unwrap_or_else(|| read_json_object(&dir.join(MANIFEST)));
         for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
-            if name == MANIFEST || name.starts_with('.') || name.ends_with(".gamerepo-tmp") {
+            if name == MANIFEST || name.starts_with('.') || name.ends_with(".gamerepo-tmp") || (only_listed && manifest["files"].get(&name).is_none()) {
                 continue;
             }
             let p = e.path();
@@ -449,6 +458,9 @@ pub fn set(ix: &Index, lib: &Library, id: i64, kind: Option<&str>, title: Option
     lib.writable()?;
     let d = get(ix, id)?;
     let p = lib.resolve(d["path"].as_str().unwrap_or(""))?;
+    if crate::magazines::is_magazine_path(lib, &p) {
+        bail!("A magazine's issue is changed on the Magazines page.");
+    }
     let dir = p.parent().ok_or_else(|| anyhow!("no folder"))?;
     let name = d["name"].as_str().unwrap_or("").to_string();
     let mp = dir.join(MANIFEST);
@@ -764,14 +776,14 @@ fn free_name(taken: &mut HashSet<String>, name: &str) -> String {
     n
 }
 
-fn outside(p: &Path) -> Src {
+pub(crate) fn outside(p: &Path) -> Src {
     Src {
         file_id: 0, root: format!("dir:{}", p.parent().unwrap_or(Path::new(".")).display()), rel: p.file_name().unwrap_or_default().to_string_lossy().into_owned(),
         path: p.display().to_string(), member: None, size: std::fs::metadata(p).map(|m| m.len()).unwrap_or(0), crc32: String::new(), sha1: None,
     }
 }
 
-fn text_op(game: &str, to: &Path, text: String, note: &str) -> Op {
+pub(crate) fn text_op(game: &str, to: &Path, text: String, note: &str) -> Op {
     let from = if to.exists() { vec![outside(to)] } else { vec![] };
     Op { op: "text".into(), game: game.into(), to: to.display().to_string(), from, size: text.len() as u64, names: vec![text], aside: vec![], note: Some(note.into()) }
 }

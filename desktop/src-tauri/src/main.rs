@@ -141,7 +141,8 @@ fn main() {
             tauri::async_runtime::spawn(async move {
                 let res = tokio::task::spawn_blocking(move || {
                     let body = app.library_range(&path, range.as_deref());
-                    (path, body)
+                    // a magazine's cover or page is told by its own file's type (D68)
+                    (app.served_name(&path), body)
                 })
                 .await;
                 let response = match res {

@@ -252,7 +252,7 @@ async def main():
             active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
             lead = await pg.inner_text("#audit-empty")
             check("the menu's places open, with the pages still to come saying what they'll do",
-                  labels == ["Game Repo", "Home", "Library", "Audit", "BIOS files", "Collections", "Export layouts", "PC games", "Metadata", "Documents", "Settings", "Help", "About"]
+                  labels == ["Game Repo", "Home", "Library", "Audit", "BIOS files", "Collections", "Export layouts", "PC games", "Metadata", "Documents", "Magazines", "Settings", "Help", "About"]
                   and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
             await pg.screenshot(path=str(out / "01-coming.png"))
 
@@ -1529,6 +1529,72 @@ async def main():
             check("an arcade system's set type is kept in the library: split lists a clone's copy of its parent's ROM as misnamed, and Settings › Systems shows and changes it",
                   kept.get("mame") == "split" and in_settings == "split" and back_to.get("mame") == "non-merged", (kept, in_settings, back_to))
 
+            # magazines (D68): a folder of issues read, put right and brought in; covers,
+            # a comic book a page at a time, a list to check them against
+            mags = home / "Magazines in"
+            (mags / "Retro Gamer").mkdir(parents=True)
+            with zipfile.ZipFile(mags / "Game Fan 001 (1992-10).cbz", "w") as z:
+                for n in ("p1.png", "p2.png", "p10.png"):
+                    z.writestr(n, COVER)
+            (mags / "Game Fan 002 (1992-11).pdf").write_bytes(b"%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n")
+            with zipfile.ZipFile(mags / "Retro Gamer" / "100.cbz", "w") as z:
+                z.writestr("cover.png", WIDE)
+            await pg.click('.sidebar a[href="#/magazines"]')
+            await pg.wait_for_selector("#magazines-page #mag-empty")
+            pick(mags)
+            await pg.click("#mag-import")
+            await pg.wait_for_selector("#mag-items li", timeout=30000)
+            read = await pg.eval_on_selector_all("#mag-items li", "els => Object.fromEntries(els.map(e => [e.dataset.name, [e.querySelector('.mag-item-title').value, e.querySelector('.mag-item-number').value, e.querySelector('.mag-item-date').value]]))")
+            await pg.fill('#mag-items li[data-name="100.cbz"] .mag-item-date', "2012-06")
+            await pg.screenshot(path=str(out / "60-magazines-import.png"))
+            await pg.click("#mag-import-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-totals")
+            totals = await pg.inner_text("#organise-totals")
+            await pg.click("#mag-import-dialog button[type=submit]")
+            said = await toast_text(pg, "Brought in 3 magazine issues")
+            await pg.wait_for_selector('#mag-list button[data-title="Game Fan"]')
+            fan = library / "Magazines" / "Game Fan"
+            fan_json = json.loads((fan / "magazine.json").read_text()) if (fan / "magazine.json").is_file() else {}
+            check("Import magazines… reads each file's magazine, number and date from its name (or its folder's), they're put right, and brought into Magazines/<title>/ (the originals stay)",
+                  read.get("Game Fan 001 (1992-10).cbz") == ["Game Fan", "1", "1992-10"] and read.get("100.cbz") == ["Retro Gamer", "100", ""]
+                  and "3 issues" in totals and [i.get("number") for i in fan_json.get("issues", [])] == ["1", "2"]
+                  and (library / "Magazines/Retro Gamer/magazine.json").is_file() and (mags / "Game Fan 001 (1992-10).cbz").is_file(),
+                  (read, totals, said, fan_json))
+            await pg.click('#mag-list button[data-title="Game Fan"]')
+            await pg.wait_for_selector('#mag-issues li[data-number="1"] img.mag-cover')
+            await pg.wait_for_function("() => document.querySelector('#mag-issues li[data-number=\"1\"] img.mag-cover')?.naturalWidth > 0", timeout=15000)
+            await pg.wait_for_function("() => document.querySelector('#mag-issues li[data-number=\"2\"] img.mag-cover')?.naturalWidth > 0", timeout=15000)
+            plain = await pg.evaluate("async () => { const r = await fetch(document.querySelector('#mag-issues li[data-number=\"2\"] img.mag-cover').src); return [r.headers.get('content-type'), await r.text()]; }")
+            await pg.screenshot(path=str(out / "61-magazines.png"))
+            check("a magazine's issues show by their covers: a comic book's first page, and a PDF without a picture a plain one with its number",
+                  "svg" in (plain[0] or "") and "No. 2" in plain[1] and "Game Fan" in plain[1], (plain[0], plain[1][:200]))
+            await pg.click('#mag-issues li[data-number="1"] .mag-open')
+            await pg.wait_for_selector("#doc-dialog #comic-view")
+            first = await pg.inner_text("#comic-page")
+            await pg.click("#comic-next")
+            await pg.wait_for_function("() => document.querySelector('#comic-page').textContent.includes('Page 2')")
+            await pg.wait_for_function("() => document.querySelector('#comic-view .comic-page img')?.naturalWidth > 0", timeout=15000)
+            locked = await pg.is_disabled("#doc-edit-title")
+            await pg.screenshot(path=str(out / "62-comic.png"))
+            await pg.click('#doc-dialog button[aria-label="Close"]')
+            await pg.wait_for_selector("#doc-dialog", state="detached")
+            check("an issue opens in the document viewer, a comic book a page at a time (its pages in order), named on the Magazines page only",
+                  first == "Page 1 of 3" and locked, (first, locked))
+            listed = home / "game-fan.csv"
+            listed.write_text("magazine,number,date\nGame Fan,1,1992-10\nGame Fan,2,1992-11\nGame Fan,3,1992-12\n")
+            pick(listed)
+            await pg.click("#mag-add-list-button")
+            await toast_text(pg, "Added the list")
+            await pg.wait_for_selector("#mag-missing li")
+            missing = await pg.inner_text("#mag-missing")
+            totals = await pg.inner_text("#mag-totals")
+            await pg.click("#mag-save-missing-one")
+            said = await toast_text(pg, "Saved 1 missing issue")
+            saved = list((library / "_library/reports").glob("Magazines missing*.csv"))
+            check("a list of issues (a CSV) says which are missing, and they're saved as a list of their own",
+                  "Game Fan 003 (1992-12)" in missing and "Game Fan 001" not in missing and "2 of the 3 listed" in totals and len(saved) == 1 and "Game Fan,3" in saved[0].read_text(),
+                  (missing, totals, said, [x.name for x in saved]))
+
             await pg.click('.sidebar a[href="#/settings"]')
             await pg.wait_for_selector("#theme-select")
 
@@ -1563,7 +1629,7 @@ async def main():
             await pg.wait_for_selector("#about-versions")
             about = await pg.inner_text("#about-page")
             check("About shows the version, what's coming and how a library is laid out",
-                  "Game Repo" in about and "Phase 8" in about and "_library/" in about and "game.json" in about, about[:200])
+                  "Game Repo" in about and "Phase 9" in about and "_library/" in about and "game.json" in about, about[:200])
             await pg.screenshot(path=str(out / "04-about.png"), full_page=True)
 
             # 10. a library made by a newer app opens read-only
