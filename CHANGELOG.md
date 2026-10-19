@@ -77,6 +77,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.27 (2026-10-19)
+
 - **A game on several discs is one game in ES-DE.** Exported to ES-DE, a PlayStation, Saturn, Sega CD, Dreamcast, PC Engine CD, PC-FX, PlayStation 2, GameCube or Wii game on two or more discs goes into one folder named for it, with a playlist of its discs, so ES-DE lists it once and the emulator can change discs by itself. Other layouts keep a folder for each disc.
 - **Groundwork for Game Repo Server** (the first part of the device client): the library can be read without anything in it being changed, and a device's files are laid out by the same rules as an ES-DE export.
 
