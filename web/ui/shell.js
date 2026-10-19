@@ -23,7 +23,8 @@ import { Bios } from "./bios.js";
 import { Layouts } from "./layouts.js";
 import { Browse } from "./browse.js";
 import { GamePage } from "./gamepage.js";
-import { ImportPage } from "./importpage.js";
+import { ImportPage, dropToImport } from "./importpage.js";
+import { listenForDrops } from "./documents.js";
 import { History } from "./history.js";
 import { loadIndex } from "./library.js";
 import { ContextMenu, onWindowKey } from "./actions.js";
@@ -63,6 +64,8 @@ export function mountShell(context) {
   mount("dialog-root", Dialogs);
   mount("menu-root", ContextMenu);
   addEventListener("keydown", onWindowKey);
+  // files dropped where no page takes them go to the Import page (D78)
+  listenForDrops(dropToImport);
   loadIndex();
 }
 

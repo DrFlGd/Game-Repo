@@ -229,6 +229,12 @@ pub fn picture_of(dir: &Path) -> Option<String> {
 
 /// Read one game's folder into the index.
 pub fn index_folder(conn: &Connection, lib: &Library, dir: &Path) -> Result<()> {
+    index_one(conn, lib, dir, &mut None)
+}
+
+/// `pc`: the PC games' titles by id, read once for every folder a sync reads (M25: read
+/// for each, they grew with the square of the games).
+fn index_one(conn: &Connection, lib: &Library, dir: &Path, pc: &mut Option<HashMap<String, String>>) -> Result<()> {
     let Some(rel) = lib.relative(dir) else { return Ok(()) };
     let p = dir.join("game.json");
     let Some((size, mtime)) = stamp(&p) else {
@@ -242,7 +248,8 @@ pub fn index_folder(conn: &Connection, lib: &Library, dir: &Path) -> Result<()> 
     let mut title = v["title"].as_str().filter(|s| !s.is_empty()).or(v["name"].as_str()).unwrap_or("").to_string();
     // a PC game's title is its own, in `PC/…/game.json` (D55)
     if title.is_empty() && crate::pcmeta::is_pc(lib, dir) {
-        title = crate::pcmeta::title_of(lib, dir).unwrap_or_default();
+        let titles = pc.get_or_insert_with(|| crate::pcgames::list(lib).into_iter().map(|e| (e.game.id, e.game.title)).collect());
+        title = dir.file_name().and_then(|n| titles.get(n.to_string_lossy().as_ref())).cloned().unwrap_or_default();
     }
     // the details the Library page lists and searches (browse.rs), and the picture it shows
     let facts = v["details"].as_object().cloned().unwrap_or_default();
@@ -274,6 +281,7 @@ pub fn sync(ix: &Index, lib: &Library) -> Result<()> {
         rows.collect::<rusqlite::Result<_>>()?
     };
     let mut seen = HashSet::new();
+    let mut pc = None;
     let tx = conn.unchecked_transaction()?;
     for sys in std::fs::read_dir(games_root(lib)).into_iter().flatten().flatten() {
         // not the set-aside folder (metadata deleted, D48)
@@ -286,7 +294,7 @@ pub fn sync(ix: &Index, lib: &Library) -> Result<()> {
             let Some(st) = stamp(&dir.join("game.json")) else { continue };
             seen.insert(rel.clone());
             if known.get(&rel) != Some(&st) {
-                index_folder(&tx, lib, &dir)?;
+                index_one(&tx, lib, &dir, &mut pc)?;
             }
         }
     }

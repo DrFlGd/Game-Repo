@@ -234,6 +234,26 @@ pub fn review(ix: &Index, lib: &Library, found: &[Found]) -> Result<Value> {
             games.entry(id).or_default().push((f.shown.clone(), f.path.clone()));
         }
     }
+    // review H5: a sheet no DAT knows (its tracks renamed) goes with the game whose tracks
+    // its FILE lines name, as a scan pairs them
+    let game_of: HashMap<String, i64> = games.iter().flat_map(|(id, fs)| fs.iter().map(move |(_, p)| (key(Path::new(p)), *id))).collect();
+    unknown.retain(|u| {
+        let (Some(path), Some(shown)) = (u["file"].as_str(), u["path"].as_str()) else { return true };
+        if !crate::cue::is_sheet(path) {
+            return true;
+        }
+        let Ok(text) = std::fs::read(path) else { return true };
+        let dir = Path::new(path).parent().unwrap_or(Path::new(""));
+        let gdi = platforms::ext_of(path) == "gdi";
+        let named = crate::cue::file_names(&String::from_utf8_lossy(&text), gdi).into_iter().find_map(|n| game_of.get(&key(&dir.join(n))).copied());
+        match named {
+            Some(id) => {
+                games.entry(id).or_default().push((shown.to_string(), path.to_string()));
+                false
+            }
+            None => true,
+        }
+    });
     // each game's name, system and status in the full set
     let mut by_dat: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
     for id in games.keys() {
@@ -351,6 +371,88 @@ pub fn save(ix: &Index, lib: &Library, into: Target, games: &[i64], made_from: V
     collection::save(lib, c)
 }
 
+/// One of a DAT game's ROMs.
+struct DatRom {
+    name: String,
+    crc32: String,
+    size: u64,
+    sha1: Option<String>,
+}
+
+impl DatRom {
+    fn is(&self, s: &organise::Src) -> bool {
+        self.crc32.eq_ignore_ascii_case(&s.crc32) && self.size == s.size && !matches!((&self.sha1, &s.sha1), (Some(a), Some(b)) if !a.eq_ignore_ascii_case(b))
+    }
+}
+
+/// Whether the file at `p` is a good copy of the game: its one ROM, or an archive holding all of them.
+fn holds(p: &Path, roms: &[DatRom], cancel: &AtomicBool) -> bool {
+    let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let have: Vec<Hashes> = if archive::container_of(&name).is_some() {
+        archive::members(p, cancel).map(|m| m.into_iter().map(|(_, h)| h).collect()).unwrap_or_default()
+    } else {
+        std::fs::File::open(p).and_then(|mut f| {
+            let size = f.metadata()?.len();
+            hash::hash_reader(&mut f, size, "", cancel)
+        }).into_iter().collect()
+    };
+    !roms.is_empty() && roms.iter().all(|r| have.iter().any(|h| r.crc32.eq_ignore_ascii_case(&h.crc32) && r.size == h.size))
+}
+
+/// A game of several files (a disc's tracks and sheet, say) into a folder of its own named
+/// for it, each named as its ROM (review M8): every step, or why none (a file in the way).
+/// A sheet the DAT doesn't know (its tracks renamed) is written again for their new names
+/// under the DAT's name for it (review H5).
+#[allow(clippy::type_complexity)]
+fn several(
+    game: &str, place: &Path, files: &[PathBuf], roms: &[DatRom], outs: &mut HashSet<String>,
+    src_of: &mut dyn FnMut(&Path) -> Result<organise::Src>, how: &dyn Fn(&Path, &Path) -> &'static str,
+) -> Result<std::result::Result<Vec<organise::Op>, Value>> {
+    let folder = place.join(organise::safe_name(game));
+    let mut ops = vec![];
+    let mut sheets = vec![];
+    let mut renames: Vec<String> = vec![];
+    let mut taken: Vec<String> = vec![];
+    let in_way = |to: &Path, taken: &mut Vec<String>, outs: &HashSet<String>| -> Option<Value> {
+        let k = key(to);
+        if to.exists() || outs.contains(&k) || taken.contains(&k) {
+            return Some(json!({ "path": format!("{game} ({} files)", files.len()), "why": format!("There's a file called {} in {} already, so none of the game's files are imported.", to.file_name().unwrap_or_default().to_string_lossy(), to.parent().unwrap_or(place).display()) }));
+        }
+        taken.push(k);
+        None
+    };
+    for f in files {
+        let name = f.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let src = src_of(f)?;
+        let rom = roms.iter().find(|r| r.is(&src));
+        if rom.is_none() && crate::cue::is_sheet(&name) {
+            sheets.push(src);
+            continue;
+        }
+        let named = rom.map(|r| r.name.rsplit(['/', '\\']).next().unwrap_or(&r.name).to_string()).unwrap_or_else(|| name.clone());
+        let to = folder.join(organise::safe_name(&named));
+        if let Some(why) = in_way(&to, &mut taken, outs) {
+            return Ok(Err(why));
+        }
+        renames.extend([name, to.file_name().unwrap_or_default().to_string_lossy().into_owned()]);
+        let size = src.size;
+        ops.push(organise::Op { op: how(f, place).into(), game: game.into(), to: to.display().to_string(), from: vec![src], names: vec![], aside: vec![], size, note: None });
+    }
+    for src in sheets {
+        let own = Path::new(&src.path).file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let named = roms.iter().find(|r| crate::cue::is_sheet(&r.name)).map(|r| r.name.rsplit(['/', '\\']).next().unwrap_or(&r.name).to_string()).unwrap_or(own);
+        let to = folder.join(organise::safe_name(&named));
+        if let Some(why) = in_way(&to, &mut taken, outs) {
+            return Ok(Err(why));
+        }
+        let aside = if how(Path::new(&src.path), place) == "move" { vec![src.clone()] } else { vec![] };
+        let size = src.size;
+        ops.push(organise::Op { op: "cue".into(), game: game.into(), to: to.display().to_string(), from: vec![src], names: renames.clone(), aside, size, note: Some("Its FILE lines are rewritten for the tracks' new names.".into()) });
+    }
+    outs.extend(taken);
+    Ok(Ok(ops))
+}
+
 /// What to import (D53, D73): the games found, the files no DAT knows that were given a
 /// system, where each system's games go, and how.
 #[derive(Debug, Default)]
@@ -422,6 +524,7 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
         item += 1;
         Ok(())
     };
+    let mut roms_of = conn.prepare("SELECT name, crc32, size, sha1 FROM dat_roms WHERE game_id = ?1 AND COALESCE(status, '') <> 'nodump'")?;
     for (id, files) in &imp.games {
         step(progress)?;
         let (game, platform, roms, first_rom): (String, String, i64, Option<String>) = q.query_row([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).with_context(|| format!("There's no DAT game {id}."))?;
@@ -429,17 +532,32 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
             left.push(nowhere(&platform, &game));
             continue;
         };
+        let dat_roms: Vec<DatRom> = roms_of
+            .query_map([id], |r| Ok(DatRom { name: r.get(0)?, crc32: r.get::<_, Option<String>>(1)?.unwrap_or_default(), size: r.get::<_, Option<i64>>(2)?.unwrap_or(0) as u64, sha1: r.get(3)? }))?
+            .collect::<rusqlite::Result<_>>()?;
         // one file of a game of one ROM, or an archive holding it; every file of a game of several
         let whole = roms <= 1 || files.iter().any(|f| f.file_name().and_then(|n| n.to_str()).is_some_and(|n| archive::container_of(n).is_some()));
+        if !whole {
+            // review M8: a folder of its own, and all of it or nothing
+            match several(&game, &place, files, &dat_roms, &mut outs, &mut |f| src_of(f, cancel), &|f, p| how(f, p))? {
+                Ok(game_ops) => {
+                    ops.extend(game_ops);
+                    used.push((place.clone(), platform.clone()));
+                    count += 1;
+                }
+                Err(why) => left.push(why),
+            }
+            continue;
+        }
         let mut brought = false;
         for f in files {
-            if brought && whole {
+            if brought {
                 break;
             }
             let name = f.file_name().unwrap_or_default().to_string_lossy().into_owned();
             let ext = f.extension().map(|e| format!(".{}", e.to_string_lossy().to_ascii_lowercase())).unwrap_or_default();
             let is_archive = archive::container_of(&name).is_some();
-            if whole && roms > 1 && !is_archive {
+            if roms > 1 && !is_archive {
                 continue;
             }
             let src = src_of(f, cancel)?;
@@ -453,12 +571,23 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
                 _ => name.clone(),
             };
             let to = place.join(organise::safe_name(&named));
-            if to.exists() || !outs.insert(key(&to)) {
-                left.push(json!({ "path": f.display().to_string(), "why": format!("There's a file called {} in {} already.", to.file_name().unwrap_or_default().to_string_lossy(), place.display()) }));
+            let mut note = None;
+            if !outs.insert(key(&to)) {
+                left.push(json!({ "path": f.display().to_string(), "why": format!("Another file of these goes to {} too.", to.display()) }));
                 continue;
             }
+            if to.exists() {
+                // review H6: a file there that isn't the DAT's (a bad dump) is set aside for it
+                if holds(&to, &dat_roms, cancel) {
+                    left.push(json!({ "path": f.display().to_string(), "why": format!("{} in {} is a good copy already.", to.file_name().unwrap_or_default().to_string_lossy(), place.display()) }));
+                    continue;
+                }
+                let there = src_of(&to, cancel)?;
+                ops.push(organise::Op { op: "aside".into(), game: game.clone(), to: to.display().to_string(), from: vec![there.clone()], names: vec![], aside: vec![], size: there.size, note: Some("It doesn't match the DAT: set aside for the good copy.".into()) });
+                note = Some(format!("Replaces the {} there, which doesn't match the DAT.", to.file_name().unwrap_or_default().to_string_lossy()));
+            }
             let size = src.size;
-            ops.push(organise::Op { op: how(f, &place).into(), game: game.clone(), to: to.display().to_string(), from: vec![src], names: vec![], aside: vec![], size, note: None });
+            ops.push(organise::Op { op: how(f, &place).into(), game: game.clone(), to: to.display().to_string(), from: vec![src], names: vec![], aside: vec![], size, note });
             used.push((place.clone(), platform.clone()));
             brought = true;
         }
@@ -696,6 +825,65 @@ mod tests {
         organise::undo(&ix, &lib, &plan.id, &none, &mut |_| {}).unwrap();
         assert!(src.join("sonic.gg").is_file() && !gg_dir.exists());
         assert!(!crate::roots::list(&lib).iter().any(|r| r.dir == gg_dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // review H5, M8 and H6
+    #[test]
+    fn a_disc_comes_in_whole_in_its_own_folder_with_its_sheet_and_a_bad_dump_is_replaced() {
+        let (dir, lib, ix) = fixture("subset-disc");
+        let none = AtomicBool::new(false);
+        let (t1, t2) = (rom(60, 2352 * 4), rom(61, 2352 * 2));
+        let sheet = |a: &str, b: &str| format!("FILE \"{a}\" BINARY\r\n  TRACK 01 MODE1/2352\r\n    INDEX 01 00:00:00\r\nFILE \"{b}\" BINARY\r\n  TRACK 02 AUDIO\r\n    INDEX 01 00:00:00\r\n");
+        let dat_cue = sheet("Disc (USA) (Track 1).bin", "Disc (USA) (Track 2).bin");
+        let x = crate::audit::tests::rom_xml;
+        let games = vec![("Disc (USA)", None, x("Disc (USA).cue", dat_cue.as_bytes()) + &x("Disc (USA) (Track 1).bin", &t1) + &x("Disc (USA) (Track 2).bin", &t2))];
+        std::fs::write(dir.join("psx.dat"), crate::audit::tests::dat_xml("Sony - PlayStation", "1", &games)).unwrap();
+        crate::dat::import(&ix, &lib, &dir.join("psx.dat"), &serde_json::Map::new()).unwrap();
+        // the disc renamed: its tracks match the DAT, its sheet (naming them as they are now) doesn't
+        let src = dir.join("Downloads/My Disc");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("t1.bin"), &t1).unwrap();
+        std::fs::write(src.join("t2.bin"), &t2).unwrap();
+        std::fs::write(src.join("mine.cue"), sheet("t1.bin", "t2.bin")).unwrap();
+        let r = review(&ix, &lib, &read_folders(&[src.clone()], &none, &mut |_| {}).unwrap()).unwrap();
+        assert_eq!(r["unknown"], json!([]), "the sheet goes with its tracks: {r}");
+        let g = &r["systems"][0]["games"][0];
+        assert_eq!(g["files"].as_array().map(Vec::len), Some(3), "{r}");
+        let games: Vec<(i64, Vec<PathBuf>)> = vec![(g["id"].as_i64().unwrap(), g["files"].as_array().unwrap().iter().map(|f| PathBuf::from(f.as_str().unwrap())).collect())];
+        let place = dir.join("Games/PSX");
+        let imp = Import { games: games.clone(), places: [("psx".to_string(), place.clone())].into(), ..Default::default() };
+        // a file in the way: none of the disc comes in
+        let folder = place.join("Disc (USA)");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("Disc (USA) (Track 2).bin"), b"in the way").unwrap();
+        let blocked = bring_plan(&ix, &lib, &imp, &none, &mut |_| {}).unwrap();
+        assert_eq!((blocked.ops.len(), blocked.games, blocked.left.len()), (0, 0, 1), "{:?}", blocked.ops);
+        std::fs::remove_file(folder.join("Disc (USA) (Track 2).bin")).unwrap();
+        let plan = bring_plan(&ix, &lib, &imp, &none, &mut |_| {}).unwrap();
+        assert_eq!(plan.games, 1);
+        organise::run(&ix, &lib, &plan, &none, &mut |_| {}).unwrap();
+        let mut names: Vec<String> = std::fs::read_dir(&folder).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(names, ["Disc (USA) (Track 1).bin", "Disc (USA) (Track 2).bin", "Disc (USA).cue"]);
+        assert_eq!(std::fs::read_to_string(folder.join("Disc (USA).cue")).unwrap(), dat_cue, "the sheet is the DAT's again");
+        // a bad dump where a game goes is set aside for the good copy
+        let roms = dir.join("Roms");
+        std::fs::write(roms.join("Zeta (Japan).gb"), b"a bad dump").unwrap();
+        let picks = dir.join("Picks");
+        std::fs::create_dir_all(&picks).unwrap();
+        std::fs::write(picks.join("zeta.gb"), rom(10, 1024)).unwrap();
+        let r = review(&ix, &lib, &read_folders(&[picks.clone()], &none, &mut |_| {}).unwrap()).unwrap();
+        let z = &r["systems"][0]["games"][0];
+        let imp = Import { games: vec![(z["id"].as_i64().unwrap(), vec![picks.join("zeta.gb")])], ..Default::default() };
+        let plan = bring_plan(&ix, &lib, &imp, &none, &mut |_| {}).unwrap();
+        assert_eq!(plan.ops.iter().map(|o| o.op.as_str()).collect::<Vec<_>>(), ["aside", "link"], "{:?}", plan.left);
+        organise::run(&ix, &lib, &plan, &none, &mut |_| {}).unwrap();
+        assert_eq!(std::fs::read(roms.join("Zeta (Japan).gb")).unwrap(), rom(10, 1024));
+        // a good copy there is left alone
+        assert!(bring_plan(&ix, &lib, &imp, &none, &mut |_| {}).unwrap().ops.is_empty());
+        organise::undo(&ix, &lib, &plan.id, &none, &mut |_| {}).unwrap();
+        assert_eq!(std::fs::read(roms.join("Zeta (Japan).gb")).unwrap(), b"a bad dump");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

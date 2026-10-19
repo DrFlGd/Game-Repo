@@ -210,8 +210,8 @@ pub fn plan(lib: &Library, files: &[PathBuf], platform: &str, into: &Path, mode:
         id: organise::new_id(),
         created: now(),
         kind: "add".into(),
-        label: format!("Add {games} game{} to {name}", if games == 1 { "" } else { "s" }),
-        title: String::new(),
+        label: format!("Imported {games} game{} into {name}", if games == 1 { "" } else { "s" }),
+        title: format!("Import {games} game{} into {name}", if games == 1 { "" } else { "s" }),
         dat: Value::Null,
         platform: platform.into(),
         mode: mode.into(),
@@ -305,10 +305,9 @@ pub fn identify_rom(lib: &Library, platform: &str, file: &Value, m: &Match) -> R
     v["id"] = json!(format!("sha1:{}", sha1.to_lowercase()));
     v["platform"] = json!(platform);
     v["files"] = json!([{ "name": file["file"], "size": file["size"], "crc32": file["crc32"], "sha1": sha1 }]);
-    v["title"] = json!(m.title);
-    v["year"] = json!(m.year);
+    // the title, year and details are made from the sources' answers, so hand edits stay (M27)
     v["ids"][m.source.as_str()] = json!(m.id);
-    v["details"] = json!(m.details);
+    v["identified_by"] = json!(m.source);
     v["identified"] = json!(now());
     // kept as the source's answer too (D46)
     let fields: Vec<String> = crate::meta::FIELDS.iter().map(|(k, _)| k.to_string()).collect();
@@ -378,6 +377,8 @@ mod tests {
         let cancel = AtomicBool::new(false);
         let plan = plan(&lib, &[elsewhere.join("zeta.gb"), elsewhere.join("homebrew.gb")], "gb", &roms, "copy", true, &cancel).unwrap();
         assert_eq!((plan.games, plan.ops.len(), plan.kind.as_str()), (2, 2, "add"));
+        // review M40: the preview's title says what it will do, History's label what it did
+        assert_eq!((plan.title.as_str(), plan.label.as_str()), ("Import 2 games into Game Boy", "Imported 2 games into Game Boy"));
         organise::run(&ix, &lib, &plan, &cancel, &mut |_| {}).unwrap();
         assert!(roms.join("zeta.gb").is_file() && elsewhere.join("zeta.gb").is_file());
         let opts = crate::scan::Options { only: Some(plan.ops.iter().map(|o| PathBuf::from(&o.to)).collect()), ..Default::default() };
@@ -392,6 +393,14 @@ mod tests {
         assert_eq!((v["title"].as_str(), v["ids"]["launchbox"].as_str()), (Some("Home Brew"), Some("77")));
         let again = results(&ix, &lib, &plan).unwrap();
         assert_eq!(again["files"][1]["identity"]["title"], "Home Brew");
+        // M27: a hand edit stays when it's identified again, and the new source's title comes
+        let d = rom_dir(&lib, "gb", files[1]["sha1"].as_str().unwrap()).unwrap();
+        crate::meta::edit_dir(&ix, &lib, &d, "description", Some(&json!("Mine."))).unwrap();
+        let mut m2 = Match { source: "igdb".into(), id: "9".into(), title: "Homebrew Hero".into(), year: Some(2021), ..Default::default() };
+        m2.details.insert("description".into(), json!("From IGDB."));
+        m2.details.insert("developer".into(), json!("Hero Co"));
+        let v = identify_rom(&lib, "gb", &files[1], &m2).unwrap();
+        assert_eq!((v["title"].as_str(), v["details"]["description"].as_str(), v["details"]["developer"].as_str()), (Some("Homebrew Hero"), Some("Mine."), Some("Hero Co")), "{v}");
         // a file can't go where one of its name is
         assert!(super::plan(&lib, &[elsewhere.join("zeta.gb")], "gb", &roms, "copy", true, &cancel).is_err());
         let _ = temp_dir;

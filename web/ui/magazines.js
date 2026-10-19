@@ -9,12 +9,13 @@
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
-import { ctx } from "./context.js";
+import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, size, libraryUrl } from "./library.js";
 import { reveal } from "./games.js";
 import { CommandBar, EditBox } from "./layout.js";
 import { Dialog, close, confirmDialog } from "./dialogs.js";
-import { Preview, runPlan } from "./organise.js";
+import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
+import { importFrom } from "./importpage.js";
 import { viewDoc, useDroppedFiles } from "./documents.js";
 import { Icon } from "./icons.js";
 import { useSidePanel, useRouteArg, argHash } from "./panels.js";
@@ -35,7 +36,7 @@ function Cover({ issue, stamp }) {
 function ImportDialog({ paths }) {
   const [items, setItems] = useState(null);
   const [progress, setProgress] = useState("");
-  const [alwaysCopy, setAlwaysCopy] = useState(false);
+  const [how, setHow] = useState("copy");
   const [plan, setPlan] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -62,7 +63,7 @@ function ImportDialog({ paths }) {
     setBusy(true);
     setError("");
     try {
-      setPlan(await api("magazine_plan", { items, always_copy: alwaysCopy }));
+      setPlan(await api("magazine_plan", { items, ...howArgs(how) }));
     } catch (e) {
       setError(err(e));
     } finally {
@@ -70,14 +71,15 @@ function ImportDialog({ paths }) {
     }
   };
   if (plan) {
-    return html`<${Dialog} title=${plan.title || plan.label} id="mag-import-dialog" wide=${true} onSubmit=${() => { close(); runPlan(plan).then(again); }} busy=${plan.short || !plan.ops} submitLabel="Import them"
+    return html`<${Dialog} title=${plan.title || plan.label} id="mag-import-dialog" wide=${true} sticky=${true} onSubmit=${() => { close(); runPlan(plan).then(again); }} busy=${plan.short || !plan.ops} submitLabel="Import"
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
-      <p class="muted">Each goes into its magazine's folder in the library, <code>Magazines/${"<magazine>"}/</code>, named by its number and date, and listed in its magazine.json. Your files stay where they are.</p>
+      <p class="muted">Each goes into its magazine's folder in the library, <code>Magazines/${"<magazine>"}/</code>, named by its number and date, and listed in its magazine.json. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."}</p>
     <//>`;
   }
   const included = (items || []).filter((i) => i.include).length;
-  return html`<${Dialog} title="Import magazines" id="mag-import-dialog" wide=${true} onSubmit=${preview} busy=${busy || !items || !included} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
+  // a stray click or Esc doesn't lose the reading and what was put right (review M35)
+  return html`<${Dialog} title="Import magazines" id="mag-import-dialog" wide=${true} sticky=${!items || items.length > 0} onSubmit=${preview} busy=${busy || !items || !included} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
     ${!items ? html`<p class="muted" id="mag-reading">Reading the files${progress ? html` (${progress})` : null}…</p>` : !items.length ? html`<p class="muted" id="mag-none-found">No PDF, CBZ or CBR files there.</p>` : html`
       <ul class="ls-list pc-items mag-items" id="mag-items">${items.map((it) => html`<li key=${it.path} class="pc-item" data-name=${it.name} data-include=${it.include ? "yes" : "no"}>
         <label class="check-row pc-item-include"><input type="checkbox" data-action="include" aria-label=${`Import ${it.name}`} checked=${it.include} onChange=${(e) => set(it.path, { include: e.target.checked })} /></label>
@@ -89,7 +91,7 @@ function ImportDialog({ paths }) {
             <input type="text" class="compact mag-item-date" aria-label="Date (YYYY-MM)" placeholder="YYYY-MM" value=${it.date || ""} disabled=${!it.include} onInput=${(e) => set(it.path, { date: e.target.value || null })} />
           </span>
         </div></li>`)}</ul>
-      <label class="check-row"><input type="checkbox" id="mag-import-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> <span title="Hardlinks are a second name for the same file on the same drive: they take no space">Always copy (no hardlinks)</span></label>
+      <${HowControl} id="mag-import-mode" value=${how} onChange=${setHow} />
       <p class="muted"><b>${plural(included, "issue", "issues")}</b> to import. The magazine, number and date come from each file's name: put them right before the preview.</p>`}
   <//>`;
 }
@@ -99,10 +101,10 @@ export function MagazineDialogs({ dialog }) {
   return null;
 }
 
-/** Import magazines… from a folder (or `files`, picked one by one). */
-export async function importMagazines(files = false) {
+/** Import magazines… from a folder (or `files`, picked one by one, or `given`, dropped). */
+export async function importMagazines(files = false, given = null) {
   const lib = ctx.platform.library;
-  const paths = files ? (await lib.pickFiles("Magazine issues (PDF, CBZ, CBR)")) || [] : [await lib.pickFolder("A folder of magazines")].filter(Boolean);
+  const paths = given || (files ? (await lib.pickFiles("Magazine issues (PDF, CBZ, CBR)")) || [] : [await lib.pickFolder("A folder of magazines")].filter(Boolean));
   if (paths.length) ui.set({ dialog: { type: "mag-import", paths } });
 }
 
@@ -135,10 +137,12 @@ export function Magazines() {
       toast(err(e), 8000);
     }
   };
+  // a picture dropped on an issue is its cover; anything else is imported, as magazines (D78)
   useDroppedFiles((paths) => {
     const pic = paths.find((p) => PICTURE.test(p));
-    if (pic && focus && !off) cover(focus, pic);
-    else if (!off) ui.set({ dialog: { type: "mag-import", paths } });
+    if (!(pic && focus && !off)) return "mags";
+    cover(focus, pic);
+    return true;
   });
   const chooseCover = async (issue) => {
     const p = await ctx.platform.library.pickFile(`A cover for ${issue.title}`, ["jpg", "jpeg", "png", "webp"]);
@@ -174,12 +178,12 @@ export function Magazines() {
   const removeList = (name) => confirmDialog({ title: `Remove the list ${name}?`, text: "Its issues are no longer looked for. The magazines you have stay.", button: "Remove it", run: async () => { await api("magazine_list_remove", { name }); await reload(); } });
   const missingAll = mags.reduce((n, x) => n + (x.missing?.length || 0), 0);
   const more = () => [
-    { id: "mag-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => importMagazines(true) },
+    { id: "mag-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => importFrom("import-mags", () => importMagazines(true)) },
     { id: "mag-add-list", label: "Import a list…", icon: "audit", disabled: off || !isDesktop(), run: addList },
     { id: "mag-save-missing", label: "Save a list of what's missing", icon: "download", disabled: off || !missingAll, run: () => saveMissing() },
   ];
   const head = html`<${CommandBar} id="mag-head" title="Magazines" count=${data ? plural(mags.filter((x) => !x.none).length, "magazine", "magazines") : null}
-    primary=${html`<button type="button" class="primary compact" id="mag-import" disabled=${off || !isDesktop()} onClick=${() => importMagazines()}>${Icon.inbox(15)} Import magazines…</button>`}
+    primary=${html`<button type="button" class="primary compact" id="mag-import" disabled=${off || !isDesktop()} onClick=${() => importFrom("import-mags", () => importMagazines())}>${Icon.inbox(15)} Import magazines…</button>`}
     more=${{ id: "mag-menu", title: "Import files, add a list, save the missing", items: more }} />`;
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   if (error) return html`${head}<div class="pages"><p class="warn-note" role="alert">${error}</p></div>`;
@@ -188,7 +192,7 @@ export function Magazines() {
   return html`${head}<div class="pages magazines-page" id="magazines-page">
     ${!mags.length ? html`<div class="library-settings" id="mag-empty">
       <p class="page-lead">Your magazines, each with its issues as PDF, CBZ or CBR files, their covers, and the issues you're missing.</p>
-      <p class="muted">Import magazines… reads a folder of them (the magazine, number and date of each come from its name), and imports them into the library's Magazines folder. Import a list… of the issues there are to see which you don't have.</p>
+      <p class="muted">Import magazines… (on the <a href=${routeHash("import")}>Import</a> page, where files dropped on the window go too) reads a folder of them (the magazine, number and date of each come from its name), and imports them into the library's Magazines folder. Import a list… of the issues there are to see which you don't have.</p>
     </div>` : html`<div class="mag-layout">
       <div class="collection-main" id="mag-main" data-title=${m.title}>
         <div class="collection-top">

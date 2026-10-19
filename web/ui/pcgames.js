@@ -15,9 +15,10 @@ import { api, toast, followJob, isDesktop, plural, size, libraryUrl, shortPath, 
 import { reveal } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
 import { Dialog, close } from "./dialogs.js";
-import { Preview, runPlan } from "./organise.js";
+import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { Icon } from "./icons.js";
 import { gameHash } from "./browse.js";
+import { importFrom } from "./importpage.js";
 
 const err = (e) => e.message || String(e);
 const again = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
@@ -109,11 +110,11 @@ function ImportDialog({ paths, restore }) {
   const [items, setItemsHere] = useState(restore ? review.items : null);
   const setItems = (f) => setItemsHere((all) => (review.items = typeof f === "function" ? f(all) : f));
   const [progress, setProgress] = useState("");
-  const [mode, setMode] = useState("copy");
-  const [alwaysCopy, setAlwaysCopy] = useState(false);
+  const [how, setHow] = useState(review.how);
   const [plan, setPlan] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  useEffect(() => { review.how = how; }, [how]);
   useEffect(() => {
     if (restore && review.items) return;
     let gone = false;
@@ -146,7 +147,7 @@ function ImportDialog({ paths, restore }) {
     setBusy(true);
     setError("");
     try {
-      setPlan(await api("pc_import_plan", { items, mode, always_copy: alwaysCopy }));
+      setPlan(await api("pc_import_plan", { items, ...howArgs(how) }));
     } catch (e) {
       setError(err(e));
     } finally {
@@ -155,15 +156,15 @@ function ImportDialog({ paths, restore }) {
   };
   if (plan) {
     const nothing = !plan.ops;
-    return html`<${Dialog} title=${plan.title || plan.label} id="pc-import-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan).then(again); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Import"}
+    return html`<${Dialog} title=${plan.title || plan.label} id="pc-import-dialog" wide=${true} sticky=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan).then(again); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Import"}
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
-      <p class="muted">Each game gets its own folder in the PC games folder, with a game.json that says what it is. ${mode === "copy" ? "Your files stay where they are." : "The files are moved; Undo puts them back."} Artwork from the sources is fetched afterwards.</p>
+      <p class="muted">Each game gets its own folder in the PC games folder, with a game.json that says what it is. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."} Artwork from the sources is fetched afterwards.</p>
     <//>`;
   }
   const included = (items || []).filter((i) => i.include).length;
   const games = (items || []).filter((i) => i.status !== "have");
-  return html`<${Dialog} title="Import PC games" id="pc-import-dialog" wide=${true} onSubmit=${preview} busy=${busy || !items || !included} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
+  return html`<${Dialog} title="Import PC games" id="pc-import-dialog" wide=${true} sticky=${!items || items.length > 0} onSubmit=${preview} busy=${busy || !items || !included} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
     ${!items ? html`<p class="muted" id="pc-import-reading">Reading what's there: each file is hashed and looked inside${progress ? html` (${progress})` : null}…</p>` : html`
       ${!items.length ? html`<p id="pc-import-empty">There's nothing to import${paths?.length ? "" : " in the inbox"}.</p>` : null}
       <ul class="ls-list pc-items" id="pc-items">${items.map((it) => {
@@ -186,22 +187,20 @@ function ImportDialog({ paths, restore }) {
           ${it.status !== "have" ? html`<button type="button" class="ghost compact" data-action="identify" onClick=${() => identify(it)}>Identify…</button>` : null}
         </li>`;
       })}</ul>
-      ${games.length ? html`<div class="field-block" role="radiogroup" aria-label="How">
-        <label class="check-row"><input type="radio" name="pc-import-mode" value="copy" checked=${mode === "copy"} onChange=${() => setMode("copy")} /> Copy (hardlinked when it's on the same drive, so it takes no space)</label>
-        <label class="check-row"><input type="radio" name="pc-import-mode" value="move" checked=${mode === "move"} onChange=${() => setMode("move")} /> Move them into the library</label>
-        ${mode === "copy" ? html`<label class="check-row"><input type="checkbox" id="pc-import-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> <span title="Hardlinks are a second name for the same file on the same drive: they take no space">Always copy (no hardlinks)</span></label>` : null}
-      </div>
+      ${games.length ? html`<${HowControl} id="pc-import-mode" value=${how} onChange=${setHow} />
       <p class="muted"><b>${plural(included, "item", "items")}</b> to import. Nothing changes until you've seen the preview.</p>` : null}`}
   <//>`;
 }
 
-/** The review list, kept while Identify has the dialog's place. */
-const review = { items: null };
+/** The review list and how it comes in, kept while Identify has the dialog's place. */
+const review = { items: null, how: "copy" };
 
-/** Start Import…: the inbox, or files or a folder picked. */
-export async function importPc(how = "inbox") {
+/** Start Import…: the inbox, files or a folder picked, or `given` paths ("paths", dropped). */
+export async function importPc(how = "inbox", given = []) {
   let paths = [];
-  if (how === "files") {
+  if (how === "paths") {
+    paths = given;
+  } else if (how === "files") {
     paths = (await ctx.platform.library.pickFiles("The installers, archives or discs to import")) || [];
     if (!paths.length) return;
   } else if (how === "folder") {
@@ -210,6 +209,7 @@ export async function importPc(how = "inbox") {
     paths = [p];
   }
   review.items = null;
+  review.how = "copy";
   ui.set({ dialog: { type: "pc-import", paths } });
 }
 
@@ -279,7 +279,7 @@ function AddGameDialog({ platform: given, files: givenFiles }) {
   const [typed, setTyped] = useState("");
   const [places, setPlaces] = useState([]);
   const [into, setInto] = useState("");
-  const [mode, setMode] = useState("copy");
+  const [how, setHow] = useState("copy");
   const [plan, setPlan] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -300,7 +300,7 @@ function AddGameDialog({ platform: given, files: givenFiles }) {
     setBusy(true);
     setError("");
     try {
-      setPlan(await api("add_plan", { files: chosen, platform, into, mode: mode === "move" ? "move" : "copy", always_copy: mode === "always" }));
+      setPlan(await api("add_plan", { files: chosen, platform, into, ...howArgs(how) }));
     } catch (e) {
       setError(err(e));
     } finally {
@@ -314,23 +314,24 @@ function AddGameDialog({ platform: given, files: givenFiles }) {
       again();
       if (r?.added) ui.set({ dialog: { type: "add-results", added: r.added } });
     };
-    return html`<${Dialog} title=${plan.title || plan.label} id="add-game-dialog" wide=${true} onSubmit=${run} busy=${plan.short || !plan.ops} submitLabel="Add" cancelLabel="Back" onCancel=${() => setPlan(null)}>
+    return html`<${Dialog} title=${plan.title || plan.label} id="add-game-dialog" wide=${true} onSubmit=${run} busy=${plan.short || !plan.ops} submitLabel="Import" cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
       <p class="muted">Once it's there the folder is scanned, and you'll see what its DAT says about it.</p>
     <//>`;
   }
-  return html`<${Dialog} title="Import a game file" id="add-game-dialog" onSubmit=${preview} busy=${busy || !platform || !chosen.length || !into} error=${error} submitLabel=${busy ? "Reading…" : "Preview"}>
-    <label class="field-block"><span class="field-label">System</span>
-      <select id="add-platform" class="compact" value=${platform} onChange=${(e) => setPlatform(e.target.value)}>
-        <option value="">Choose one</option>
-        ${platforms.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
-      </select>
-      <small class="muted">PC games are imported on the <a href=${routeHash("pc")} onClick=${close}>PC games</a> page.</small></label>
+  // the file first, then its system (review M40)
+  return html`<${Dialog} title="Import a game file" id="add-game-dialog" sticky=${chosen.length > 0} onSubmit=${preview} busy=${busy || !platform || !chosen.length || !into} error=${error} submitLabel=${busy ? "Reading…" : "Preview"}>
     <div class="field-block"><span class="field-label">The game</span>
       ${isDesktop() ? html`<div class="pick-row"><span class="pick-path" id="add-files">${files.length ? files.join(", ") : "Nothing chosen"}</span>
         <button type="button" class="ghost" id="add-pick-files" onClick=${pickFiles}>Choose…</button></div>`
         : html`<textarea id="add-files-typed" rows="2" placeholder="Its file's path (one per line)" onInput=${(e) => setTyped(e.target.value)}>${typed}</textarea>`}
       <small class="muted">A ROM, a ZIP or 7z of one, or a disc (its cue sheet brings its tracks).</small></div>
+    <label class="field-block"><span class="field-label">System</span>
+      <select id="add-platform" class="compact" value=${platform} onChange=${(e) => setPlatform(e.target.value)}>
+        <option value="">Choose one</option>
+        ${platforms.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
+      </select>
+      <small class="muted">PC games have their own place on the Import page.</small></label>
     ${platform ? html`<div class="field-block"><span class="field-label">Into</span>
       <div class="pick-row">
         <select id="add-into" class="compact" value=${into} onChange=${(e) => setInto(e.target.value)}>
@@ -340,11 +341,7 @@ function AddGameDialog({ platform: given, files: givenFiles }) {
         ${isDesktop() ? html`<button type="button" class="ghost" id="add-pick-into" onClick=${pickInto}>Another folder…</button>` : null}
       </div>
       ${!places.length ? html`<small class="muted">There's no folder with games for this system yet: the folder you choose becomes one.</small>` : null}</div>` : null}
-    <div class="field-block" role="radiogroup" aria-label="How">
-      <label class="check-row"><input type="radio" name="add-mode" value="copy" checked=${mode === "copy"} onChange=${() => setMode("copy")} /> Copy it, hardlinked on the same drive (the original stays)</label>
-      <label class="check-row"><input type="radio" name="add-mode" value="always" checked=${mode === "always"} onChange=${() => setMode("always")} /> Copy it, always (a full copy, even on the same drive)</label>
-      <label class="check-row"><input type="radio" name="add-mode" value="move" checked=${mode === "move"} onChange=${() => setMode("move")} /> Move it</label>
-    </div>
+    <${HowControl} id="add-mode" value=${how} onChange=${setHow} what="it" />
   <//>`;
 }
 
@@ -499,8 +496,8 @@ export function PcGames() {
   const games = data?.games || [];
   const shown = q ? games.filter((g) => `${g.title} ${g.year || ""}`.toLowerCase().includes(q.toLowerCase())) : games;
   const menu = () => [
-    { id: "pc-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => importPc("files") },
-    { id: "pc-import-folder", label: "Import a game's folder…", icon: "folder", disabled: off || !isDesktop(), run: () => importPc("folder") },
+    { id: "pc-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => importFrom("import-pc", () => importPc("files")) },
+    { id: "pc-import-folder", label: "Import a game's folder…", icon: "folder", disabled: off || !isDesktop(), run: () => importFrom("import-pc", () => importPc("folder")) },
     { sep: true },
     { id: "pc-settings", label: "Settings › PC games", icon: "cog", run: () => { location.hash = "#/settings"; setTimeout(() => document.getElementById("settings-pc")?.scrollIntoView(), 200); } },
   ];
@@ -508,7 +505,7 @@ export function PcGames() {
     search=${games.length ? html`<input type="search" id="pc-search" class="compact" placeholder="Search the PC games" aria-label="Search the PC games" value=${q} onInput=${(e) => setQ(e.target.value)} />` : null}
     primary=${html`<span class="cmd-buttons">
       <button type="button" class="ghost compact" id="pc-steam" disabled=${!games.length} title="Your PC games as non-Steam games, with their artwork" onClick=${() => ui.set({ dialog: { type: "steam" } })}>${Icon.gamepad(15)} Add to Steam…</button>
-      <button type="button" class="primary compact" id="pc-import" disabled=${off} title=${data?.inbox ? `Read the inbox (${data.inbox}${data.inbox_waiting ? `: ${plural(data.inbox_waiting, "thing", "things")} in it` : ""})` : "Choose what to import"} onClick=${() => importPc(data?.inbox ? "inbox" : "files")}>${Icon.inbox(15)} Import…</button></span>`}
+      <button type="button" class="primary compact" id="pc-import" disabled=${off} title=${data?.inbox ? `Read the inbox (${data.inbox}${data.inbox_waiting ? `: ${plural(data.inbox_waiting, "thing", "things")} in it` : ""})` : "Choose what to import"} onClick=${() => importFrom("import-pc", () => importPc(data?.inbox ? "inbox" : "files"))}>${Icon.inbox(15)} Import…</button></span>`}
     more=${{ id: "pc-menu", title: "Import files or a folder, settings", items: menu }} />`;
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   if (!data) return html`${head}<div class="pages"><p class="muted">Reading the PC games…</p></div>`;
@@ -518,9 +515,9 @@ export function PcGames() {
       <p class="page-lead">${Icon.monitor(18)} Import installers, zipped games and game folders into one layout: each game in its own folder, with what it is and how it starts.</p>
       <section class="ls-section">
         <h2>To start</h2>
-        <p>Drop GOG installers, archives, disc images or game folders into an inbox folder and press Import…, or pick them.</p>
+        <p>Drop GOG installers, archives, disc images or game folders into an inbox folder and press Import…, or pick them. Imports are made on the <a href=${routeHash("import")}>Import</a> page.</p>
         <p class="muted">PC games go to <code id="pc-folder">${data.folder}</code>. ${data.inbox ? html`The inbox is <code id="pc-inbox">${data.inbox}</code>.` : html`Choose an inbox in <a href=${routeHash("settings")} onClick=${() => setTimeout(() => document.getElementById("settings-pc")?.scrollIntoView(), 200)}>Settings › PC games</a>.`}</p>
-        <div class="home-actions"><button type="button" class="primary" id="pc-first" disabled=${off} onClick=${() => importPc(data.inbox ? "inbox" : "files")}>Import…</button></div>
+        <div class="home-actions"><button type="button" class="primary" id="pc-first" disabled=${off} onClick=${() => importFrom("import-pc", () => importPc(data.inbox ? "inbox" : "files"))}>Import…</button></div>
       </section>
     </div></div>`;
   }

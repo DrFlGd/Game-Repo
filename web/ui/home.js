@@ -11,6 +11,7 @@ import { refreshGames, scan, importDats, starterDats, repointRoot, addRoot } fro
 import { CommandBar } from "./layout.js";
 import { argHash } from "./panels.js";
 import { Icon } from "./icons.js";
+import { importFrom } from "./importpage.js";
 
 /** The Library ⋯ menu: what's done to the whole library. */
 function libraryItems() {
@@ -37,8 +38,8 @@ function PlatformsCard({ home, off }) {
       <span class="muted pbar-dat" title=${b.dat_name}>${b.dat_name}</span>
     </li>`)}</ul>` : html`<p class="muted" id="home-no-dats">${home.dats ? "No DAT is in use yet." : "Import the DATs for your systems to see what you have and what's missing."}</p>`}
     <div class="home-actions">
-      ${isDesktop() ? html`<button type="button" class="ghost" id="home-import" disabled=${off} title=${off ? "This library is open read-only" : null} onClick=${() => importDats()}>Import DATs…</button>` : null}
-      ${bars.length ? null : html`<button type="button" class="primary" id="home-starter" disabled=${off} title=${off ? "This library is open read-only" : null} onClick=${() => starterDats()}>Get starter DATs…</button>`}
+      ${isDesktop() ? html`<button type="button" class="ghost" id="home-import" disabled=${off} title=${off ? "This library is open read-only" : null} onClick=${() => importFrom("settings-dats", () => importDats())}>Import DATs…</button>` : null}
+      ${bars.length ? null : html`<button type="button" class="primary" id="home-starter" disabled=${off} title=${off ? "This library is open read-only" : null} onClick=${() => importFrom("settings-dats", () => starterDats())}>Get starter DATs…</button>`}
       <a class="ghost button-link" href=${routeHash("audit")}>Open the audit</a>
     </div>
   </section>`;
@@ -68,7 +69,7 @@ function AttentionCard({ home, off }) {
     <h2>Folders with games</h2>
     ${(home.roots || []).length ? html`<p>${plural(home.roots.length, "folder", "folders")}, ${plural(home.files || 0, "file", "files")} found.
       ${last ? html` Last scan ${when(last.finished || last.started)}${last.stopped ? " (stopped)" : ""}.` : " Not scanned yet."}</p>`
-      : html`<p>Add the folders your games are in, then scan them.${isDesktop() ? html` <button type="button" class="ghost" id="home-add-root" disabled=${off} title=${off ? "This library is open read-only" : null} onClick=${() => addRoot()}>Add a folder…</button>` : null}</p>`}
+      : html`<p>Add the folders your games are in, then scan them.${isDesktop() ? html` <button type="button" class="ghost" id="home-add-root" disabled=${off} title=${off ? "This library is open read-only" : null} onClick=${() => importFrom("settings-folders", () => addRoot())}>Add a folder…</button>` : null}</p>`}
     ${home.unhashed ? html`<p class="warn-note">${plural(home.unhashed, "file hasn't", "files haven't")} been read yet: scan to finish.</p>` : null}
     ${home.needs_tool ? html`<p class="warn-note" id="home-needs-tool">${plural(home.needs_tool, "RVZ file waits", "RVZ files wait")} for dolphin-tool: set where it is in <a href=${routeHash("settings")}>Settings › Tools</a>, then scan.</p>` : null}
     ${missing.map((r) => html`<p class="warn-note" key=${r.id}>${r.dir} isn't on this computer.

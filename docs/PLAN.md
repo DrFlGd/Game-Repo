@@ -3237,7 +3237,61 @@ Order (Jerred agreed the order, and asked for the docs batch to go with the firs
      start's command bar. Not done: making the export plan a job with Stop (batch 3's
      note); it plans 8,000 games in 1.4 s, so it waits until someone asks.
 5. **Metadata, PC games and magazines** (H17–H21, M25–M32).
+   **Status: done, with batch 6 (PR #35).** Jerred asked for batches 5 and 6 to go
+   together. The tests name the finding in a comment. As built:
+   - H17: a scrape, *Making details again* and Identify take the change's place with
+     `begin_meta` (its name starts `meta:`, so a scan may run beside it but no change,
+     other scrape or hand edit may); every hand edit asks `editable()` first.
+   - H18: Identify writes `identified_by` into game.json and `sources::make_fields` puts
+     that source first in the order, under a pinned field or a field's own source.
+     M27: Identify sets only `identified_by` and the ids, and `sources::make` builds the
+     rest, so hand edits stay.
+   - H19: `scrapers::searches_system` says whether a source's name search is limited to
+     the system; IGDB and TheGamesDB without the system's id give candidates only. The
+     ids were filled in for 12 systems and 6 systems added (ColecoVision, Intellivision,
+     Vectrex, Pokémon Mini, PC-FX, CD-i).
+   - H20: a magazine's import finds the folder with its manifest by `organise::key` when
+     the title isn't found. H21: dates and names are cut by characters. M32: a cover or
+     issue file outside its magazine's folder (`magazines::inside`) isn't served or
+     exported.
+   - M25: `meta::sync` builds the PC games' title map once. M26: LaunchBox's search
+     orders exact, then prefix matches, then length, before its 500-row limit. M28:
+     Identify and Delete metadata's planning open their own index connection. M29: a
+     source failing three games in a row is switched off for the run (`FAILS`), and
+     ScreenScraper's account is read on a thread while Stop is polled. M30: Stop is
+     heard between inbox items. M31: `pcgames::read_manifest` reads leniently.
 6. **One Import page** (D78–D80, which take in H5, H6, M8, M35, M40–M42 and H3).
+   **Status: done, with batch 5 (PR #35).** As built:
+   - D78, M41: `importFrom(card, run)` (importpage.js) opens `#/import/<section>` and
+     starts the import there; Home, Audit, BIOS files, PC games, Documents, Magazines and
+     Metadata call it. `listenForDrops` (documents.js, started by `mountShell`) sends a
+     drop to the shown page's `useDroppedFiles` handler (a game's page, the Metadata
+     panel's game, a magazine's cover), which returns true when it took it; otherwise
+     `dropToImport` opens the Import page and asks what the files are (`import-drop`,
+     guessed from the extensions; a page can return a guess, as Magazines does). Metadata's
+     and Collections' first screens link to Import › DAT files.
+   - Recent imports, History and a collection's history: `DayGroups` (layout.js) groups a
+     history by day, the newest open; `ChangeHistory` (settings.js) is History's list and,
+     with `IMPORT_KINDS`, Recent imports'. *Steps* opens `ChangeSteps` (organise.js), a
+     page at a time from `change_items`. A collection's step names up to five games, and
+     more behind a `<details>`; `history::SHOWN` is 1000.
+   - D79: `HowControl` and `howArgs` (organise.js) in every import: games, One game…, PC
+     games, documents, magazines and BIOS files (`bios::gather_plan` and
+     `magazines::plan` take the mode; BIOS plans are kind `bios`). Every last button
+     says *Import*.
+   - M40: plans' `title` is present tense ("Import 2 PC games"), `label` past tense for
+     History; the preview counts the plan's own kind (`COUNTS`). One game… asks for the
+     file first. M42: the import review lists the games before where they go. D80: the
+     Scrape window shows one line of what's fetched and *Change what's fetched…*.
+   - M35: a `sticky` dialog ignores clicks behind it and Esc unless `onDismiss` puts it
+     away with nothing lost; the document, magazine, PC game and collection-from-folders
+     windows are sticky once they've read something.
+   - H3: a ZIP already named as its game, with the file inside it misnamed, is zipped
+     again in place (`organise::rezips`), the old archive set aside first. H5: a sheet the DAT doesn't know whose
+     tracks are a matched game's comes in with the game. M8: a game of several files comes
+     in whole, in `<place>/<game>/`, or not at all; an unknown sheet is rewritten with the
+     new names. H6: a bad copy where a game goes is set aside and replaced; a good one is
+     left (`subset::holds`).
 7. **The rest of CI and tests** (M44–M46): chdman fetched, a dolphin-tool stand-in on
    Windows, the page test split, page tests for D77's move and new-folder paths and the
    four frontend exports, and why Windows' first scan is 25 times slower than Linux's.
@@ -3444,6 +3498,7 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
 13. Hardening after the v0.5.18 review (D78–D82): the eight batches in that section, in
     order, each a pull request merged on Jerred's word. Batches 1 and 2 are released
     (v0.5.19), batch 3, exports and collections, is v0.5.20; batch 4, the interface, is
-    done; batch 5, metadata, PC games and magazines, is next.
+    v0.5.21; batches 5 (metadata, PC games and magazines) and 6 (one Import page) are done
+    together; batch 7, the rest of CI and the tests, is next.
 14. Then Phase 9, serving games to devices on the home network (3.10). Later: reading
     magazines' text (PDF, CBZ and CBR) and tagging each issue with the games it covers.

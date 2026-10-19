@@ -1,6 +1,6 @@
 // One page layout (carried over from Model Library): the command bar every page
 // starts with, the toolbar's view switcher and sort menu, the note that says a
-// search is on, and the box the details panels edit in.
+// search is on, the box the details panels edit in, and a history's days (D78).
 import { html, useState, useLayoutEffect } from "../lib/html.js";
 import { Icon } from "./icons.js";
 import { openMenu } from "./actions.js";
@@ -126,4 +126,33 @@ export function EditBox({ id, cls = "", label, caption, title, placeholder, valu
   const box = html`<input type="text" class=${`edit-box ${cls}`} id=${id} aria-label=${label} title=${title || label} placeholder=${placeholder} value=${v} disabled=${off}
     onInput=${(e) => setV(e.target.value)} onKeyDown=${key} onChange=${(e) => onSave(e.target.value.trim())} />`;
   return caption ? html`<label class="edit-row"><span class="edit-cap">${caption}</span>${box}</label>` : box;
+}
+
+const dayKey = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; };
+
+/** A day as a history names it: Today, Yesterday, or its date. */
+function dayName(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "Earlier";
+  const now = new Date();
+  const back = new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if (back === 0) return "Today";
+  if (back > 0 && back <= 86400000 * 1.5) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", ...(d.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }) });
+}
+
+/** A history grouped by day (D78: "5 today and 500 yesterday" are two groups, each opened
+ *  to see its changes). `items` newest first, each with its time in `at(item)`; `row(item)`
+ *  is its `<li>`; `sum(items)` says what a day holds. The newest day is open. */
+export function DayGroups({ id, items, at, row, sum }) {
+  const days = [];
+  for (const it of items) {
+    const k = dayKey(at(it));
+    if (days.length && days[days.length - 1].key === k) days[days.length - 1].items.push(it);
+    else days.push({ key: k, when: at(it), items: [it] });
+  }
+  return html`<div class="day-groups" id=${id}>${days.map((d, i) => html`<details class="day-group" key=${d.key || i} data-day=${d.key} open=${i === 0}>
+    <summary><b>${dayName(d.when)}</b> <span class="muted">${sum(d.items)}</span></summary>
+    <ul class="ls-list change-list">${d.items.map(row)}</ul>
+  </details>`)}</div>`;
 }

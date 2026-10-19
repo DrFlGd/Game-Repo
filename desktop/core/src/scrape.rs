@@ -22,7 +22,7 @@ use crate::sources;
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -179,7 +179,9 @@ fn ask(cfg: &AppConfig, data_dir: &Path, o: &Options, g: &DatGame, off: &mut Has
             "igdb" => {
                 // its search answers with everything a game has
                 let found = scrapers::igdb_search(cfg, data_dir, &g.title, &g.platform)?;
-                match found.iter().position(|m| same_game(g, &m.title, m.year)) {
+                // not limited to the system: only candidates (H19)
+                let sure = scrapers::searches_system(s, &g.platform);
+                match found.iter().position(|m| sure && same_game(g, &m.title, m.year)) {
                     Some(i) => Ok((Some(found[i].clone()), vec![])),
                     None => Ok((
                         None,
@@ -194,7 +196,8 @@ fn ask(cfg: &AppConfig, data_dir: &Path, o: &Options, g: &DatGame, off: &mut Has
             }
             "thegamesdb" => {
                 let found = scrapers::search(cfg, data_dir, s, &g.title, &g.platform)?;
-                match found.iter().find(|c| same_game(g, &c.title, c.year)) {
+                let sure = scrapers::searches_system(s, &g.platform);
+                match found.iter().find(|c| sure && same_game(g, &c.title, c.year)) {
                     Some(c) => Ok((Some(scrapers::details(cfg, data_dir, s, &c.id, &regions)?), vec![])),
                     None => Ok((None, found.into_iter().filter(|c| c.score >= 50).take(3).collect())),
                 }
@@ -343,6 +346,29 @@ fn keep_review(ix: &Index, lib: &Library, g: &DatGame, cands: &[Candidate]) -> R
     meta::write_game(ix, lib, &dir, &v)
 }
 
+/// A source that fails for this many games in a row (unreachable, say) is asked no more
+/// this scrape: each could wait a minute or two for it (M29).
+const FAILS: usize = 3;
+
+/// ScreenScraper's account read on a thread of its own, so Stop is heard while a server
+/// that doesn't answer is waited for (M29). None: stopped.
+fn configure(cfg: &AppConfig, data_dir: &Path, cancel: &AtomicBool) -> Option<usize> {
+    use std::sync::mpsc::RecvTimeoutError;
+    let (cfg, data) = (cfg.clone(), data_dir.to_path_buf());
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(scrapers::ss_configure(&cfg, &data));
+    });
+    loop {
+        match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+            Ok(n) => return Some(n),
+            Err(RecvTimeoutError::Timeout) if !cancel.load(Ordering::Relaxed) => {}
+            Err(RecvTimeoutError::Timeout) => return None,
+            Err(RecvTimeoutError::Disconnected) => return Some(1),
+        }
+    }
+}
+
 /// Run a scrape (a job). `progress` gets `{ item, items, name }`.
 pub fn run(ix: &Index, lib: &Library, cfg: &AppConfig, data_dir: &Path, o: &Options, cancel: &AtomicBool, progress: &mut dyn FnMut(Value)) -> Result<Value> {
     lib.writable()?;
@@ -374,9 +400,18 @@ pub fn run(ix: &Index, lib: &Library, cfg: &AppConfig, data_dir: &Path, o: &Opti
     let mut stopped = false;
     // ScreenScraper's threads: that many games asked about at once, then put in their
     // folders one after another (only the asking is at once)
-    let threads = if o.sources.iter().any(|s| s == "screenscraper") && !games.is_empty() { scrapers::ss_configure(cfg, data_dir) } else { 1 };
+    let threads = if o.sources.iter().any(|s| s == "screenscraper") && !games.is_empty() {
+        configure(cfg, data_dir, cancel).unwrap_or_else(|| {
+            stopped = true;
+            1
+        })
+    } else {
+        1
+    };
+    // the games in a row each source failed for: it's asked no more after FAILS (M29)
+    let mut fails: HashMap<String, usize> = HashMap::new();
     let mut next = 0;
-    'all: while next < games.len() {
+    'all: while !stopped && next < games.len() {
         let mut batch: Vec<(usize, DatGame)> = vec![];
         while next < games.len() && batch.len() < threads {
             if cancel.load(Ordering::Relaxed) {
@@ -424,6 +459,13 @@ pub fn run(ix: &Index, lib: &Library, cfg: &AppConfig, data_dir: &Path, o: &Opti
             })
         };
         for ((i, g), (asked, off1, err1)) in batch.iter().zip(answers) {
+            for src in &o.sources {
+                let n = fails.entry(src.clone()).or_default();
+                *n = if err1.contains_key(src) { *n + 1 } else { 0 };
+                if *n >= FAILS {
+                    off.insert(src.clone());
+                }
+            }
             off.extend(off1);
             for (k, e) in err1 {
                 errors.entry(k).or_insert(e);
@@ -463,6 +505,11 @@ pub fn pick(ix: &Index, lib: &Library, cfg: &AppConfig, data_dir: &Path, game: i
     let mut o = defaults(lib);
     o.existing = "replace".into();
     o.prefer.clear();
+    // its details come from this source from now on, over the others' (H18)
+    let dir = meta::ensure_folder(ix, lib, &g)?;
+    let mut v = meta::read_game(&dir);
+    v["identified_by"] = json!(m.source);
+    meta::write_game(ix, lib, &dir, &v)?;
     apply(ix, lib, &g, &[m], &o, &AtomicBool::new(false))?;
     docs::sync(ix, lib)?;
     meta::game(ix, lib, game)
@@ -572,8 +619,12 @@ pub(crate) mod tests {
         cfg
     }
 
+    /// ScreenScraper's threads are the app's, not a scrape's: one test that sets them at a time.
+    static SS_TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn a_systems_games_are_scraped_by_hash_and_by_name_and_the_unsure_need_a_look() {
+        let _turn = SS_TURN.lock().unwrap_or_else(|e| e.into_inner());
         let (dir, lib, ix) = crate::collection::tests::fixture("scrape");
         let data = dir.join("data");
         let mut cfg = sources();
@@ -643,6 +694,86 @@ pub(crate) mod tests {
         assert_eq!((r["games"].as_u64(), r["skipped"].as_u64()), (Some(10), Some(5)), "{r}");
         // the choices are saved for next time, without what they were for
         assert_eq!(defaults(&lib).sources, o.sources);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_source_that_doesnt_answer_is_asked_no_more_and_stop_is_heard_while_waiting() {
+        let _turn = SS_TURN.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = crate::collection::tests::fixture("unreachable");
+        let data = dir.join("data");
+        // a server that takes each connection and closes it at once
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let n = seen.clone();
+        std::thread::spawn(move || {
+            for c in l.incoming().flatten() {
+                n.fetch_add(1, Ordering::Relaxed);
+                drop(c);
+            }
+        });
+        let mut cfg = sources();
+        for (k, u) in [("igdb", "/igdb"), ("twitch", "/tw")] {
+            cfg.source_urls.insert(k.into(), format!("http://{addr}{u}"));
+        }
+        let o = Options { platform: "gb".into(), sources: vec!["igdb".into()], ..Default::default() };
+        let r = run(&ix, &lib, &cfg, &data, &o, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        // eight games: asked for three, then no more (M29)
+        assert_eq!((r["games"].as_u64(), r["sources_stopped"].as_bool(), r["errors"][0]["source"].as_str()), (Some(8), Some(true), Some("igdb")), "{r}");
+        let asked = seen.load(Ordering::Relaxed);
+        assert!((1..=3 * 2).contains(&asked), "{asked}");
+        // ScreenScraper's account, from a server that never answers: Stop ends the wait
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        cfg.source_urls.insert("screenscraper".into(), format!("http://{}/ss", silent.local_addr().unwrap()));
+        let ss = Options { sources: vec!["screenscraper".into()], ..o.clone() };
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let s2 = stop.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            s2.store(true, Ordering::Relaxed);
+        });
+        let t = std::time::Instant::now();
+        let r = run(&ix, &lib, &cfg, &data, &ss, &stop, &mut |_| {}).unwrap();
+        assert!(r["stopped"] == true && t.elapsed().as_secs() < 10, "{r} {:?}", t.elapsed());
+        // its connection closed, the account's reading (still waiting) ends too
+        drop(silent);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn identify_takes_the_games_details_and_a_search_off_its_system_is_only_a_candidate() {
+        let (dir, lib, ix) = crate::collection::tests::fixture("identify");
+        let data = dir.join("data");
+        let cfg = sources();
+        let o = Options { platform: "gb".into(), sources: vec!["screenscraper".into(), "igdb".into()], ..Default::default() };
+        run(&ix, &lib, &cfg, &data, &o, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        let alpha = dir.join("lib/_library/games/gb/Alpha (Europe)");
+        assert_eq!(meta::read_game(&alpha)["title"], "Alpha");
+        // H18: identified as another game, its title and description are that game's,
+        // though ScreenScraper (asked first) answered for Alpha
+        let l = meta::list(&ix, &lib, "gb", "have", "", 0, 50).unwrap();
+        let gid = l["items"].as_array().unwrap().iter().find(|x| x["name"] == "Alpha (Europe)").unwrap()["id"].as_i64().unwrap();
+        let g = pick(&ix, &lib, &cfg, &data, gid, "igdb", "88").unwrap();
+        assert_eq!((g["title"].as_str(), g["details"]["description"].as_str()), (Some("Delta Force"), Some("Picked by hand.")), "{g}");
+        // and it stays so when its details are made again
+        crate::sources::remake(&ix, &lib, &alpha, &crate::sources::Rules::of(&lib)).unwrap();
+        assert_eq!(meta::read_game(&alpha)["title"], "Delta Force");
+        // H19: a system IGDB has no id for (one added by hand) is searched by name alone, so
+        // a game of the same name is only a candidate
+        let mut beta = meta::dat_game(ix.conn(), l["items"].as_array().unwrap().iter().find(|x| x["name"] == "Beta (Japan)").unwrap()["id"].as_i64().unwrap()).unwrap();
+        let only_igdb = Options { sources: vec!["igdb".into()], ..o.clone() };
+        let (mut off, mut errs) = (HashSet::new(), BTreeMap::new());
+        assert_eq!(ask(&cfg, &data, &only_igdb, &beta, &mut off, &mut errs).found.len(), 1);
+        beta.platform = "myconsole".into();
+        let a = ask(&cfg, &data, &only_igdb, &beta, &mut off, &mut errs);
+        assert_eq!((a.found.len(), a.candidates.first().map(|c| c.title.as_str())), (0, Some("Beta")));
+        // (LaunchBox's games are searched by the system's name then)
+        assert!(!scrapers::searches_system("igdb", "myconsole") && scrapers::searches_system("launchbox", "myconsole"));
+        for sys in ["colecovision", "intellivision", "vectrex", "xbox", "3do", "fds", "pcfx", "cdimono1", "pokemini", "wonderswan"] {
+            assert!(scrapers::searches_system("igdb", sys) && scrapers::searches_system("thegamesdb", sys), "{sys}");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

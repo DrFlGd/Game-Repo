@@ -223,6 +223,17 @@ pub fn make_details(v: &mut Value, dir: &Path, rules: &Rules) {
 }
 
 fn make_fields(v: &mut Value, dir: &Path, rules: &Rules, titled: bool) {
+    // the source a game was identified by comes first: the others may have answered for
+    // another game (H18)
+    let by = v["identified_by"].as_str().filter(|s| !s.is_empty()).map(String::from);
+    let first;
+    let rules = match by {
+        Some(s) if rules.order.first() != Some(&s) => {
+            first = Rules { order: std::iter::once(s).chain(rules.order.iter().cloned()).collect(), from: rules.from.clone() };
+            &first
+        }
+        _ => rules,
+    };
     let have = answers(dir);
     let ed = edited(v);
     if !v["details"].is_object() {

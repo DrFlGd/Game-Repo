@@ -1,23 +1,34 @@
-// Import (docs/PLAN.md, "UI pass 3 design", D71 and D73): everything that brings files into
-// the library, in one place. Games in folders you keep (the folders with games, scanned
+// Import (docs/PLAN.md, "UI pass 3 design", D71 and D73; D78): everything that brings files
+// into the library, in one place. Games in folders you keep (the folders with games, scanned
 // where they are), games copied into the library from a folder (matched by the audit DATs,
 // named as they say, D53's bring-in) or one at a time (Add a game…), PC games, DATs, BIOS
-// files, documents and magazines. Other pages link here instead of repeating these.
-import { html } from "../lib/html.js";
+// files, documents and magazines, and the imports made lately. The other pages' import
+// buttons open this page at their section (`importFrom`), and files dropped where no page
+// takes them come here to be asked what they are (`dropToImport`).
+import { html, useState, useEffect } from "../lib/html.js";
 import { createStore, useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { api, followJob, isDesktop, plural, toast } from "./library.js";
 import { CommandBar } from "./layout.js";
 import { Dialog, close } from "./dialogs.js";
-import { Preview, runPlan } from "./organise.js";
-import { RootsSection, DatsSection } from "./settings.js";
+import { Preview, runPlan, HowControl, howArgs, IMPORT_KINDS } from "./organise.js";
+import { RootsSection, DatsSection, ChangeHistory } from "./settings.js";
 import { importPc, addGameDialog } from "./pcgames.js";
 import { importBios } from "./bios.js";
 import { attachDocs } from "./documents.js";
 import { importMagazines } from "./magazines.js";
-import { importDats, starterDats } from "./games.js";
+import { importDats, starterDats, addRoot } from "./games.js";
 import { Icon } from "./icons.js";
+import { argHash, useRouteArg } from "./panels.js";
+
+/** An import started from another page (D78): the Import page opens at its section
+ *  (`card`, the section's id) and `run` starts it there. */
+export function importFrom(card, run) {
+  const hash = argHash("import", card);
+  if (location.hash !== hash) location.hash = hash;
+  return run?.();
+}
 
 const err = (e) => e.message || String(e);
 const baseName = (p) => String(p).replace(/[\\/]+$/, "").split(/[\\/]/).pop();
@@ -61,6 +72,14 @@ ui.subscribe((st) => {
   }
 });
 const showImport = () => ui.set({ dialog: { type: "import-games" } });
+
+/** Import games from `paths` (dropped): added to the folders to read, unless an import is
+ *  under way, which is shown instead. */
+function importGamesFrom(paths) {
+  const s = imp.get();
+  if (!s.work && !s.review && !s.plan) imp.set({ folders: [...new Set([...s.folders, ...paths])] });
+  showImport();
+}
 const importShown = () => ui.get().dialog?.type === "import-games";
 const hide = () => { if (importShown()) close(); };
 
@@ -131,7 +150,7 @@ async function planImport() {
   const games = wanted(s).filter((g) => !s.off.includes(g.id));
   const plan = await work("collection_bring_plan", {
     games: games.map((g) => ({ id: g.id, files: g.files })), files: looseFiles(s), places: s.where,
-    mode: s.mode === "move" ? "move" : "copy", always_copy: s.mode === "always",
+    ...howArgs(s.mode),
   }, "Checking the files to import");
   if (!plan) return;
   imp.set({ plan });
@@ -160,6 +179,7 @@ function ImportGamesDialog() {
   if (s.work) return html`<${Working} w=${s.work} />`;
   if (s.plan) return html`<${ImportGamesPreview} plan=${s.plan} />`;
   const add = (p) => { if (p && !s.folders.includes(p)) imp.set({ folders: [...s.folders, p] }); };
+  const how = s.mode;
   if (s.review) {
     const review = s.review;
     const can = wanted(s);
@@ -175,13 +195,11 @@ function ImportGamesDialog() {
     const unplaced = going.filter((p) => !s.where[p]);
     const unknownCount = (review.unknown || []).length;
     const give = (d, p) => { const given = { ...s.given, [d]: p }; imp.set({ given }); fetchPlaces(given); };
-    return html`<${Dialog} title="The folders' games" id="import-games-review" wide=${true} sticky=${true} onSubmit=${planImport} busy=${!(picked.length + loose) || unplaced.length > 0} error=${s.error}
+    // what was found first, then where it goes (review M42)
+    return html`<${Dialog} title="The folders' games" id="import-games-review" wide=${true} sticky=${true} onDismiss=${hide} onSubmit=${planImport} busy=${!(picked.length + loose) || unplaced.length > 0} error=${s.error}
       submitLabel=${`Preview (${plural(picked.length + loose, "game", "games")})`} cancelLabel="Back" onCancel=${() => imp.set({ review: null, error: "" })}>
       <p id="import-games-totals">Read ${plural(review.read, "file", "files")}: <b>${plural(can.length, "game", "games")}</b> the library doesn't have${s.only ? ` for ${nameOf(s.only)}` : ""}${unknownCount ? `, ${plural(unknownCount, "file", "files")} no DAT knows` : ""}.
         ${s.mode === "move" ? " They'll be moved." : s.mode === "always" ? " They'll be copied in full." : " They'll be copied (hardlinked on the same drive)."}</p>
-      ${going.length ? html`<div class="field-block"><span class="field-label">Where each system's games go</span>
-        <ul class="ls-list import-places" id="import-places">${going.map((p) => html`<${PlaceRow} key=${p} platform=${p} name=${nameOf(p)} count=${count[p]} places=${s.lists[p]} value=${s.where[p]}
-          onChange=${(d) => imp.set((x) => ({ where: { ...x.where, [p]: d } }))} />`)}</ul></div>` : null}
       <div class="subset-systems" id="import-games-systems">${systemsOf(s).map((x) => html`<section key=${x.platform} class="subset-system" data-platform=${x.platform}>
         <h3>${x.name} <span class="muted">${plural(x.games.length, "game", "games")}, ${x.have} in the library</span></h3>
         <ul class="ls-list organise-list">${x.games.map((g) => html`<li key=${g.id} data-name=${g.name} data-status=${g.status}>
@@ -199,11 +217,14 @@ function ImportGamesDialog() {
           </select></li>`)}</ul></div>` : null}
       ${(review.unknown || []).some((u) => !u.file) ? html`<details class="field-block"><summary>${plural(review.unknown.filter((u) => !u.file).length, "file", "files")} that couldn't be read</summary>
         <ul class="ls-list">${review.unknown.filter((u) => !u.file).slice(0, 200).map((u, i) => html`<li key=${i}><span class="op-to">${u.path}</span> <span class="muted">${u.why}</span></li>`)}</ul></details>` : null}
+      ${going.length ? html`<div class="field-block"><span class="field-label">Where each system's games go</span>
+        <ul class="ls-list import-places" id="import-places">${going.map((p) => html`<${PlaceRow} key=${p} platform=${p} name=${nameOf(p)} count=${count[p]} places=${s.lists[p]} value=${s.where[p]}
+          onChange=${(d) => imp.set((x) => ({ where: { ...x.where, [p]: d } }))} />`)}</ul></div>` : null}
       <p class="muted">Each game is named as its DAT says. Nothing changes until you've seen the preview.</p>
     <//>`;
   }
   const typed = s.typed.trim();
-  return html`<${Dialog} title="Import games from folders" id="import-games-dialog" sticky=${true} onSubmit=${readFolders} busy=${!(s.folders.length || typed)} error=${s.error} submitLabel="Read"
+  return html`<${Dialog} title="Import games from folders" id="import-games-dialog" sticky=${true} onDismiss=${hide} onSubmit=${readFolders} busy=${!(s.folders.length || typed)} error=${s.error} submitLabel="Read"
       onCancel=${() => { imp.set(blank()); close(); }}>
     <div class="field-block"><span class="field-label">Folders</span>
       ${s.folders.length ? html`<ul class="ls-list" id="import-folders">${s.folders.map((f) => html`<li key=${f}><span class="op-to">${f}</span>
@@ -219,11 +240,7 @@ function ImportGamesDialog() {
         ${platforms.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
       </select>
       <small class="muted">${s.only ? `Only ${nameOf(s.only)}'s games, and files no DAT knows are taken as ${nameOf(s.only)}'s.` : "Each system's games go to its own folder; you'll be asked about files no DAT knows."}</small></label>
-    <div class="field-block" role="radiogroup" aria-label="How" id="import-mode">
-      <label class="check-row"><input type="radio" name="import-mode" value="copy" checked=${s.mode === "copy"} onChange=${() => imp.set({ mode: "copy" })} /> Copy them, hardlinked on the same drive (they take no space; the originals stay)</label>
-      <label class="check-row"><input type="radio" name="import-mode" value="always" checked=${s.mode === "always"} onChange=${() => imp.set({ mode: "always" })} /> Copy them, always (a full copy, even on the same drive)</label>
-      <label class="check-row"><input type="radio" name="import-mode" value="move" checked=${s.mode === "move"} onChange=${() => imp.set({ mode: "move" })} /> Move them into the library</label>
-    </div>
+    <${HowControl} id="import-mode" value=${how} onChange=${(mode) => imp.set({ mode })} />
   <//>`;
 }
 
@@ -231,7 +248,7 @@ function ImportGamesDialog() {
 function ImportGamesPreview({ plan }) {
   const nothing = !plan.ops;
   const run = () => { close(); imp.set(blank()); if (!nothing) runPlan(plan); };
-  return html`<${Dialog} title=${plan.title || "Import the games"} id="bring-dialog" wide=${true} sticky=${true} onSubmit=${run} submitLabel=${nothing ? "OK" : "Run"} busy=${plan.short}
+  return html`<${Dialog} title=${plan.title || "Import the games"} id="bring-dialog" wide=${true} sticky=${true} onDismiss=${hide} onSubmit=${run} submitLabel=${nothing ? "OK" : "Import"} busy=${plan.short}
       cancelLabel="Back" onCancel=${() => imp.set({ plan: null })}>
     <${Preview} plan=${plan} />
     ${nothing ? html`<p id="organise-nothing">Nothing to import: ${plan.left?.length ? "see what's left alone." : "the library has them all."}</p>`
@@ -239,16 +256,74 @@ function ImportGamesPreview({ plan }) {
   <//>`;
 }
 
+// ------------------------------------------------------------ files dropped (D78)
+
+/** What files dropped on the window are taken for: [id, label, about, the Import page's section]. */
+const DROPPED = [
+  ["games", "Games", "Matched against your DATs and copied or moved into each system's folder with games.", "import-copy"],
+  ["pc", "PC games", "Installers, archives and game folders, each into its own folder under PC/.", "import-pc"],
+  ["docs", "Documents", "Manuals, guides and scans, each paired with its game.", "import-docs"],
+  ["mags", "Magazines", "Issues (PDF, CBZ or CBR) into Magazines/, by magazine.", "import-mags"],
+  ["dats", "DATs", "Lists of games to audit your sets against.", "settings-dats"],
+  ["bios-dat", "A BIOS DAT", "A list of BIOS files to audit them against.", "import-bios"],
+];
+
+const extOf = (p) => (/\.([^.\\/]+)$/.exec(p)?.[1] || "").toLowerCase();
+
+/** What dropped files most likely are, from their extensions (games when it can't tell). */
+export function guessDropped(paths) {
+  const all = (exts) => paths.every((p) => exts.includes(extOf(p)));
+  if (all(["dat", "xml"])) return "dats";
+  if (all(["cbz", "cbr"])) return "mags";
+  if (all(["exe", "msi"])) return "pc";
+  if (all(["pdf", "txt", "md", "htm", "html", "doc", "docx", "rtf"])) return "docs";
+  return "games";
+}
+
+/** Each kind's import, given the paths. */
+function startDropped(kind, paths) {
+  if (kind === "games") return importGamesFrom(paths);
+  if (kind === "pc") return importPc("paths", paths);
+  if (kind === "docs") return attachDocs({ how: "files", paths });
+  if (kind === "mags") return importMagazines(false, paths);
+  if (kind === "dats") { close(); return importDats(paths); }
+  if (kind === "bios-dat") { close(); return importDats(paths, { "*": "bios" }); }
+}
+
+/** Files dropped where no page takes them (D78): to the Import page, asked what they are.
+ *  `hint` is the page's guess (Magazines', say). */
+export function dropToImport(paths, hint = null) {
+  const lib = ui.get().library;
+  if (!lib) return toast("Open a library first, then drop the files on the window again.", 8000);
+  if (lib.read_only) return toast("This library is open read-only, so nothing can be imported into it.", 8000);
+  importFrom("import-dropped");
+  ui.set({ dialog: { type: "import-drop", paths, kind: typeof hint === "string" ? hint : guessDropped(paths) } });
+}
+
+function DropDialog({ paths, kind: guessed }) {
+  const [kind, setKind] = useState(guessed);
+  const names = paths.map((p) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop());
+  return html`<${Dialog} title=${`Import ${paths.length === 1 ? names[0] : plural(paths.length, "thing", "things")}`} id="import-drop-dialog" onSubmit=${() => startDropped(kind, paths)} submitLabel="Next">
+    <p class="muted" id="import-drop-names" title=${paths.join("\n")}>${names.slice(0, 3).join(", ")}${names.length > 3 ? ` and ${names.length - 3} more` : ""}</p>
+    <div class="field-block way-pick" role="radiogroup" aria-label="What they are" id="import-drop-kind">${DROPPED.filter(([k]) => isDesktop() || k !== "pc").map(([k, label, about]) => html`<label key=${k} class="way" data-kind=${k}>
+      <input type="radio" name="import-drop-kind" value=${k} checked=${kind === k} onChange=${() => setKind(k)} />
+      <span><b>${label}</b><small class="muted">${about}</small></span></label>`)}</div>
+    <p class="muted">Each kind is read and shown before anything changes.</p>
+  <//>`;
+}
+
 export function ImportDialogs({ dialog }) {
   if (dialog.type === "import-games" || dialog.type === "bring") return html`<${ImportGamesDialog} />`;
+  if (dialog.type === "import-drop") return html`<${DropDialog} key=${dialog.paths.join("|")} ...${dialog} />`;
   return null;
 }
 
 export const importGamesDialog = showImport;
 
-/** One kind of thing to import: what it is, where it goes, its buttons. */
-function Card({ id, icon, title, where, children }) {
-  return html`<section class="import-card" id=${id}>
+/** One kind of thing to import: what it is, where it goes, its buttons. `here` when another
+ *  page opened the Import page at it. */
+function Card({ id, icon, title, where, here, children }) {
+  return html`<section class=${here ? "import-card import-here" : "import-card"} id=${id}>
     <h2>${Icon[icon](16)} ${title}</h2>
     <p class="muted">${where}</p>
     <div class="home-actions">${children}</div>
@@ -257,37 +332,46 @@ function Card({ id, icon, title, where, children }) {
 
 export function ImportPage() {
   const lib = useStore(ui, (s) => s.library);
+  const at = useRouteArg("import");
+  useEffect(() => {
+    if (at) document.getElementById(at)?.scrollIntoView({ block: "nearest" });
+  }, [at, lib?.path]);
   const head = html`<${CommandBar} id="import-head" title="Import" />`;
   if (!lib) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   const off = !!lib.read_only;
   const desk = isDesktop();
-  return html`${head}<div class="pages import-page" id="import-page"><div class="library-settings">
-    <p class="page-lead">${Icon.inbox(18)} Everything that comes into the library comes in here. Checking it is the <a href=${routeHash("audit")}>Audit</a>'s; choosing games to export is <a href=${routeHash("collections")}>Collections</a>'.</p>
+  return html`${head}<div class="pages import-page" id="import-page" data-at=${at || ""}><div class="library-settings">
+    <p class="page-lead">${Icon.inbox(18)} Everything that comes into the library comes in here, and files dropped on the window too. Checking it is the <a href=${routeHash("audit")}>Audit</a>'s; choosing games to export is <a href=${routeHash("collections")}>Collections</a>'.</p>
     <div class="import-cards">
-      <${Card} id="import-copy" icon="move" title="Games into the library" where="Matched against your DATs and copied or moved into each system's folder with games, named as the DAT says.">
+      <${Card} id="import-copy" icon="move" title="Games into the library" here=${at === "import-copy"} where="Matched against your DATs and copied or moved into each system's folder with games, named as the DAT says.">
         <button type="button" class="primary" id="import-games" disabled=${off} onClick=${importGamesDialog}>From a folder…</button>
         <button type="button" class="ghost" id="import-one" disabled=${off} onClick=${() => addGameDialog()}>One game…</button>
       <//>
-      <${Card} id="import-pc" icon="monitor" title="PC games" where="Installers, archives and game folders, each into its own folder under PC/.">
+      <${Card} id="import-pc" icon="monitor" title="PC games" here=${at === "import-pc"} where="Installers, archives and game folders, each into its own folder under PC/.">
         <button type="button" class="ghost" id="import-pc-files" disabled=${off || !desk} onClick=${() => importPc("files")}>Files…</button>
         <button type="button" class="ghost" id="import-pc-folder" disabled=${off || !desk} onClick=${() => importPc("folder")}>A game's folder…</button>
+        <button type="button" class="ghost" id="import-pc-inbox" disabled=${off} title="Read the PC games inbox (Settings › PC games)" onClick=${() => importPc("inbox")}>The inbox</button>
       <//>
-      <${Card} id="import-bios" icon="chip" title="BIOS files" where="Copied into the library's BIOS folder, by system, from your folders with games.">
+      <${Card} id="import-bios" icon="chip" title="BIOS files" here=${at === "import-bios"} where="Copied or moved into the library's BIOS folder, by system, from your folders with games.">
         <button type="button" class="ghost" id="import-bios-files" disabled=${off} onClick=${importBios}>Import BIOS files…</button>
         <button type="button" class="ghost" id="import-bios-list" disabled=${off} onClick=${() => starterDats(["bios"])}>Get libretro's list…</button>
         ${desk ? html`<button type="button" class="ghost" id="import-bios-dat" disabled=${off} onClick=${() => importDats(null, { "*": "bios" })}>A BIOS DAT…</button>` : null}
       <//>
-      <${Card} id="import-docs" icon="book" title="Documents" where="Manuals, guides and scans, each paired with its game, into the game's folder.">
+      <${Card} id="import-docs" icon="book" title="Documents" here=${at === "import-docs"} where="Manuals, guides and scans, each paired with its game, into the game's folder.">
         <button type="button" class="ghost" id="import-docs-folder" disabled=${off || !desk} onClick=${() => attachDocs({ how: "folder" })}>A folder…</button>
         <button type="button" class="ghost" id="import-docs-files" disabled=${off || !desk} onClick=${() => attachDocs({ how: "files" })}>Files…</button>
       <//>
-      <${Card} id="import-mags" icon="stack" title="Magazines" where="Issues (PDF, CBZ or CBR) into Magazines/, by magazine.">
+      <${Card} id="import-mags" icon="stack" title="Magazines" here=${at === "import-mags"} where="Issues (PDF, CBZ or CBR) into Magazines/, by magazine.">
         <button type="button" class="ghost" id="import-mags-folder" disabled=${off || !desk} onClick=${() => importMagazines()}>A folder…</button>
         <button type="button" class="ghost" id="import-mags-files" disabled=${off || !desk} onClick=${() => importMagazines(true)}>Files…</button>
       <//>
     </div>
+    <section class="ls-section" id="import-recent">
+      <h2>Recent imports</h2>
+      <p class="muted">What's come in lately, a day at a time; Steps lists what an import did. The newest change can be undone here or in <a href=${routeHash("history")}>History</a>, which has every change.</p>
+      <${ChangeHistory} lib=${lib} id="import-recent-list" kinds=${IMPORT_KINDS} limit=${12} none="Nothing imported yet." />
+    </section>
     <${RootsSection} lib=${lib} key=${`f-${lib.path}`} />
     <${DatsSection} lib=${lib} />
-    <p class="muted" id="import-history">What's been imported can be undone from <a href=${routeHash("history")}>History</a>.</p>
   </div></div>`;
 }

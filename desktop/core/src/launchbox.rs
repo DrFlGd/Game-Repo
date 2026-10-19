@@ -350,7 +350,10 @@ pub fn search(data_dir: &Path, query: &str, platform: Option<&str>, limit: usize
             .collect();
         sql.push_str(&format!(" AND g.platform IN ({})", marks.join(", ")));
     }
-    sql.push_str(" LIMIT 500");
+    // the same name, then names starting with it, before the 500 are cut (M26)
+    args.push(w.clone());
+    args.push(format!("{w}%"));
+    sql.push_str(&format!(" ORDER BY x.words = ?{} DESC, x.words LIKE ?{} DESC, length(x.words) LIMIT 500", args.len() - 1, args.len()));
     let mut q = c.prepare(&sql)?;
     let mut best: BTreeMap<i64, Found> = BTreeMap::new();
     let mut rows = q.query(rusqlite::params_from_iter(args.iter()))?;
@@ -448,6 +451,14 @@ pub(crate) mod tests {
         assert_eq!((d["developer"].as_str(), d["released"].as_str(), d["description"].as_str()), (Some("Alpha Soft"), Some("1990-04-21"), Some("Alpha & friends.")));
         assert_eq!(d["genres"], json!(["Action", "Platform"]));
         assert_eq!((art["cover"].as_str(), art["logo"].as_str()), ("aaa-02.jpg", "aaa-03.png"));
+        // M26: the same name is found when more than 500 others share its words
+        let c = Connection::open(db_path(&dir)).unwrap();
+        for i in 0..600 {
+            c.execute("INSERT INTO games (id, name, words, platform) VALUES (?1, ?2, ?3, 'Windows')", rusqlite::params![1000 + i, format!("Zeta Quest Saga {i}"), format!("zeta quest saga {i}")]).unwrap();
+        }
+        c.execute("INSERT INTO games (id, name, words, platform) VALUES (5000, 'Quest', 'quest', 'Windows')", []).unwrap();
+        drop(c);
+        assert_eq!(search(&dir, "Quest", Some("pc"), 10).unwrap()[0].id, 5000);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

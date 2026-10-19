@@ -1984,6 +1984,23 @@ span.game-hero { display: grid; place-items: center; font-size: 96px; }
 .import-card h2 { display: flex; align-items: center; gap: 8px; font-size: 15px; margin: 0; }
 .import-card p { margin: 0; font-size: 13px; }
 .import-card .home-actions { margin-top: 6px; }
+/* the section another page opened the Import page at (D78) */
+.import-card.import-here, .import-page[data-at="settings-dats"] #settings-dats, .import-page[data-at="settings-folders"] #settings-folders { border-color: var(--accent-edge); box-shadow: 0 0 0 2px var(--accent-edge); border-radius: var(--radius-m); }
+.import-page[data-at="settings-dats"] #settings-dats, .import-page[data-at="settings-folders"] #settings-folders { padding: 10px 14px; }
+html.drop-over-import #main-root { outline: 2px dashed var(--accent-edge); outline-offset: -6px; }
+/* a history a day at a time, each change opened to its steps (D78) */
+.day-groups { display: grid; gap: 6px; }
+.day-group > summary { cursor: pointer; padding: 4px 0; font-size: 13.5px; }
+.day-group > summary .muted { margin-left: 6px; }
+.day-group > .change-list { padding-left: 14px; }
+.change-steps { flex: 1 1 100%; display: grid; gap: 2px; padding: 4px 0 6px 14px; border-left: 2px solid var(--steel-2); font-size: 12.5px; max-height: 320px; overflow: auto; }
+.change-step { display: flex; gap: 8px; min-width: 0; }
+.change-step .op-kind { flex: none; width: 7.5em; font-weight: 600; }
+.change-step .op-paths { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.change-steps > button { justify-self: start; }
+.history-names > summary { cursor: pointer; }
+.history-names-list { display: grid; gap: 1px; padding: 2px 0 4px 14px; max-height: 260px; overflow: auto; }
+.how-control .check-row .muted { font-size: 12.5px; }
 .import-places li.import-place { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr); gap: 2px 12px; align-items: center; }
 .import-places li.import-place select { width: 100%; min-width: 0; }
 .import-places li.import-place small { grid-column: 2; }

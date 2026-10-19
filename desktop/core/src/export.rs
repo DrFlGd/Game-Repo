@@ -2586,8 +2586,12 @@ mod tests {
         assert_eq!((sys[0]["have"].as_i64(), sys[0]["missing"].as_i64(), sys[0]["yours"].as_bool()), (Some(1), Some(1), Some(true)), "{s}");
         assert_eq!((sys[1]["wrong"].as_i64(), sys[1]["yours"].as_bool()), (Some(1), Some(false)), "{s}");
         assert!(crate::bios::report(&ix, &lib).unwrap().contains("sgb_bios.bin"));
+        // the Import page's three choices (D79): moved, the file goes from where it is
+        let mv = crate::bios::gather_plan(&ix, &lib, "move", false).unwrap();
+        assert_eq!((mv.kind.as_str(), mv.mode.as_str()), ("bios", "move"));
+        assert!(!mv.ops.is_empty() && mv.ops.iter().all(|o| o.op == "move"), "{:?}", mv.ops.iter().map(|o| &o.op).collect::<Vec<_>>());
         // gathered into the library's BIOS folder, which becomes a folder with games
-        let gp = crate::bios::gather_plan(&ix, &lib).unwrap();
+        let gp = crate::bios::gather_plan(&ix, &lib, "copy", false).unwrap();
         assert!(gp.new_root.is_some());
         let r = organise::run(&ix, &lib, &gp, &AtomicBool::new(false), &mut |_| {}).unwrap();
         assert_eq!(r["failed"], json!([]), "{r}");

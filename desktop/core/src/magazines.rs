@@ -143,7 +143,7 @@ pub fn parse(stem: &str) -> (String, Option<String>, Option<String>) {
             date = Some(format!("{}-{:02}", lower[i + 1], m + 1));
             mark(i, &mut first_other);
             i += 1;
-        } else if let Some(m) = (t.len() >= 7).then(|| t.split_at(t.len() - 4)).filter(|(a, y)| year(y) && month(a).is_some()).map(|(a, y)| (month(a).unwrap(), y.to_string())).filter(|_| date.is_none()) {
+        } else if let Some(m) = (t.chars().count() >= 7).then(|| t.char_indices().rev().nth(3).map(|(at, _)| t.split_at(at))).flatten().filter(|(a, y)| year(y) && month(a).is_some()).map(|(a, y)| (month(a).unwrap(), y.to_string())).filter(|_| date.is_none()) {
             // Apr1993
             date = Some(format!("{}-{:02}", m.1, m.0 + 1));
             mark(i, &mut first_other);
@@ -279,7 +279,7 @@ fn free(taken: &mut HashSet<String>, name: &str, ext: &str) -> String {
 
 /// Plan bringing the items into their magazines' folders (copied, hardlinked on the same
 /// drive unless `always_copy`), each folder's `magazine.json` written with them.
-pub fn plan(lib: &Library, items: &[Item], always_copy: bool) -> Result<Plan> {
+pub fn plan(lib: &Library, items: &[Item], mode: &str, always_copy: bool) -> Result<Plan> {
     lib.writable()?;
     let items: Vec<&Item> = items.iter().filter(|i| i.include).collect();
     if items.is_empty() {
@@ -303,11 +303,13 @@ pub fn plan(lib: &Library, items: &[Item], always_copy: bool) -> Result<Plan> {
             bail!("{} needs the name of its magazine.", it.name);
         }
         let t = targets.entry(norm(title)).or_insert_with(|| {
-            let (dir, mag) = existing
-                .iter()
-                .find(|(_, m)| norm(&m.title) == norm(title))
-                .cloned()
-                .unwrap_or_else(|| (folder(lib).join(safe_name(title)), Magazine { title: title.to_string(), ..Default::default() }));
+            // by its title, else the folder it would have, whose magazine may have been
+            // renamed since: its issues are kept (H20)
+            let (dir, mag) = existing.iter().find(|(_, m)| norm(&m.title) == norm(title)).cloned().unwrap_or_else(|| {
+                let dir = folder(lib).join(safe_name(title));
+                let mag = existing.iter().find(|(d, _)| crate::organise::key(d) == crate::organise::key(&dir)).map(|(_, m)| m.clone()).unwrap_or_else(|| Magazine { title: title.to_string(), ..Default::default() });
+                (dir, mag)
+            });
             let taken = std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().to_lowercase()).collect();
             Target { dir, mag, taken, ops: vec![] }
         });
@@ -317,7 +319,11 @@ pub fn plan(lib: &Library, items: &[Item], always_copy: bool) -> Result<Plan> {
         let name = free(&mut t.taken, &issue_name(&t.mag.title, number.as_deref(), date.as_deref()), &ext);
         let to = t.dir.join(&name);
         let size = std::fs::metadata(&src)?.len();
-        let op = if !always_copy && organise::same_drive(&src, &t.dir) { "link" } else { "copy" };
+        let op = match mode {
+            "move" => "move",
+            _ if !always_copy && organise::same_drive(&src, &t.dir) => "link",
+            _ => "copy",
+        };
         let s: Src = Src { size, sha1: Some(it.sha1.clone()).filter(|h| !h.is_empty()), ..outside(&src) };
         t.ops.push(Op { op: op.into(), game: t.mag.title.clone(), to: to.display().to_string(), from: vec![s], names: vec![], aside: vec![], size, note: None });
         t.mag.issues.push(Issue { number, date, file: name, size, sha1: Some(it.sha1.clone()).filter(|h| !h.is_empty()), added: now(), ..Default::default() });
@@ -487,6 +493,12 @@ fn pdf_cover(p: &Path) -> Option<Vec<u8>> {
     }
 }
 
+/// A file `magazine.json` names (an issue, its cover), when it stays inside the magazine's
+/// folder: the file is the user's to edit, so it could name any file (M32).
+fn inside(dir: &Path, rel: &str) -> Option<PathBuf> {
+    crate::library::rel_inside(rel).ok().map(|r| dir.join(r))
+}
+
 /// An issue's cover from its file: (bytes, extension), none when it has none to give.
 pub fn first_page(p: &Path) -> Option<(Vec<u8>, String)> {
     match crate::platforms::ext_of(&p.to_string_lossy()).as_str() {
@@ -502,8 +514,7 @@ pub fn cover_file(lib: &Library, data_dir: &Path, rel: &str) -> Result<PathBuf> 
     let dir = issue.parent().ok_or_else(|| anyhow!("no folder"))?;
     let m: Magazine = serde_json::from_value(read_json_object(&dir.join(MANIFEST))).unwrap_or_default();
     let name = issue.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    if let Some(c) = m.issues.iter().find(|i| i.file == name).and_then(|i| i.cover.clone()) {
-        let p = dir.join(c);
+    if let Some(p) = m.issues.iter().find(|i| i.file == name).and_then(|i| inside(dir, i.cover.as_deref()?)) {
         if p.is_file() {
             return Ok(p);
         }
@@ -758,13 +769,12 @@ pub fn export_files(lib: &Library, out: &Path) -> Vec<(PathBuf, PathBuf, String)
         let name = dir.file_name().map(|n| n.to_os_string()).unwrap_or_default();
         let to_dir = out.join(FOLDER).join(&name);
         for i in &m.issues {
-            let from = dir.join(&i.file);
-            if from.is_file() {
+            if let Some(from) = inside(&dir, &i.file).filter(|p| p.is_file()) {
                 v.push((from, to_dir.join(&i.file), issue_title(&m.title, i)));
             }
             if let Some(c) = &i.cover {
-                if dir.join(c).is_file() {
-                    v.push((dir.join(c), to_dir.join(c), issue_title(&m.title, i)));
+                if let Some(from) = inside(&dir, c).filter(|p| p.is_file()) {
+                    v.push((from, to_dir.join(c), issue_title(&m.title, i)));
                 }
             }
         }
@@ -804,6 +814,9 @@ mod tests {
         assert_eq!(p("Retro Gamer Issue 7 (2004)"), ("Retro Gamer".into(), "7".into(), "2004".into()));
         assert_eq!(p("GamePro Vol 3 No 4"), ("GamePro".into(), "4".into(), "".into()));
         assert_eq!(p("Mean Machines (October 1990)"), ("Mean Machines".into(), "".into(), "1990-10".into()));
+        // H21: names in other scripts are cut by letters, not bytes
+        assert_eq!(p("週刊ファミ通 0123 (1995-01)"), ("週刊ファミ通".into(), "123".into(), "1995-01".into()));
+        assert_eq!(p("ファミコン通信ゲーム 0002 (1990-01)"), ("ファミコン通信ゲーム".into(), "2".into(), "1990-01".into()));
         assert_eq!(issue_name("Nintendo Power", Some("12"), Some("1990-05")), "Nintendo Power 012 (1990-05)");
         assert_eq!(csv_fields("\"Edge, the\",12,2001-07"), ["Edge, the", "12", "2001-07"]);
         let mut v = vec!["p10.jpg", "p2.jpg", "p1.jpg"];
@@ -872,7 +885,7 @@ mod tests {
             ("Nintendo Power".to_string(), Some("13".to_string()), Some("1990-06".to_string())),
             ("Nintendo Power".to_string(), Some("14".to_string()), None),
         ]);
-        let p = plan(&lib, &items, true).unwrap();
+        let p = plan(&lib, &items, "copy", true).unwrap();
         assert_eq!((p.kind.as_str(), p.games), ("magazines", 3));
         let r = organise::run(&ix, &lib, &p, &cancel, &mut |_| {}).unwrap();
         assert_eq!(r["failed"], json!([]), "{r}");
@@ -888,7 +901,7 @@ mod tests {
         assert!(found["items"].as_array().unwrap().iter().any(|d| d["title"] == "Nintendo Power 12 (1990-05)" && d["view"] == "comic"));
         let again = read_items(&lib, &[from.clone()], &cancel, &mut |_| {}).unwrap();
         assert!(again.iter().all(|i| i.have && !i.include));
-        assert!(plan(&lib, &again, true).is_err());
+        assert!(plan(&lib, &again, "copy", true).is_err());
         // pages in order, the first the cover; a PDF that isn't a scan has none until one's dropped on it
         let cbz = mag.join("Nintendo Power 012 (1990-05).cbz");
         assert_eq!(pages(&cbz).unwrap(), ["page1.png", "page2.png", "page10.png"]);
@@ -905,6 +918,16 @@ mod tests {
         std::fs::write(dir.join("cover.png"), png(99)).unwrap();
         set_cover(&lib, "nintendo power", "Nintendo Power 014.pdf", &dir.join("cover.png")).unwrap();
         assert_eq!(cover_file(&lib, &data, &pdf).unwrap(), mag.join("covers/Nintendo Power 014.png"));
+        // M32: a cover magazine.json names outside the magazine's folder isn't served
+        let manifest = mag.join(MANIFEST);
+        let kept = std::fs::read(&manifest).unwrap();
+        std::fs::write(dir.join("secret.png"), png(7)).unwrap();
+        let mut crafted: Magazine = serde_json::from_slice(&kept).unwrap();
+        crafted.issues[2].cover = Some("../../../../secret.png".into());
+        std::fs::write(&manifest, serde_json::to_vec(&crafted).unwrap()).unwrap();
+        assert!(!cover_file(&lib, &data, &pdf).unwrap().starts_with(&dir.join("secret.png")));
+        assert!(export_files(&lib, &dir.join("Out")).iter().all(|(from, _, _)| from.starts_with(&mag)));
+        std::fs::write(&manifest, &kept).unwrap();
         // an issue's number put right
         edit(&lib, "Nintendo Power", Some("Nintendo Power 014.pdf"), &json!({ "date": "1990-07" })).unwrap();
         assert_eq!(by_title(&lib, "Nintendo Power").unwrap().1.issues[2].date.as_deref(), Some("1990-07"));
@@ -929,6 +952,18 @@ mod tests {
         let r = organise::run(&ix, &lib, &ep, &cancel, &mut |_| {}).unwrap();
         assert_eq!(r["failed"], json!([]), "{r}");
         assert!(to.join("Magazines/Nintendo Power/Nintendo Power 012 (1990-05).cbz").is_file() && to.join("Magazines/Nintendo Power/covers/Nintendo Power 014.png").is_file());
+        // H20: renamed, then another issue imported under its old name: the issues stay
+        edit(&lib, "Nintendo Power", None, &json!({ "title": "Nintendo Power (US)" })).unwrap();
+        let more = dir.join("More");
+        std::fs::create_dir_all(&more).unwrap();
+        comic(&more.join("Nintendo Power 016 (1990-09).cbz"), &[("01.png", png(16))]);
+        let items = read_items(&lib, &[more.join("Nintendo Power 016 (1990-09).cbz")], &cancel, &mut |_| {}).unwrap();
+        assert_eq!(items[0].title, "Nintendo Power");
+        let p16 = plan(&lib, &items, "copy", true).unwrap();
+        organise::run(&ix, &lib, &p16, &cancel, &mut |_| {}).unwrap();
+        let (_, m) = by_title(&lib, "Nintendo Power (US)").unwrap();
+        assert_eq!(m.issues.len(), 4, "{m:?}");
+        organise::undo(&ix, &lib, &p16.id, &cancel, &mut |_| {}).unwrap();
         // Undo of the import (after the export's) takes the issues out again
         organise::undo(&ix, &lib, &ep.id, &cancel, &mut |_| {}).unwrap();
         organise::undo(&ix, &lib, &p.id, &cancel, &mut |_| {}).unwrap();

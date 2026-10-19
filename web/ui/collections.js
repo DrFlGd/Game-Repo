@@ -12,7 +12,7 @@ import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, size } from "./library.js";
 import { reveal } from "./games.js";
-import { CommandBar, SearchNote, ViewSwitch, SortMenu } from "./layout.js";
+import { CommandBar, SearchNote, ViewSwitch, SortMenu, DayGroups } from "./layout.js";
 import { usePageKeys, selectAllKey, openMenu } from "./actions.js";
 import { Games, useGames, useSelection, blank, VIEWS, opened, gameHash } from "./browse.js";
 import { useSidePanel, useRouteArg, argHash } from "./panels.js";
@@ -294,7 +294,8 @@ function NewCollectionDialog({ way: given = "rules", again, group: into, onMade 
     const tick = (id) => setOff((s0) => { const s1 = new Set(s0); s1.has(id) ? s1.delete(id) : s1.add(id); return s1; });
     const have = review.systems.reduce((n, x) => n + x.games.filter((g) => !off.has(g.id) && g.status === "have").length, 0);
     const label = again ? `Replace its games (${picked})` : into ? `Add the group (${plural(picked, "game", "games")})` : `Make the collection (${plural(picked, "game", "games")})`;
-    return html`<${Dialog} title=${again ? `Read ${again.name} again` : way === "dat" ? "The DAT's games" : "The folders' games"} id="subset-review" wide=${true} onSubmit=${make}
+    // a stray click or Esc doesn't lose what was read and ticked (review M35)
+    return html`<${Dialog} title=${again ? `Read ${again.name} again` : way === "dat" ? "The DAT's games" : "The folders' games"} id="subset-review" wide=${true} sticky=${true} onSubmit=${make}
       busy=${busy || !picked || !name.trim()} error=${error} submitLabel=${label}
       cancelLabel=${again ? "Cancel" : "Back"} onCancel=${again ? close : () => setReview(null)}>
       <p id="subset-totals">${way === "dat" ? `The DAT lists ${plural(review.read, "game", "games")}` : `Read ${plural(review.read, "file", "files")}`}: <b>${plural(review.games, "game", "games")}</b> found in your audited games${review.games ? html`, <b>${have}</b> of those ticked you have` : null}${review.unknown.length ? `; ${plural(review.unknown.length, way === "dat" ? "game isn't" : "file isn't", way === "dat" ? "games aren't" : "files aren't")}` : ""}.</p>
@@ -308,14 +309,14 @@ function NewCollectionDialog({ way: given = "rules", again, group: into, onMade 
       </section>`)}</div>
       ${review.unknown.length ? html`<details class="field-block subset-unknown" id="subset-unknown"><summary>${plural(review.unknown.length, "file", "files")} not in any audit DAT</summary>
         <ul class="ls-list">${review.unknown.slice(0, 500).map((u, i) => html`<li key=${i} data-path=${u.path}><span class="op-to">${u.path}</span> <span class="muted">${u.why}</span></li>`)}</ul>
-        <small class="muted">Import the DAT of a system they belong to on the Audit page, then read them again.</small></details>` : null}
+        <small class="muted">Import the DAT of a system they belong to (<a href=${argHash("import", "settings-dats")} onClick=${close}>Import › DAT files</a>), then read them again.</small></details>` : null}
       ${lacking ? html`<p class="muted bring-row" id="subset-lacking">${plural(lacking, "game", "games")} in the folders ${lacking === 1 ? "isn't" : "aren't"} in your audited games yet: <a href=${routeHash("import")} onClick=${close}>Import › Games into the library</a> brings ${lacking === 1 ? "it" : "them"} in.</p>` : null}
       <p class="muted">The ${what} is kept as DATs of its own (one per system, with the Audit page's DATs' names and hashes) in the library. Its games are exported from your audited games; ${way === "dat" ? "the DAT" : "the folders"} aren't changed.</p>
     <//>`;
   }
   const can = way === "rules" ? !!name.trim() : way === "folders" ? folders.length || typed.trim() : datPath.trim();
   const submitLabel = busy ? "Reading…" : way === "rules" ? (into ? "Add the group" : "Make the collection") : way === "dat" ? "Read the DAT" : "Scan the folders";
-  return html`<${Dialog} title=${again ? `Reading ${again.name} again` : into ? `A new group of ${into.name}` : "A new collection"} id="collection-new-dialog" onSubmit=${way === "rules" ? make : read}
+  return html`<${Dialog} title=${again ? `Reading ${again.name} again` : into ? `A new group of ${into.name}` : "A new collection"} id="collection-new-dialog" sticky=${busy || folders.length > 0} onSubmit=${way === "rules" ? make : read}
     busy=${busy || !can || !!again} error=${error} submitLabel=${submitLabel}>
     ${into ? html`<p class="muted" id="collection-new-group">A group is a part of ${into.name} with its own way of choosing games; a game an earlier group has isn't in it again. Exported, each group is a collection of its own too.</p>` : null}
     ${!again ? html`<div class="field-block way-pick" id="collection-way" role="radiogroup" aria-label="How it's made">${WAYS.map(([k, label, about]) => html`<label key=${k} class="way" data-way=${k}>
@@ -606,21 +607,26 @@ function History({ c, off, onChange }) {
       setBusy("");
     }
   };
-  const names = (list, n) => {
+  // a few games are named in the line; more are behind it, opened to see them all (D78)
+  const names = (cls, said, list, n) => {
     const shown = (list || []).map((k) => k.split("/").slice(1).join("/"));
-    return shown.length < n ? `${shown.join(", ")} and ${(n - shown.length).toLocaleString()} more` : shown.join(", ");
+    const rest = n > shown.length ? `and ${(n - shown.length).toLocaleString()} more` : "";
+    if (n <= 5) return html`<span class=${`muted ${cls}`}>${said} ${plural(n, "game", "games")}: ${[...shown, rest].filter(Boolean).join(", ")}</span>`;
+    return html`<details class=${`muted history-names ${cls}`}><summary>${said} ${plural(n, "game", "games")}</summary>
+      <div class="history-names-list">${shown.map((x) => html`<div key=${x}>${x}</div>`)}${rest ? html`<div>${rest}</div>` : null}</div></details>`;
   };
+  const sum = (ss) => plural(ss.length, "change", "changes");
   return html`<section class="ls-section" id="collection-history"><h2>History</h2>
-    <p class="muted">Each change to what's in it. Undo puts a change back as a change of its own; a change of its rules or groups, or reading it again, can be undone newest first.</p>
+    <p class="muted">Each change to what's in it, a day at a time. Undo puts a change back as a change of its own; a change of its rules or groups, or reading it again, can be undone newest first.</p>
     ${error ? html`<p class="warn-note" role="alert">${error}</p>` : null}
-    ${!steps ? html`<p class="muted">Reading…</p>` : !steps.length ? html`<p class="muted" id="collection-history-none">No changes kept yet.</p>` : html`<ul class="ls-list" id="collection-history-list">
-      ${steps.map((s) => html`<li key=${s.id} data-how=${s.how} data-undone=${s.undone ? "yes" : "no"}>
-        <span class="op-paths"><span><b>${HOW[s.how] || s.how}</b> <span class="muted">${new Date(s.at).toLocaleString()}${s.undone ? " · undone" : ""}</span></span>
-          ${s.added_count ? html`<span class="muted history-added">Added ${plural(s.added_count, "game", "games")}: ${names(s.added, s.added_count)}</span>` : null}
-          ${s.removed_count ? html`<span class="muted history-removed">Took out ${plural(s.removed_count, "game", "games")}: ${names(s.removed, s.removed_count)}</span>` : null}
+    ${!steps ? html`<p class="muted">Reading…</p>` : !steps.length ? html`<p class="muted" id="collection-history-none">No changes kept yet.</p>` : html`<${DayGroups} id="collection-history-list" items=${steps} at=${(s) => s.at} sum=${sum}
+      row=${(s) => html`<li key=${s.id} data-how=${s.how} data-undone=${s.undone ? "yes" : "no"}>
+        <span class="op-paths"><span><b>${HOW[s.how] || s.how}</b> <span class="muted">${new Date(s.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${s.undone ? " · undone" : ""}</span></span>
+          ${s.added_count ? names("history-added", "Added", s.added, s.added_count) : null}
+          ${s.removed_count ? names("history-removed", "Took out", s.removed, s.removed_count) : null}
           ${!s.added_count && !s.removed_count ? html`<span class="muted">The same games.</span>` : null}</span>
         ${s.can_undo ? html`<button type="button" class="ghost compact" data-action="undo" disabled=${off || !!busy} onClick=${() => undo(s)}>${busy === s.id ? "Undoing…" : "Undo"}</button>` : null}
-      </li>`)}</ul>`}
+      </li>`} />`}
   </section>`;
 }
 
@@ -902,7 +908,7 @@ export function Collections() {
       <p class="page-lead">${Icon.collection(18)} A collection is a part of your audited games: picked by rules, or the games in folders you already keep, or a DAT's. Export all or part of it for ES-DE, a handheld or a folder, or save it as DATs.</p>
       <section class="ls-section">
         <h2>To start</h2>
-        <p>Collections are made from the Audit page's DATs and what the scan found. ${s.dats?.length ? "" : html`Import a DAT first (<a href=${routeHash("audit")}>Audit</a>).`}</p>
+        <p>Collections are made from the Audit page's DATs and what the scan found. ${s.dats?.length ? "" : html`Import a DAT first (<a href=${argHash("import", "settings-dats")} id="collections-empty-import">Import › DAT files</a>).`}</p>
         <div class="home-actions">
           <button type="button" class="primary" id="collections-first" disabled=${off} onClick=${() => create("rules")}>New collection by rules…</button>
           <button type="button" class="ghost" id="collections-first-folders" disabled=${off} onClick=${() => create("folders")}>New collection from folders…</button>

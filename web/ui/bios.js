@@ -11,19 +11,38 @@ import { api, toast, isDesktop, plural, size } from "./library.js";
 import { importDats, starterDats, reveal } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
 import { Dialog, close } from "./dialogs.js";
-import { Preview, runPlan } from "./organise.js";
+import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { Icon } from "./icons.js";
+import { importFrom } from "./importpage.js";
 
 const err = (e) => e.message || String(e);
 const STATUS = { have: "You have it", missing: "Missing", wrong: "A file of its name, but not this one" };
 
-/** Import BIOS files: the plan's preview, then Import. */
-function GatherDialog({ plan }) {
+/** Import BIOS files: the plan's preview, how they come in (planned again when it's
+ *  changed, D79), then Import. */
+function GatherDialog({ plan: first }) {
+  const [plan, setPlan] = useState(first);
+  const [how, setHow] = useState("copy");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const change = async (v) => {
+    setHow(v);
+    setBusy(true);
+    setError("");
+    try {
+      setPlan(await api("bios_gather_plan", howArgs(v)));
+    } catch (e) {
+      setError(err(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   const nothing = !plan.ops;
-  return html`<${Dialog} title=${plan.label} id="bios-gather-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "Close" : "Import"} cancelLabel=${nothing ? "" : "Cancel"}>
+  return html`<${Dialog} title=${plan.title || plan.label} id="bios-gather-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${busy || plan.short} error=${error} submitLabel=${nothing ? "Close" : "Import"} cancelLabel=${nothing ? "" : "Cancel"}>
     <${Preview} plan=${plan} />
     ${nothing ? html`<p id="organise-nothing">Nothing to import: ${plan.in_place ? "the BIOS files the library has are in its BIOS folder already." : "the library has none of the files the BIOS DATs list. Add the folder they're in (Import › Folders with games) and scan."}</p>`
-      : html`<p class="muted">Each file is copied (or hardlinked) into the library's BIOS folder, in a folder for its system, and checked. The files where they are now aren't changed. The change can be undone from the message afterwards or from History.</p>`}
+      : html`<${HowControl} id="bios-gather-mode" value=${how} onChange=${change} />
+      <p class="muted">Each file goes into the library's BIOS folder, in a folder for its system, and is checked. ${how === "move" ? "The files are moved; Undo puts them back." : "The files where they are now aren't changed."} The change can be undone from the message afterwards or from History.</p>`}
   <//>`;
 }
 
@@ -67,7 +86,8 @@ export function Bios() {
     api("bios").then((d) => { if (!gone) setData(d); }).catch((e) => { if (!gone) setData({ error: err(e) }); });
     return () => { gone = true; };
   }, [s.library?.path, s.home, s.changes]);
-  const gather = importBios;
+  // the imports are the Import page's (D78)
+  const gather = () => importFrom("import-bios", importBios);
   const report = async () => {
     try {
       const r = await api("bios_report");
@@ -76,10 +96,10 @@ export function Bios() {
       toast(`Couldn't save the report: ${err(e)}`, 8000);
     }
   };
-  const importOne = () => importDats(null, { "*": "bios" });
+  const importOne = () => importFrom("import-bios", () => importDats(null, { "*": "bios" }));
   const has = !!data?.dats?.length;
   const menu = () => [
-    { id: "bios-starter", label: "Get libretro's list of BIOS files…", icon: "download", disabled: off, run: () => starterDats(["bios"]) },
+    { id: "bios-starter", label: "Get libretro's list of BIOS files…", icon: "download", disabled: off, run: () => importFrom("import-bios", () => starterDats(["bios"])) },
     ...(isDesktop() ? [{ id: "bios-import", label: "Import a BIOS DAT…", icon: "plus", disabled: off, run: importOne }] : []),
     { sep: true },
     { id: "bios-report", label: "Save a report of what's missing", icon: "file", disabled: off || !has, run: report },
@@ -102,7 +122,7 @@ export function Bios() {
           <li>Import them into the library, and tick BIOS files when you export a collection to a device.</li>
         </ol>
         <div class="home-actions">
-          <button type="button" class="primary" id="bios-get" disabled=${off} onClick=${() => starterDats(["bios"])}>Get libretro's list…</button>
+          <button type="button" class="primary" id="bios-get" disabled=${off} onClick=${() => importFrom("import-bios", () => starterDats(["bios"]))}>Get libretro's list…</button>
           ${isDesktop() ? html`<button type="button" class="ghost" id="bios-import-first" disabled=${off} onClick=${importOne}>Import a BIOS DAT…</button>` : null}
         </div>
       </section>

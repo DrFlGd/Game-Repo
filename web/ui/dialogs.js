@@ -23,21 +23,27 @@ import { BrowseDialogs } from "./browse.js";
 export const close = () => ui.set({ dialog: null });
 
 /** A dialog: Esc or Cancel closes it (`onDismiss` and `onCancel` say otherwise); `danger` makes the button red (it deletes).
+ *  A `sticky` one (an import with what it read shown, or work running) stays when the page
+ *  behind it is clicked, and Esc leaves it too unless `onDismiss` puts it away with nothing
+ *  lost (review M35); its ✕ and Cancel still close it.
  *  Esc and the first box work as soon as it shows (a layout effect, not after a paint). */
-export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger = false, cancelLabel = "Cancel", onCancel = close, onDismiss = close, wide = false, sticky = false, children }) {
+export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger = false, cancelLabel = "Cancel", onCancel = close, onDismiss, wide = false, sticky = false, children }) {
   const form = useRef(null);
+  const dismiss = onDismiss || close;
+  const esc = useRef(null);
+  esc.current = sticky && !onDismiss ? null : dismiss;
   useLayoutEffect(() => {
-    const key = (e) => { if (e.key === "Escape") onDismiss(); };
+    const key = (e) => { if (e.key === "Escape") esc.current?.(); };
     addEventListener("keydown", key);
     const f = form.current;
     if (f && !f.contains(document.activeElement)) (f.querySelector("input:not([type=hidden]):not([disabled]), select, textarea") || f).focus();
     return () => removeEventListener("keydown", key);
   }, []);
   // a sticky dialog stays when the page behind it is clicked (an import with work running or kept)
-  return html`<div class="dialog-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget && !sticky) onDismiss(); }}>
+  return html`<div class="dialog-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget && !sticky) dismiss(); }}>
     <form class=${wide ? "dialog wide" : "dialog"} id=${id} ref=${form} tabindex="-1" role="dialog" aria-modal="true" aria-label=${title} onSubmit=${(e) => { e.preventDefault(); onSubmit(); }}>
       <div class="dialog-head"><h2>${title}</h2>
-        <button type="button" class="ghost" aria-label="Close" title="Close (Esc)" onClick=${onDismiss}>${Icon.close(15)}</button></div>
+        <button type="button" class="ghost" aria-label="Close" title=${esc.current ? "Close (Esc)" : "Close"} onClick=${dismiss}>${Icon.close(15)}</button></div>
       ${children}
       <div class="dialog-foot">
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}

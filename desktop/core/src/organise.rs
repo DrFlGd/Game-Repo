@@ -941,7 +941,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             if own && matches!(op.op.as_str(), "link" | "copy") {
                 // a copy of a file onto itself (a name that differs only in case, on Windows)
                 there.push(json!({ "game": op.game, "to": op.to }));
-            } else if !exists || own {
+            } else if !exists || own || (rezips(&op) && mode != "copy") {
                 kept.push(op);
             } else if placed_before(&o.known, to) || already_there(conn, &roots, &op, cancel_never()) {
                 there.push(json!({ "game": op.game, "to": op.to }));
@@ -956,7 +956,8 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         }
         p.plan.present.extend(there);
         for op in &kept {
-            if matches!(op.op.as_str(), "zip" | "extract") {
+            // (an archive written again in place isn't set aside after: it's the new one)
+            if matches!(op.op.as_str(), "zip" | "extract") && !rezips(op) {
                 for s in &op.from {
                     p.consume(&op.game, s);
                 }
@@ -1136,6 +1137,12 @@ fn place_disks(p: &mut Planner, g: &GameRow, chosen: &[(&RomRow, &Cand)], out: O
             p.plan.duplicates.push(json!({ "game": g.fields.name, "rom": d.name, "path": k.src.path }));
         }
     }
+}
+
+/// A ZIP written over the archive it's read from: its name is right but its files' aren't
+/// (H3). Its archive is set aside first and read from there.
+fn rezips(op: &Op) -> bool {
+    op.op == "zip" && !op.from.is_empty() && op.from.iter().all(|s| s.member.is_some() && key(Path::new(&s.path)) == key(Path::new(&op.to)))
 }
 
 fn zip_op(game: &str, to: &Path, chosen: &[(&RomRow, &Cand)]) -> Op {
@@ -1369,7 +1376,7 @@ impl Log {
     }
 }
 
-fn load(lib: &Library, id: &str) -> Result<Plan> {
+pub fn load(lib: &Library, id: &str) -> Result<Plan> {
     crate::library::valid_id(id).map_err(|_| anyhow!("There's no change {id}."))?;
     let bytes = std::fs::read(plan_path(lib, id)).map_err(|_| anyhow!("There's no change {id} in the history."))?;
     Ok(serde_json::from_slice(&bytes)?)
@@ -1954,12 +1961,15 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
         // a cue sheet rewritten under its own name is set aside first, and read from there
         let mut early = vec![];
         let mut step = op.clone();
-        let replaces = (op.op == "cue" || op.op == "text") && op.from.first().is_some_and(|f| key(Path::new(&f.path)) == key(Path::new(&op.to)));
+        let replaces = ((op.op == "cue" || op.op == "text") && op.from.first().is_some_and(|f| key(Path::new(&f.path)) == key(Path::new(&op.to)))) || rezips(op);
         if replaces && Path::new(&op.to).exists() {
             match set_aside(lib, &roots, &id, &op.from[0]) {
                 Ok(held) => {
                     early.push(json!([op.from[0].path, held]));
-                    step.from[0].path = held;
+                    // (a ZIP written again reads every member from where it's held)
+                    for f in step.from.iter_mut().filter(|f| key(Path::new(&f.path)) == key(Path::new(&op.from[0].path))) {
+                        f.path = held.clone();
+                    }
                 }
                 Err(e) => {
                     failed.push(json!({ "game": op.game, "to": op.to, "error": format!("{e:#}") }));
@@ -2362,6 +2372,33 @@ mod tests {
         assert_eq!(h[0]["state"], "undone");
         assert_eq!(h[0]["can_undo"], false);
         let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    // review H3: a ZIP named right whose file inside isn't is written again where it is
+    #[test]
+    fn a_zip_named_right_with_its_file_named_wrong_is_put_right_in_place() {
+        let f = fixture("organise-rezip");
+        let d = crate::audit::tests::rom(4, 65536);
+        crate::audit::tests::zip(&f.gb.join("Delta (World).zip"), &[("delta (w) [!].gb", &d)]);
+        run_scan(&f, false);
+        let dat = import(&f, "gb.dat")[0]["id"].as_i64().unwrap();
+        let mut o = opts(dat, "rename", "keep");
+        o.only_misnamed = true;
+        let plan = plan(&f.ix, &f.lib, &o).unwrap();
+        let z = plan.ops.iter().find(|o| o.to.ends_with("Delta (World).zip")).expect("a step for Delta");
+        assert_eq!((z.op.as_str(), plan.conflicts.len()), ("zip", 0), "{:#?}", plan);
+        let r = go(&f, &plan);
+        assert_eq!(r["failed"], json!([]), "{r}");
+        let names = |p: &Path| archive::members(p, &AtomicBool::new(false)).unwrap().into_iter().map(|(n, _)| n).collect::<Vec<_>>();
+        assert_eq!(names(&f.gb.join("Delta (World).zip")), ["Delta (World).gb"]);
+        assert!(!names_of_misnamed(&f, dat).iter().any(|n| n.contains("Delta")));
+        back(&f, &plan.id);
+        assert_eq!(names(&f.gb.join("Delta (World).zip")), ["delta (w) [!].gb"]);
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    fn names_of_misnamed(f: &Fixture, dat: i64) -> Vec<String> {
+        names(f, dat, "misnamed")
     }
 
     /// The made-up CD as a renamed cue/bin set, and as a CHD named wrong, with a DAT for it.
