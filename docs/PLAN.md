@@ -3827,8 +3827,9 @@ a stand-in device client, tested end to end. No window, tray icon or installer y
   at 40%; a file changed under a resume; four at once and a fifth refused; `changes` after
   a game is added and one goes; identify; the library unchanged). Timings: a page of a
   100,000-game catalogue in every order under 200 ms (25–30 ms here), `changes` under
-  100 ms (1 ms), a 512 MiB download at least 250 MB/s (320 MB/s here with the disk, 690
-  in memory). `tests/serve_devices.py` runs the two programs on Windows CI: found by
+  100 ms (1 ms), a 512 MiB download sent at least 250 MB/s (870 MB/s here). The same
+  download written to disk and synced is only reported, as that's the disk's speed more
+  than the server's (320 MB/s here, 84 MB/s on Windows CI). `tests/serve_devices.py` runs the two programs on Windows CI: found by
   DNS-SD (it worked in the cloud session too), paired by a code from the control channel,
   games added and removed, a removed device refused, the library unchanged.
 - **CI**: builds with `-p gamerepo-cli`, tests `-p gamerepo-core -p gamerepo-wire
