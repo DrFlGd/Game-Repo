@@ -3466,12 +3466,12 @@ per kind when installing and removed with the game (or on its own); the client m
 remove any game ES-DE lists on the device, with its media and gamelist entry, and
 nothing outside ES-DE's folders.
 
-### Phase 9a design: Game Repo Server (written 2026-10-19, for review before code)
+### Phase 9a design: Game Repo Server (written 2026-10-19; Jerred agreed it the same day)
 
 Jerred asked (2026-10-19) for the server and client milestone to start with Game Repo
 Server (D85). 9a builds requirements S1–S6 on Windows and tests them with a stand-in
 client, as the sources were tested with stand-ins; 9b builds the client's screens on the
-stand-in's code. D89–D95 are proposed here, for Jerred's review before code.
+stand-in's code. D89–D95 were proposed here and Jerred agreed them (2026-10-19).
 
 **What's built**
 
@@ -3645,8 +3645,8 @@ catalogue, with the discs' total size; a plan writes them into a folder
 `<name>.m3u/` in the system's folder, with `<name>.m3u` inside listing the discs, which
 ES-DE shows as one game (its *directories interpreted as files*), and one gamelist entry
 and one set of media for it. Only for systems whose ES-DE extensions include `.m3u`
-(`platforms.rs`); others keep a game per disc. Question for Jerred: should the ES-DE
-export write discs the same way? Proposed: yes, in 9a, as the same code.
+(`platforms.rs`); others keep a game per disc. The ES-DE export writes discs the same
+way, in 9a, as the same code (Jerred, 2026-10-19).
 
 **D95 Downloads that resume, several at once** (S6)
 
@@ -3848,7 +3848,7 @@ Server's tray app, Settings › *Serve to devices*, the installers and the firew
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D96). D89–D95 are proposed in "Phase 9a design" (2026-10-19), for Jerred's review before code. D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D96). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -3887,6 +3887,6 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     (D81), is done, which finishes the review's batches.
 14. Then Phase 9, the device client ("Device client requirements", D84–D88): 9a Game Repo
     Server on Windows, 9b the client for Windows and Android with ES-DE, 9c the Steam
-    Deck, 9d later. 9a's design is written ("Phase 9a design", D89–D95), for Jerred's
-    review before it's built in three pull requests. Later: reading magazines' text (PDF, CBZ and CBR) and tagging each
-    issue with the games it covers.
+    Deck, 9d later. 9a's design ("Phase 9a design", D89–D95) is agreed (Jerred,
+    2026-10-19) and is built in three pull requests. Later: reading magazines' text
+    (PDF, CBZ and CBR) and tagging each issue with the games it covers.
