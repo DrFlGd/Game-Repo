@@ -653,7 +653,7 @@ async def main():
             await pg.wait_for_selector("#audit-page")
             await pg.click('#audit-panel-list a[data-id="psp"]')
             # PlayStation, shown before, has one game too: wait for the PSP's own audit
-            await pg.wait_for_selector('#audit-pick[data-platform="psp"]')
+            await pg.wait_for_selector('#audit-pick[data-platform="psp"]', state="attached")
             await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '1'")
             await pg.click("#audit-convert")
             await pg.wait_for_selector("#convert-dialog")
