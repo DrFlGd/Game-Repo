@@ -1067,8 +1067,12 @@ pub(crate) mod tests {
 
     #[test]
     fn chds_written_here_pass_chdman_verify() {
-        // only where chdman is installed (CI's Windows job fetches it)
-        let Some(chdman) = crate::tools::which(&["chdman"]) else { return };
+        // only where chdman is installed; CI fetches it and sets GAMEREPO_TEST_CHDMAN, so
+        // there the test can't pass without running (review M46)
+        let Some(chdman) = crate::tools::which(&["chdman"]) else {
+            assert!(std::env::var_os("GAMEREPO_TEST_CHDMAN").is_none(), "GAMEREPO_TEST_CHDMAN is set, but chdman isn't on the PATH");
+            return;
+        };
         let dir = sources("image-chdman");
         let stop = AtomicBool::new(false);
         let chd = dir.join("cd.chd");

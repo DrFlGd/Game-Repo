@@ -803,7 +803,8 @@ lowercase hex text (the DATs' own form, and easy to read in a database tool); if
 
 **Performance targets (checked by tests on generated data)**
 
-- Rescanning 100,000 unchanged files: under 5 s on CI's runner.
+- Rescanning 100,000 unchanged files: under 5 s on CI's runner. Scanning them the first
+  time: under 30 s (review M45; it was 188 s on Windows).
 - Importing a 50,000-ROM DAT: under 5 s. Auditing it: under 1 s.
 - Hashing runs at disk speed: one read per file, whatever the number of hashes.
 - Audit lists page through SQL (`LIMIT/OFFSET` with the search in the query), so a list
@@ -3295,6 +3296,28 @@ Order (Jerred agreed the order, and asked for the docs batch to go with the firs
 7. **The rest of CI and tests** (M44–M46): chdman fetched, a dolphin-tool stand-in on
    Windows, the page test split, page tests for D77's move and new-folder paths and the
    four frontend exports, and why Windows' first scan is 25 times slower than Linux's.
+   **Status: done (PR #36).** As built:
+   - M45: the scan's summary says where its time went (`took`: listing, comparing,
+     hashing, and the readers' opening and reading against the one writer's recording).
+     On Linux the first scan of the 100,000-file timing set was 18 s: 8.5 s comparing,
+     each new file's system guessed by squashing every system's names
+     (`platforms::from_folder` now keeps a map, made again by `configure`), and 8.8 s
+     recording, a commit (and a WAL checkpoint) every 250 files. `scan::BATCH` is 5,000,
+     still at most a second apart, and the insert is a cached statement: 5 s. The target:
+     a first scan of 100,000 files under 30 s on CI's runner (the timing test).
+   - M44: `desktop_page.py`'s parts are `Section`s: a timeout or error is a FAIL with its
+     line and `failed-<part>.png`, the page goes back to Home and the next part runs.
+     Phase 7's arcade set, the magazines and a new D77 part (games of two systems moved
+     in, one to a new folder named for its system, which becomes a folder with games, and
+     Undo) run in homes of their own (`OWN_HOMES`). The four frontends are exported and
+     read back where each looks; the Players filter is used, not only looked for.
+   - M46: CI fetches chdman (MAME 0.289's Windows build, its SHA-256 checked, cached;
+     Ubuntu's `mame-tools` on Linux) and sets `GAMEREPO_TEST_CHDMAN`, so its test fails
+     rather than passing unrun; `tests/fixtures/fake_dolphin_tool.cmd` runs the RVZ tests
+     on Windows; the timing step counts its tests; the bundles steps fail on a missing
+     bundle; a pull request's reports go to `desktop-ci-<os>-pr`; only a push to `main`
+     publishes; and the release job gives the published Unreleased section its version's
+     heading on `main`.
 8. **Groups on devices** (D81).
 
 **D78 One Import page** (Jerred, 2026-10-18). Every import goes through the Import page:
@@ -3354,9 +3377,9 @@ pictures already exported (M20) is device-specific and goes in whichever phase s
   between versions. Mitigated by doing what the app can itself (it writes CHD, CSO and
   ZSO, so only dolphin-tool and innoextract are used) and finding tools without
   downloading them (D14). CI doesn't run the real tools: the CHD tests compare with
-  chdman's own CHDs committed in `tests/fixtures/discs/`, and RVZ is tested with a Python
-  stand-in for dolphin-tool (`tests/fixtures/fake_dolphin_tool.py`), on Linux only for
-  the Rust tests (review M46, batch 7).
+  chdman's own CHDs committed in `tests/fixtures/discs/` and CI runs chdman's `verify`
+  on the CHDs the app writes; RVZ is tested with a Python stand-in for dolphin-tool
+  (`tests/fixtures/fake_dolphin_tool.py`, started by `fake_dolphin_tool.cmd` on Windows).
 - **Format edge cases**: headered dumps, multi-track discs, nested archives, MAME merge
   modes. Mitigated by fixtures per edge case and by leaning on how Igir/RomVault handle
   them.
@@ -3498,7 +3521,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
 13. Hardening after the v0.5.18 review (D78–D82): the eight batches in that section, in
     order, each a pull request merged on Jerred's word. Batches 1 and 2 are released
     (v0.5.19), batch 3, exports and collections, is v0.5.20; batch 4, the interface, is
-    v0.5.21; batches 5 (metadata, PC games and magazines) and 6 (one Import page) are done
-    together; batch 7, the rest of CI and the tests, is next.
+    v0.5.21; batches 5 (metadata, PC games and magazines) and 6 (one Import page) are
+    v0.5.22; batch 7, the rest of CI and the tests, is done; batch 8, groups on devices
+    (D81), is next.
 14. Then Phase 9, serving games to devices on the home network (3.10). Later: reading
     magazines' text (PDF, CBZ and CBR) and tagging each issue with the games it covers.

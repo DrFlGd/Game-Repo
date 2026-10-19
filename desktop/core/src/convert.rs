@@ -720,7 +720,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 
-    #[cfg(unix)]
     #[test]
     fn a_gamecube_iso_to_rvz_and_back_with_dolphin_tool() {
         let f = fixture("convert-rvz");
@@ -734,7 +733,8 @@ mod tests {
         if crate::tools::find("dolphin-tool").is_none() {
             assert!(plan(&f.ix, &f.lib, &opts(gc, "rvz", None)).is_err(), "RVZ needs dolphin-tool");
         }
-        let tool = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/fake_dolphin_tool.py");
+        // (on Windows a batch file starts the Python script: review M46)
+        let tool = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures").join(if cfg!(windows) { "fake_dolphin_tool.cmd" } else { "fake_dolphin_tool.py" });
         crate::tools::configure(&[("dolphin-tool".to_string(), tool)].into());
         let p = plan(&f.ix, &f.lib, &opts(gc, "rvz", None)).unwrap();
         let r = go(&f, &p);

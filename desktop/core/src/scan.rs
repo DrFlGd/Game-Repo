@@ -13,7 +13,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -38,9 +38,11 @@ impl Default for Options {
 /// More places than this and a scan looks at everything.
 const MANY_PLACES: usize = 2000;
 
-/// Hashes are written to the index this many files at a time, so a stopped or
-/// crashed scan loses little: the next one carries on from there.
-const BATCH: usize = 250;
+/// Hashes are written to the index this many files at a time (and at least every
+/// second), so a stopped or crashed scan loses little: the next one carries on from
+/// there. Each write costs a checkpoint, slow on Windows (review M45: 250 at a time made
+/// a first scan of 100,000 small files take minutes).
+const BATCH: usize = 5000;
 
 /// Names that are never games.
 const JUNK: &[&str] = &["thumbs.db", "desktop.ini", ".ds_store"];
@@ -275,12 +277,26 @@ enum Outcome {
     Stopped,
 }
 
-fn hash_file(w: &Work, cancel: &AtomicBool) -> std::io::Result<Hashes> {
+/// Where the readers' time went, in microseconds summed over them (review M45: Windows'
+/// first scan was 25 times Linux's)
+#[derive(Default)]
+struct Clocks {
+    opening: AtomicU64,
+    reading: AtomicU64,
+}
+
+fn micros(since: Instant) -> u64 {
+    since.elapsed().as_micros() as u64
+}
+
+fn hash_file(w: &Work, cancel: &AtomicBool, clocks: &Clocks) -> std::io::Result<Hashes> {
+    let t = Instant::now();
     let mut f = std::fs::File::open(&w.path)?;
+    clocks.opening.fetch_add(micros(t), Ordering::Relaxed);
     hash::hash_reader(&mut f, w.size, &w.name, cancel)
 }
 
-fn work_on(w: &Work, full: bool, cancel: &AtomicBool) -> Outcome {
+fn work_on(w: &Work, full: bool, cancel: &AtomicBool, clocks: &Clocks) -> Outcome {
     let r = if let Some(kind) = w.archive {
         archive::read(&w.path, kind, full, cancel).map(|l| Outcome::Archive(kind, l)).or_else(|e| {
             if e.kind() == std::io::ErrorKind::Interrupted {
@@ -289,7 +305,7 @@ fn work_on(w: &Work, full: bool, cancel: &AtomicBool) -> Outcome {
                 Ok(Outcome::NeedsTool(kind))
             } else if matches!(e.kind(), std::io::ErrorKind::Other | std::io::ErrorKind::InvalidData | std::io::ErrorKind::UnexpectedEof) {
                 // not an archive after all (it can't be opened as one): an ordinary file
-                hash_file(w, cancel).map(Outcome::File)
+                hash_file(w, cancel, clocks).map(Outcome::File)
             } else {
                 // the file couldn't be read just now (held by another program, a drive
                 // that went away): it isn't hashed, so the next scan tries again
@@ -297,7 +313,7 @@ fn work_on(w: &Work, full: bool, cancel: &AtomicBool) -> Outcome {
             }
         })
     } else {
-        hash_file(w, cancel).map(Outcome::File)
+        hash_file(w, cancel, clocks).map(Outcome::File)
     };
     match r {
         Ok(o) => o,
@@ -408,6 +424,12 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
 
     // 1. walk (everything, or only the places the watcher saw change)
     progress(json!({ "text": "Listing files" }));
+    let mut took = serde_json::Map::new();
+    let mut step = Instant::now();
+    let mut lap = |name: &str, took: &mut serde_json::Map<String, Value>| {
+        took.insert(name.into(), json!((step.elapsed().as_secs_f64() * 100.0).round() / 100.0));
+        step = Instant::now();
+    };
     let places = opts.only.as_deref().and_then(|only| places(&roots, only));
     let mut walked = vec![];
     let mut errors: Vec<String> = vec![];
@@ -435,6 +457,8 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
         }
         return finish(conn, scan_id, &json!({ "stopped": true }), 0, 0, walked.len());
     }
+
+    lap("listing", &mut took);
 
     // 2. compare with what the index has
     struct Row {
@@ -545,10 +569,8 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
             }
             continue;
         }
-        tx.execute(
-            "INSERT INTO files (root_id, rel_path, name, kind, size, mtime, platform, seen) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![root.id, w.rel, w.name, archive::container_of(&w.name).unwrap_or("file"), w.size as i64, w.mtime, platform, scan_id],
-        )?;
+        tx.prepare_cached("INSERT INTO files (root_id, rel_path, name, kind, size, mtime, platform, seen) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?
+            .execute(params![root.id, w.rel, w.name, archive::container_of(&w.name).unwrap_or("file"), w.size as i64, w.mtime, platform, scan_id])?;
         added += 1;
         queue.push(work(tx.last_insert_rowid(), &w));
     }
@@ -561,12 +583,15 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
     }
     tx.commit()?;
     let seen: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE parent_id IS NULL", [], |r| r.get(0))?;
+    lap("comparing", &mut took);
 
     // 3. hash what's new or changed, a few files at once
     let total_bytes: u64 = queue.iter().map(|w| w.size).sum();
     let items = queue.len();
     let (mut done, mut bytes, mut failed) = (0usize, 0u64, 0usize);
     let mut stopped = false;
+    let clocks = Clocks::default();
+    let mut recording = 0u64;
     if !queue.is_empty() {
         let next = AtomicUsize::new(0);
         let (send, recv) = mpsc::channel::<(usize, Outcome)>();
@@ -575,14 +600,17 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
         let halt = AtomicBool::new(false);
         std::thread::scope(|s| -> Result<()> {
             for _ in 0..readers {
-                let (send, next, queue, halt) = (send.clone(), &next, &queue, &halt);
+                let (send, next, queue, halt, clocks) = (send.clone(), &next, &queue, &halt, &clocks);
                 s.spawn(move || loop {
                     if cancel.load(Ordering::Relaxed) || halt.load(Ordering::Relaxed) {
                         break;
                     }
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(w) = queue.get(i) else { break };
-                    if send.send((i, work_on(w, opts.full, cancel))).is_err() {
+                    let t = Instant::now();
+                    let outcome = work_on(w, opts.full, cancel, clocks);
+                    clocks.reading.fetch_add(micros(t), Ordering::Relaxed);
+                    if send.send((i, outcome)).is_err() {
                         break;
                     }
                 });
@@ -624,6 +652,7 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
                         bytes += w.size;
                     }
                 }
+                let t = Instant::now();
                 let recorded = (|| -> Result<()> {
                     if tx.is_none() {
                         tx = Some(conn.unchecked_transaction()?);
@@ -637,6 +666,7 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
                     }
                     Ok(())
                 })();
+                recording += micros(t);
                 if let Err(e) = recorded {
                     halt.store(true, Ordering::Relaxed);
                     return Err(e);
@@ -653,6 +683,12 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
         })?;
     }
     stopped |= cancel.load(Ordering::Relaxed);
+    lap("hashing", &mut took);
+    // the readers' time is summed over them; the recording is the one writer's
+    let secs = |us: u64| json!((us as f64 / 10_000.0).round() / 100.0);
+    took.insert("opening".into(), secs(clocks.opening.load(Ordering::Relaxed)));
+    took.insert("reading".into(), secs(clocks.reading.load(Ordering::Relaxed)));
+    took.insert("recording".into(), secs(recording));
 
     // 4. each CHD's own SHA1, from its header, for arcade disks (D58)
     let chd = chd_headers(conn, &roots)?;
@@ -666,12 +702,13 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
         crate::audit::changed(conn)?;
     }
     conn.execute("DELETE FROM blobs WHERE id NOT IN (SELECT blob_id FROM files WHERE blob_id IS NOT NULL)", [])?;
+    lap("matching", &mut took);
 
     let summary = json!({
         "scan": scan_id, "files": seen, "added": added, "changed": changed, "moved": moved, "removed": removed,
         "hashed": done, "bytes": bytes, "failed": failed, "errors": errors, "matched": matched, "stopped": stopped,
         "roots": roots.len(), "roots_missing": missing_roots, "full": opts.full, "places": places.as_ref().map(Vec::len),
-        "seconds": (started.elapsed().as_secs_f64() * 10.0).round() / 10.0,
+        "seconds": (started.elapsed().as_secs_f64() * 10.0).round() / 10.0, "took": took,
     });
     finish(conn, scan_id, &summary, done, bytes, seen as usize)
 }

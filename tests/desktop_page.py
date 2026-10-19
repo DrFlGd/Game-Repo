@@ -37,7 +37,16 @@ leaves them as they were, and switching back from the recent list; the theme
 and skin follow the settings and are kept; a library from a newer app opens
 read-only; the menu is a drawer in a narrow window; and the library and its
 index are the same after the library is moved (library-info, index-info).
+(Phase 8a) a collection exported to RetroArch, Pegasus, LaunchBox and Playnite, each
+read back where that frontend looks. In homes of their own: (Phase 7) an arcade set
+with its BIOS set, a device and its set type; (Phase 8c) magazines; (D77) games of two
+systems moved in from a folder, one to a new folder named for its system, and Undo.
 Writes <out>/library-info.json and <out>/library.zip for the cross-platform check.
+
+Each part runs as a `Section` (review M44): a timeout or error in it is a FAIL of its
+own, with the test's line, a screenshot `failed-<part>.png`, and the page back at Home
+for the next part, so one stuck check doesn't hide the rest. A part that needs nothing
+from the others has a home, library and backend of its own (`OWN_HOMES`, `own_home`).
 """
 import argparse
 import asyncio
@@ -53,6 +62,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.parse
 import urllib.request
 import zipfile
@@ -169,25 +179,29 @@ def sources_stand_in():
             "launchbox_zip": f"{base}/Metadata.zip", "launchbox_images": f"{base}/lb", "thegamesdb": f"{base}/tgdb"}
 
 
-def start_server():
-    starter_source()
-    cfg = json.loads((home / "config/config.json").read_text())
-    cfg["source_urls"] = sources_stand_in()
-    (home / "config/config.json").write_text(json.dumps(cfg))
-    log = open(out / "serve.log", "w")
-    p = subprocess.Popen([a.cli, "serve", "--ui", a.ui, "--home", str(home), "--port", str(a.port)], stdout=log, stderr=log)
+def start_server(at=None, port=None):
+    """The backend for the test's home (with the stand-ins for the sources), or for a part
+    with a home of its own (review M44)."""
+    at, port = at or home, port or a.port
+    if at == home:
+        starter_source()
+        cfg = json.loads((home / "config/config.json").read_text())
+        cfg["source_urls"] = sources_stand_in()
+        (home / "config/config.json").write_text(json.dumps(cfg))
+    log = open(out / ("serve.log" if at == home else f"serve-{at.name}.log"), "w")
+    p = subprocess.Popen([a.cli, "serve", "--ui", a.ui, "--home", str(at), "--port", str(port)], stdout=log, stderr=log)
     for _ in range(100):
         try:
-            urllib.request.urlopen(B, timeout=1)
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1)
             return p
         except Exception:
             time.sleep(0.2)
-    raise SystemExit("the server didn't start; see serve.log")
+    raise SystemExit(f"the server didn't start; see {log.name}")
 
 
-def pick(path):
-    """The answer to the next folder dialog."""
-    req = urllib.request.Request(B + "test/pick", data=json.dumps({"path": str(path)}).encode(), method="POST", headers={"content-type": "application/json"})
+def pick(path, base=None):
+    """The answer to the next folder dialog (of the test's home, or a part's at `base`)."""
+    req = urllib.request.Request((base or B) + "test/pick", data=json.dumps({"path": str(path)}).encode(), method="POST", headers={"content-type": "application/json"})
     urllib.request.urlopen(req, timeout=5)
 
 
@@ -207,6 +221,306 @@ async def toast_text(pg, pattern, timeout=15000):
     return await pg.inner_text("#toast")
 
 
+async def back_home(pg, base):
+    """The page loaded again at Home, whatever was open."""
+    await pg.goto(base)
+    await pg.wait_for_selector("#home-head, #first-run", timeout=30000)
+
+
+class Section:
+    """A part of the test (review M44): when a wait times out or anything else goes wrong
+    in it, that's a FAIL of its own, the page goes back to Home and the next part runs,
+    so one stuck check doesn't hide the rest."""
+
+    def __init__(self, pg, base, name):
+        self.pg, self.base, self.name = pg, base, name
+
+    async def __aenter__(self):
+        self.started = time.time()
+        return self
+
+    async def __aexit__(self, kind, e, tb):
+        took = f"{time.time() - self.started:.0f} s"
+        if e is None:
+            print(f"-- {self.name}: {took}", flush=True)
+            return False
+        if not isinstance(e, Exception):
+            return False
+        here = [f for f in traceback.extract_tb(tb) if f.filename == __file__]
+        at = f" (line {here[-1].lineno})" if here else ""
+        first = str(e).strip().splitlines()[0] if str(e).strip() else ""
+        check(f"{self.name}: its checks ran to the end", False, f"{kind.__name__}{at}: {first}")
+        try:
+            slug = "-".join("".join(c if c.isalnum() else " " for c in self.name.lower()).split()[:5])
+            await self.pg.screenshot(path=str(out / f"failed-{slug}.png"))
+            await back_home(self.pg, self.base)
+        except Exception as again:
+            print(f"   (couldn't go back to Home: {again})", flush=True)
+        print(f"-- {self.name}: stopped after {took}", flush=True)
+        return True
+
+
+async def own_home(b, name, port, part):
+    """A part that needs nothing from the others runs in a home, a library and a backend of
+    its own (review M44), from the first start on."""
+    at = Path(f"{home}-{name}")
+    shutil.rmtree(at, ignore_errors=True)
+    at.mkdir(parents=True)
+    try:
+        server = start_server(at, port)
+    except SystemExit as e:
+        check(f"{name}: its backend started", False, e)
+        return
+    base = f"http://127.0.0.1:{port}/"
+    try:
+        ctx = await b.new_context(viewport={"width": 1400, "height": 900})
+        await ctx.add_init_script(path=str(SHIM))
+        pg = await ctx.new_page()
+        pg.on("pageerror", lambda e: errors.append(f"{e} ({name})"))
+        pg.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
+        pg.on("console", lambda m: errors.append(f"{m.text} ({m.location.get('url', '')}, {name})") if m.type == "error" and "net::ERR_" not in m.text else None)
+        async with Section(pg, base, f"{name} (a home of its own)"):
+            await pg.goto(base)
+            await pg.wait_for_selector("#first-run", timeout=30000)
+            pick(at / "My Games", base)
+            await pg.click("#choose-library")
+            await pg.wait_for_function("() => document.querySelector('#home-head h1')?.textContent === 'My Games'")
+            await part(pg, base, at, at / "My Games")
+        await ctx.close()
+    finally:
+        server.terminate()
+        server.wait(timeout=20)
+
+
+async def until(test, timeout=15.0):
+    """Wait for something outside the page (a file written) to be so."""
+    end = time.time() + timeout
+    while not test():
+        if time.time() > end:
+            raise TimeoutError("waited too long")
+        await asyncio.sleep(0.2)
+
+
+async def arcade(pg, base, home, library):
+    """Phase 7: an arcade set (MAME's -listxml), with its BIOS set, a device it lacks, and its set type."""
+    arc = home / "Roms" / "MAME"
+    arc.mkdir(parents=True, exist_ok=True)
+    ab = lambda n: make_fixtures.rom(2000 + n, 64)
+
+    def zipped(path, members):
+        with zipfile.ZipFile(path, "w") as z:
+            for name, data in members:
+                z.writestr(name, data)
+    zipped(arc / "alpha.zip", [("a.1", ab(1)), ("shared.2", ab(2))])
+    zipped(arc / "alphaj.zip", [("aj.1", ab(3)), ("shared.2", ab(2))])
+    zipped(arc / "bios1.zip", [("bios.bin", ab(4))])
+    zipped(arc / "beta.zip", [("b.1", ab(5))])
+    pick(home / "Roms", base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    rx = lambda n, x, merge=None: make_fixtures.rom_xml(n, ab(x)).replace("<rom ", f'<rom merge="{merge}" ' if merge else "<rom ")
+    mame = home / "mame.xml"
+    mame.write_text('<?xml version="1.0"?>\n<mame build="0.271 (mame0271)">\n'
+                    f'<machine name="bios1" isbios="yes"><description>Test BIOS</description>{rx("bios.bin", 4)}</machine>\n'
+                    f'<machine name="dev1" isdevice="yes" runnable="no"><description>Test device</description>{rx("dev.bin", 6)}</machine>\n'
+                    f'<machine name="alpha"><description>Alpha Fighter (World)</description><year>1991</year><manufacturer>Acme</manufacturer>{rx("a.1", 1)}{rx("shared.2", 2)}</machine>\n'
+                    f'<machine name="alphaj" cloneof="alpha" romof="alpha"><description>Alpha Fighter (Japan)</description>{rx("aj.1", 3)}{rx("shared.2", 2, "shared.2")}</machine>\n'
+                    f'<machine name="beta" romof="bios1"><description>Beta Quest</description>{rx("bios.bin", 4, "bios.bin")}{rx("b.1", 5)}<device_ref name="dev1"/></machine>\n'
+                    '</mame>\n')
+    pick(mame, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await pg.goto(base + "#/")
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    await pg.click('.sidebar a[href="#/audit"]')
+    await pg.wait_for_selector("#audit-page")
+    await pg.click('#audit-panel-list a[data-id="mame"]')
+    await pg.wait_for_selector("#audit-playable")
+    totals = await pg.inner_text("#audit-totals")
+    await pg.click('#audit-tabs [data-tab="have"]')
+    await pg.wait_for_selector('#audit-list[data-tab="have"] tr[data-name="beta"] .audit-needs')
+    needs = await pg.inner_text('#audit-list tr[data-name="beta"] .audit-needs')
+    alpha_row = await pg.inner_text('#audit-list tr[data-name="alpha"]')
+    await pg.screenshot(path=str(out / "56-arcade-audit.png"), full_page=True)
+    await pg.click('#audit-tabs [data-tab="sets"]')
+    await pg.wait_for_selector('#audit-list[data-tab="sets"] tr[data-name="bios1"]')
+    sets = await pg.inner_text("#audit-list")
+    check("an arcade DAT (MAME's -listxml) is audited: BIOS sets and devices apart from the games, what's playable, and what a game needs",
+          "3 of 3 games" in totals.replace("\n", " ") and "2 playable" in totals and "1 of 2" in totals
+          and "dev1" in needs and "Alpha Fighter" in alpha_row and "1991" in alpha_row and "bios1" in sets and "dev1" in sets and "missing" in sets.lower(),
+          (totals, needs, alpha_row, sets))
+    await pg.select_option("#audit-set-type", "split")
+    await toast_text(pg, "split set")
+    await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"misnamed\"] .tab-count')?.textContent === '1'", timeout=15000)
+    kept = json.loads((library / "_library/library.json").read_text()).get("arcade_sets", {})
+    await pg.click('.sidebar a[href="#/"]')
+    await pg.wait_for_function("() => document.querySelector('#home-next')?.textContent.includes('Arcade (MAME) to put right')", timeout=15000)
+    nxt = await pg.inner_text("#home-next")
+    await pg.screenshot(path=str(out / "57-home-next.png"))
+    await pg.click('#home-next li[data-kind="misnamed"] a:has-text("Arcade")')
+    await pg.wait_for_selector('#audit-list[data-tab="misnamed"]')
+    check("Home's Next strip says what to do, and its link opens the page to do it on",
+          "1 file in Arcade (MAME) to put right" in nxt and "#/audit" in await pg.evaluate("location.hash"), nxt)
+    await pg.click('.sidebar a[href="#/settings"]')
+    await pg.wait_for_selector('#arcade-set-types li[data-system="mame"] select')
+    in_settings = await pg.input_value('#arcade-set-types li[data-system="mame"] select')
+    await pg.select_option('#arcade-set-types li[data-system="mame"] select', "non-merged")
+    await toast_text(pg, "non-merged set")
+    back_to = json.loads((library / "_library/library.json").read_text()).get("arcade_sets", {})
+    check("an arcade system's set type is kept in the library: split lists a clone's copy of its parent's ROM as misnamed, and Settings › Systems shows and changes it",
+          kept.get("mame") == "split" and in_settings == "split" and back_to.get("mame") == "non-merged", (kept, in_settings, back_to))
+
+
+async def magazines(pg, base, home, library):
+    """Magazines (D68): a folder of issues read, put right and brought in; covers, a comic
+    book a page at a time, a list to check them against."""
+    mags = home / "Magazines in"
+    (mags / "Retro Gamer").mkdir(parents=True)
+    with zipfile.ZipFile(mags / "Game Fan 001 (1992-10).cbz", "w") as z:
+        for n in ("p1.png", "p2.png", "p10.png"):
+            z.writestr(n, COVER)
+    (mags / "Game Fan 002 (1992-11).pdf").write_bytes(b"%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n")
+    with zipfile.ZipFile(mags / "Retro Gamer" / "100.cbz", "w") as z:
+        z.writestr("cover.png", WIDE)
+    await pg.click('.sidebar a[href="#/magazines"]')
+    await pg.wait_for_selector("#magazines-page #mag-empty")
+    pick(mags, base)
+    await pg.click("#mag-import")
+    await pg.wait_for_selector("#mag-items li", timeout=30000)
+    read = await pg.eval_on_selector_all("#mag-items li", "els => Object.fromEntries(els.map(e => [e.dataset.name, [e.querySelector('.mag-item-title').value, e.querySelector('.mag-item-number').value, e.querySelector('.mag-item-date').value]]))")
+    await pg.fill('#mag-items li[data-name="100.cbz"] .mag-item-date', "2012-06")
+    await pg.screenshot(path=str(out / "60-magazines-import.png"))
+    await pg.click("#mag-import-dialog button[type=submit]")
+    await pg.wait_for_selector("#organise-totals")
+    totals = await pg.inner_text("#organise-totals")
+    mag_head = await pg.evaluate("() => [document.querySelector('#mag-import-dialog h2').textContent, location.hash]")
+    await pg.click("#mag-import-dialog button[type=submit]")
+    said = await toast_text(pg, "Imported 3 magazine issues")
+    check("Magazines' import is the Import page's, its preview in the present tense (M40, D78)", mag_head == ["Import 3 magazine issues", "#/import/import-mags"], mag_head)
+    await pg.click('.sidebar a[href="#/magazines"]')
+    await pg.wait_for_selector('#mag-panel-list a[data-id="Game Fan"]')
+    fan = library / "Magazines" / "Game Fan"
+    fan_json = json.loads((fan / "magazine.json").read_text()) if (fan / "magazine.json").is_file() else {}
+    check("Import magazines… reads each file's magazine, number and date from its name (or its folder's), they're put right, and brought into Magazines/<title>/ (the originals stay)",
+          read.get("Game Fan 001 (1992-10).cbz") == ["Game Fan", "1", "1992-10"] and read.get("100.cbz") == ["Retro Gamer", "100", ""]
+          and "3 issues" in totals and [i.get("number") for i in fan_json.get("issues", [])] == ["1", "2"]
+          and (library / "Magazines/Retro Gamer/magazine.json").is_file() and (mags / "Game Fan 001 (1992-10).cbz").is_file(),
+          (read, totals, said, fan_json))
+    await pg.click('#mag-panel-list a[data-id="Game Fan"]')
+    await pg.wait_for_selector('#mag-issues li[data-number="1"] img.mag-cover')
+    await pg.wait_for_function("() => document.querySelector('#mag-issues li[data-number=\"1\"] img.mag-cover')?.naturalWidth > 0", timeout=15000)
+    await pg.wait_for_function("() => document.querySelector('#mag-issues li[data-number=\"2\"] img.mag-cover')?.naturalWidth > 0", timeout=15000)
+    plain = await pg.evaluate("async () => { const r = await fetch(document.querySelector('#mag-issues li[data-number=\"2\"] img.mag-cover').src); return [r.headers.get('content-type'), await r.text()]; }")
+    await pg.screenshot(path=str(out / "61-magazines.png"))
+    check("a magazine's issues show by their covers: a comic book's first page, and a PDF without a picture a plain one with its number",
+          "svg" in (plain[0] or "") and "No. 2" in plain[1] and "Game Fan" in plain[1], (plain[0], plain[1][:200]))
+    await pg.click('#mag-issues li[data-number="1"] .mag-open')
+    await pg.wait_for_selector("#doc-dialog #comic-view")
+    first = await pg.inner_text("#comic-page")
+    await pg.click("#comic-next")
+    await pg.wait_for_function("() => document.querySelector('#comic-page').textContent.includes('Page 2')")
+    await pg.wait_for_function("() => document.querySelector('#comic-view .comic-page img')?.naturalWidth > 0", timeout=15000)
+    locked = await pg.is_disabled("#doc-edit-title")
+    await pg.screenshot(path=str(out / "62-comic.png"))
+    # Esc closes the reader, and so does going to another page (review M36)
+    await pg.keyboard.press("Escape")
+    await pg.wait_for_selector("#doc-dialog", state="detached")
+    await pg.click('#mag-issues li[data-number="1"] .mag-open')
+    await pg.wait_for_selector("#doc-dialog #comic-view")
+    await pg.evaluate("() => { location.hash = '#/home'; }")
+    await pg.wait_for_selector("#doc-dialog", state="detached")
+    await pg.evaluate("() => { location.hash = '#/magazines'; }")
+    await pg.wait_for_selector('#mag-issues li[data-number="1"]')
+    check("an issue opens in the document viewer, a comic book a page at a time (its pages in order), named on the Magazines page only; Esc or another page closes it",
+          first == "Page 1 of 3" and locked, (first, locked))
+    listed = home / "game-fan.csv"
+    listed.write_text("magazine,number,date\nGame Fan,1,1992-10\nGame Fan,2,1992-11\nGame Fan,3,1992-12\n")
+    pick(listed, base)
+    await pg.click("#mag-add-list-button")
+    await toast_text(pg, "Imported the list")
+    await pg.wait_for_selector("#mag-missing li")
+    missing = await pg.inner_text("#mag-missing")
+    totals = await pg.inner_text("#mag-totals")
+    await pg.click("#mag-save-missing-one")
+    said = await toast_text(pg, "Saved 1 missing issue")
+    saved = list((library / "_library/reports").glob("Magazines missing*.csv"))
+    check("a list of issues (a CSV) says which are missing, and they're saved as a list of their own",
+          "Game Fan 003 (1992-12)" in missing and "Game Fan 001" not in missing and "2 of the 3 listed" in totals and len(saved) == 1 and "Game Fan,3" in saved[0].read_text(),
+          (missing, totals, said, [x.name for x in saved]))
+
+
+async def import_by_system(pg, base, home, library):
+    """D77's moves and new folders (review M44: the test only looked for the choices): games
+    of two systems moved in from a folder, one to its system's folder with games, the other
+    to a new folder named for its system beside it, which becomes a folder with games of
+    its own; Undo puts them back and takes the new folder away."""
+    fx = home / "fx"
+    make_fixtures.main(fx)
+    gb = fx / "Roms" / "Game Boy"
+    pick(gb, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    gear = make_fixtures.rom(31, 512)
+    gg_dat = home / "gg.dat"
+    gg_dat.write_text(make_fixtures.logiqx("Sega - Game Gear", "20261001", [("Gear One (World)", None, [make_fixtures.rom_xml("Gear One (World).gg", gear)])]))
+    for f in (fx / "dats" / "gb.dat", gg_dat):
+        pick(f, base)
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await back_home(pg, base)
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    incoming = home / "Incoming"
+    incoming.mkdir()
+    (incoming / "europe one.gb").write_bytes(make_fixtures.rom(11, 32768))
+    (incoming / "gear.gg").write_bytes(gear)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#import-games")
+    pick(incoming, base)
+    await pg.click("#import-add-folder")
+    await pg.wait_for_selector("#import-folders li")
+    await pg.check('#import-mode input[value="move"]')
+    await pg.click("#import-games-dialog button[type=submit]")
+    await pg.wait_for_selector("#import-games-review", timeout=30000)
+    for p in ("gb", "gamegear"):
+        await pg.wait_for_selector(f'#import-places li[data-platform="{p}"][data-dir]:not([data-dir=""])')
+    to_gb = await pg.get_attribute('#import-places li[data-platform="gb"]', "data-dir")
+    to_gg = await pg.get_attribute('#import-places li[data-platform="gamegear"]', "data-dir")
+    why_gg = await pg.inner_text('#import-places li[data-platform="gamegear"] small')
+    said_move = await pg.inner_text("#import-games-totals")
+    await pg.click("#import-games-review button[type=submit]")
+    await pg.wait_for_selector("#bring-dialog #organise-totals")
+    preview = await pg.inner_text("#bring-dialog")
+    await pg.screenshot(path=str(out / "23f-import-move.png"))
+    await pg.click("#bring-dialog button[type=submit]")
+    said = await toast_text(pg, "Imported 2 games into the library", timeout=30000)
+    new_dir = fx / "Roms" / "Sega Game Gear"
+    moved = [(gb / "Alpha (Europe).gb").is_file(), (new_dir / "Gear One (World).gg").is_file(), not any(incoming.iterdir())]
+    roots = {Path(r["path"]): r.get("platform") for r in json.loads((library / "_library/library.json").read_text()).get("roots", [])}
+    check("Import moves each system's games: to the folder with games named for it, and for a system with none to a new folder named for it beside it, which becomes its folder with games (D77)",
+          Path(to_gb) == gb and Path(to_gg) == new_dir and "new folder" in why_gg.lower() and "moved" in said_move.lower() and "A new folder becomes a folder with games" in preview
+          and all(moved) and roots.get(new_dir) == "gamegear", (to_gb, to_gg, why_gg, said_move, preview[-300:], said, moved, roots))
+    await back_home(pg, base)
+    await pg.wait_for_selector('#home-platforms [data-platform="gamegear"]')
+    bar = await pg.inner_text('#home-platforms [data-platform="gamegear"]')
+    check("what's moved in is scanned and matched: Game Gear has its one game", "1 of 1" in bar, bar)
+    await pg.click('.sidebar a[href="#/history"]')
+    await pg.wait_for_selector('#history li:first-child [data-action="undo"]')
+    await pg.click('#history li:first-child [data-action="undo"]')
+    await toast_text(pg, "Undone")
+    roots = [Path(r["path"]) for r in json.loads((library / "_library/library.json").read_text()).get("roots", [])]
+    back = [(incoming / "europe one.gb").is_file(), (incoming / "gear.gg").is_file(), not (gb / "Alpha (Europe).gb").exists(), not new_dir.exists(), new_dir not in roots]
+    check("Undo moves them back, and takes away the new folder and its place in the library", all(back), (back, roots))
+
+
+# the parts with homes of their own, run after the rest
+OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system)]
+
+
 async def main():
     server = start_server()
     try:
@@ -221,1814 +535,1731 @@ async def main():
             await pg.goto(B)
             await pg.wait_for_selector("#first-run", timeout=30000)
 
-            # 1. the first start asks where the library goes, then makes only _library/ there
-            asked = await pg.inner_text("#first-run h1")
-            coming_off = await pg.locator(".sidebar #coming-pages a").count()
-            await pg.screenshot(path=str(out / "00-first-run.png"))
-            pick(library)
-            await pg.click("#choose-library")
-            await pg.wait_for_function("() => document.querySelector('#home-head h1')?.textContent === 'My Games'")
-            made = (library / "_library/library.json").is_file() and sorted(x.name for x in library.iterdir()) == ["_library"]
-            status = await pg.get_attribute(".status-library", "title")
-            check("the first start asks where the library goes and makes only _library/ there",
-                  "Where" in asked and coming_off == 0 and made and str(library) == status, (asked, made, status))
+            async with Section(pg, B, "the first start, the menu, Help and the library"):
+                # 1. the first start asks where the library goes, then makes only _library/ there
+                asked = await pg.inner_text("#first-run h1")
+                coming_off = await pg.locator(".sidebar #coming-pages a").count()
+                await pg.screenshot(path=str(out / "00-first-run.png"))
+                pick(library)
+                await pg.click("#choose-library")
+                await pg.wait_for_function("() => document.querySelector('#home-head h1')?.textContent === 'My Games'")
+                made = (library / "_library/library.json").is_file() and sorted(x.name for x in library.iterdir()) == ["_library"]
+                status = await pg.get_attribute(".status-library", "title")
+                check("the first start asks where the library goes and makes only _library/ there",
+                      "Where" in asked and coming_off == 0 and made and str(library) == status, (asked, made, status))
 
-            # 2. the index: made on this computer, under the data folder, not in the library (Settings › Library)
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.wait_for_selector("#settings-index #index-tables", state="attached")
-            tables = await pg.text_content("#index-tables")
-            await pg.click('.sidebar a[href="#/"]')
-            await pg.wait_for_selector("#home-platforms")
-            lib_id = json.loads((library / "_library/library.json").read_text())["id"]
-            index_files = sorted(x.name for x in (home / "data/index").iterdir()) if (home / "data/index").is_dir() else []
-            in_library = [str(x) for x in library.rglob("*.sqlite*")]
-            check("the library's index is made on this computer, not in the library",
-                  "index_meta" in tables and f"{lib_id}.sqlite" in index_files and not in_library, (tables, index_files, in_library))
-            await pg.screenshot(path=str(out / "00-home.png"))
+                # 2. the index: made on this computer, under the data folder, not in the library (Settings › Library)
+                await pg.click('.sidebar a[href="#/settings"]')
+                await pg.wait_for_selector("#settings-index #index-tables", state="attached")
+                tables = await pg.text_content("#index-tables")
+                await pg.click('.sidebar a[href="#/"]')
+                await pg.wait_for_selector("#home-platforms")
+                lib_id = json.loads((library / "_library/library.json").read_text())["id"]
+                index_files = sorted(x.name for x in (home / "data/index").iterdir()) if (home / "data/index").is_dir() else []
+                in_library = [str(x) for x in library.rglob("*.sqlite*")]
+                check("the library's index is made on this computer, not in the library",
+                      "index_meta" in tables and f"{lib_id}.sqlite" in index_files and not in_library, (tables, index_files, in_library))
+                await pg.screenshot(path=str(out / "00-home.png"))
 
-            # 3. the menu's places, and the pages still to come
-            labels = await pg.eval_on_selector_all(".sidebar .nav-label", "els => els.map(e => e.textContent.trim())")
-            await pg.click('.sidebar a[href="#/audit"]')
-            await pg.wait_for_selector("#audit-empty")
-            audit = await pg.inner_text(".cmdbar h1")
-            active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
-            lead = await pg.inner_text("#audit-empty")
-            check("the menu's places open, with the pages still to come saying what they'll do",
-                  labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Export layouts", "History", "Settings", "Help", "About"]
-                  and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
-            await pg.screenshot(path=str(out / "01-coming.png"))
+                # 3. the menu's places, and the pages still to come
+                labels = await pg.eval_on_selector_all(".sidebar .nav-label", "els => els.map(e => e.textContent.trim())")
+                await pg.click('.sidebar a[href="#/audit"]')
+                await pg.wait_for_selector("#audit-empty")
+                audit = await pg.inner_text(".cmdbar h1")
+                active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
+                lead = await pg.inner_text("#audit-empty")
+                check("the menu's places open, with the pages still to come saying what they'll do",
+                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Export layouts", "History", "Settings", "Help", "About"]
+                      and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
+                await pg.screenshot(path=str(out / "01-coming.png"))
 
-            # Help (D54): the words the app uses, and a section for every page in the menu
-            await pg.click('.sidebar a[href="#/help"]')
-            await pg.wait_for_selector("#help-terms dl")
-            menu = await pg.eval_on_selector_all(".sidebar a.nav-link[href]", "els => els.map(e => e.getAttribute('href').replace(/^#\\/?/, '') || 'home').filter(r => r !== 'help')")
-            sections = await pg.eval_on_selector_all("#help-pages .help-section", "els => els.map(e => e.dataset.route)")
-            terms = await pg.eval_on_selector_all("#help-terms [data-term]", "els => els.map(e => e.dataset.term)")
-            await pg.screenshot(path=str(out / "01b-help.png"), full_page=True)
-            await pg.fill("#help-search", "set aside")
-            await pg.wait_for_function("() => document.querySelectorAll('#help-terms [data-term]').length < 10")
-            found_terms = await pg.eval_on_selector_all("#help-terms [data-term]", "els => els.map(e => e.dataset.term)")
-            check("Help explains the words the app uses and has a section for every page in the menu, and its search narrows both",
-                  set(menu) <= set(sections) and {"full-set", "collection", "set-aside", "change", "folders-with-games"} <= set(terms) and "set-aside" in found_terms,
-                  (menu, sections, found_terms))
-            await pg.fill("#help-search", "")
-            # the page's parts sit at its left edge, not centred (D69)
-            gap = await pg.evaluate("() => { const p = document.querySelector('#help-page'); return document.querySelector('#help-page > .page-lead').getBoundingClientRect().left - p.getBoundingClientRect().left - parseFloat(getComputedStyle(p).paddingLeft); }")
-            check("a page's content is left-justified, not centred", abs(gap) < 1, gap)
+                # Help (D54): the words the app uses, and a section for every page in the menu
+                await pg.click('.sidebar a[href="#/help"]')
+                await pg.wait_for_selector("#help-terms dl")
+                menu = await pg.eval_on_selector_all(".sidebar a.nav-link[href]", "els => els.map(e => e.getAttribute('href').replace(/^#\\/?/, '') || 'home').filter(r => r !== 'help')")
+                sections = await pg.eval_on_selector_all("#help-pages .help-section", "els => els.map(e => e.dataset.route)")
+                terms = await pg.eval_on_selector_all("#help-terms [data-term]", "els => els.map(e => e.dataset.term)")
+                await pg.screenshot(path=str(out / "01b-help.png"), full_page=True)
+                await pg.fill("#help-search", "set aside")
+                await pg.wait_for_function("() => document.querySelectorAll('#help-terms [data-term]').length < 10")
+                found_terms = await pg.eval_on_selector_all("#help-terms [data-term]", "els => els.map(e => e.dataset.term)")
+                check("Help explains the words the app uses and has a section for every page in the menu, and its search narrows both",
+                      set(menu) <= set(sections) and {"full-set", "collection", "set-aside", "change", "folders-with-games"} <= set(terms) and "set-aside" in found_terms,
+                      (menu, sections, found_terms))
+                await pg.fill("#help-search", "")
+                # the page's parts sit at its left edge, not centred (D69)
+                gap = await pg.evaluate("() => { const p = document.querySelector('#help-page'); return document.querySelector('#help-page > .page-lead').getBoundingClientRect().left - p.getBoundingClientRect().left - parseFloat(getComputedStyle(p).paddingLeft); }")
+                check("a page's content is left-justified, not centred", abs(gap) < 1, gap)
 
-            # 4. checking the index from Home's Library menu runs as a job
-            await pg.click('.sidebar a[href="#/"]')
-            await pg.click("#library-menu")
-            await pg.click('#context-menu [data-action="check-index"]')
-            said = await toast_text(pg, "index is sound")
-            check("checking the index runs and says it's sound", "sound" in said, said)
+                # 4. checking the index from Home's Library menu runs as a job
+                await pg.click('.sidebar a[href="#/"]')
+                await pg.click("#library-menu")
+                await pg.click('#context-menu [data-action="check-index"]')
+                said = await toast_text(pg, "index is sound")
+                check("checking the index runs and says it's sound", "sound" in said, said)
 
-            # 5. renaming the library, and Undo
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.wait_for_selector("#library-name")
-            index_path = await pg.inner_text("#index-path")
-            await pg.fill("#library-name", "Retro")
-            await pg.click(".inline-form button[type=submit]")
-            await pg.wait_for_function("() => document.querySelector('.statusbar').textContent.includes('Retro')")
-            stored = json.loads((library / "_library/library.json").read_text())["name"]
-            await toast_text(pg, "Renamed the library Retro")
-            await pg.click("#toast .toast-action")
-            await pg.wait_for_function("() => document.querySelector('.status-library').textContent === 'My Games'")
-            back = json.loads((library / "_library/library.json").read_text())["name"]
-            check("the library is renamed, and Undo puts the name back", stored == "Retro" and back == "My Games", (stored, back))
-            check("Settings shows where the index is on this computer", index_path.endswith(f"{lib_id}.sqlite") and str(home / "data") in index_path, index_path)
-            await pg.fill("#library-name", "Retro")
-            await pg.click(".inline-form button[type=submit]")
-            await pg.wait_for_function("() => document.querySelector('.statusbar').textContent.includes('Retro')")
-            await pg.screenshot(path=str(out / "02-settings.png"), full_page=True)
+                # 5. renaming the library, and Undo
+                await pg.click('.sidebar a[href="#/settings"]')
+                await pg.wait_for_selector("#library-name")
+                index_path = await pg.inner_text("#index-path")
+                await pg.fill("#library-name", "Retro")
+                await pg.click(".inline-form button[type=submit]")
+                await pg.wait_for_function("() => document.querySelector('.statusbar').textContent.includes('Retro')")
+                stored = json.loads((library / "_library/library.json").read_text())["name"]
+                await toast_text(pg, "Renamed the library Retro")
+                await pg.click("#toast .toast-action")
+                await pg.wait_for_function("() => document.querySelector('.status-library').textContent === 'My Games'")
+                back = json.loads((library / "_library/library.json").read_text())["name"]
+                check("the library is renamed, and Undo puts the name back", stored == "Retro" and back == "My Games", (stored, back))
+                check("Settings shows where the index is on this computer", index_path.endswith(f"{lib_id}.sqlite") and str(home / "data") in index_path, index_path)
+                await pg.fill("#library-name", "Retro")
+                await pg.click(".inline-form button[type=submit]")
+                await pg.wait_for_function("() => document.querySelector('.statusbar').textContent.includes('Retro')")
+                await pg.screenshot(path=str(out / "02-settings.png"), full_page=True)
 
-            # 6. opening another library (a folder that already holds games), then switching back
-            other = home / "Old ROMs"
-            (other / "Nintendo - SNES").mkdir(parents=True)
-            rom = other / "Nintendo - SNES/Chrono Trigger (USA).sfc"
-            rom.write_bytes(b"\x00rom data\xff")
-            pick(other)
-            await pg.click("#open-library")
-            await pg.wait_for_function("() => document.querySelector('#library-path')?.textContent.includes('Old ROMs')")
-            kept = rom.read_bytes() == b"\x00rom data\xff"
-            top = sorted(x.name for x in other.iterdir())
-            check("opening a folder of games adds only the app's folder", kept and top == ["Nintendo - SNES", "_library"], top)
-            await pg.wait_for_function("(p) => { const t = document.querySelector('#index-path')?.textContent; return t && t.includes('.sqlite') && t !== p; }", arg=index_path)
-            other_index = await pg.inner_text("#index-path")
-            await pg.click("#recent-libraries button")
-            await pg.wait_for_function("() => document.querySelector('#library-path')?.textContent.endsWith('My Games')")
-            name = await pg.input_value("#library-name")
-            await pg.wait_for_function("(p) => document.querySelector('#index-path')?.textContent === p", arg=index_path)
-            check("a library opened before opens from the list, each with its own index", name == "Retro" and other_index != index_path, (name, other_index))
+                # 6. opening another library (a folder that already holds games), then switching back
+                other = home / "Old ROMs"
+                (other / "Nintendo - SNES").mkdir(parents=True)
+                rom = other / "Nintendo - SNES/Chrono Trigger (USA).sfc"
+                rom.write_bytes(b"\x00rom data\xff")
+                pick(other)
+                await pg.click("#open-library")
+                await pg.wait_for_function("() => document.querySelector('#library-path')?.textContent.includes('Old ROMs')")
+                kept = rom.read_bytes() == b"\x00rom data\xff"
+                top = sorted(x.name for x in other.iterdir())
+                check("opening a folder of games adds only the app's folder", kept and top == ["Nintendo - SNES", "_library"], top)
+                await pg.wait_for_function("(p) => { const t = document.querySelector('#index-path')?.textContent; return t && t.includes('.sqlite') && t !== p; }", arg=index_path)
+                other_index = await pg.inner_text("#index-path")
+                await pg.click("#recent-libraries button")
+                await pg.wait_for_function("() => document.querySelector('#library-path')?.textContent.endsWith('My Games')")
+                name = await pg.input_value("#library-name")
+                await pg.wait_for_function("(p) => document.querySelector('#index-path')?.textContent === p", arg=index_path)
+                check("a library opened before opens from the list, each with its own index", name == "Retro" and other_index != index_path, (name, other_index))
 
-            # Phase 1. folders with games, scanning, DATs and the audit
-            fx = home / "fx"
-            make_fixtures.main(fx)
-            expected = json.loads((fx / "expected.json").read_text())
-            pick(fx / "Roms")
-            # (games kept where they are: Import › Folders with games, D73)
-            await pg.click('.sidebar a[href="#/import"]')
-            await pg.click("#add-root")
-            await pg.wait_for_selector("#roots li")
-            roots_json = json.loads((library / "_library/library.json").read_text()).get("roots", [])
-            check("a folder with games is added and kept in the library", len(roots_json) == 1 and Path(roots_json[0]["path"]) == fx / "Roms", roots_json)
-            await pg.goto(B + "#/")
-            await pg.click("#home-scan-button")
-            said = await toast_text(pg, "Scanned 7 files")
-            check("Scan reads every file once, inside ZIPs too", "7 new" in said and "read 7 files" in said, said)
-            for f in ("gb.dat", "nes.zip", "odd.dat"):
-                pick(fx / "dats" / f)
-            await pg.click("#home-import")
-            await pg.wait_for_selector("#dat-platform-dialog")
-            # review M41 (D78): the import is the Import page's, opened at its DAT files
-            home_import_at = await pg.evaluate("() => [location.hash, !!document.querySelector('#import-page[data-at=\"settings-dats\"] #settings-dats')]")
-            asked = await pg.inner_text("#dat-platform-dialog")
-            # a new system, named here (its id follows from the name)
-            await pg.select_option("#dat-platform-0", "__new")
-            await pg.fill("#dat-platform-0-name", "Satellaview")
-            new_id = await pg.input_value("#dat-platform-0-id")
-            await pg.click("#dat-platform-dialog button[type=submit]")
-            await toast_text(pg, "Imported Nintendo - Satellaview")
-            dat_files = sorted(str(x.relative_to(library / "_library/dats")).replace("\\", "/") for x in (library / "_library/dats").rglob("*.dat"))
-            meta = json.loads((library / "_library/library.json").read_text())
-            remembered = meta.get("dat_platforms", {})
-            systems = {x["id"]: x for x in meta.get("systems", [])}
-            check("DATs are imported (a zipped one too) and copied into the library; an unknown one is asked about, its new system added and remembered",
-                  "Satellaview" in asked and len(dat_files) == 3 and dat_files[0].startswith("gb/") and remembered.get("Nintendo - Satellaview") == "satellaview"
-                  and new_id == "satellaview" and systems.get("satellaview", {}).get("dat_names") == ["Nintendo - Satellaview"], (dat_files, remembered, new_id, systems))
-            check("Home's Import DATs… opens the Import page at its DAT files and imports there (review M41, D78)", home_import_at == ["#/import/settings-dats", True], home_import_at)
-            # a file dropped where no page takes it goes to the Import page, asked what it is (D78)
-            await pg.goto(B + "#/")
-            await pg.wait_for_selector("#home-platforms")
-            await pg.evaluate("(p) => window.__shimEmit('tauri://drag-drop', { paths: [p], position: { x: 400, y: 400 } })", str(fx / "dats" / "gb.dat"))
-            await pg.wait_for_selector("#import-drop-dialog")
-            dropped_as = await pg.evaluate("() => [location.hash, document.querySelector('#import-drop-kind input:checked')?.value]")
-            await pg.click("#import-drop-dialog-cancel")
-            check("a DAT dropped on Home goes to the Import page, taken for a DAT (D78)", dropped_as == ["#/import/import-dropped", "dats"], dropped_as)
-            await pg.goto(B + "#/")
-            await pg.wait_for_selector('#home-platforms [data-platform="gb"]')
-            bar = await pg.inner_text('#home-platforms [data-platform="gb"]')
-            check("Home shows each system against its DAT, with one per title (1G1R)", "3 of 6" in bar and "One per title 3 of 5" in bar, bar)
-            await pg.screenshot(path=str(out / "10-home-platforms.png"), full_page=True)
+            async with Section(pg, B, "Phase 1: folders with games, scanning, DATs and the audit"):
+                # Phase 1. folders with games, scanning, DATs and the audit
+                fx = home / "fx"
+                make_fixtures.main(fx)
+                expected = json.loads((fx / "expected.json").read_text())
+                pick(fx / "Roms")
+                # (games kept where they are: Import › Folders with games, D73)
+                await pg.click('.sidebar a[href="#/import"]')
+                await pg.click("#add-root")
+                await pg.wait_for_selector("#roots li")
+                roots_json = json.loads((library / "_library/library.json").read_text()).get("roots", [])
+                check("a folder with games is added and kept in the library", len(roots_json) == 1 and Path(roots_json[0]["path"]) == fx / "Roms", roots_json)
+                await pg.goto(B + "#/")
+                await pg.click("#home-scan-button")
+                said = await toast_text(pg, "Scanned 7 files")
+                check("Scan reads every file once, inside ZIPs too", "7 new" in said and "read 7 files" in said, said)
+                for f in ("gb.dat", "nes.zip", "odd.dat"):
+                    pick(fx / "dats" / f)
+                await pg.click("#home-import")
+                await pg.wait_for_selector("#dat-platform-dialog")
+                # review M41 (D78): the import is the Import page's, opened at its DAT files
+                home_import_at = await pg.evaluate("() => [location.hash, !!document.querySelector('#import-page[data-at=\"settings-dats\"] #settings-dats')]")
+                asked = await pg.inner_text("#dat-platform-dialog")
+                # a new system, named here (its id follows from the name)
+                await pg.select_option("#dat-platform-0", "__new")
+                await pg.fill("#dat-platform-0-name", "Satellaview")
+                new_id = await pg.input_value("#dat-platform-0-id")
+                await pg.click("#dat-platform-dialog button[type=submit]")
+                await toast_text(pg, "Imported Nintendo - Satellaview")
+                dat_files = sorted(str(x.relative_to(library / "_library/dats")).replace("\\", "/") for x in (library / "_library/dats").rglob("*.dat"))
+                meta = json.loads((library / "_library/library.json").read_text())
+                remembered = meta.get("dat_platforms", {})
+                systems = {x["id"]: x for x in meta.get("systems", [])}
+                check("DATs are imported (a zipped one too) and copied into the library; an unknown one is asked about, its new system added and remembered",
+                      "Satellaview" in asked and len(dat_files) == 3 and dat_files[0].startswith("gb/") and remembered.get("Nintendo - Satellaview") == "satellaview"
+                      and new_id == "satellaview" and systems.get("satellaview", {}).get("dat_names") == ["Nintendo - Satellaview"], (dat_files, remembered, new_id, systems))
+                check("Home's Import DATs… opens the Import page at its DAT files and imports there (review M41, D78)", home_import_at == ["#/import/settings-dats", True], home_import_at)
+                # a file dropped where no page takes it goes to the Import page, asked what it is (D78)
+                await pg.goto(B + "#/")
+                await pg.wait_for_selector("#home-platforms")
+                await pg.evaluate("(p) => window.__shimEmit('tauri://drag-drop', { paths: [p], position: { x: 400, y: 400 } })", str(fx / "dats" / "gb.dat"))
+                await pg.wait_for_selector("#import-drop-dialog")
+                dropped_as = await pg.evaluate("() => [location.hash, document.querySelector('#import-drop-kind input:checked')?.value]")
+                await pg.click("#import-drop-dialog-cancel")
+                check("a DAT dropped on Home goes to the Import page, taken for a DAT (D78)", dropped_as == ["#/import/import-dropped", "dats"], dropped_as)
+                await pg.goto(B + "#/")
+                await pg.wait_for_selector('#home-platforms [data-platform="gb"]')
+                bar = await pg.inner_text('#home-platforms [data-platform="gb"]')
+                check("Home shows each system against its DAT, with one per title (1G1R)", "3 of 6" in bar and "One per title 3 of 5" in bar, bar)
+                await pg.screenshot(path=str(out / "10-home-platforms.png"), full_page=True)
 
-            async def tab_names(tab):
-                await pg.click(f'#audit-tabs [data-tab="{tab}"]')
-                await pg.wait_for_function("(t) => { const l = document.querySelector('#audit-list'); return l && l.dataset.tab === t && l.getAttribute('aria-busy') === 'false'; }", arg=tab)
-                return sorted(await pg.eval_on_selector_all("#audit-list .audit-row", "els => els.map(e => e.dataset.name)"))
+                async def tab_names(tab):
+                    await pg.click(f'#audit-tabs [data-tab="{tab}"]')
+                    await pg.wait_for_function("(t) => { const l = document.querySelector('#audit-list'); return l && l.dataset.tab === t && l.getAttribute('aria-busy') === 'false'; }", arg=tab)
+                    return sorted(await pg.eval_on_selector_all("#audit-list .audit-row", "els => els.map(e => e.dataset.name)"))
 
-            await pg.click('.sidebar a[href="#/audit"]')
-            await pg.wait_for_selector("#audit-page")
-            platform_now = await pg.get_attribute("#audit-pick", "data-platform")
-            totals = await pg.inner_text("#audit-totals")
-            lists = {t: await tab_names(t) for t in ("have", "partial", "missing", "matched", "misnamed", "baddump", "unknown", "duplicates")}
-            want = {"have": expected["have_list"], "partial": ["Epsilon (USA)"], "missing": expected["missing_list"], "matched": expected["matched"],
-                    "misnamed": expected["misnamed"], "baddump": expected["baddump"], "unknown": expected["unknown"], "duplicates": expected["duplicates"]}
-            check("the audit lists what you have, what's missing, misnamed, bad, unknown and duplicated",
-                  platform_now == "gb" and "3 of 6" in totals and lists == want, {k: v for k, v in lists.items() if v != want[k]} or totals)
-            await pg.click('#audit-tabs [data-tab="misnamed"]')
-            await pg.wait_for_selector('#audit-list .audit-row[data-name="beta.gb"]')
-            await pg.fill("#audit-search", "beta")
-            await pg.wait_for_function("() => document.querySelectorAll('#audit-list .audit-row').length === 1")
-            row = await pg.inner_text("#audit-list .audit-row")
-            check("a list is searched, and a misnamed file shows the name the DAT gives it", "Beta (Europe).gb" in row, row)
-            await pg.screenshot(path=str(out / "11-audit.png"), full_page=True)
-            await pg.fill("#audit-search", "")
-            # the audit's views (D69): a games list narrowed to a region, sorted, as a table;
-            # the systems in the ribbon, and All systems' table of every system's counts
-            have_all = await tab_names("have")
-            await pg.wait_for_selector("#audit-region")
-            regions = await pg.eval_on_selector_all("#audit-region option", "els => els.map(e => e.value).filter(Boolean)")
-            await pg.select_option("#audit-region", regions[0])
-            await pg.wait_for_selector(f'#audit-list[data-by="{regions[0]}|name"][aria-busy="false"]')
-            await pg.wait_for_selector("#audit-list-table tr.audit-row")
-            cells = await pg.eval_on_selector_all("#audit-list-table tr.audit-row td:nth-child(2)", "els => els.map(e => e.textContent)")
-            await pg.screenshot(path=str(out / "11b-audit-table.png"))
-            check("a games list is narrowed to a region, in a table with a column for it",
-                  cells and all(regions[0] in c for c in cells) and len(cells) < len(have_all), (regions, cells, have_all))
-            await pg.select_option("#audit-region", "")
-            await pg.click("#audit-sort")
-            await pg.click('#context-menu [data-action="sort-region"]')
-            await pg.wait_for_selector('#audit-list[data-by="|region"][aria-busy="false"] #audit-list-table tr.audit-row')
-            by_region = await pg.eval_on_selector_all("#audit-list-table tr.audit-row td:nth-child(2)", "els => els.map(e => e.textContent)")
-            check("a games list is sorted by region", by_region == sorted(by_region), by_region)
-            await pg.click("#audit-sort")
-            await pg.click('#context-menu [data-action="sort-name"]')
-            side = await pg.eval_on_selector_all("#audit-panel-list .nav-link", "els => els.map(e => e.dataset.id)")
-            await pg.click('#audit-panel-list a[data-id=""]')
-            await pg.wait_for_selector('#audit-overview tr[data-platform="gb"]')
-            row = await pg.inner_text('#audit-overview tr[data-platform="gb"]')
-            await pg.screenshot(path=str(out / "11c-audit-all.png"))
-            check("the systems are in the ribbon beside the menu, and All systems is a table of each one's counts",
-                  side[0] == "" and "gb" in side and "Game Boy" in row and str(len(have_all)) in row and "#/audit/all" in await pg.evaluate("location.hash"), (side, row))
-            await pg.click('#audit-overview tr[data-platform="gb"] td[data-tab="misnamed"] a')
-            await pg.wait_for_selector('#audit-list[data-tab="misnamed"]')
-            check("a count in the table opens that system at that list", "#/audit/gb" in await pg.evaluate("location.hash"))
-            await pg.click("#audit-menu")
-            await pg.click('#context-menu [data-action="export-fixdat"]')
-            said = await toast_text(pg, "fixdat of 3 games")
-            await pg.click("#audit-menu")
-            await pg.click('#context-menu [data-action="save-report-csv"]')
-            await toast_text(pg, "Saved the report")
-            fixdats = list((library / "_library/fixdats").glob("*.dat"))
-            reports = list((library / "_library/reports").glob("*.csv"))
-            csv = reports[0].read_text() if reports else ""
-            check("Export fixdat writes what's missing as a DAT, and the report is saved as CSV",
-                  len(fixdats) == 1 and "Alpha (Europe)" in fixdats[0].read_text() and "unknown,My Hack.gb" in csv, (said, [x.name for x in fixdats], csv[:200]))
+                await pg.click('.sidebar a[href="#/audit"]')
+                await pg.wait_for_selector("#audit-page")
+                platform_now = await pg.get_attribute("#audit-pick", "data-platform")
+                totals = await pg.inner_text("#audit-totals")
+                lists = {t: await tab_names(t) for t in ("have", "partial", "missing", "matched", "misnamed", "baddump", "unknown", "duplicates")}
+                want = {"have": expected["have_list"], "partial": ["Epsilon (USA)"], "missing": expected["missing_list"], "matched": expected["matched"],
+                        "misnamed": expected["misnamed"], "baddump": expected["baddump"], "unknown": expected["unknown"], "duplicates": expected["duplicates"]}
+                check("the audit lists what you have, what's missing, misnamed, bad, unknown and duplicated",
+                      platform_now == "gb" and "3 of 6" in totals and lists == want, {k: v for k, v in lists.items() if v != want[k]} or totals)
+                await pg.click('#audit-tabs [data-tab="misnamed"]')
+                await pg.wait_for_selector('#audit-list .audit-row[data-name="beta.gb"]')
+                await pg.fill("#audit-search", "beta")
+                await pg.wait_for_function("() => document.querySelectorAll('#audit-list .audit-row').length === 1")
+                row = await pg.inner_text("#audit-list .audit-row")
+                check("a list is searched, and a misnamed file shows the name the DAT gives it", "Beta (Europe).gb" in row, row)
+                await pg.screenshot(path=str(out / "11-audit.png"), full_page=True)
+                await pg.fill("#audit-search", "")
+                # the audit's views (D69): a games list narrowed to a region, sorted, as a table;
+                # the systems in the ribbon, and All systems' table of every system's counts
+                have_all = await tab_names("have")
+                await pg.wait_for_selector("#audit-region")
+                regions = await pg.eval_on_selector_all("#audit-region option", "els => els.map(e => e.value).filter(Boolean)")
+                await pg.select_option("#audit-region", regions[0])
+                await pg.wait_for_selector(f'#audit-list[data-by="{regions[0]}|name"][aria-busy="false"]')
+                await pg.wait_for_selector("#audit-list-table tr.audit-row")
+                cells = await pg.eval_on_selector_all("#audit-list-table tr.audit-row td:nth-child(2)", "els => els.map(e => e.textContent)")
+                await pg.screenshot(path=str(out / "11b-audit-table.png"))
+                check("a games list is narrowed to a region, in a table with a column for it",
+                      cells and all(regions[0] in c for c in cells) and len(cells) < len(have_all), (regions, cells, have_all))
+                await pg.select_option("#audit-region", "")
+                await pg.click("#audit-sort")
+                await pg.click('#context-menu [data-action="sort-region"]')
+                await pg.wait_for_selector('#audit-list[data-by="|region"][aria-busy="false"] #audit-list-table tr.audit-row')
+                by_region = await pg.eval_on_selector_all("#audit-list-table tr.audit-row td:nth-child(2)", "els => els.map(e => e.textContent)")
+                check("a games list is sorted by region", by_region == sorted(by_region), by_region)
+                await pg.click("#audit-sort")
+                await pg.click('#context-menu [data-action="sort-name"]')
+                side = await pg.eval_on_selector_all("#audit-panel-list .nav-link", "els => els.map(e => e.dataset.id)")
+                await pg.click('#audit-panel-list a[data-id=""]')
+                await pg.wait_for_selector('#audit-overview tr[data-platform="gb"]')
+                row = await pg.inner_text('#audit-overview tr[data-platform="gb"]')
+                await pg.screenshot(path=str(out / "11c-audit-all.png"))
+                check("the systems are in the ribbon beside the menu, and All systems is a table of each one's counts",
+                      side[0] == "" and "gb" in side and "Game Boy" in row and str(len(have_all)) in row and "#/audit/all" in await pg.evaluate("location.hash"), (side, row))
+                await pg.click('#audit-overview tr[data-platform="gb"] td[data-tab="misnamed"] a')
+                await pg.wait_for_selector('#audit-list[data-tab="misnamed"]')
+                check("a count in the table opens that system at that list", "#/audit/gb" in await pg.evaluate("location.hash"))
+                await pg.click("#audit-menu")
+                await pg.click('#context-menu [data-action="export-fixdat"]')
+                said = await toast_text(pg, "fixdat of 3 games")
+                await pg.click("#audit-menu")
+                await pg.click('#context-menu [data-action="save-report-csv"]')
+                await toast_text(pg, "Saved the report")
+                fixdats = list((library / "_library/fixdats").glob("*.dat"))
+                reports = list((library / "_library/reports").glob("*.csv"))
+                csv = reports[0].read_text() if reports else ""
+                check("Export fixdat writes what's missing as a DAT, and the report is saved as CSV",
+                      len(fixdats) == 1 and "Alpha (Europe)" in fixdats[0].read_text() and "unknown,My Hack.gb" in csv, (said, [x.name for x in fixdats], csv[:200]))
 
-            # a rename and a deletion: the next scan reads only what changed
-            gbdir = fx / "Roms/Game Boy"
-            (gbdir / "beta.gb").rename(gbdir / "Beta (Europe).gb")
-            (gbdir / "Copies/Alpha copy.gb").unlink()
-            await pg.click("#audit-scan")
-            said = await toast_text(pg, "Scanned 6 files")
-            misnamed_after = await tab_names("misnamed")
-            dupes_after = await tab_names("duplicates")
-            check("a rescan reads only what changed, and the audit follows", "read 1 file" in said and "2 gone" in said and not misnamed_after and not dupes_after,
-                  (said, misnamed_after, dupes_after))
+                # a rename and a deletion: the next scan reads only what changed
+                gbdir = fx / "Roms/Game Boy"
+                (gbdir / "beta.gb").rename(gbdir / "Beta (Europe).gb")
+                (gbdir / "Copies/Alpha copy.gb").unlink()
+                await pg.click("#audit-scan")
+                said = await toast_text(pg, "Scanned 6 files")
+                misnamed_after = await tab_names("misnamed")
+                dupes_after = await tab_names("duplicates")
+                check("a rescan reads only what changed, and the audit follows", "read 1 file" in said and "2 gone" in said and not misnamed_after and not dupes_after,
+                      (said, misnamed_after, dupes_after))
 
-            # a DAT made from a set
-            await pg.click("#audit-menu")
-            await pg.click('#context-menu [data-action="make-dat"]')
-            await pg.wait_for_selector("#make-dat-dialog")
-            await pg.fill("#make-dat-folder", "Game Boy")
-            await pg.fill("#make-dat-name", "My GB set")
-            await pg.select_option("#make-dat-platform", "gb")
-            await pg.click("#make-dat-dialog button[type=submit]")
-            said = await toast_text(pg, "Wrote My GB set")
-            made = list((library / "_library/made-dats").glob("My GB set*.dat"))
-            check("a DAT is made from a scanned set (ZIPs read for SHA1s) and imported to audit against",
-                  len(made) == 1 and "5 games" in said and "imported for Game Boy" in said and made[0].read_text().count("sha1=") == 5, said)
-            await pg.select_option("#audit-dat", label="My GB set (" + made[0].stem.split("(")[-1].rstrip(")") + ")")
-            await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '5'")
-            chosen = json.loads((library / "_library/library.json").read_text()).get("audit_dats", {})
-            check("the DAT chosen for a platform is kept for it", chosen.get("gb") == "My GB set", chosen)
+                # a DAT made from a set
+                await pg.click("#audit-menu")
+                await pg.click('#context-menu [data-action="make-dat"]')
+                await pg.wait_for_selector("#make-dat-dialog")
+                await pg.fill("#make-dat-folder", "Game Boy")
+                await pg.fill("#make-dat-name", "My GB set")
+                await pg.select_option("#make-dat-platform", "gb")
+                await pg.click("#make-dat-dialog button[type=submit]")
+                said = await toast_text(pg, "Wrote My GB set")
+                made = list((library / "_library/made-dats").glob("My GB set*.dat"))
+                check("a DAT is made from a scanned set (ZIPs read for SHA1s) and imported to audit against",
+                      len(made) == 1 and "5 games" in said and "imported for Game Boy" in said and made[0].read_text().count("sha1=") == 5, said)
+                await pg.select_option("#audit-dat", label="My GB set (" + made[0].stem.split("(")[-1].rstrip(")") + ")")
+                await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '5'")
+                chosen = json.loads((library / "_library/library.json").read_text()).get("audit_dats", {})
+                check("the DAT chosen for a platform is kept for it", chosen.get("gb") == "My GB set", chosen)
 
-            # Phase 2a. the folder watcher, organising with a preview, Undo, naming and the history
-            await pg.select_option("#audit-dat", label="Nintendo - Game Boy (Parent-Clone) (20261001-000000)")
-            await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '3'")
-            (gbdir / "Extra").mkdir()
-            shutil.copy(gbdir / "Alpha (USA).gb", gbdir / "Extra/alpha again.gb")
-            (gbdir / "Extra/gamma.gb").write_bytes(make_fixtures.rom(3, 32768))
-            said = await toast_text(pg, "Scanned what changed", timeout=30000)
-            misnamed = await tab_names("misnamed")
-            check("files added outside the app are read without a scan (the folder watcher)", "2 new" in said and misnamed == ["alpha again.gb", "gamma.gb"], (said, misnamed))
+            async with Section(pg, B, "Phase 2a: the watcher, organising, Undo, naming and History"):
+                # Phase 2a. the folder watcher, organising with a preview, Undo, naming and the history
+                await pg.select_option("#audit-dat", label="Nintendo - Game Boy (Parent-Clone) (20261001-000000)")
+                await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '3'")
+                (gbdir / "Extra").mkdir()
+                shutil.copy(gbdir / "Alpha (USA).gb", gbdir / "Extra/alpha again.gb")
+                (gbdir / "Extra/gamma.gb").write_bytes(make_fixtures.rom(3, 32768))
+                said = await toast_text(pg, "Scanned what changed", timeout=30000)
+                misnamed = await tab_names("misnamed")
+                check("files added outside the app are read without a scan (the folder watcher)", "2 new" in said and misnamed == ["alpha again.gb", "gamma.gb"], (said, misnamed))
 
-            await pg.click("#audit-rename")
-            await pg.wait_for_selector('#organise-list li[data-op="rename"]')
-            step = await pg.inner_text("#organise-list")
-            tabs = await pg.inner_text("#organise-tabs")
-            await pg.screenshot(path=str(out / "13-rename-preview.png"))
-            await pg.click("#organise-dialog button[type=submit]")
-            said = await toast_text(pg, "Renamed the misnamed Game Boy files")
-            renamed = (gbdir / "Extra/Gamma (Japan).gb").is_file() and not (gbdir / "Extra/gamma.gb").exists()
-            misnamed = await tab_names("misnamed")
-            await pg.click("#toast .toast-action")
-            undone = await toast_text(pg, "Undone")
-            back = (gbdir / "Extra/gamma.gb").is_file() and not (gbdir / "Extra/Gamma (Japan).gb").exists()
-            check("Rename these shows a preview (a copy of a file named right is left alone), renames in place, and Undo in the message puts it back",
-                  "Gamma (Japan).gb" in step and "Left alone 1" in " ".join(tabs.split()) and "1 of 1 step done" in said and renamed and misnamed == ["alpha again.gb"] and back,
-                  (step, tabs, said, undone, misnamed))
+                await pg.click("#audit-rename")
+                await pg.wait_for_selector('#organise-list li[data-op="rename"]')
+                step = await pg.inner_text("#organise-list")
+                tabs = await pg.inner_text("#organise-tabs")
+                await pg.screenshot(path=str(out / "13-rename-preview.png"))
+                await pg.click("#organise-dialog button[type=submit]")
+                said = await toast_text(pg, "Renamed the misnamed Game Boy files")
+                renamed = (gbdir / "Extra/Gamma (Japan).gb").is_file() and not (gbdir / "Extra/gamma.gb").exists()
+                misnamed = await tab_names("misnamed")
+                await pg.click("#toast .toast-action")
+                undone = await toast_text(pg, "Undone")
+                back = (gbdir / "Extra/gamma.gb").is_file() and not (gbdir / "Extra/Gamma (Japan).gb").exists()
+                check("Rename these shows a preview (a copy of a file named right is left alone), renames in place, and Undo in the message puts it back",
+                      "Gamma (Japan).gb" in step and "Left alone 1" in " ".join(tabs.split()) and "1 of 1 step done" in said and renamed and misnamed == ["alpha again.gb"] and back,
+                      (step, tabs, said, undone, misnamed))
 
-            await pg.click('#audit-tabs [data-tab="duplicates"]')
-            await pg.click("#audit-aside")
-            await pg.wait_for_selector('#organise-list li[data-op="aside"]')
-            await pg.click("#organise-dialog button[type=submit]")
-            said = await toast_text(pg, "Set aside Game Boy duplicates")
-            held = [x for x in (fx / "Roms/.gamerepo-set-aside").rglob("*") if x.is_file()]
-            dupes = await tab_names("duplicates")
-            check("Set aside duplicates keeps the copy that's named right and moves the other out of the way",
-                  (gbdir / "Alpha (USA).gb").is_file() and not (gbdir / "Extra/alpha again.gb").exists() and [x.name for x in held] == ["alpha again.gb"] and dupes == [],
-                  (said, held, dupes))
+                await pg.click('#audit-tabs [data-tab="duplicates"]')
+                await pg.click("#audit-aside")
+                await pg.wait_for_selector('#organise-list li[data-op="aside"]')
+                await pg.click("#organise-dialog button[type=submit]")
+                said = await toast_text(pg, "Set aside Game Boy duplicates")
+                held = [x for x in (fx / "Roms/.gamerepo-set-aside").rglob("*") if x.is_file()]
+                dupes = await tab_names("duplicates")
+                check("Set aside duplicates keeps the copy that's named right and moves the other out of the way",
+                      (gbdir / "Alpha (USA).gb").is_file() and not (gbdir / "Extra/alpha again.gb").exists() and [x.name for x in held] == ["alpha again.gb"] and dupes == [],
+                      (said, held, dupes))
 
-            sorted_dir = home / "Sorted"
-            pick(sorted_dir)
-            await pg.click("#audit-organise")
-            await pg.wait_for_selector("#organise-dialog")
-            await pg.check('input[name="organise-mode"][value="copy"]')
-            await pg.click("#organise-pick")
-            await pg.wait_for_function("(p) => document.querySelector('#organise-out')?.value === p", arg=str(sorted_dir))
-            await pg.select_option("#organise-format", "zip")
-            await pg.screenshot(path=str(out / "14-organise.png"))
-            await pg.click("#organise-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            totals = await pg.inner_text("#organise-totals")
-            await pg.screenshot(path=str(out / "15-organise-preview.png"))
-            await pg.click("#organise-dialog button[type=submit]")
-            said = await toast_text(pg, "Sorted Game Boy into")
-            zips = sorted(x.name for x in sorted_dir.glob("*.zip")) if sorted_dir.is_dir() else []
-            tz = all(b"TORRENTZIPPED-" in (sorted_dir / z).read_bytes()[-40:] for z in zips)
-            check("Organise copies a set into TorrentZips in another folder, after a preview, and leaves the originals",
-                  "Write ZIP: 4 files" in totals and zips == ["Alpha (USA).zip", "Beta (Europe).zip", "Delta (World).zip", "Gamma (Japan).zip"] and tz and (gbdir / "Delta (World).zip").is_file(),
-                  (totals, said, zips))
+                sorted_dir = home / "Sorted"
+                pick(sorted_dir)
+                await pg.click("#audit-organise")
+                await pg.wait_for_selector("#organise-dialog")
+                await pg.check('input[name="organise-mode"][value="copy"]')
+                await pg.click("#organise-pick")
+                await pg.wait_for_function("(p) => document.querySelector('#organise-out')?.value === p", arg=str(sorted_dir))
+                await pg.select_option("#organise-format", "zip")
+                await pg.screenshot(path=str(out / "14-organise.png"))
+                await pg.click("#organise-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-totals")
+                totals = await pg.inner_text("#organise-totals")
+                await pg.screenshot(path=str(out / "15-organise-preview.png"))
+                await pg.click("#organise-dialog button[type=submit]")
+                said = await toast_text(pg, "Sorted Game Boy into")
+                zips = sorted(x.name for x in sorted_dir.glob("*.zip")) if sorted_dir.is_dir() else []
+                tz = all(b"TORRENTZIPPED-" in (sorted_dir / z).read_bytes()[-40:] for z in zips)
+                check("Organise copies a set into TorrentZips in another folder, after a preview, and leaves the originals",
+                      "Write ZIP: 4 files" in totals and zips == ["Alpha (USA).zip", "Beta (Europe).zip", "Delta (World).zip", "Gamma (Japan).zip"] and tz and (gbdir / "Delta (World).zip").is_file(),
+                      (totals, said, zips))
 
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.wait_for_selector("#naming-template")
-            await pg.fill("#naming-template", "{title} ({region})")
-            await pg.wait_for_function("() => document.querySelector('#naming-examples code')?.textContent === 'Super Game (USA, Europe)'")
-            await pg.click("#naming-save")
-            await toast_text(pg, "Saved how Game Boy games are named")
-            naming = json.loads((library / "_library/library.json").read_text()).get("naming", {})
-            check("Settings › Naming shows how names come out and keeps the platform's template in the library",
-                  naming.get("gb", {}).get("template") == "{title} ({region})", naming)
+                await pg.click('.sidebar a[href="#/settings"]')
+                await pg.wait_for_selector("#naming-template")
+                await pg.fill("#naming-template", "{title} ({region})")
+                await pg.wait_for_function("() => document.querySelector('#naming-examples code')?.textContent === 'Super Game (USA, Europe)'")
+                await pg.click("#naming-save")
+                await toast_text(pg, "Saved how Game Boy games are named")
+                naming = json.loads((library / "_library/library.json").read_text()).get("naming", {})
+                check("Settings › Naming shows how names come out and keeps the platform's template in the library",
+                      naming.get("gb", {}).get("template") == "{title} ({region})", naming)
 
-            # History, a page of its own (D71)
-            await pg.click('.sidebar a[href="#/history"]')
-            await pg.wait_for_selector("#history li")
-            states = await pg.eval_on_selector_all("#history li", "els => els.map(e => e.dataset.state)")
-            days = await pg.eval_on_selector_all("#history .day-group", "els => els.map(e => [e.open, e.querySelector('summary').textContent])")
-            await pg.click('#history li:first-child [data-action="steps"]')
-            await pg.wait_for_selector("#history li:first-child .change-step")
-            steps_shown = await pg.eval_on_selector_all("#history li:first-child .change-step", "els => els.map(e => e.dataset.op)")
-            await pg.screenshot(path=str(out / "16-history.png"), full_page=True)
-            await pg.click('#history li:first-child [data-action="steps"]')
-            check("History is grouped by day, the newest open, and a change opens to the steps it took (D78)",
-                  len(days) == 1 and days[0][0] and days[0][1].startswith("Today") and "3 changes" in days[0][1] and len(steps_shown) > 0, (days, steps_shown))
-            await pg.click('#history li:first-child [data-action="undo"]')
-            await toast_text(pg, "Undone")
-            gone = not sorted_dir.exists() or not any(sorted_dir.iterdir())
-            await pg.click("#history-empty")
-            await pg.click("#confirm-dialog button[type=submit]")
-            await toast_text(pg, "Freed")
-            emptied = not any(x.is_file() for x in (fx / "Roms").rglob("*") if ".gamerepo-set-aside" in x.parts)
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.uncheck("#scan-watch")
-            await pg.wait_for_timeout(300)
-            watch = json.loads((home / "config/config.json").read_text()).get("scan", {}).get("watch")
-            check("History lists the changes; the newest is undone there, what was set aside is emptied, and watching can be turned off",
-                  states == ["done", "done", "undone"] and gone and emptied and watch is False, (states, gone, emptied, watch))
-            await pg.check("#scan-watch")
-
-            # Import: the DATs; Settings: how scans read ZIPs (kept on this computer)
-            await pg.click('.sidebar a[href="#/import"]')
-            await pg.wait_for_selector("#settings-dats .dat-group")
-            groups = await pg.eval_on_selector_all("#settings-dats .dat-group h3", "els => els.map(e => e.textContent)")
-            await pg.screenshot(path=str(out / "12b-import.png"), full_page=True)
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.select_option("#scan-zips", "full")
-            await pg.wait_for_timeout(300)
-            cfg = json.loads((home / "config/config.json").read_text())
-            check("Import lists the DATs by system, and Settings keeps the scan settings on this computer",
-                  groups == ["Game Boy", "Nintendo Entertainment System", "Satellaview"] and cfg.get("scan", {}).get("full") is True, (groups, cfg.get("scan")))
-            await pg.screenshot(path=str(out / "12-settings-games.png"), full_page=True)
-            await pg.click('.sidebar a[href="#/import"]')
-            await pg.click("#starter-dats")
-            await pg.click("#ask-dialog button[type=submit]")
-            said = await toast_text(pg, "starter DATs for")
-            starters = sorted(x.parent.name for x in (library / "_library/dats").rglob("*.dat") if x.parent.name in ("gamegear", "vectrex"))
-            check("Get starter DATs downloads the DATs of the systems that have none", "2 systems" in said and "2 already had one" in said and starters == ["gamegear", "vectrex"], (said, starters))
-
-            # Phase 2b. disc systems: a cue/bin set and an ISO, converted, extracted and put back
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.uncheck("#scan-watch")
-            await pg.wait_for_timeout(300)
-            made = make_discs.write(home / "disc-src")
-            src = home / "disc-src"
-            (fx / "Roms/PlayStation").mkdir()
-            (fx / "Roms/PSP").mkdir()
-            for f in ("Disc Game (USA).cue", "Disc Game (USA) (Track 1).bin", "Disc Game (USA) (Track 2).bin"):
-                shutil.copy(src / f, fx / "Roms/PlayStation" / f)
-            shutil.copy(src / "Dvd Game (Europe).iso", fx / "Roms/PSP/Dvd Game (Europe).iso")
-            ddir = home / "disc-dats"
-            ddir.mkdir()
-            cd_roms = [make_fixtures.rom_xml(f, (src / f).read_bytes()) for f in ("Disc Game (USA).cue", "Disc Game (USA) (Track 1).bin", "Disc Game (USA) (Track 2).bin")]
-            (ddir / "psx.dat").write_text(make_fixtures.logiqx("Sony - PlayStation", "20261001", [("Disc Game (USA)", None, cd_roms)]))
-            (ddir / "psp.dat").write_text(make_fixtures.logiqx("Sony - PlayStation Portable", "20261001",
-                                                                [("Dvd Game (Europe)", None, [make_fixtures.rom_xml("Dvd Game (Europe).iso", (src / "Dvd Game (Europe).iso").read_bytes())])]))
-            for f in ("psx.dat", "psp.dat"):
-                pick(ddir / f)
-            await pg.click('.sidebar a[href="#/import"]')
-            await pg.click("#import-dats")
-            await toast_text(pg, "Imported")
-            await pg.goto(B + "#/")
-            await pg.click("#home-scan-button")
-            said = await toast_text(pg, "Scanned")
-            await pg.click('.sidebar a[href="#/audit"]')
-            await pg.wait_for_selector("#audit-page")
-            await pg.click('#audit-panel-list a[data-id="psx"]')
-            await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '1' && document.querySelector('#audit-games')?.textContent === '1'")
-            await pg.click("#audit-organise")
-            await pg.wait_for_selector("#organise-dialog")
-            disc_note = await pg.locator("#organise-disc-note").count()
-            no_format = await pg.locator("#organise-format").count() == 0
-            await pg.keyboard.press("Escape")
-            check("a cue/bin set is audited against its disc DAT, and Organise keeps disc images as they are", disc_note == 1 and no_format, (said, disc_note, no_format))
-
-            await pg.click("#audit-convert")
-            await pg.wait_for_selector("#convert-dialog")
-            to = await pg.input_value("#convert-to")
-            await pg.check('input[name="convert-place"][value="here"]')
-            await pg.screenshot(path=str(out / "17-convert.png"))
-            await pg.click("#convert-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            totals = await pg.inner_text("#organise-totals")
-            await pg.screenshot(path=str(out / "18-convert-preview.png"))
-            await pg.click("#convert-dialog button[type=submit]")
-            said = await toast_text(pg, "Converted PlayStation to CHD")
-            psx = fx / "Roms/PlayStation"
-            chd = psx / "Disc Game (USA).chd"
-            left = sorted(x.name for x in psx.iterdir() if x.is_file())
-            await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '1'")
-            check("Convert… turns a cue/bin set into a CHD where it is, sets the originals aside, and the game is still had",
-                  to == "chd" and "Convert: 1 file" in totals and chd.is_file() and chd.read_bytes()[:8] == b"MComprHD" and left == ["Disc Game (USA).chd"],
-                  (to, totals, said, left))
-
-            extracted = home / "Extracted"
-            pick(extracted)
-            await pg.click('#audit-tabs [data-tab="have"]')
-            await pg.click('#audit-list .audit-row[data-name="Disc Game (USA)"]', button="right")
-            await pg.click('#context-menu [data-action="audit-convert-one"]')
-            await pg.wait_for_selector("#convert-dialog")
-            await pg.select_option("#convert-to", "extract")
-            await pg.check('input[name="convert-place"][value="folder"]')
-            await pg.click("#convert-pick")
-            await pg.wait_for_function("(p) => document.querySelector('#convert-out')?.value === p", arg=str(extracted))
-            await pg.click("#convert-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            await pg.click("#convert-dialog button[type=submit]")
-            said = await toast_text(pg, "Extracted PlayStation into")
-            out_files = {x.name: make_discs.hashes(x.read_bytes())["sha1"] for x in extracted.rglob("*") if x.is_file()} if extracted.is_dir() else {}
-            want = {k: v["sha1"] for k, v in made.items() if k.startswith("Disc Game")}
-            check("Extract writes a CHD back out as the cue/bin Redump lists, byte for byte", out_files == want, (said, out_files))
-
-            await pg.click('.sidebar a[href="#/history"]')
-            await pg.wait_for_selector("#history li")
-            await pg.click('#history li:first-child [data-action="undo"]')
-            await toast_text(pg, "Undone")
-            await pg.wait_for_selector('#history li:first-child[data-state="undone"]')
-            await pg.click('#history li[data-state="done"] [data-action="undo"]')
-            await toast_text(pg, "Undone")
-            # (the first Undo's message may still be showing: wait for the second change itself)
-            await pg.wait_for_selector('#history li:nth-child(2)[data-state="undone"]')
-            back = sorted(x.name for x in psx.iterdir() if x.is_file())
-            gone = not extracted.exists() or not any(x.is_file() for x in extracted.rglob("*"))
-            check("Undo puts the extracted files and the CHD's originals back as they were",
-                  back == ["Disc Game (USA) (Track 1).bin", "Disc Game (USA) (Track 2).bin", "Disc Game (USA).cue"] and gone, (back, gone))
-
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.wait_for_selector('#formats li[data-platform="psp"] select')
-            await pg.select_option('#formats li[data-platform="psp"] select', "zso")
-            said = await toast_text(pg, "PlayStation Portable games convert to ZSO")
-            fmts = json.loads((library / "_library/library.json").read_text()).get("formats", {})
-            await pg.click('.sidebar a[href="#/audit"]')
-            await pg.wait_for_selector("#audit-page")
-            await pg.click('#audit-panel-list a[data-id="psp"]')
-            # PlayStation, shown before, has one game too: wait for the PSP's own audit
-            await pg.wait_for_selector('#audit-pick[data-platform="psp"]', state="attached")
-            await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '1'")
-            await pg.click("#audit-convert")
-            await pg.wait_for_selector("#convert-dialog")
-            try:
-                await pg.wait_for_function("() => document.querySelector('#convert-to')?.value === 'zso'", timeout=5000)
-            except Exception:
-                # what the dialog and the backend said, to see why (a FAIL below, not a crash)
-                seen = await pg.evaluate("""async () => ({ value: document.querySelector('#convert-to')?.value,
-                  formats: await window.__TAURI__.core.invoke('api', { cmd: 'formats', args: {} }).then((all) => all.find((x) => x.platform === 'psp')).catch((e) => String(e?.message || e)),
-                  library: await window.__TAURI__.core.invoke('api', { cmd: 'app_info', args: {} }).then((i) => i.library).catch((e) => String(e?.message || e)) })""")
-                print("convert dialog:", seen, "library.json formats:", json.loads((library / "_library/library.json").read_text()).get("formats"))
-            offered = await pg.eval_on_selector_all("#convert-to option", "els => els.map(e => e.value)")
-            await pg.keyboard.press("Escape")
-            check("Settings › Preferred formats keeps the platform's choice in the library, and Convert… offers it first",
-                  fmts.get("psp") == "zso" and offered == ["cso", "zso", "chd", "extract"], (fmts, offered))
-
-            fake = Path(__file__).with_name("fixtures") / "fake_dolphin_tool.py"
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.wait_for_selector('#tools li[data-tool="dolphin-tool"]')
-            pick(fake.resolve())
-            await pg.click('#tools li[data-tool="dolphin-tool"] [data-action="choose"]')
-            await pg.wait_for_selector('#tools li[data-tool="dolphin-tool"][data-found="yes"]')
-            where = await pg.inner_text('#tools li[data-tool="dolphin-tool"] .tool-where')
-            kept = json.loads((home / "config/config.json").read_text()).get("tools", {})
-            await pg.screenshot(path=str(out / "19-tools.png"), full_page=True)
-            await pg.click('#tools li[data-tool="dolphin-tool"] [data-action="clear"]')
-            await pg.wait_for_selector('#tools li[data-tool="dolphin-tool"] [data-action="clear"]', state="detached")
-            cleared = "dolphin-tool" not in json.loads((home / "config/config.json").read_text()).get("tools", {})
-            check("Settings › Tools keeps where dolphin-tool is on this computer, shows what it found, and clears it",
-                  Path(kept.get("dolphin-tool", "")) == fake.resolve() and str(fake.name) in where and cleared, (kept, where, cleared))
-            await pg.check("#scan-watch")
-
-            # Phase 3. Settings › Systems, the DAT question with a system added there, a collection made,
-            # changed by hand, saved as DATs, exported to ES-DE, updated and checked
-            await pg.wait_for_selector("#settings-systems")
-            await pg.click("#system-add")
-            await pg.fill("#system-name", "Acme Gizmo")
-            await pg.fill("#system-dats", "Acme - Gizmo")
-            await pg.fill("#system-exts", "gzm")
-            await pg.select_option("#system-media", "cd")
-            await pg.click("#system-dialog button[type=submit]")
-            await pg.wait_for_selector('#systems-added li[data-system="acmegizmo"]')
-            row = await pg.inner_text('#systems-added li[data-system="acmegizmo"]')
-            meta = json.loads((library / "_library/library.json").read_text())
-            gizmo = next((x for x in meta.get("systems", []) if x["id"] == "acmegizmo"), {})
-            check("Settings › Systems adds a system to the library, beside the built-in ones",
-                  "Acme Gizmo" in row and gizmo.get("exts") == ["gzm"] and gizmo.get("media") == "cd" and "Satellaview" in await pg.inner_text("#systems-added"), (row, gizmo))
-            await pg.screenshot(path=str(out / "20-systems.png"), full_page=True)
-            widgets = home / "widgets.dat"
-            widgets.write_text('<?xml version="1.0"?>\n<datafile><header><name>Homebrew - Widgets</name><version>1</version></header>\n'
-                               '<game name="Widget"><description>Widget</description><rom name="widget.gzm" size="3" crc="12345678"/></game>\n</datafile>\n')
-            pick(widgets)
-            await pg.click('.sidebar a[href="#/import"]')
-            await pg.click("#import-dats")
-            await pg.wait_for_selector("#dat-platform-dialog")
-            offered = await pg.eval_on_selector_all("#dat-platform-0 option", "els => els.map(e => e.value)")
-            await pg.select_option("#dat-platform-0", "acmegizmo")
-            await pg.click("#dat-platform-dialog button[type=submit]")
-            await toast_text(pg, "Imported Homebrew - Widgets for Acme Gizmo")
-            remembered = json.loads((library / "_library/library.json").read_text()).get("dat_platforms", {})
-            check("the DAT question offers every system, added ones too, or a new one",
-                  "acmegizmo" in offered and "gb" in offered and offered[-1] == "__new" and remembered.get("Homebrew - Widgets") == "acmegizmo", (offered[-3:], remembered))
-
-            # the collection's games are the Library's tiles (D69): its DAT names from their keys
-            async def coll_names():
-                await pg.wait_for_function("() => document.querySelector('#collection-result')?.getAttribute('aria-busy') === 'false' && document.querySelector('#lib-games')")
+                # History, a page of its own (D71)
+                await pg.click('.sidebar a[href="#/history"]')
+                await pg.wait_for_selector("#history li")
+                states = await pg.eval_on_selector_all("#history li", "els => els.map(e => e.dataset.state)")
+                days = await pg.eval_on_selector_all("#history .day-group", "els => els.map(e => [e.open, e.querySelector('summary').textContent])")
+                await pg.click('#history li:first-child [data-action="steps"]')
+                await pg.wait_for_selector("#history li:first-child .change-step")
+                steps_shown = await pg.eval_on_selector_all("#history li:first-child .change-step", "els => els.map(e => e.dataset.op)")
+                await pg.screenshot(path=str(out / "16-history.png"), full_page=True)
+                await pg.click('#history li:first-child [data-action="steps"]')
+                check("History is grouped by day, the newest open, and a change opens to the steps it took (D78)",
+                      len(days) == 1 and days[0][0] and days[0][1].startswith("Today") and "3 changes" in days[0][1] and len(steps_shown) > 0, (days, steps_shown))
+                await pg.click('#history li:first-child [data-action="undo"]')
+                await toast_text(pg, "Undone")
+                gone = not sorted_dir.exists() or not any(sorted_dir.iterdir())
+                await pg.click("#history-empty")
+                await pg.click("#confirm-dialog button[type=submit]")
+                await toast_text(pg, "Freed")
+                emptied = not any(x.is_file() for x in (fx / "Roms").rglob("*") if ".gamerepo-set-aside" in x.parts)
+                await pg.click('.sidebar a[href="#/settings"]')
+                await pg.uncheck("#scan-watch")
                 await pg.wait_for_timeout(300)
-                return await pg.eval_on_selector_all("#lib-games [data-key]", "els => els.map(e => e.dataset.key.split('/').slice(1).join('/'))")
+                watch = json.loads((home / "config/config.json").read_text()).get("scan", {}).get("watch")
+                check("History lists the changes; the newest is undone there, what was set aside is emptied, and watching can be turned off",
+                      states == ["done", "done", "undone"] and gone and emptied and watch is False, (states, gone, emptied, watch))
+                await pg.check("#scan-watch")
 
-            async def leave_out(name):
-                await pg.click(f'#lib-games [data-key="gb/{name}"]')
-                await pg.wait_for_selector("#bar-leave-out")
-                await pg.click("#bar-leave-out")
+                # Import: the DATs; Settings: how scans read ZIPs (kept on this computer)
+                await pg.click('.sidebar a[href="#/import"]')
+                await pg.wait_for_selector("#settings-dats .dat-group")
+                groups = await pg.eval_on_selector_all("#settings-dats .dat-group h3", "els => els.map(e => e.textContent)")
+                await pg.screenshot(path=str(out / "12b-import.png"), full_page=True)
+                await pg.click('.sidebar a[href="#/settings"]')
+                await pg.select_option("#scan-zips", "full")
+                await pg.wait_for_timeout(300)
+                cfg = json.loads((home / "config/config.json").read_text())
+                check("Import lists the DATs by system, and Settings keeps the scan settings on this computer",
+                      groups == ["Game Boy", "Nintendo Entertainment System", "Satellaview"] and cfg.get("scan", {}).get("full") is True, (groups, cfg.get("scan")))
+                await pg.screenshot(path=str(out / "12-settings-games.png"), full_page=True)
+                await pg.click('.sidebar a[href="#/import"]')
+                await pg.click("#starter-dats")
+                await pg.click("#ask-dialog button[type=submit]")
+                said = await toast_text(pg, "starter DATs for")
+                starters = sorted(x.parent.name for x in (library / "_library/dats").rglob("*.dat") if x.parent.name in ("gamegear", "vectrex"))
+                check("Get starter DATs downloads the DATs of the systems that have none", "2 systems" in said and "2 already had one" in said and starters == ["gamegear", "vectrex"], (said, starters))
 
-            async def sort_by(what):
-                await pg.click("#collection-sort")
-                await pg.click(f'#context-menu [data-action="sort-{what}"]')
+            async with Section(pg, B, "Phase 2b: disc images converted and extracted"):
+                # Phase 2b. disc systems: a cue/bin set and an ISO, converted, extracted and put back
+                await pg.click('.sidebar a[href="#/settings"]')
+                await pg.uncheck("#scan-watch")
+                await pg.wait_for_timeout(300)
+                made = make_discs.write(home / "disc-src")
+                src = home / "disc-src"
+                (fx / "Roms/PlayStation").mkdir()
+                (fx / "Roms/PSP").mkdir()
+                for f in ("Disc Game (USA).cue", "Disc Game (USA) (Track 1).bin", "Disc Game (USA) (Track 2).bin"):
+                    shutil.copy(src / f, fx / "Roms/PlayStation" / f)
+                shutil.copy(src / "Dvd Game (Europe).iso", fx / "Roms/PSP/Dvd Game (Europe).iso")
+                ddir = home / "disc-dats"
+                ddir.mkdir()
+                cd_roms = [make_fixtures.rom_xml(f, (src / f).read_bytes()) for f in ("Disc Game (USA).cue", "Disc Game (USA) (Track 1).bin", "Disc Game (USA) (Track 2).bin")]
+                (ddir / "psx.dat").write_text(make_fixtures.logiqx("Sony - PlayStation", "20261001", [("Disc Game (USA)", None, cd_roms)]))
+                (ddir / "psp.dat").write_text(make_fixtures.logiqx("Sony - PlayStation Portable", "20261001",
+                                                                    [("Dvd Game (Europe)", None, [make_fixtures.rom_xml("Dvd Game (Europe).iso", (src / "Dvd Game (Europe).iso").read_bytes())])]))
+                for f in ("psx.dat", "psp.dat"):
+                    pick(ddir / f)
+                await pg.click('.sidebar a[href="#/import"]')
+                await pg.click("#import-dats")
+                await toast_text(pg, "Imported")
+                await pg.goto(B + "#/")
+                await pg.click("#home-scan-button")
+                said = await toast_text(pg, "Scanned")
+                await pg.click('.sidebar a[href="#/audit"]')
+                await pg.wait_for_selector("#audit-page")
+                await pg.click('#audit-panel-list a[data-id="psx"]')
+                await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '1' && document.querySelector('#audit-games')?.textContent === '1'")
+                await pg.click("#audit-organise")
+                await pg.wait_for_selector("#organise-dialog")
+                disc_note = await pg.locator("#organise-disc-note").count()
+                no_format = await pg.locator("#organise-format").count() == 0
+                await pg.keyboard.press("Escape")
+                check("a cue/bin set is audited against its disc DAT, and Organise keeps disc images as they are", disc_note == 1 and no_format, (said, disc_note, no_format))
 
-            await pg.click('.sidebar a[href="#/collections"]')
-            await pg.wait_for_selector("#collections-empty")
-            await pg.click("#collections-first")
-            ways = await pg.eval_on_selector_all("#collection-way .way", "els => els.map(e => e.dataset.way)")
-            await pg.fill("#collection-name", "Best Of")
-            await pg.click("#collection-new-dialog button[type=submit]")
-            await pg.wait_for_selector("#collection-rules")
-            check("New collection offers by rules, from folders or from a DAT, and one by rules opens on its rules", ways == ["rules", "folders", "dat"], ways)
-            await pg.check('#rule-platforms input[value="gb"]')
-            await pg.wait_for_function("() => +document.querySelector('#collection-games')?.textContent > 0")
-            await pg.click('#collection-view [data-view="games"]')
-            await pg.wait_for_function("() => document.querySelector('#collection-systems') === null && document.querySelector('#lib-games')?.dataset.total > 0")
-            names = sorted(await coll_names())
-            await pg.click('#collection-view [data-view="rules"]')
-            games_now = lambda: pg.evaluate("() => +document.querySelector('#collection-games').textContent")
-            await pg.select_option("#rule-include", "all")
-            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent > n", arg=len(names))
-            one_each = await games_now()
-            await pg.uncheck("#rule-1g1r")
-            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent > n", arg=one_each)
-            every = await games_now()
-            stored = [json.loads(f.read_text()) for f in (library / "_library/collections").glob("*.json")]
-            check("a collection is made from rules (the games you have or every game, one per title unless unticked) and kept in the library",
-                  names and len(names) < one_each < every and len(stored) == 1 and stored[0]["rules"]["platforms"] == ["gb"]
-                  and stored[0]["rules"]["one_per_title"] is False and stored[0]["rules"]["include"] == "all", (names, one_each, every, stored))
-            await pg.check("#rule-1g1r")
-            await pg.select_option("#rule-include", "have")
-            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n", arg=len(names))
-            await pg.click('#collection-view [data-view="games"]')
-            await pg.wait_for_selector(f'#lib-games [data-key="gb/{names[0]}"]')
-            await leave_out(names[0])
-            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n - 1", arg=len(names))
-            # In it / Left out by hand: a filter of the one games view (finding 6)
-            await pg.select_option("#collection-show", "out")
-            await pg.click(f'#collection-result[data-show="out"] #lib-games [data-key="gb/{names[0]}"]')
-            await pg.wait_for_selector("#bar-put-back")
-            shown_out = await pg.eval_on_selector_all("#lib-games [data-key]", "els => els.map(e => e.dataset.key)")
-            await pg.keyboard.press("Escape")
-            stored = json.loads(next((library / "_library/collections").glob("*.json")).read_text())
-            check("a game is left out by hand, and listed with Put back (changes made quickly are all kept)",
-                  stored["removed"] == [f"gb/{names[0]}"] and stored["rules"]["one_per_title"] is True and stored["rules"]["include"] == "have" and shown_out == [f"gb/{names[0]}"],
-                  (stored["removed"], stored["rules"], shown_out))
-            # its history (D67): each change a step, newest first; the leave-out undone, then made again
-            await pg.click('#collection-view [data-view="history"]')
-            await pg.wait_for_selector("#collection-history-list li")
-            hows = await pg.eval_on_selector_all("#collection-history-list li", "els => els.map(e => e.dataset.how)")
-            first_text = await pg.inner_text("#collection-history-list li:first-child")
-            await pg.screenshot(path=str(out / "21c-collection-history.png"))
-            await pg.click('#collection-history-list li[data-how="hand"] [data-action="undo"]')
-            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n", arg=len(names))
-            await pg.wait_for_selector('#collection-history-list li:first-child[data-how="undo"]')
-            undone = await pg.get_attribute('#collection-history-list li[data-how="hand"]', "data-undone")
-            check("a collection's History lists each change newest first (by hand, its rules, made), and Undo puts the game left out back",
-                  hows[0] == "hand" and "rules" in hows and hows[-1] == "made" and names[0] in first_text and undone == "yes", (hows, first_text, undone))
-            await pg.click('#collection-view [data-view="rules"]')
-            check("a collection takes its games' updates and DLC by default", await pg.is_checked("#rule-addons"))
-            await pg.click('#collection-view [data-view="games"]')
-            await pg.select_option("#collection-show", "in")
-            await pg.wait_for_selector(f'#lib-games [data-key="gb/{names[0]}"]')
-            await leave_out(names[0])
-            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n - 1", arg=len(names))
-            await pg.screenshot(path=str(out / "21-collection.png"), full_page=True)
-            kept = names[1:]
+                await pg.click("#audit-convert")
+                await pg.wait_for_selector("#convert-dialog")
+                to = await pg.input_value("#convert-to")
+                await pg.check('input[name="convert-place"][value="here"]')
+                await pg.screenshot(path=str(out / "17-convert.png"))
+                await pg.click("#convert-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-totals")
+                totals = await pg.inner_text("#organise-totals")
+                await pg.screenshot(path=str(out / "18-convert-preview.png"))
+                await pg.click("#convert-dialog button[type=submit]")
+                said = await toast_text(pg, "Converted PlayStation to CHD")
+                psx = fx / "Roms/PlayStation"
+                chd = psx / "Disc Game (USA).chd"
+                left = sorted(x.name for x in psx.iterdir() if x.is_file())
+                await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '1'")
+                check("Convert… turns a cue/bin set into a CHD where it is, sets the originals aside, and the game is still had",
+                      to == "chd" and "Convert: 1 file" in totals and chd.is_file() and chd.read_bytes()[:8] == b"MComprHD" and left == ["Disc Game (USA).chd"],
+                      (to, totals, said, left))
 
-            # its properties: games, systems, size on disk; a size limit; the biggest games first
-            # as a table, as the Library's: each game's size
-            await pg.click('#collection-look [data-view="table"]')
-            await pg.wait_for_function("(n) => document.querySelectorAll('#lib-games .lib-row[data-key]').length === n", arg=len(kept))
-            each = await pg.eval_on_selector_all("#lib-games .lib-row[data-key]", "els => els.map(e => +e.dataset.bytes)")
-            await pg.click('#collection-view [data-view="size"]')
-            await pg.wait_for_selector("#collection-props")
-            disk = await pg.evaluate("() => +document.querySelector('#prop-size').dataset.bytes")
-            props = await pg.inner_text("#collection-props")
-            check("Properties shows the games, systems and size on disk (the sum of its games')",
-                  disk > 0 and disk == sum(each) and str(len(kept)) in props and "Systems" in props, (disk, each, props))
-            await pg.select_option("#collection-limit", "other")
-            await pg.fill("#collection-limit-gb", "0.0000001")
-            await pg.press("#collection-limit-gb", "Tab")
-            await pg.wait_for_selector('#collection-fit[data-over="true"]')
-            stored = json.loads(next((library / "_library/collections").glob("*.json")).read_text())
-            check("a size limit is kept with the collection, and one too small says by how much it's over",
-                  stored.get("size_limit") == 100 and "Over by" in await pg.inner_text("#collection-fit"), stored.get("size_limit"))
-            await pg.screenshot(path=str(out / "21b-collection-properties.png"))
-            over_line = await pg.inner_text("#collection-fit-line")
-            await pg.click('#collection-view [data-view="games"]')
-            await sort_by("size")
-            await pg.wait_for_selector('#collection-sort[data-sort="size"]')
-            await pg.wait_for_timeout(400)
-            by_size = await pg.eval_on_selector_all("#lib-games .lib-row[data-key]", "els => els.map(e => +e.dataset.bytes)")
-            check("the games can be listed biggest first, and the line above says it's over its limit",
-                  by_size == sorted(by_size, reverse=True) and len(by_size) == len(kept) and "over its" in over_line, (by_size, over_line))
-            await sort_by("title")
-            await pg.click('#collection-look [data-view="grid"]')
+                extracted = home / "Extracted"
+                pick(extracted)
+                await pg.click('#audit-tabs [data-tab="have"]')
+                await pg.click('#audit-list .audit-row[data-name="Disc Game (USA)"]', button="right")
+                await pg.click('#context-menu [data-action="audit-convert-one"]')
+                await pg.wait_for_selector("#convert-dialog")
+                await pg.select_option("#convert-to", "extract")
+                await pg.check('input[name="convert-place"][value="folder"]')
+                await pg.click("#convert-pick")
+                await pg.wait_for_function("(p) => document.querySelector('#convert-out')?.value === p", arg=str(extracted))
+                await pg.click("#convert-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-totals")
+                await pg.click("#convert-dialog button[type=submit]")
+                said = await toast_text(pg, "Extracted PlayStation into")
+                out_files = {x.name: make_discs.hashes(x.read_bytes())["sha1"] for x in extracted.rglob("*") if x.is_file()} if extracted.is_dir() else {}
+                want = {k: v["sha1"] for k, v in made.items() if k.startswith("Disc Game")}
+                check("Extract writes a CHD back out as the cue/bin Redump lists, byte for byte", out_files == want, (said, out_files))
 
-            await pg.click("#collection-dats")
-            await pg.click("#save-dats-dialog button[type=submit]")
-            await toast_text(pg, "Saved 1 DAT of Best Of")
-            dat = library / "_library/collection-dats/Best Of/Best Of - Game Boy.dat"
-            text = dat.read_text() if dat.exists() else ""
-            check("Save as DATs writes one Logiqx DAT per system with the collection's games",
-                  text.count("<game ") == len(kept) and all(f'name="{n}"' in text for n in kept) and "<author>Game Repo</author>" in text, text[:300])
+                await pg.click('.sidebar a[href="#/history"]')
+                await pg.wait_for_selector("#history li")
+                await pg.click('#history li:first-child [data-action="undo"]')
+                await toast_text(pg, "Undone")
+                await pg.wait_for_selector('#history li:first-child[data-state="undone"]')
+                await pg.click('#history li[data-state="done"] [data-action="undo"]')
+                await toast_text(pg, "Undone")
+                # (the first Undo's message may still be showing: wait for the second change itself)
+                await pg.wait_for_selector('#history li:nth-child(2)[data-state="undone"]')
+                back = sorted(x.name for x in psx.iterdir() if x.is_file())
+                gone = not extracted.exists() or not any(x.is_file() for x in extracted.rglob("*"))
+                check("Undo puts the extracted files and the CHD's originals back as they were",
+                      back == ["Disc Game (USA) (Track 1).bin", "Disc Game (USA) (Track 2).bin", "Disc Game (USA).cue"] and gone, (back, gone))
 
-            roms, esde = home / "ROMs", home / "ES-DE"
-            esde.mkdir(exist_ok=True)
-            await pg.click("#collection-export")
-            await pg.wait_for_selector("#export-dialog")
-            await pg.wait_for_selector('#export-layout option[value="knulli"]', state="attached")
-            layout_first = await pg.input_value("#export-layout")
-            offered = await pg.eval_on_selector_all("#export-layout option", "els => els.map(e => e.value)")
-            check("Export offers RetroArch, Pegasus, LaunchBox and Playnite beside ES-DE, the devices and a plain folder",
-                  all(x in offered for x in ["esde", "knulli", "muos", "retroarch", "pegasus", "launchbox", "playnite", "folder"]), offered)
-            await pg.fill("#export-place-roms", str(roms))
-            await pg.fill("#export-place-esde", str(esde))
-            over = await pg.query_selector("#export-over")
-            check("Export says when the collection is over its size limit, and starts from the ES-DE layout", over is not None and "more than its size limit" in await over.inner_text() and layout_first == "esde", layout_first)
-            await pg.click("#export-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            totals = await pg.inner_text("#organise-totals")
-            await pg.screenshot(path=str(out / "22-export-preview.png"))
-            await pg.click("#export-dialog button[type=submit]")
-            said = await toast_text(pg, "Exported Best Of")
-            exported = sorted(x.name for x in (roms / "gb").iterdir()) if (roms / "gb").is_dir() else []
-            gl_path = esde / "gamelists/gb/gamelist.xml"
-            gamelist = gl_path.read_text() if gl_path.exists() else ""
-            cfg = (esde / "collections/custom-Best Of.cfg").read_text() if (esde / "collections/custom-Best Of.cfg").exists() else ""
-            check("Export puts the collection in ES-DE's ROMs folder by system, with a gamelist and a custom collection, after a preview",
-                  f"{len(kept)} games" in totals and len(exported) == len(kept) and gamelist.count("<game>") == len(kept) and len(cfg.splitlines()) == len(kept),
-                  (totals, said, exported, gamelist[:200], cfg))
+                await pg.click('.sidebar a[href="#/settings"]')
+                await pg.wait_for_selector('#formats li[data-platform="psp"] select')
+                await pg.select_option('#formats li[data-platform="psp"] select', "zso")
+                said = await toast_text(pg, "PlayStation Portable games convert to ZSO")
+                fmts = json.loads((library / "_library/library.json").read_text()).get("formats", {})
+                await pg.click('.sidebar a[href="#/audit"]')
+                await pg.wait_for_selector("#audit-page")
+                await pg.click('#audit-panel-list a[data-id="psp"]')
+                # PlayStation, shown before, has one game too: wait for the PSP's own audit
+                await pg.wait_for_selector('#audit-pick[data-platform="psp"]', state="attached")
+                await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '1'")
+                await pg.click("#audit-convert")
+                await pg.wait_for_selector("#convert-dialog")
+                try:
+                    await pg.wait_for_function("() => document.querySelector('#convert-to')?.value === 'zso'", timeout=5000)
+                except Exception:
+                    # what the dialog and the backend said, to see why (a FAIL below, not a crash)
+                    seen = await pg.evaluate("""async () => ({ value: document.querySelector('#convert-to')?.value,
+                      formats: await window.__TAURI__.core.invoke('api', { cmd: 'formats', args: {} }).then((all) => all.find((x) => x.platform === 'psp')).catch((e) => String(e?.message || e)),
+                      library: await window.__TAURI__.core.invoke('api', { cmd: 'app_info', args: {} }).then((i) => i.library).catch((e) => String(e?.message || e)) })""")
+                    print("convert dialog:", seen, "library.json formats:", json.loads((library / "_library/library.json").read_text()).get("formats"))
+                offered = await pg.eval_on_selector_all("#convert-to option", "els => els.map(e => e.value)")
+                await pg.keyboard.press("Escape")
+                check("Settings › Preferred formats keeps the platform's choice in the library, and Convert… offers it first",
+                      fmts.get("psp") == "zso" and offered == ["cso", "zso", "chd", "extract"], (fmts, offered))
 
-            await pg.select_option("#collection-show", "out")
-            await pg.click(f'#collection-result[data-show="out"] #lib-games [data-key="gb/{names[0]}"]')
-            await pg.click("#bar-put-back")
-            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n", arg=len(names))
-            await pg.select_option("#collection-show", "in")
-            await pg.click('#collection-view [data-view="exports"]')
-            await pg.wait_for_selector('#exports li[data-target="esde"]')
-            await pg.click('#exports li[data-target="esde"] [data-action="update"]')
-            await pg.wait_for_selector("#organise-totals")
-            update = await pg.inner_text("#organise-totals")
-            await pg.click("#export-dialog button[type=submit]")
-            said = await toast_text(pg, "Updated the export of Best Of")
-            exported_after = sorted(x.name for x in (roms / "gb").iterdir())
-            check("Update adds the game put back and leaves those there already",
-                  f"{len(kept)} already in place" in update and set(exported) < set(exported_after) and len(exported_after) == len(names)
-                  and gl_path.read_text().count("<game>") == len(names), (update, said, exported_after))
-            await pg.click('#exports li[data-target="esde"] [data-action="check"]')
-            said = await toast_text(pg, "as they should be")
-            check("Check reads the export back against the DATs", f"All {len(exported_after)} files are as they should be" in said, said)
-            await pg.click('#collection-view [data-view="size"]')
-            await pg.select_option("#collection-limit", "32")
-            await pg.wait_for_selector('#collection-fit[data-over="false"]')
-            stored = json.loads(next((library / "_library/collections").glob("*.json")).read_text())
-            check("a card's size is its label's (32 GB card: 32,000,000,000 bytes), and the collection fits",
-                  stored.get("size_limit") == 32_000_000_000 and "to spare" in await pg.inner_text("#collection-fit"), stored.get("size_limit"))
-            await pg.click('#collection-view [data-view="exports"]')
-            await pg.screenshot(path=str(out / "23-exports.png"), full_page=True)
+                fake = Path(__file__).with_name("fixtures") / "fake_dolphin_tool.py"
+                await pg.click('.sidebar a[href="#/settings"]')
+                await pg.wait_for_selector('#tools li[data-tool="dolphin-tool"]')
+                pick(fake.resolve())
+                await pg.click('#tools li[data-tool="dolphin-tool"] [data-action="choose"]')
+                await pg.wait_for_selector('#tools li[data-tool="dolphin-tool"][data-found="yes"]')
+                where = await pg.inner_text('#tools li[data-tool="dolphin-tool"] .tool-where')
+                kept = json.loads((home / "config/config.json").read_text()).get("tools", {})
+                await pg.screenshot(path=str(out / "19-tools.png"), full_page=True)
+                await pg.click('#tools li[data-tool="dolphin-tool"] [data-action="clear"]')
+                await pg.wait_for_selector('#tools li[data-tool="dolphin-tool"] [data-action="clear"]', state="detached")
+                cleared = "dolphin-tool" not in json.loads((home / "config/config.json").read_text()).get("tools", {})
+                check("Settings › Tools keeps where dolphin-tool is on this computer, shows what it found, and clears it",
+                      Path(kept.get("dolphin-tool", "")) == fake.resolve() and str(fake.name) in where and cleared, (kept, where, cleared))
+                await pg.check("#scan-watch")
 
-            # collection groups (D75): a group added from the ⋯ menu, by rules, after the first
-            coll_file = next((library / "_library/collections").glob("*.json"))
-            await pg.click("#collection-menu")
-            await pg.click('#context-menu [data-action="collection-add-group"]')
-            await pg.wait_for_selector("#collection-new-group")
-            group_ways = await pg.eval_on_selector_all("#collection-way .way", "els => els.map(e => e.dataset.way)")
-            submit_label = await pg.inner_text("#collection-new-dialog button[type=submit]")
-            await pg.fill("#collection-name", "Every one")
-            await pg.click("#collection-new-dialog button[type=submit]")
-            await pg.wait_for_selector("#collection-group-1 #rule-1-include")
-            await pg.select_option("#rule-1-include", "all")
-            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent > n", arg=len(names))
-            total = int(await pg.inner_text("#collection-games"))
-            stored = json.loads(coll_file.read_text())
-            heads = await pg.eval_on_selector_all("#collection-main .collection-group h2", "els => els.map(e => e.textContent)")
-            check("Add a group… offers the New collection dialog's ways, and the group by rules is kept after the first, with its own rules",
-                  group_ways == ["rules", "folders", "dat"] and submit_label == "Add the group" and heads == ["Best Of", "Every one"]
-                  and [g["name"] for g in stored.get("groups", [])] == ["Every one"] and stored["groups"][0]["rules"]["include"] == "all"
-                  and stored["groups"][0]["rules"]["platforms"] == ["gb"] and stored["rules"]["include"] == "have", (group_ways, submit_label, heads, stored.get("groups")))
-            # the games view: a section for each group, with its name and count, none twice
-            await pg.click('#collection-view [data-view="games"]')
-            await pg.wait_for_function("() => document.querySelectorAll('#lib-games .lib-group').length === 2")
-            await pg.wait_for_timeout(300)
-            sections = await pg.eval_on_selector_all("#lib-games .lib-group", "els => els.map(e => [e.querySelector('h2').textContent, parseInt(e.querySelector('.muted').textContent)])")
-            keys = await coll_names()
-            check("a collection's games are a section for each group, with its name and count, and no game is in two",
-                  [n for n, _ in sections] == ["Best Of", "Every one"] and sections[0][1] == len(names) and sum(n for _, n in sections) == total
-                  and len(keys) == len(set(keys)) == total, (sections, total, len(keys)))
-            await pg.screenshot(path=str(out / "23e-collection-groups.png"))
-            # under the collection in the ribbon, each group with its count; one opens its section
-            children = await pg.eval_on_selector_all("#collection-panel-list .panel-child", "els => els.map(e => e.innerText.replace(/\\s+/g, ' ').trim())")
-            await pg.click('#collection-panel-list .panel-child:has-text("Every one")')
-            await pg.wait_for_selector('#lib-games .lib-group[data-group="1"]')
-            check("the ribbon lists the current collection's groups under it, with their counts",
-                  children == [f"Best Of {len(names)}", f"Every one {total - len(names)}"] and await pg.text_content("#collection-group-count") == "2 groups", children)
-            # Export offers where the groups go (ES-DE: collections, subfolders or systems of their own)
-            await pg.click("#collection-export")
-            await pg.wait_for_selector("#export-groups")
-            placings = await pg.eval_on_selector_all("#export-groups [data-placing]", "els => els.map(e => e.dataset.placing)")
-            chosen_placing = await pg.eval_on_selector("#export-groups input:checked", "e => e.value")
-            await pg.click("#export-dialog-cancel")
-            check("Export asks where a collection's groups go when the layout can place them, collections only by default",
-                  placings == ["collections", "subfolders", "systems"] and chosen_placing == "collections", (placings, chosen_placing))
-            # renamed, then removed: the collection as it was
-            await pg.click('#collection-view [data-view="rules"]')
-            await pg.click('#collection-group-1 [data-action="group-rename"]')
-            await pg.fill("#collection-name", "All the rest")
-            await pg.click("#collection-name-dialog button[type=submit]")
-            await pg.wait_for_function("() => document.querySelector('#collection-group-1 h2')?.textContent === 'All the rest'")
-            renamed = [g["name"] for g in json.loads(coll_file.read_text()).get("groups", [])]
-            await pg.click('#collection-group-1 [data-action="group-remove"]')
-            await pg.click("#confirm-dialog button[type=submit]")
-            await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n && !document.querySelector('#collection-group-1')", arg=len(names))
-            gone = json.loads(coll_file.read_text())
-            check("a group can be renamed and removed, and the collection is as it was without it",
-                  renamed == ["All the rest"] and "groups" not in gone and gone["name"] == "Best Of" and await pg.query_selector("#collection-groups-none") is not None, (renamed, gone.get("groups")))
+            async with Section(pg, B, "Phase 3: systems, collections, exports and Import"):
+                # Phase 3. Settings › Systems, the DAT question with a system added there, a collection made,
+                # changed by hand, saved as DATs, exported to ES-DE, updated and checked
+                await pg.wait_for_selector("#settings-systems")
+                await pg.click("#system-add")
+                await pg.fill("#system-name", "Acme Gizmo")
+                await pg.fill("#system-dats", "Acme - Gizmo")
+                await pg.fill("#system-exts", "gzm")
+                await pg.select_option("#system-media", "cd")
+                await pg.click("#system-dialog button[type=submit]")
+                await pg.wait_for_selector('#systems-added li[data-system="acmegizmo"]')
+                row = await pg.inner_text('#systems-added li[data-system="acmegizmo"]')
+                meta = json.loads((library / "_library/library.json").read_text())
+                gizmo = next((x for x in meta.get("systems", []) if x["id"] == "acmegizmo"), {})
+                check("Settings › Systems adds a system to the library, beside the built-in ones",
+                      "Acme Gizmo" in row and gizmo.get("exts") == ["gzm"] and gizmo.get("media") == "cd" and "Satellaview" in await pg.inner_text("#systems-added"), (row, gizmo))
+                await pg.screenshot(path=str(out / "20-systems.png"), full_page=True)
+                widgets = home / "widgets.dat"
+                widgets.write_text('<?xml version="1.0"?>\n<datafile><header><name>Homebrew - Widgets</name><version>1</version></header>\n'
+                                   '<game name="Widget"><description>Widget</description><rom name="widget.gzm" size="3" crc="12345678"/></game>\n</datafile>\n')
+                pick(widgets)
+                await pg.click('.sidebar a[href="#/import"]')
+                await pg.click("#import-dats")
+                await pg.wait_for_selector("#dat-platform-dialog")
+                offered = await pg.eval_on_selector_all("#dat-platform-0 option", "els => els.map(e => e.value)")
+                await pg.select_option("#dat-platform-0", "acmegizmo")
+                await pg.click("#dat-platform-dialog button[type=submit]")
+                await toast_text(pg, "Imported Homebrew - Widgets for Acme Gizmo")
+                remembered = json.loads((library / "_library/library.json").read_text()).get("dat_platforms", {})
+                check("the DAT question offers every system, added ones too, or a new one",
+                      "acmegizmo" in offered and "gb" in offered and offered[-1] == "__new" and remembered.get("Homebrew - Widgets") == "acmegizmo", (offered[-3:], remembered))
 
-            # the Collections rework (D49, D50): a collection from a folder of a subset kept
-            # elsewhere, matched by hash; from another tool's DAT; Export these…
-            subset = home / "Subsets" / "Handheld picks"
-            (subset / "more").mkdir(parents=True)
-            seen, picks_ = set(), []
-            for f in sorted((fx / "Roms").rglob("*.gb")):
-                if ".gamerepo-set-aside" in f.parts or f.name == "alpha-eu.gb":
-                    continue
-                h = hashlib.sha1(f.read_bytes()).hexdigest()
-                if h not in seen:
-                    seen.add(h)
-                    picks_.append(f)
-                if len(picks_) == 2:
-                    break
-            shutil.copy(picks_[0], subset / "first pick.gb")
-            shutil.copy(picks_[1], subset / "more" / "second.gb")
-            (subset / "readme.txt").write_text("my picks")
-            await pg.click("#collection-panel-new")
-            await pg.check('#collection-way input[value="folders"]')
-            pick(subset)
-            await pg.click("#new-add-folder")
-            await pg.wait_for_selector("#new-folders li")
-            await pg.click("#collection-new-dialog button[type=submit]")
-            await pg.wait_for_selector("#subset-review", timeout=30000)
-            found = await pg.eval_on_selector_all("#subset-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
-            unknown = await pg.eval_on_selector_all("#subset-unknown li", "els => els.map(e => e.dataset.path)")
-            named = await pg.input_value("#collection-name")
-            await pg.screenshot(path=str(out / "23b-collection-from-folders.png"))
-            check("From folders reads a folder kept elsewhere and finds its games in the full set by hash, whatever the files are called",
-                  len(found) == 2 and all(st == "have" for _, st in found) and unknown == ["Handheld picks/readme.txt"] and named == "Handheld picks", (found, unknown, named))
-            await pg.click("#subset-review button[type=submit]")
-            await toast_text(pg, "Made Handheld picks")
-            await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Handheld picks' && +document.querySelector('#collection-games').textContent === 2")
-            made = next(x for x in (json.loads(f.read_text()) for f in (library / "_library/collections").glob("*.json")) if x["name"] == "Handheld picks")
-            own = library / made["rules"]["from_files"][0] if made["rules"].get("from_files") else None
-            # the ribbon beside the menu is read again just after the collection opens (D69)
-            await pg.wait_for_function("() => [...document.querySelectorAll('#collection-panel-list .panel-link')].some(e => e.innerText.includes('Handheld picks'))")
-            side = await pg.eval_on_selector_all("#collection-panel-list .panel-link", "els => els.map(e => e.innerText)")
-            current = await pg.get_attribute('#collection-panel-list .panel-link[aria-current="page"]', "data-id")
-            check("it's kept as its own DAT in the library, listed in the ribbon on the left with its source, and its address names it",
-                  current == made["id"] and f"#/collections/{made['id']}" in await pg.evaluate("location.hash") and
-                  own is not None and own.is_file() and own.read_text().count("<game ") == 2 and made["made_from"]["kind"] == "folders"
-                  and any("Handheld picks" in x and "from Handheld picks" in x for x in side), (made.get("rules"), side))
-            await pg.screenshot(path=str(out / "23c-collection-made.png"), full_page=True)
-            # Export these: one game picked, to a plain folder
-            first = found[0][0]
-            await pg.click(f'#lib-games [data-key="gb/{first}"]')
-            await pg.wait_for_selector("#bar-count")
-            picked_n = await pg.inner_text("#bar-count")
-            await pg.click("#bar-export-these")
-            await pg.wait_for_selector("#export-part")
-            await pg.select_option("#export-layout", "folder")
-            part = home / "Part"
-            await pg.fill("#export-place-out", str(part))
-            await pg.click("#export-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            await pg.click("#export-dialog button[type=submit]")
-            await toast_text(pg, "Exported Handheld picks")
-            got = sorted(x.name for x in part.rglob("*") if x.is_file()) if part.is_dir() else []
-            rec = next((x for x in (json.loads(f.read_text()) for f in (library / "_library/exports").glob("*.json")) if x.get("name") == "Handheld picks"), {})
-            check("Export these… exports only the games picked, from the full set, and the export remembers them",
-                  picked_n == "1 selected" and len(got) == 1 and got[0].startswith(first) and rec.get("only") == [f"gb/{first}"], (picked_n, got, rec.get("only")))
-            await pg.keyboard.press("Escape")
-            # review H16: after a search, Ctrl+A and Export these… take only the games it found
-            second = found[1][0]
-            await pg.fill("#collection-search", second)
-            await pg.wait_for_function("(k) => [...document.querySelectorAll('#lib-games [data-key]')].map(e => e.dataset.key).join() === k", arg=f"gb/{second}")
-            await pg.click(f'#lib-games [data-key="gb/{second}"]')
-            await pg.keyboard.press("Control+a")
-            await pg.wait_for_selector("#bar-count")
-            await pg.click("#bar-export-these")
-            await pg.wait_for_selector("#export-part")
-            await pg.select_option("#export-layout", "folder")
-            part2 = home / "Part2"
-            await pg.fill("#export-place-out", str(part2))
-            await pg.click("#export-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            totals2 = await pg.inner_text("#organise-totals")
-            await pg.click("#export-dialog button[type=submit]")
-            await toast_text(pg, "Exported Handheld picks")
-            got2 = sorted(x.name for x in part2.rglob("*") if x.is_file()) if part2.is_dir() else []
-            check("Export these… after a search and Ctrl+A exports only the games the search found",
-                  len(got2) == 1 and got2[0].startswith(second) and "1 game" in totals2, (got2, totals2))
-            await pg.keyboard.press("Escape")
-            await pg.fill("#collection-search", "")
-            # from a DAT another tool made, with names of its own
-            gb2 = hashlib.sha1(picks_[1].read_bytes()).hexdigest()
-            crc2 = f"{zlib.crc32(picks_[1].read_bytes()):08x}"
-            mine = home / "my list.dat"
-            mine.write_text(f'<?xml version="1.0"?>\n<datafile><header><name>My list</name></header>'
-                            f'<game name="the second one"><rom name="x.gb" size="{picks_[1].stat().st_size}" crc="{crc2}" sha1="{gb2}"/></game>'
-                            f'<game name="nobody knows"><rom name="y.gb" size="3" crc="01020304"/></game></datafile>\n')
-            await pg.click("#collection-panel-new")
-            await pg.check('#collection-way input[value="dat"]')
-            await pg.fill("#new-dat-path", str(mine))
-            await pg.click("#collection-new-dialog button[type=submit]")
-            await pg.wait_for_selector("#subset-review")
-            found_dat = await pg.eval_on_selector_all("#subset-systems li", "els => els.map(e => e.dataset.name)")
-            unknown_dat = await pg.eval_on_selector_all("#subset-unknown li", "els => els.map(e => e.dataset.path)")
-            await pg.click("#subset-review button[type=submit]")
-            await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'my list'")
-            audit_dats = [x.read_text() for x in (library / "_library/dats").rglob("*.dat")]
-            check("From a DAT reads it in place and finds its games by hash, not by name, and it isn't made an audit DAT",
-                  len(found_dat) == 1 and found_dat[0] in [n for n, _ in found] and unknown_dat == ["nobody knows"]
-                  and not any("<name>My list</name>" in t for t in audit_dats), (found_dat, unknown_dat))
-            await pg.click('#collection-view [data-view="rules"]')
-            await pg.wait_for_selector("#collection-source")
-            source_tab = await pg.inner_text('#collection-view [data-view="rules"]')
-            check("a collection made from a DAT says so under Source (not \"made from\")", source_tab.strip() == "Source" and "Source" in await pg.inner_text("#collection-source h2"), source_tab)
-            await pg.click("#collection-read-again")
-            await pg.wait_for_selector("#subset-review")
-            await pg.click("#subset-review button[type=submit]")
-            await toast_text(pg, "Read my list again")
-            check("Read it again… reads the DAT again and keeps the collection", (await pg.inner_text("#collection-games")) == "1")
-            # a game the full set lacks, brought into the library from the folder, named as the DAT says
-            wanted = home / "Subsets" / "Wanted"
-            wanted.mkdir(parents=True)
-            (wanted / "europe one.gb").write_bytes(make_fixtures.rom(11, 32768))
-            await pg.click("#collection-panel-new")
-            await pg.check('#collection-way input[value="folders"]')
-            pick(wanted)
-            await pg.click("#new-add-folder")
-            await pg.wait_for_selector("#new-folders li")
-            await pg.click("#collection-new-dialog button[type=submit]")
-            await pg.wait_for_selector("#subset-review", timeout=30000)
-            lacking = await pg.eval_on_selector_all("#subset-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
-            pointed = await pg.inner_text("#subset-lacking")
-            await pg.click("#subset-review button[type=submit]")
-            await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Wanted'")
-            # collecting copies nothing (D71): the game the library lacks comes in from Import
-            # with a file no DAT knows beside it, taken as its folder's system; copied in full
-            (wanted / "homebrew.gb").write_bytes(b"a homebrew game nobody listed")
-            await pg.click('.sidebar a[href="#/import"]')
-            await pg.click("#import-games")
-            pick(wanted)
-            await pg.click("#import-add-folder")
-            await pg.wait_for_selector("#import-folders li")
-            systems_offered = await pg.eval_on_selector_all("#import-system option", "els => els.map(e => e.textContent)")
-            await pg.check('#import-mode input[value="always"]')
-            await pg.click("#import-games-dialog button[type=submit]")
-            await pg.wait_for_selector("#import-games-review", timeout=30000)
-            offered = await pg.eval_on_selector_all("#import-games-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
-            unknown_as = await pg.input_value('#import-games-unknown li[data-folder="Wanted"] select')
-            await pg.wait_for_selector('#import-places li[data-platform="gb"][data-dir]:not([data-dir=""])')
-            place = await pg.get_attribute('#import-places li[data-platform="gb"]', "data-dir")
-            games_first = await pg.evaluate("() => !!(document.querySelector('#import-games-systems').compareDocumentPosition(document.querySelector('#import-places')) & Node.DOCUMENT_POSITION_FOLLOWING)")
-            await pg.screenshot(path=str(out / "23d-import-review.png"))
-            # the window stays when the page behind it is clicked; closed, it comes back where it was
-            await pg.mouse.click(5, 5)
-            stayed = await pg.query_selector("#import-games-review") is not None
-            await pg.click('#import-games-review .dialog-head button[aria-label="Close"]')
-            await pg.wait_for_selector("#import-games-review", state="detached")
-            await pg.click("#import-games")
-            await pg.wait_for_selector("#import-games-review")
-            kept = await pg.input_value('#import-games-unknown li[data-folder="Wanted"] select')
-            await pg.click("#import-games-review button[type=submit]")
-            await pg.wait_for_selector("#bring-dialog #organise-totals")
-            await pg.screenshot(path=str(out / "23d-bring-in.png"))
-            bring_head = await pg.evaluate("() => [document.querySelector('#bring-dialog h2').textContent, document.querySelector('#organise-totals p').textContent, document.querySelector('#bring-dialog button[type=submit]').textContent]")
-            await pg.click("#bring-dialog button[type=submit]")
-            said = await toast_text(pg, "Imported 2 games into the library")
-            brought = [x for x in (fx / "Roms").rglob("Alpha (Europe).gb") if ".gamerepo-set-aside" not in x.parts]
-            await pg.wait_for_selector('#import-recent-list li[data-kind="bring"]')
-            recent = await pg.eval_on_selector_all("#import-recent-list li", "els => els.map(e => e.dataset.kind)")
-            await pg.locator("#import-recent").scroll_into_view_if_needed()
-            await pg.screenshot(path=str(out / "23e-recent-imports.png"))
-            check("the import review lists the games before where each system's go (review M42); its preview says what it will do with one word for it (M40); Recent imports lists it (D78)",
-                  games_first and bring_head == ["Import 2 games into the library", "2 games to import.", "Import"] and recent and recent[0] == "bring" and all(k in ("bring", "add", "import", "docs", "magazines", "bios") for k in recent),
-                  (games_first, bring_head, recent))
-            check("Import offers every system or one, and copy, always copy or move; its window stays put and comes back where it was; each system's games go to the folder its games are in, and a file no DAT knows to its folder's system",
-                  systems_offered[0].startswith("Every system") and "Game Boy" in systems_offered and unknown_as == "gb" and stayed and kept == "gb" and len(brought) == 1
-                  and brought[0].parent == Path(place) and (Path(place) / "homebrew.gb").is_file() and os.stat(brought[0]).st_nlink == 1,
-                  (systems_offered[:3], unknown_as, stayed, kept, place, brought))
-            await pg.click('.sidebar a[href="#/collections"]')
-            await pg.click('#collection-panel-list .panel-link:has-text("Wanted")')
-            await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Wanted' && document.querySelector('#collection-have')?.textContent === '1'", timeout=30000)
-            check("a collection from folders points at Import for the games the library lacks; Import copies one into its folder with games, named as the DAT says, and scans it",
-                  lacking == [["Alpha (Europe)", "missing"]] and "Import" in pointed and offered == [["Alpha (Europe)", "missing"]] and len(brought) == 1 and (wanted / "europe one.gb").is_file(), (lacking, pointed, offered, said, brought))
-            await pg.click('#collection-panel-list .panel-link:has-text("Best Of")')
-            await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Best Of'")
+                # the collection's games are the Library's tiles (D69): its DAT names from their keys
+                async def coll_names():
+                    await pg.wait_for_function("() => document.querySelector('#collection-result')?.getAttribute('aria-busy') === 'false' && document.querySelector('#lib-games')")
+                    await pg.wait_for_timeout(300)
+                    return await pg.eval_on_selector_all("#lib-games [data-key]", "els => els.map(e => e.dataset.key.split('/').slice(1).join('/'))")
 
-            # Phase 4: PC games. The inbox (set in Settings), Import… with its review list
-            # (one found by its goggame file, one by a search of the sources), the preview,
-            # each game's folder, artwork, Unpack and its program, Identify, Add to Steam, and a
-            # PC game's page: the shared game page with its PC section (D55)
-            inbox = home / "Inbox"
-            zeta = inbox / "Zeta Quest (1999)"
-            (zeta / "bin").mkdir(parents=True)
-            (zeta / "bin/zeta.exe").write_bytes(b"MZ zeta")
-            (zeta / "goggame-1207658930.info").write_text(json.dumps({"gameId": "1207658930", "rootGameId": "1207658930", "name": "Zeta Quest",
-                "playTasks": [{"category": "game", "isPrimary": True, "path": "bin\\zeta.exe", "type": "FileTask"}]}))
-            with zipfile.ZipFile(inbox / "Alpha Strike.zip", "w") as z:
-                z.writestr("Alpha Strike/alpha.exe", b"MZ alpha")
-                z.writestr("Alpha Strike/data/level1.dat", b"level one")
-            steam = home / "Steam"
-            (steam / "userdata/22222/config").mkdir(parents=True)
-            (steam / "config").mkdir(parents=True)
-            (steam / "config/loginusers.vdf").write_text('"users"\n{\n\t"76561197960287950"\n\t{\n\t\t"AccountName"\t\t"tester"\n\t\t"PersonaName"\t\t"Tester"\n\t\t"Timestamp"\t\t"1790000000"\n\t}\n}\n')
-            await pg.click("#nav-pc")
-            await pg.wait_for_selector("#pc-empty")
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.wait_for_selector("#settings-pc-inbox")
-            pick(inbox)
-            await pg.click('#settings-pc-inbox [data-action="choose"]')
-            await pg.wait_for_function("(p) => document.querySelector('#pc-inbox-path')?.textContent === p", arg=str(inbox))
-            pick(steam)
-            await pg.click("#steam-choose")
-            await pg.wait_for_function("(p) => document.querySelector('#steam-path')?.textContent === p", arg=str(steam))
-            check("Settings keeps the PC games inbox and Steam's folder, and lists Identify's sources",
-                  await pg.eval_on_selector_all("#sources > li", "els => els.map(e => e.dataset.source)") == ["steam", "gog", "screenscraper", "igdb", "thegamesdb", "launchbox"] and str(library / "PC") in await pg.inner_text("#pc-folder-path"), await pg.inner_text("#settings-sources"))
-            await pg.click("#nav-pc")
-            await pg.click("#pc-first")
-            await pg.wait_for_selector("#pc-items li", timeout=30000)
-            pc_at = await pg.evaluate("() => [location.hash, !!document.querySelector('#import-pc.import-here')]")
-            # review M35: with what it read shown, a stray click or Esc leaves the window up
-            await pg.mouse.click(5, 5)
-            await pg.keyboard.press("Escape")
-            pc_stayed = await pg.locator("#pc-items li").count()
-            check("PC games' Import… opens the Import page at PC games (D78), and its list stays through a stray click and Esc (M35)",
-                  pc_at == ["#/import/import-pc", True] and pc_stayed == 2, (pc_at, pc_stayed))
-            items = await pg.eval_on_selector_all("#pc-items li", "els => els.map(e => [e.querySelector('.pc-item-title').value, e.dataset.status, e.querySelector('.pc-item-meta').textContent])")
-            check("Import… reads the inbox: one game found by its goggame file, the other by a search of the sources",
-                  sorted(i[0] for i in items) == ["Alpha Strike", "Zeta Quest"] and all(i[1] == "ready" for i in items)
-                  and any("goggame" in i[2] and "GOG game 1207658930" in i[2] for i in items) and any("Steam app 4000" in i[2] and "search" in i[2] for i in items), items)
-            await pg.screenshot(path=str(out / "24-pc-import.png"))
-            pc_how = await pg.eval_on_selector_all("#pc-import-mode input", "els => els.map(e => e.value)")
-            await pg.click("#pc-import-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            pc_title = await pg.inner_text("#pc-import-dialog h2")
-            await pg.click("#pc-import-dialog button[type=submit]")
-            said = await toast_text(pg, "Imported 2 PC games", timeout=30000)
-            check("the PC import has the Import page's three ways in (D79) and a present-tense preview (M40)", pc_how == ["copy", "always", "move"] and pc_title == "Import 2 PC games", (pc_how, pc_title))
-            await pg.click("#nav-pc")
-            await pg.wait_for_selector("#pc-list li:nth-child(2)")
-            made = sorted(x.name for x in (library / "PC").iterdir()) if (library / "PC").is_dir() else []
-            alpha_dir = library / "PC/Alpha Strike (2001)"
-            alpha = json.loads((alpha_dir / "game.json").read_text()) if (alpha_dir / "game.json").exists() else {}
-            art = list((library / "_library/games/pc").glob("*/media/cover.*"))
-            check("each PC game gets its own folder with a game.json, and the artwork the sources offered",
-                  made == ["Alpha Strike (2001)", "Zeta Quest (1999)"] and alpha.get("ids") == {"steam": "4000"} and (alpha_dir / "install/Alpha Strike.zip").is_file()
-                  and (library / "PC/Zeta Quest (1999)/extracted/bin/zeta.exe").is_file() and len(art) == 1 and (inbox / "Alpha Strike.zip").is_file(), (said, made, alpha, art))
-            await pg.click('#pc-list .pc-row:has-text("Alpha Strike")')
-            await pg.wait_for_selector('#pc-unpack-section [data-action="unpack"]')
-            await pg.click('#pc-unpack-section [data-action="unpack"]')
-            await toast_text(pg, "Unpacked")
-            await pg.wait_for_selector("#pc-program")
-            programs = await pg.eval_on_selector_all("#pc-program option", "els => els.map(e => e.value)")
-            await pg.select_option("#pc-program", "extracted/Alpha Strike/alpha.exe")
-            await pg.click("#pc-program-form button[type=submit]")
-            await toast_text(pg, "Saved the program")
-            alpha = json.loads((alpha_dir / "game.json").read_text())
-            check("Unpack puts a game's archive in its extracted folder, and its program is chosen from what's there",
-                  "extracted/Alpha Strike/alpha.exe" in programs and (alpha_dir / "extracted/Alpha Strike/data/level1.dat").is_file()
-                  and alpha["launch"]["program"] == "extracted/Alpha Strike/alpha.exe", (programs, alpha.get("launch")))
-            await pg.screenshot(path=str(out / "25-pc-game.png"))
-            await pg.click('#pc-list .pc-row:has-text("Zeta Quest")')
-            await pg.click("#pc-identify")
-            await pg.wait_for_selector('#identify-results li[data-source="gog"]')
-            sources = await pg.eval_on_selector_all("#identify-results li", "els => els.map(e => e.dataset.source)")
-            await pg.screenshot(path=str(out / "26-identify.png"))
-            await pg.click('#identify-results li[data-source="gog"] [data-action="pick"]')
-            await pg.wait_for_selector("#identify-dialog", state="detached")
-            zeta_json = json.loads((library / "PC/Zeta Quest (1999)/game.json").read_text())
-            zeta_meta = library / f"_library/games/pc/{zeta_json['id']}"
-            zeta_shared, zeta_gog = {}, {}
-            for _ in range(50):
-                zeta_shared = json.loads((zeta_meta / "game.json").read_text()) if (zeta_meta / "game.json").exists() else {}
-                if zeta_shared.get("identified_by") == "gog":
-                    break
-                await asyncio.sleep(0.2)
-            zeta_json = json.loads((library / "PC/Zeta Quest (1999)/game.json").read_text())
-            zeta_gog = json.loads((zeta_meta / "sources/gog.json").read_text()) if (zeta_meta / "sources/gog.json").exists() else {}
-            zeta_media = sorted(x.name for x in (zeta_meta / "media").iterdir())
-            check("Identify searches the sources in order; the pick keeps its id with the game, its answer kept as the source's, and its artwork",
-                  sources == ["steam", "gog"] and zeta_json["ids"].get("gog") == "1207658930" and "description" not in zeta_json.get("details", {})
-                  and zeta_gog.get("details", {}).get("description", "").startswith("Quest") and zeta_shared.get("details", {}).get("description", "").startswith("Quest")
-                  and zeta_shared.get("identified_by") == "gog" and "cover.png" in zeta_media and "hero.png" in zeta_media,
-                  (sources, zeta_json.get("details"), zeta_shared.get("details"), zeta_media))
-            await pg.click("#pc-steam")
-            await pg.wait_for_selector("#steam-preview")
-            preview = await pg.inner_text("#steam-preview")
-            await pg.screenshot(path=str(out / "26b-steam.png"))
-            await pg.click("#steam-dialog button[type=submit]")
-            said = await toast_text(pg, "Wrote 2 shortcuts")
-            vdf = (steam / "userdata/22222/config/shortcuts.vdf").read_bytes() if (steam / "userdata/22222/config/shortcuts.vdf").exists() else b""
-            grid = sorted(x.name for x in (steam / "userdata/22222/config/grid").iterdir()) if (steam / "userdata/22222/config/grid").is_dir() else []
-            check("Add to Steam writes the PC games as non-Steam shortcuts, tagged as the app's, with their artwork in Steam's grid",
-                  "2 shortcuts to add" in preview and b"Zeta Quest" in vdf and b"Alpha Strike" in vdf and b"Game Repo" in vdf and any(g.endswith("p.png") for g in grid), (preview, said, grid))
-            # Zeta's page: the shared game page, with the PC section; a detail edited, Steam's
-            # answer added by Identify…, a picture and a detail taken from another source, and
-            # a document dropped on it
-            zeta_key = f"pc/{zeta_json['id']}"
-            await pg.click('#pc-list .pc-row:has-text("Zeta Quest")')
-            await pg.click("#pc-open")
-            await pg.wait_for_selector(f'#game-page[data-key="{zeta_key}"][data-kind="pc"] #game-pc #pc-parts')
-            parts = await pg.evaluate("() => [!!document.querySelector('#game-pc #pc-program, #game-pc #pc-no-program'), !!document.querySelector('#game-pc #pc-reveal'), document.querySelector('#game-pc-line')?.textContent || '', !!document.querySelector('#game-files')]")
-            check("a PC game's page is the game page, with a PC section for its program, its folder and files",
-                  parts[0] and parts[1] and "GOG" in parts[2] and not parts[3] and await pg.locator("#game-developer").count() == 1, parts)
-            await pg.fill("#game-developer", "Zeta Folk")
-            await pg.press("#game-developer", "Tab")
-            await pg.wait_for_selector('.game-detail[data-field="developer"][data-edited="yes"]')
-            await pg.click("#game-identify-pc")
-            await pg.wait_for_selector('#identify-results li[data-source="steam"] [data-action="pick"]')
-            await pg.click('#identify-results li[data-source="steam"] [data-action="pick"]')
-            await pg.wait_for_selector("#identify-dialog", state="detached")
-            await pg.wait_for_selector('#game-variants[data-kind="cover"] button[data-name="steam"][aria-pressed="true"]')
-            await pg.click('#game-variants button[data-name="gog"]')
-            await pg.wait_for_selector('#game-variants button[data-name="gog"][aria-pressed="true"]')
-            row = '.game-detail[data-field="description"]'
-            await pg.click(f"{row} .game-detail-others summary")
-            await pg.click(f'{row} .game-detail-others [data-source="gog"] [data-action="use"]')
-            await pg.wait_for_function("() => document.querySelector('#game-description')?.value.startsWith('Quest')")
-            zeta_shared = json.loads((zeta_meta / "game.json").read_text())
-            zeta_json = json.loads((library / "PC/Zeta Quest (1999)/game.json").read_text())
-            covers = sorted(x.name for x in (zeta_meta / "media/cover").iterdir()) if (zeta_meta / "media/cover").is_dir() else []
-            check("on its page a PC game's details and pictures are kept as any game's: each source's answer, a picture from each, Use this, and your edits over them",
-                  zeta_shared.get("details", {}).get("developer") == "Zeta Folk" and "developer" in zeta_shared.get("edited", []) and zeta_shared.get("pinned", {}).get("description") == "gog"
-                  and zeta_shared.get("chosen", {}).get("cover") == "gog" and len(covers) == 1 and covers[0].startswith("steam.") and (zeta_meta / "sources/steam.json").is_file()
-                  and zeta_json["ids"] == {"gog": "1207658930", "steam": "4001"} and zeta_shared.get("identified_by") == "steam",
-                  (zeta_shared.get("details"), zeta_shared.get("chosen"), zeta_shared.get("pinned"), covers, zeta_json.get("ids")))
-            dropped = home / "PC guides" / "Zeta Map.txt"
-            dropped.parent.mkdir(exist_ok=True)
-            dropped.write_text("The map of Zeta's first world.")
-            await pg.evaluate("(p) => window.__shimEmit('tauri://drag-drop', { paths: [p], position: { x: 400, y: 400 } })", str(dropped))
-            await pg.wait_for_selector("#docs-import-dialog #doc-items li")
-            await pg.click("#docs-import-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            await pg.click("#docs-import-dialog button[type=submit]")
-            said = await toast_text(pg, "Imported 1 document")
-            await pg.wait_for_function("() => document.querySelector('#game-docs')?.textContent.includes('Zeta Map')")
-            check("a file dropped on a PC game's page is attached to it as a document, kept with its details", (zeta_meta / "docs/Zeta Map.txt").is_file(), said)
-            await pg.screenshot(path=str(out / "26c-pc-game-page.png"), full_page=True)
-            await pg.locator("#game-pc").scroll_into_view_if_needed()
-            await pg.screenshot(path=str(out / "26d-pc-game-section.png"))
+                async def leave_out(name):
+                    await pg.click(f'#lib-games [data-key="gb/{name}"]')
+                    await pg.wait_for_selector("#bar-leave-out")
+                    await pg.click("#bar-leave-out")
 
-            # Add a game… (a system's ROM from outside its folders), scanned and checked against its DAT
-            downloads = home / "Downloads"
-            downloads.mkdir()
-            (downloads / "alpha-eu.gb").write_bytes(make_fixtures.rom(11, 32768))
-            await pg.click('.sidebar a[href="#/audit"]')
-            await pg.wait_for_selector("#audit-menu")
-            await pg.click("#audit-menu")
-            await pg.click('#context-menu [data-action="add-game"]')
-            await pg.wait_for_selector("#add-game-dialog")
-            await pg.select_option("#add-platform", "gb")
-            pick(downloads / "alpha-eu.gb")
-            await pg.click("#add-pick-files")
-            await pg.wait_for_function("() => document.querySelector('#add-files')?.textContent.includes('alpha-eu.gb') && document.querySelector('#add-into')?.value")
-            await pg.click("#add-game-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            await pg.click("#add-game-dialog button[type=submit]")
-            await pg.wait_for_selector("#add-results li", timeout=30000)
-            row = await pg.inner_text("#add-results li")
-            check("Add a game… copies a ROM into the folder its system's games are in, scans it and says which DAT game it is",
-                  "Alpha (Europe)" in row and (fx / "Roms/Game Boy/alpha-eu.gb").is_file() and (downloads / "alpha-eu.gb").is_file(), row)
-            await pg.screenshot(path=str(out / "27-add-game.png"))
-            await pg.click("#add-results-dialog button[type=submit]")
+                async def sort_by(what):
+                    await pg.click("#collection-sort")
+                    await pg.click(f'#context-menu [data-action="sort-{what}"]')
 
-            # Phase 5: a source's key (Settings › Sources, kept on this computer), a scrape of a
-            # system's games by title (TheGamesDB's stand-in), a game's panel, documents imported
-            # from a folder with their pairings changed, searched by their words and read, and an
-            # export that carries the pictures and documents
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.wait_for_selector('#sources li[data-source="thegamesdb"] .source-keys')
-            await pg.fill('#sources li[data-source="thegamesdb"] input[name="apikey"]', "test-key-123")
-            await pg.click('#sources li[data-source="thegamesdb"] [data-action="save-keys"]')
-            await pg.wait_for_selector('#sources li[data-source="thegamesdb"] .source-said')
-            said = await pg.inner_text('#sources li[data-source="thegamesdb"] .source-said')
-            shown = await pg.get_attribute('#sources li[data-source="thegamesdb"] input[name="apikey"]', "placeholder")
-            cfg = json.loads((home / "config/config.json").read_text())
-            in_library = "test-key-123" in (library / "_library/library.json").read_text()
-            check("Settings › Sources keeps a source's key on this computer (never shown again, never in the library) and Check asks the source",
-                  cfg.get("source_keys", {}).get("thegamesdb", {}).get("apikey") == "test-key-123" and "answered" in said and "test-key" not in (shown or "") and not in_library,
-                  (said, shown, cfg.get("source_keys")))
-            await pg.screenshot(path=str(out / "30-sources.png"))
-            await pg.click('.sidebar a[href="#/metadata"]')
-            await pg.wait_for_selector("#meta-page")
-            await pg.click('#meta-systems-list a[data-id="gb"]')
-            await pg.wait_for_selector('#meta-list .pc-row[data-name="Alpha (USA)"]')
-            counts = await pg.inner_text("#meta-counts")
-            await pg.click("#meta-scrape")
-            await pg.wait_for_selector("#scrape-dialog #scrape-sources")
-            off = await pg.eval_on_selector_all("#scrape-sources li", "els => els.filter(e => e.querySelector('input').disabled).map(e => e.dataset.source)")
-            await pg.screenshot(path=str(out / "31-scrape.png"))
-            await pg.click("#scrape-dialog button[type=submit]")
-            said = await toast_text(pg, "Scraped", timeout=60000)
-            alpha = library / "_library/games/gb/Alpha (USA)"
-            alpha_json = json.loads((alpha / "game.json").read_text()) if (alpha / "game.json").is_file() else {}
-            alpha_media = sorted(x.name for x in (alpha / "media").iterdir()) if (alpha / "media").is_dir() else []
-            check("Scrape… asks the ready sources for a system's games, by title, and keeps the details and pictures in each game's folder",
-                  "found" in said and sorted(off) == ["igdb", "launchbox", "screenscraper"] and alpha_json.get("details", {}).get("developer") == "Stand-in Soft"
-                  and alpha_json.get("ids", {}).get("thegamesdb") == "501" and "cover.png" in alpha_media and "screenshot.png" in alpha_media,
-                  (counts, said, off, alpha_json.get("details"), alpha_media))
-            row = '#meta-list .pc-row[data-name="Epsilon (USA)"]'
-            await pg.wait_for_function("(r) => document.querySelector(r)?.textContent.includes('nothing yet')", arg=row, timeout=10000)
-            epsilon = await pg.inner_text(row)
-            check("a game sharing a ROM with another (Epsilon's second track is Beta) isn't taken for it", "Beta" not in epsilon and "Epsilon (USA)" in epsilon, epsilon)
-            await pg.click('#meta-list .pc-row[data-name="Alpha (USA)"]')
-            await pg.wait_for_selector("#meta-panel #meta-description")
-            panel = await pg.inner_text("#meta-panel")
-            pics = await pg.eval_on_selector_all("#meta-media figure", "els => els.map(e => e.dataset.kind)")
-            check("a game's panel shows its details, where they came from, and its pictures",
-                  "Alpha's overview" in panel and "Stand-in Soft" in panel and "1990" in panel and sorted(pics) == ["cover", "screenshot"], (panel[:300], pics))
-            await pg.screenshot(path=str(out / "32-metadata.png"))
+                await pg.click('.sidebar a[href="#/collections"]')
+                await pg.wait_for_selector("#collections-empty")
+                await pg.click("#collections-first")
+                ways = await pg.eval_on_selector_all("#collection-way .way", "els => els.map(e => e.dataset.way)")
+                await pg.fill("#collection-name", "Best Of")
+                await pg.click("#collection-new-dialog button[type=submit]")
+                await pg.wait_for_selector("#collection-rules")
+                check("New collection offers by rules, from folders or from a DAT, and one by rules opens on its rules", ways == ["rules", "folders", "dat"], ways)
+                await pg.check('#rule-platforms input[value="gb"]')
+                await pg.wait_for_function("() => +document.querySelector('#collection-games')?.textContent > 0")
+                await pg.click('#collection-view [data-view="games"]')
+                await pg.wait_for_function("() => document.querySelector('#collection-systems') === null && document.querySelector('#lib-games')?.dataset.total > 0")
+                names = sorted(await coll_names())
+                await pg.click('#collection-view [data-view="rules"]')
+                games_now = lambda: pg.evaluate("() => +document.querySelector('#collection-games').textContent")
+                await pg.select_option("#rule-include", "all")
+                await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent > n", arg=len(names))
+                one_each = await games_now()
+                await pg.uncheck("#rule-1g1r")
+                await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent > n", arg=one_each)
+                every = await games_now()
+                stored = [json.loads(f.read_text()) for f in (library / "_library/collections").glob("*.json")]
+                check("a collection is made from rules (the games you have or every game, one per title unless unticked) and kept in the library",
+                      names and len(names) < one_each < every and len(stored) == 1 and stored[0]["rules"]["platforms"] == ["gb"]
+                      and stored[0]["rules"]["one_per_title"] is False and stored[0]["rules"]["include"] == "all", (names, one_each, every, stored))
+                await pg.check("#rule-1g1r")
+                await pg.select_option("#rule-include", "have")
+                await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n", arg=len(names))
+                await pg.click('#collection-view [data-view="games"]')
+                await pg.wait_for_selector(f'#lib-games [data-key="gb/{names[0]}"]')
+                await leave_out(names[0])
+                await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n - 1", arg=len(names))
+                # In it / Left out by hand: a filter of the one games view (finding 6)
+                await pg.select_option("#collection-show", "out")
+                await pg.click(f'#collection-result[data-show="out"] #lib-games [data-key="gb/{names[0]}"]')
+                await pg.wait_for_selector("#bar-put-back")
+                shown_out = await pg.eval_on_selector_all("#lib-games [data-key]", "els => els.map(e => e.dataset.key)")
+                await pg.keyboard.press("Escape")
+                stored = json.loads(next((library / "_library/collections").glob("*.json")).read_text())
+                check("a game is left out by hand, and listed with Put back (changes made quickly are all kept)",
+                      stored["removed"] == [f"gb/{names[0]}"] and stored["rules"]["one_per_title"] is True and stored["rules"]["include"] == "have" and shown_out == [f"gb/{names[0]}"],
+                      (stored["removed"], stored["rules"], shown_out))
+                # its history (D67): each change a step, newest first; the leave-out undone, then made again
+                await pg.click('#collection-view [data-view="history"]')
+                await pg.wait_for_selector("#collection-history-list li")
+                hows = await pg.eval_on_selector_all("#collection-history-list li", "els => els.map(e => e.dataset.how)")
+                first_text = await pg.inner_text("#collection-history-list li:first-child")
+                await pg.screenshot(path=str(out / "21c-collection-history.png"))
+                await pg.click('#collection-history-list li[data-how="hand"] [data-action="undo"]')
+                await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n", arg=len(names))
+                await pg.wait_for_selector('#collection-history-list li:first-child[data-how="undo"]')
+                undone = await pg.get_attribute('#collection-history-list li[data-how="hand"]', "data-undone")
+                check("a collection's History lists each change newest first (by hand, its rules, made), and Undo puts the game left out back",
+                      hows[0] == "hand" and "rules" in hows and hows[-1] == "made" and names[0] in first_text and undone == "yes", (hows, first_text, undone))
+                await pg.click('#collection-view [data-view="rules"]')
+                check("a collection takes its games' updates and DLC by default", await pg.is_checked("#rule-addons"))
+                await pg.click('#collection-view [data-view="games"]')
+                await pg.select_option("#collection-show", "in")
+                await pg.wait_for_selector(f'#lib-games [data-key="gb/{names[0]}"]')
+                await leave_out(names[0])
+                await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n - 1", arg=len(names))
+                await pg.screenshot(path=str(out / "21-collection.png"), full_page=True)
+                kept = names[1:]
 
-            guides = home / "Guides" / "Game Boy"
-            guides.mkdir(parents=True)
-            (guides / "Alpha Manual.txt").write_text("How to play Alpha. Press the zebrafish button to jump.")
-            (guides / "beta_strategy_guide.md").write_text("# Beta strategy\n\nAlways go **left** at the second fork.")
-            (guides / "Unrelated Thing.txt").write_text("Delta's secret level is behind the waterfall.")
-            pick(guides)
-            await pg.click("#meta-menu")
-            await pg.click('#context-menu [data-action="meta-import-docs"]')
-            await pg.wait_for_selector("#doc-items li", timeout=30000)
-            pairings = await pg.eval_on_selector_all("#doc-items li", "els => Object.fromEntries(els.map(e => [e.dataset.name, e.dataset.pairing]))")
-            row = '#doc-items li[data-name="Unrelated Thing.txt"]'
-            await pg.click(f'{row} [data-action="change-game"]')
-            await pg.fill(f"{row} .game-pick-search", "delta")
-            await pg.wait_for_selector(f'{row} .game-pick-list [data-action="pick-game"]')
-            await pg.click(f'{row} .game-pick-list [data-action="pick-game"]')
-            await pg.wait_for_selector(f'{row}[data-pairing="you"]')
-            await pg.select_option(f"{row} .doc-item-kind", "guide")
-            await pg.screenshot(path=str(out / "33-docs-import.png"))
-            await pg.click("#docs-import-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            await pg.click("#docs-import-dialog button[type=submit]")
-            said = await toast_text(pg, "Imported 3 documents")
-            alpha_docs = json.loads((alpha / "docs/docs.json").read_text()) if (alpha / "docs/docs.json").is_file() else {}
-            delta_docs = sorted(x.name for x in (library / "_library/games/gb/Delta (World)/docs").iterdir()) if (library / "_library/games/gb/Delta (World)/docs").is_dir() else []
-            check("Import documents… pairs each file with its game by name, a pairing is changed by hand, and they're brought into the games' folders (the originals stay)",
-                  pairings.get("Alpha Manual.txt") == "sure" and pairings.get("beta_strategy_guide.md") in ("sure", "likely") and pairings.get("Unrelated Thing.txt") == "none"
-                  and alpha_docs.get("files", {}).get("Alpha Manual.txt", {}).get("kind") == "manual" and "Unrelated Thing.txt" in delta_docs and (guides / "Alpha Manual.txt").is_file(),
-                  (pairings, said, alpha_docs, delta_docs))
-            await pg.click('.sidebar a[href="#/documents"]')
-            await pg.wait_for_selector("#docs-page #docs-list .pc-row")
-            # the three brought in, and the map dropped on Zeta Quest's page in Phase 4
-            listed = await pg.eval_on_selector_all("#docs-list .pc-row", "els => els.length")
-            zeta_doc = await pg.locator('#docs-list .pc-row:has-text("Zeta Map")').inner_text() if await pg.locator('#docs-list .pc-row:has-text("Zeta Map")').count() else ""
-            await pg.fill("#docs-search", "zebrafish")
-            await pg.wait_for_function("() => document.querySelectorAll('#docs-list .pc-row').length === 1 && document.querySelector('#docs-list mark')")
-            hit = await pg.inner_text("#docs-list .pc-row")
-            await pg.click("#docs-list .pc-row")
-            await pg.wait_for_selector("#doc-view #doc-text")
-            text = await pg.inner_text("#doc-view #doc-text")
-            await pg.screenshot(path=str(out / "34-documents.png"))
-            await pg.fill("#docs-search", "")
-            await pg.select_option("#docs-kind", "guide")
-            await pg.wait_for_function("() => document.querySelectorAll('#docs-list .pc-row').length === 2")
-            await pg.click('#docs-list .pc-row:has-text("Beta")')
-            await pg.wait_for_selector("#doc-view #doc-text strong")
-            await pg.select_option("#docs-kind", "")
-            cli = cli_json("docs", "--home", str(home), "--search", "waterfall", "--json")
-            check("Documents lists every document, searches their words with the words marked, and shows one (Markdown made into text); the command line searches them too",
-                  listed == 4 and "Zeta Quest · PC" in zeta_doc and "Alpha Manual" in hit and "zebrafish" in hit.lower() and "zebrafish button" in text and cli.get("total") == 1 and cli["items"][0]["kind"] == "guide",
-                  (listed, zeta_doc, hit, text[:100], cli.get("total")))
+                # its properties: games, systems, size on disk; a size limit; the biggest games first
+                # as a table, as the Library's: each game's size
+                await pg.click('#collection-look [data-view="table"]')
+                await pg.wait_for_function("(n) => document.querySelectorAll('#lib-games .lib-row[data-key]').length === n", arg=len(kept))
+                each = await pg.eval_on_selector_all("#lib-games .lib-row[data-key]", "els => els.map(e => +e.dataset.bytes)")
+                await pg.click('#collection-view [data-view="size"]')
+                await pg.wait_for_selector("#collection-props")
+                disk = await pg.evaluate("() => +document.querySelector('#prop-size').dataset.bytes")
+                props = await pg.inner_text("#collection-props")
+                check("Properties shows the games, systems and size on disk (the sum of its games')",
+                      disk > 0 and disk == sum(each) and str(len(kept)) in props and "Systems" in props, (disk, each, props))
+                await pg.select_option("#collection-limit", "other")
+                await pg.fill("#collection-limit-gb", "0.0000001")
+                await pg.press("#collection-limit-gb", "Tab")
+                await pg.wait_for_selector('#collection-fit[data-over="true"]')
+                stored = json.loads(next((library / "_library/collections").glob("*.json")).read_text())
+                check("a size limit is kept with the collection, and one too small says by how much it's over",
+                      stored.get("size_limit") == 100 and "Over by" in await pg.inner_text("#collection-fit"), stored.get("size_limit"))
+                await pg.screenshot(path=str(out / "21b-collection-properties.png"))
+                over_line = await pg.inner_text("#collection-fit-line")
+                await pg.click('#collection-view [data-view="games"]')
+                await sort_by("size")
+                await pg.wait_for_selector('#collection-sort[data-sort="size"]')
+                await pg.wait_for_timeout(400)
+                by_size = await pg.eval_on_selector_all("#lib-games .lib-row[data-key]", "els => els.map(e => +e.dataset.bytes)")
+                check("the games can be listed biggest first, and the line above says it's over its limit",
+                      by_size == sorted(by_size, reverse=True) and len(by_size) == len(kept) and "over its" in over_line, (by_size, over_line))
+                await sort_by("title")
+                await pg.click('#collection-look [data-view="grid"]')
 
-            # the export carries the pictures and the documents (a plain folder)
-            flat = home / "Flat"
-            await pg.click('.sidebar a[href="#/collections"]')
-            await pg.wait_for_selector("#collection-export:not([disabled])")
-            await pg.click("#collection-export")
-            await pg.wait_for_selector("#export-dialog")
-            await pg.wait_for_selector('#export-layout option[value="folder"]', state="attached")
-            await pg.select_option("#export-layout", "folder")
-            await pg.fill("#export-place-out", str(flat))
-            await pg.click("#export-carry summary")
-            await pg.check('#carry-media [data-id="cover"] input')
-            await pg.check("#carry-docs")
-            await pg.select_option("#carry-size", "320")
-            await pg.click("#export-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            await pg.click("#export-dialog button[type=submit]")
-            said = await toast_text(pg, "Exported Best Of")
-            carried = sorted(str(x.relative_to(flat)).replace("\\", "/") for x in flat.rglob("*") if x.is_file() and ".gamerepo" not in str(x))
-            check("an export to a folder carries the chosen pictures (made smaller) and the documents beside each game",
-                  any(c.endswith("/cover.png") for c in carried) and any(c.endswith("docs/Alpha Manual.txt") for c in carried), (said, carried))
+                await pg.click("#collection-dats")
+                await pg.click("#save-dats-dialog button[type=submit]")
+                await toast_text(pg, "Saved 1 DAT of Best Of")
+                dat = library / "_library/collection-dats/Best Of/Best Of - Game Boy.dat"
+                text = dat.read_text() if dat.exists() else ""
+                check("Save as DATs writes one Logiqx DAT per system with the collection's games",
+                      text.count("<game ") == len(kept) and all(f'name="{n}"' in text for n in kept) and "<author>Game Repo</author>" in text, text[:300])
 
-            # Phase 5b. BIOS files: libretro's list (a stand-in), audited by system, gathered into the library
-            gb_bios = bytes((i * 7) % 256 for i in range(256))
-            (fx / "Roms" / "gb_bios.bin").write_bytes(gb_bios)
-            line = lambda name, b: f"\trom ( name {name} size {len(b)} crc {zlib.crc32(b):08x} sha1 {hashlib.sha1(b).hexdigest()} )\n"
-            (home / "starter-source/dat").mkdir(exist_ok=True)
-            (home / "starter-source/dat/System.dat").write_text(
-                'clrmamepro (\n\tname "System"\n\tdescription "System"\n\tversion 1\n\tauthor "libretro"\n)\n\ngame (\n\tname "System"\n\tcomment "System"\n\n'
-                f'\tcomment "Nintendo - Gameboy"\n{line("gb_bios.bin", gb_bios)}{line("sgb_bios.bin", bytes([1, 2, 3]))}\n\tcomment "Sega - Dreamcast"\n{line("dc/dc_boot.bin", bytes(512))})\n')
-            await pg.click('.sidebar a[href="#/"]')
-            await pg.click("#home-scan-button")
-            await toast_text(pg, "Scanned")
-            await pg.click('.sidebar a[href="#/bios"]')
-            await pg.wait_for_selector("#bios-empty")
-            await pg.click("#bios-get")
-            await pg.click("#ask-dialog button[type=submit]")
-            said = await toast_text(pg, "starter DATs for 1 system")
-            # (the list is got from Import › BIOS files, D78: back to the BIOS page to see it)
-            bios_list_at = await pg.evaluate("() => location.hash")
-            await pg.click('.sidebar a[href="#/bios"]')
-            gb_row = '#bios-list .bios-system[data-system="Nintendo - Gameboy"]'
-            await pg.wait_for_selector(gb_row)
-            shown = await pg.eval_on_selector_all("#bios-list .bios-system", "els => els.map(e => [e.dataset.system, +e.dataset.have, +e.dataset.missing])")
-            totals = await pg.inner_text("#bios-totals")
-            await pg.fill("#bios-search", "dreamcast")
-            await pg.wait_for_function("() => document.querySelectorAll('#bios-list .bios-system').length === 1")
-            searched = await pg.eval_on_selector_all("#bios-list .bios-system", "els => els.map(e => e.dataset.system)")
-            await pg.fill("#bios-search", "")
-            check("BIOS files: libretro's list is got from the BIOS page and every system audited, the ones you have games for first, with a search and no picker (D69)",
-                  shown == [["Nintendo - Gameboy", 1, 1], ["Sega - Dreamcast", 0, 1]] and searched == ["Sega - Dreamcast"] and "0 of 1 with every BIOS file" in totals
-                  and await pg.query_selector("#bios-show") is None and bios_list_at == "#/import/import-bios", (said, shown, searched, totals, bios_list_at))
-            await pg.screenshot(path=str(out / "40-bios.png"), full_page=True)
-            await pg.click("#bios-gather")
-            await pg.wait_for_selector("#bios-gather-dialog #organise-totals")
-            bios_how = await pg.eval_on_selector_all("#bios-gather-mode input", "els => els.map(e => e.value)")
-            bios_at = await pg.evaluate("() => location.hash")
-            await pg.click("#bios-gather-dialog button[type=submit]")
-            said = await toast_text(pg, "Imported the BIOS files")
-            gathered = library / "BIOS/Nintendo - Gameboy/gb_bios.bin"
-            check("Import copies the BIOS files the library has into its BIOS folder, a folder for each system, from the Import page with its three ways in (D78, D79)",
-                  gathered.is_file() and gathered.read_bytes() == gb_bios and (fx / "Roms/gb_bios.bin").is_file() and bios_how == ["copy", "always", "move"] and bios_at == "#/import/import-bios", (said, bios_how, bios_at))
+                roms, esde = home / "ROMs", home / "ES-DE"
+                esde.mkdir(exist_ok=True)
+                await pg.click("#collection-export")
+                await pg.wait_for_selector("#export-dialog")
+                await pg.wait_for_selector('#export-layout option[value="knulli"]', state="attached")
+                layout_first = await pg.input_value("#export-layout")
+                offered = await pg.eval_on_selector_all("#export-layout option", "els => els.map(e => e.value)")
+                check("Export offers RetroArch, Pegasus, LaunchBox and Playnite beside ES-DE, the devices and a plain folder",
+                      all(x in offered for x in ["esde", "knulli", "muos", "retroarch", "pegasus", "launchbox", "playnite", "folder"]), offered)
+                await pg.fill("#export-place-roms", str(roms))
+                await pg.fill("#export-place-esde", str(esde))
+                over = await pg.query_selector("#export-over")
+                check("Export says when the collection is over its size limit, and starts from the ES-DE layout", over is not None and "more than its size limit" in await over.inner_text() and layout_first == "esde", layout_first)
+                await pg.click("#export-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-totals")
+                totals = await pg.inner_text("#organise-totals")
+                await pg.screenshot(path=str(out / "22-export-preview.png"))
+                await pg.click("#export-dialog button[type=submit]")
+                said = await toast_text(pg, "Exported Best Of")
+                exported = sorted(x.name for x in (roms / "gb").iterdir()) if (roms / "gb").is_dir() else []
+                gl_path = esde / "gamelists/gb/gamelist.xml"
+                gamelist = gl_path.read_text() if gl_path.exists() else ""
+                cfg = (esde / "collections/custom-Best Of.cfg").read_text() if (esde / "collections/custom-Best Of.cfg").exists() else ""
+                check("Export puts the collection in ES-DE's ROMs folder by system, with a gamelist and a custom collection, after a preview",
+                      f"{len(kept)} games" in totals and len(exported) == len(kept) and gamelist.count("<game>") == len(kept) and len(cfg.splitlines()) == len(kept),
+                      (totals, said, exported, gamelist[:200], cfg))
 
-            # the layout editor: Knulli's layout as a tree, a system's folder changed, saved as a new layout
-            await pg.click('.sidebar a[href="#/layouts"]')
-            await pg.wait_for_selector('#layout-list [data-id="knulli"]')
-            await pg.click('#layout-list [data-id="knulli"]')
-            await pg.wait_for_selector('#lt-tree .lt-node[data-path="card/roms/gb"]')
-            builtin_label = await pg.inner_text("#layout-save")
-            await pg.click('#lt-tree .lt-node[data-path="card/roms/gb"] > .lt-row .lt-name')
-            await pg.wait_for_selector('#lt-inspect[data-at="systems.gb"]')
-            await pg.fill("#lt-system-folder", "gameboy")
-            await pg.wait_for_selector('#lt-tree .lt-node[data-path="card/roms/gameboy"]')
-            game = await pg.get_attribute('#lt-tree .lt-node[data-at="games.path"][data-path^="card/roms/gameboy/"]', "data-path")
-            await pg.click(f'#lt-tree .lt-node[data-path="{game}"] > .lt-row .lt-name')
-            await pg.wait_for_selector('#lt-inspect[data-at="games.path"]')
-            await pg.fill("#lt-path", "roms/{folder}/{file}")
-            await pg.wait_for_selector("#lt-problems")
-            blocked = await pg.is_disabled("#layout-save")
-            await pg.fill("#lt-path", "{card}/roms/{folder}/{file}")
-            await pg.wait_for_selector("#lt-problems", state="detached")
-            await pg.select_option("#lt-sample", label="Best Of's first games")
-            await pg.wait_for_function("(n) => document.querySelector('#lt-tree')?.textContent.includes(n)", arg=names[0])
-            await pg.screenshot(path=str(out / "41-layout-editor.png"))
-            await pg.click("#lt-tab-json")
-            text = await pg.input_value("#lt-json")
-            await pg.click("#lt-tab-tree")
-            await pg.click("#layout-save")
-            await pg.fill("#layout-save-name", "Knulli (mine)")
-            await pg.click("#layout-save-dialog button[type=submit]")
-            await toast_text(pg, "Saved the layout Knulli")
-            await pg.wait_for_selector('#layout-list [data-id="knulli-mine"].active')
-            saved_file = library / "_library/layouts/knulli-mine.json"
-            mine = json.loads(saved_file.read_text()) if saved_file.exists() else {}
-            check("the layout editor shows Knulli's layout as a tree, follows a change at once, catches a path that breaks it, and saves the change as a new layout",
-                  builtin_label == "Save as new…" and blocked and '"gb": "gameboy"' in text and mine.get("systems", {}).get("gb") == "gameboy"
-                  and (mine.get("copied_from") or {}).get("id") == "knulli" and not mine.get("builtin"), (builtin_label, blocked, mine.get("systems"), mine.get("copied_from")))
+                await pg.select_option("#collection-show", "out")
+                await pg.click(f'#collection-result[data-show="out"] #lib-games [data-key="gb/{names[0]}"]')
+                await pg.click("#bar-put-back")
+                await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n", arg=len(names))
+                await pg.select_option("#collection-show", "in")
+                await pg.click('#collection-view [data-view="exports"]')
+                await pg.wait_for_selector('#exports li[data-target="esde"]')
+                await pg.click('#exports li[data-target="esde"] [data-action="update"]')
+                await pg.wait_for_selector("#organise-totals")
+                update = await pg.inner_text("#organise-totals")
+                await pg.click("#export-dialog button[type=submit]")
+                said = await toast_text(pg, "Updated the export of Best Of")
+                exported_after = sorted(x.name for x in (roms / "gb").iterdir())
+                check("Update adds the game put back and leaves those there already",
+                      f"{len(kept)} already in place" in update and set(exported) < set(exported_after) and len(exported_after) == len(names)
+                      and gl_path.read_text().count("<game>") == len(names), (update, said, exported_after))
+                await pg.click('#exports li[data-target="esde"] [data-action="check"]')
+                said = await toast_text(pg, "as they should be")
+                check("Check reads the export back against the DATs", f"All {len(exported_after)} files are as they should be" in said, said)
+                # RetroArch, Pegasus, LaunchBox and Playnite (Phase 8a), each written where that
+                # frontend looks, not only offered (review M44)
+                fe = home / "Frontends"
+                for layout, name, places in (("retroarch", "RetroArch", {"roms": fe / "RA games", "retroarch": fe / "RetroArch"}),
+                                             ("pegasus", "Pegasus", {"roms": fe / "Pegasus"}),
+                                             ("launchbox", "LaunchBox", {"launchbox": fe / "LaunchBox"}),
+                                             ("playnite", "Playnite", {"roms": fe / "Playnite"})):
+                    await pg.click("#collection-export")
+                    await pg.wait_for_selector(f'#export-layout option[value="{layout}"]', state="attached")
+                    await pg.select_option("#export-layout", layout)
+                    for k, v in places.items():
+                        await pg.fill(f"#export-place-{k}", str(v))
+                    await pg.click("#export-dialog button[type=submit]")
+                    await pg.wait_for_selector("#organise-totals")
+                    await pg.click("#export-dialog button[type=submit]")
+                    await toast_text(pg, f"Exported Best Of to {name}", timeout=30000)
+                written = sorted(str(x.relative_to(fe)).replace("\\", "/") for x in fe.rglob("*") if x.is_file())
+                n = len(names)
+                lpl = fe / "RetroArch/playlists/Nintendo - Game Boy.lpl"
+                items = json.loads(lpl.read_text())["items"] if lpl.is_file() else []
+                ra_games = [x for x in (fe / "RA games/gb").iterdir()] if (fe / "RA games/gb").is_dir() else []
+                peg = fe / "Pegasus/gb/metadata.pegasus.txt"
+                peg_text = peg.read_text() if peg.is_file() else ""
+                lb = fe / "LaunchBox/Data/Platforms/Nintendo Game Boy.xml"
+                lb_text = lb.read_text() if lb.is_file() else ""
+                lb_games = list((fe / "LaunchBox/Games/Nintendo Game Boy").iterdir()) if (fe / "LaunchBox/Games/Nintendo Game Boy").is_dir() else []
+                pn_games = list((fe / "Playnite/Nintendo Game Boy").iterdir()) if (fe / "Playnite/Nintendo Game Boy").is_dir() else []
+                check("Export to RetroArch writes the games and a playlist named as RetroArch's database names the system, each game's path in it",
+                      len(ra_games) == n and len(items) == n and all(Path(i["path"]).parent == fe / "RA games/gb" and i["db_name"] == "Nintendo - Game Boy.lpl" for i in items),
+                      (written, items[:2]))
+                check("Export to Pegasus writes the games with a metadata.pegasus.txt beside them, a game: entry for each",
+                      len([x for x in (fe / "Pegasus/gb").iterdir() if x.is_file() and x.name != "metadata.pegasus.txt"]) == n and peg_text.count("\ngame: ") + peg_text.startswith("game: ") == n
+                      and "collection:" in peg_text, (written, peg_text[:300]))
+                check("Export to LaunchBox puts the games in its Games folder and lists them in its platform's file in Data/Platforms",
+                      len(lb_games) == n and lb_text.count("<Game>") == n and "Nintendo Game Boy" in lb_text, (written, lb_text[:300]))
+                check("Export to Playnite puts the games in a folder named as Playnite names the platform, for its scanner",
+                      len(pn_games) == n and all(x.is_file() for x in pn_games), written)
+                await pg.click('#collection-view [data-view="size"]')
+                await pg.select_option("#collection-limit", "32")
+                await pg.wait_for_selector('#collection-fit[data-over="false"]')
+                stored = json.loads(next((library / "_library/collections").glob("*.json")).read_text())
+                check("a card's size is its label's (32 GB card: 32,000,000,000 bytes), and the collection fits",
+                      stored.get("size_limit") == 32_000_000_000 and "to spare" in await pg.inner_text("#collection-fit"), stored.get("size_limit"))
+                await pg.click('#collection-view [data-view="exports"]')
+                await pg.screenshot(path=str(out / "23-exports.png"), full_page=True)
 
-            # an export to an SD card in the new layout, with the BIOS files
-            card = home / "Card"
-            await pg.click('.sidebar a[href="#/collections"]')
-            await pg.wait_for_selector("#collection-export:not([disabled])")
-            await pg.click("#collection-export")
-            await pg.wait_for_selector('#export-layout option[value="knulli-mine"]', state="attached")
-            await pg.select_option("#export-layout", "knulli-mine")
-            await pg.fill("#export-place-card", str(card))
-            await pg.evaluate("() => { document.querySelector('#export-carry').open = true; }")
-            await pg.check("#carry-bios")
-            await pg.click("#export-dialog button[type=submit]")
-            await pg.wait_for_selector("#export-layout-used")
-            await pg.click("#export-dialog button[type=submit]")
-            said = await toast_text(pg, "Exported Best Of")
-            on_card = sorted(str(x.relative_to(card)).replace("\\", "/") for x in card.rglob("*") if x.is_file() and ".gamerepo" not in str(x)) if card.is_dir() else []
-            gl = (card / "roms/gameboy/gamelist.xml").read_text() if (card / "roms/gameboy/gamelist.xml").exists() else ""
-            await pg.click('#collection-view [data-view="exports"]')
-            await pg.wait_for_selector('#exports li[data-target="knulli-mine"]')
-            listed = await pg.inner_text('#exports li[data-target="knulli-mine"]')
-            check("an export to a card in the new layout puts the games in its folders, with a gamelist, small pictures and the BIOS files",
-                  all(f"roms/gameboy/{n}" in " ".join(on_card) for n in names) and "bios/gb_bios.bin" in on_card and gl.count("<game>") == len(names)
-                  and any(c.startswith("roms/gameboy/images/") and c.endswith("-thumb.png") for c in on_card) and "Knulli (mine)" in listed, (said, on_card, gl[:300], listed))
-            # Phase 6. The Library: every game across the systems, by its pictures, filtered with counts
-            await pg.evaluate("() => window.__gamerepo.platform.store.prefs.set('gr-library-view', 'grid')")
-            await pg.click('.sidebar a[href="#/library"]')
-            await pg.wait_for_selector('#lib-games .lib-tile[data-key="gb/Alpha (USA)"]')
-            tiles = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.map(e => e.dataset.key)")
-            total = await pg.get_attribute("#lib-games", "data-total")
-            await pg.wait_for_function("() => { const i = document.querySelector('.lib-tile[data-key=\"gb/Alpha (USA)\"] img'); return i && i.complete && i.naturalWidth > 0; }", timeout=15000)
-            src = await pg.get_attribute('.lib-tile[data-key="gb/Alpha (USA)"] img', "src")
-            thumbs = [x for x in (home / "data/thumbs").rglob("*.jpg")] if (home / "data/thumbs").is_dir() else []
-            systems = await pg.eval_on_selector_all("#filter-platform [data-value]", "els => els.map(e => e.dataset.value)")
-            check("the Library shows every game you have across the systems (PC games too), with thumbnails made on this computer",
-                  "gb/Alpha (USA)" in tiles and "nes/Echo (USA)" in tiles and any(t.startswith("pc/") for t in tiles) and int(total) == len(tiles)
-                  and "~thumb/256/" in (src or "") and thumbs and not list(library.rglob("*.jpg")) and {"gb", "nes", "pc"} <= set(systems), (tiles, total, src, len(thumbs), systems))
-            await pg.screenshot(path=str(out / "50-library.png"))
-            action = await pg.inner_text('#filter-genre [data-value="Action"] .lib-count')
-            await pg.click('#filter-genre [data-value="Action"] input')
-            await pg.wait_for_selector('#lib-chips [data-chip="genre-Action"]')
-            await pg.wait_for_function("(n) => document.querySelectorAll('#lib-games .lib-tile').length === n", arg=int(action))
-            shown = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.map(e => e.dataset.key)")
-            address = await pg.evaluate("location.hash")
-            gb_count = await pg.inner_text('#filter-platform [data-value="gb"] .lib-count')
-            await pg.go_back()
-            await pg.wait_for_selector('#lib-chips [data-chip="genre-Action"]', state="detached")
-            await pg.wait_for_function("(n) => document.querySelectorAll('#lib-games .lib-tile').length === n", arg=len(tiles), timeout=10000)
-            back = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.length")
-            radios = await pg.eval_on_selector_all("#lib-filters input[type=radio]", "els => els.length")
-            drops = await pg.eval_on_selector_all("#lib-filters .lib-filter-select select", "els => els.map(e => e.id)")
-            check("Players and Rating are drop-downs in the filters, not lists of buttons", radios == 0 and len(drops) >= 1, (radios, drops))
-            check("a filter's values have counts, its chip shows above the games, it's kept in the address and Back takes it off",
-                  int(action) >= 2 and "gb/Alpha (USA)" in shown and "gb/Beta (Europe)" in shown and "nes/Echo (USA)" not in shown and "genre=Action" in address
-                  and int(gb_count) == int(action) and back == len(tiles), (action, shown, address, gb_count, back))
-            await pg.fill("#lib-search", "stand-in")
-            await pg.wait_for_function("() => location.hash.includes('q=stand-in') && !document.querySelector('.lib-tile[data-key=\"nes/Echo (USA)\"]')")
-            found = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.map(e => e.dataset.key)")
-            await pg.fill("#lib-search", "")
-            await pg.wait_for_selector('.lib-tile[data-key="nes/Echo (USA)"]')
-            check("the search finds games by their developer, description or title", "gb/Alpha (USA)" in found and "nes/Echo (USA)" not in found, found)
-            await pg.click('.lib-tile[data-key="gb/Alpha (USA)"]')
-            await pg.wait_for_selector('#lib-panel[data-key="gb/Alpha (USA)"] #lib-panel-title')
-            panel = await pg.inner_text("#lib-panel")
-            await pg.click('.lib-tile[data-key="gb/Beta (Europe)"]', modifiers=["Control"])
-            await pg.wait_for_selector('#lib-panel[data-count="2"]')
-            bar = await pg.inner_text("#bar-count")
-            await pg.keyboard.press("Control+a")
-            await pg.wait_for_function("(n) => document.querySelector('#bar-count')?.textContent.startsWith(String(n))", arg=len(tiles))
-            await pg.keyboard.press("Escape")
-            await pg.wait_for_selector("#lib-head:not(.selecting)")
-            check("picking a game shows it in the panel; Ctrl adds to the selection, Ctrl+A takes every game shown and Esc clears it",
-                  "Alpha" in panel and "Stand-in Soft" in panel and bar.startswith("2"), (panel[:200], bar))
-            await pg.click("#lib-view [data-view=table]")
-            await pg.wait_for_selector('#lib-games .lib-row[data-key="gb/Alpha (USA)"]')
-            await pg.click('.lib-thead [data-sort="year"]')
-            await pg.wait_for_function("() => location.hash.includes('sort=year')")
-            await pg.wait_for_function("() => document.querySelector('#lib-games .lib-row .lib-col-year')?.textContent === '1990'")
-            await pg.click("#lib-group")
-            await pg.click('#context-menu [data-action="group-system"]')
-            await pg.wait_for_selector('#lib-games .lib-group[data-group="gb"]')
-            groups = await pg.eval_on_selector_all("#lib-games .lib-group", "els => els.map(e => e.dataset.group)")
-            await pg.screenshot(path=str(out / "51-library-table.png"))
-            check("the table sorts by a column, and the games can be grouped by system", "gb" in groups and "nes" in groups and "pc" in groups, groups)
-            await pg.click("#lib-view [data-view=grid]")
-            await pg.click("#lib-group")
-            await pg.click('#context-menu [data-action="group-none"]')
-            # a game's page: its details edited by hand (kept over scrapes), a file dropped on it attached
-            await pg.dblclick('.lib-tile[data-key="gb/Alpha (USA)"]')
-            await pg.wait_for_selector('#game-page[data-key="gb/Alpha (USA)"] #game-developer')
-            await pg.fill("#game-developer", "My Own Studio")
-            await pg.press("#game-developer", "Tab")
-            await pg.wait_for_selector('.game-detail[data-field="developer"][data-edited="yes"]')
-            alpha_json = json.loads((alpha / "game.json").read_text())
-            pos = await pg.inner_text(".game-pos")
-            gallery = await pg.eval_on_selector_all("#game-strip [data-kind], .game-strip [data-kind]", "els => els.map(e => e.dataset.kind)")
-            check("a game's page shows its pictures and details; a detail changed there is kept in game.json, marked as yours",
-                  alpha_json["details"]["developer"] == "My Own Studio" and "developer" in alpha_json.get("edited", []) and alpha_json["scraped"]["developer"] == "you"
-                  and "of" in pos and sorted(gallery) == ["cover", "screenshot"], (alpha_json.get("details"), alpha_json.get("edited"), pos, gallery))
-            await pg.screenshot(path=str(out / "52-game.png"), full_page=True)
-            # the picture sits in one square box: picking another doesn't change its size
-            box = "() => { const r = document.querySelector('#game-gallery .game-hero').getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }"
-            sizes = []
-            for k in ["cover", "screenshot", "cover"]:
-                await pg.click(f'#game-strip [data-kind="{k}"]')
-                await pg.wait_for_function(f"() => document.querySelector('#game-strip [data-kind=\"{k}\"]').getAttribute('aria-selected') === 'true' && document.querySelector('#game-gallery .game-hero').complete")
-                sizes.append(await pg.evaluate(box))
-            check("a game's picture keeps one square size whichever picture is picked", sizes[0][0] > 100 and all(s == [sizes[0][0]] * 2 for s in sizes), sizes)
-            dropped = home / "Guides" / "Alpha Map.txt"
-            dropped.write_text("The map of Alpha's second world.")
-            await pg.evaluate("(p) => window.__shimEmit('tauri://drag-drop', { paths: [p], position: { x: 400, y: 400 } })", str(dropped))
-            await pg.wait_for_selector("#docs-import-dialog #doc-items li")
-            await pg.click("#docs-import-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            await pg.click("#docs-import-dialog button[type=submit]")
-            said = await toast_text(pg, "Imported 1 document")
-            await pg.wait_for_function("() => document.querySelector('#game-docs')?.textContent.includes('Alpha Map')")
-            check("a file dropped on a game's page is attached to it as a document", (alpha / "docs/Alpha Map.txt").is_file(), said)
-            await pg.click("#game-next")
-            await pg.wait_for_function("() => document.querySelector('#game-page')?.dataset.key && document.querySelector('#game-page').dataset.key !== 'gb/Alpha (USA)'")
-            next_key = await pg.get_attribute("#game-page", "data-key")
-            await pg.click("#game-back")
-            await pg.wait_for_selector("#lib-page")
-            await pg.click('.lib-tile[data-key="gb/Alpha (USA)"]')
-            await pg.wait_for_selector('#lib-panel[data-key="gb/Alpha (USA)"]')
-            panel = await pg.inner_text("#lib-panel")
-            check("Next goes to the next game in the list it was opened from, and the Library follows the edit", next_key and next_key != "gb/Alpha (USA)" and "My Own Studio" in panel, (next_key, panel[:200]))
-            # the filters saved as a collection, whose rules keep up with the details
-            await pg.click('#filter-genre [data-value="Action"] input')
-            await pg.wait_for_selector('#lib-chips [data-chip="genre-Action"]')
-            await pg.click("#lib-menu")
-            await pg.click('#context-menu [data-action="lib-save"]')
-            await pg.fill("#lib-save-name", "Action games")
-            await pg.click("#lib-save-dialog button[type=submit]")
-            await toast_text(pg, "Saved Action games")
-            saved = [json.loads(x.read_text()) for x in (library / "_library/collections").glob("*.json")]
-            mine = next((c for c in saved if c.get("name") == "Action games"), {})
-            cli = cli_json("library", "--home", str(home), "--genre", "Action", "--json")
-            check("Save as a collection… makes the filters a collection's rules (by its games' details); the command line filters the same",
-                  mine.get("rules", {}).get("details", {}).get("genre") == ["Action"] and cli.get("total") == int(action), (mine.get("rules"), cli.get("total")))
-            await pg.click('#lib-chips [data-chip="genre-Action"] button')
+                # collection groups (D75): a group added from the ⋯ menu, by rules, after the first
+                coll_file = next((library / "_library/collections").glob("*.json"))
+                await pg.click("#collection-menu")
+                await pg.click('#context-menu [data-action="collection-add-group"]')
+                await pg.wait_for_selector("#collection-new-group")
+                group_ways = await pg.eval_on_selector_all("#collection-way .way", "els => els.map(e => e.dataset.way)")
+                submit_label = await pg.inner_text("#collection-new-dialog button[type=submit]")
+                await pg.fill("#collection-name", "Every one")
+                await pg.click("#collection-new-dialog button[type=submit]")
+                await pg.wait_for_selector("#collection-group-1 #rule-1-include")
+                await pg.select_option("#rule-1-include", "all")
+                await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent > n", arg=len(names))
+                total = int(await pg.inner_text("#collection-games"))
+                stored = json.loads(coll_file.read_text())
+                heads = await pg.eval_on_selector_all("#collection-main .collection-group h2", "els => els.map(e => e.textContent)")
+                check("Add a group… offers the New collection dialog's ways, and the group by rules is kept after the first, with its own rules",
+                      group_ways == ["rules", "folders", "dat"] and submit_label == "Add the group" and heads == ["Best Of", "Every one"]
+                      and [g["name"] for g in stored.get("groups", [])] == ["Every one"] and stored["groups"][0]["rules"]["include"] == "all"
+                      and stored["groups"][0]["rules"]["platforms"] == ["gb"] and stored["rules"]["include"] == "have", (group_ways, submit_label, heads, stored.get("groups")))
+                # the games view: a section for each group, with its name and count, none twice
+                await pg.click('#collection-view [data-view="games"]')
+                await pg.wait_for_function("() => document.querySelectorAll('#lib-games .lib-group').length === 2")
+                await pg.wait_for_timeout(300)
+                sections = await pg.eval_on_selector_all("#lib-games .lib-group", "els => els.map(e => [e.querySelector('h2').textContent, parseInt(e.querySelector('.muted').textContent)])")
+                keys = await coll_names()
+                check("a collection's games are a section for each group, with its name and count, and no game is in two",
+                      [n for n, _ in sections] == ["Best Of", "Every one"] and sections[0][1] == len(names) and sum(n for _, n in sections) == total
+                      and len(keys) == len(set(keys)) == total, (sections, total, len(keys)))
+                await pg.screenshot(path=str(out / "23e-collection-groups.png"))
+                # under the collection in the ribbon, each group with its count; one opens its section
+                children = await pg.eval_on_selector_all("#collection-panel-list .panel-child", "els => els.map(e => e.innerText.replace(/\\s+/g, ' ').trim())")
+                await pg.click('#collection-panel-list .panel-child:has-text("Every one")')
+                await pg.wait_for_selector('#lib-games .lib-group[data-group="1"]')
+                check("the ribbon lists the current collection's groups under it, with their counts",
+                      children == [f"Best Of {len(names)}", f"Every one {total - len(names)}"] and await pg.text_content("#collection-group-count") == "2 groups", children)
+                # Export offers where the groups go (ES-DE: collections, subfolders or systems of their own)
+                await pg.click("#collection-export")
+                await pg.wait_for_selector('#export-layout option[value="esde"]', state="attached")
+                await pg.select_option("#export-layout", "esde")
+                await pg.wait_for_selector("#export-groups")
+                placings = await pg.eval_on_selector_all("#export-groups [data-placing]", "els => els.map(e => e.dataset.placing)")
+                chosen_placing = await pg.eval_on_selector("#export-groups input:checked", "e => e.value")
+                await pg.click("#export-dialog-cancel")
+                check("Export asks where a collection's groups go when the layout can place them, collections only by default",
+                      placings == ["collections", "subfolders", "systems"] and chosen_placing == "collections", (placings, chosen_placing))
+                # renamed, then removed: the collection as it was
+                await pg.click('#collection-view [data-view="rules"]')
+                await pg.click('#collection-group-1 [data-action="group-rename"]')
+                await pg.fill("#collection-name", "All the rest")
+                await pg.click("#collection-name-dialog button[type=submit]")
+                await pg.wait_for_function("() => document.querySelector('#collection-group-1 h2')?.textContent === 'All the rest'")
+                renamed = [g["name"] for g in json.loads(coll_file.read_text()).get("groups", [])]
+                await pg.click('#collection-group-1 [data-action="group-remove"]')
+                await pg.click("#confirm-dialog button[type=submit]")
+                await pg.wait_for_function("(n) => +document.querySelector('#collection-games').textContent === n && !document.querySelector('#collection-group-1')", arg=len(names))
+                gone = json.loads(coll_file.read_text())
+                check("a group can be renamed and removed, and the collection is as it was without it",
+                      renamed == ["All the rest"] and "groups" not in gone and gone["name"] == "Best Of" and await pg.query_selector("#collection-groups-none") is not None, (renamed, gone.get("groups")))
 
-            # Phase 6b: each source's answer kept apart, one picture from each source to choose
-            # from, Delete metadata… with Undo, Scrape again… and the sizes in Settings. A second
-            # source's answer and box are put in Alpha's folder as an earlier scrape would have.
-            (alpha / "sources/igdb.json").write_text(json.dumps({"source": "igdb", "id": "55", "title": "Alpha", "details": {"description": "Alpha from IGDB."}}))
-            (alpha / "media/cover").mkdir(exist_ok=True)
-            (alpha / "media/cover/igdb.png").write_bytes(png(90, 60, (10, 160, 60)))
-            kept = json.loads((alpha / "sources/thegamesdb.json").read_text())
-            await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Alpha (USA)'); }")
-            await pg.wait_for_selector('#game-variants button[data-name="igdb"]')
-            await pg.click('#game-variants button[data-name="igdb"]')
-            await pg.wait_for_selector('#game-variants button[data-name="igdb"][aria-pressed="true"]')
-            hero = await pg.get_attribute("#game-gallery .game-hero", "src")
-            alpha_json = json.loads((alpha / "game.json").read_text())
-            check("a scrape keeps each source's answer apart, and a game's page shows each source's box to choose from (one each), the chosen one where exports look",
-                  kept.get("details", {}).get("developer") == "Stand-in Soft" and alpha_json.get("chosen", {}).get("cover") == "igdb"
-                  and (alpha / "media/cover.png").read_bytes() == png(90, 60, (10, 160, 60)) and (alpha / "media/cover/thegamesdb.png").is_file() and hero.endswith("v=igdb"),
-                  (kept, alpha_json.get("chosen"), hero, sorted(x.name for x in (alpha / "media").rglob("*"))))
-            await pg.screenshot(path=str(out / "53-game-variants.png"), full_page=True)
-            # the Media ribbon on the right (D69): every kind, each source's, larger, Use this; ] folds it.
-            # It starts folded (UI pass 3, finding 1), so the rail opens it
-            started_folded = await pg.evaluate("() => !document.querySelector('#pane-media') && !!document.querySelector('#rail-media')")
-            await pg.click("#rail-media")
-            await pg.wait_for_selector('#inspector[data-tab="media"] #game-media .media-kind[data-kind="cover"] .media-variant[data-name="igdb"].chosen')
-            in_ribbon = await pg.eval_on_selector_all('#game-media .media-kind[data-kind="cover"] .media-variant', "els => els.map(e => e.dataset.name)")
-            await pg.click('#game-media .media-kind[data-kind="cover"] .media-variant[data-name="thegamesdb"] .media-thumb')
-            await pg.wait_for_selector("#media-view img")
-            await pg.screenshot(path=str(out / "53b-game-media.png"))
-            await pg.click('#game-media .media-kind[data-kind="cover"] .media-variant[data-name="thegamesdb"] [data-action="use"]')
-            await pg.wait_for_selector('#game-media .media-variant[data-name="thegamesdb"].chosen')
-            chosen_now = json.loads((alpha / "game.json").read_text()).get("chosen", {}).get("cover")
-            await pg.keyboard.press("]")
-            await pg.wait_for_function("() => !document.querySelector('#pane-media') && document.querySelector('#rail-media')")
-            await pg.click("#rail-media")
-            await pg.wait_for_selector("#pane-media #game-media")
-            check("a game's page has a ribbon on the right, folded at first, with every source's pictures by kind, larger on a click, Use this, folded with ]",
-                  started_folded and sorted(in_ribbon) == ["igdb", "thegamesdb"] and chosen_now == "thegamesdb", (started_folded, in_ribbon, chosen_now))
-            # a game's video (batch 4, Jerred: its sound played twice): a small one in the ribbon
-            # is an icon, not a player; one video starting pauses the other; one the app can't
-            # play offers the system's own player. A short WebM is recorded by the page itself.
-            webm = await pg.evaluate("""async () => {
-              const c = document.createElement('canvas'); c.width = 64; c.height = 48;
-              const g = c.getContext('2d'); let i = 0;
-              const rec = new MediaRecorder(c.captureStream(15), { mimeType: 'video/webm' });
-              const parts = []; rec.ondataavailable = (e) => parts.push(e.data);
-              const done = new Promise((r) => { rec.onstop = r; });
-              const t = setInterval(() => { g.fillStyle = `hsl(${i++ * 40},70%,50%)`; g.fillRect(0, 0, 64, 48); }, 50);
-              rec.start(); await new Promise((r) => setTimeout(r, 1200)); rec.stop(); await done; clearInterval(t);
-              const b = new Uint8Array(await new Blob(parts).arrayBuffer()); let s = '';
-              for (const x of b) s += String.fromCharCode(x);
-              return btoa(s);
-            }""")
-            (alpha / "media/video.webm").write_bytes(base64.b64decode(webm))
-            await pg.evaluate("() => { location.hash = '#/library'; }")
-            await pg.wait_for_selector("#lib-page")
-            await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Alpha (USA)'); }")
-            await pg.wait_for_selector('#game-strip [data-kind="video"] .game-strip-video')
-            await pg.click('#game-strip [data-kind="video"]')
-            await pg.wait_for_selector("#game-gallery video.game-hero")
-            await pg.wait_for_selector('#game-media .media-kind[data-kind="video"] .media-thumb')
-            small_players = await pg.eval_on_selector_all('#game-media .media-kind[data-kind="video"] video', "els => els.length")
-            await pg.click('#game-media .media-kind[data-kind="video"] .media-thumb')
-            await pg.wait_for_selector("#media-view video")
-            await pg.wait_for_function("() => [...document.querySelectorAll('#game-gallery video, #media-view video')].every((v) => v.readyState >= 1)")
-            playing = await pg.evaluate("""async () => {
-              const [hero, big] = [document.querySelector('#game-gallery video'), document.querySelector('#media-view video')];
-              for (const v of [hero, big]) v.muted = true;
-              await hero.play(); await big.play();
-              await new Promise((r) => setTimeout(r, 200));
-              return [hero.paused, big.paused, document.querySelectorAll('video').length];
-            }""")
-            await pg.click("#media-view-close")
-            (alpha / "media/video.webm").unlink()
-            (alpha / "media/video.avi").write_bytes(b"RIFF\x00\x00\x00\x00AVI LIST" + bytes(64))
-            await pg.evaluate("() => { location.hash = '#/library'; }")
-            await pg.wait_for_selector("#lib-page")
-            await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Alpha (USA)'); }")
-            await pg.click('#game-strip [data-kind="video"]')
-            await pg.wait_for_selector('#game-gallery [data-video="cant-play"]')
-            cant = await pg.inner_text('#game-gallery [data-video="cant-play"]')
-            check("a game's video: a small one is an icon, not a player; one starting pauses the other; one the app can't play offers its own player",
-                  small_players == 0 and playing == [True, False, 2] and "can't play" in cant, (small_players, playing, cant))
-            (alpha / "media/video.avi").unlink()
-            await pg.evaluate("() => { location.hash = '#/library'; }")
-            await pg.wait_for_selector("#lib-page")
-            await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Alpha (USA)'); }")
-            await pg.wait_for_selector('#game-page[data-key="gb/Alpha (USA)"] #game-variants')
-            await pg.click('#game-variants button[data-name="igdb"]')
-            await pg.wait_for_selector('#game-variants button[data-name="igdb"][aria-pressed="true"]')
-            row = '.game-detail[data-field="description"]'
-            await pg.click(f"{row} .game-detail-others summary")
-            await pg.click(f'{row} .game-detail-others [data-source="igdb"] [data-action="use"]')
-            await pg.wait_for_function("() => document.querySelector('#game-description')?.value === 'Alpha from IGDB.'")
-            alpha_json = json.loads((alpha / "game.json").read_text())
-            check("a detail lists what the other sources said, and Use this takes it from one (kept over the source order)",
-                  alpha_json.get("pinned", {}).get("description") == "igdb" and alpha_json["details"]["description"] == "Alpha from IGDB.", alpha_json.get("pinned"))
-            await pg.click("#game-menu")
-            await pg.click('#context-menu [data-action="game-scrape-again"]')
-            await pg.wait_for_selector("#scrape-dialog #scrape-sources")
-            # review M42, D80: what's fetched is a line, its choices behind Change what's fetched…
-            short = await pg.evaluate("() => { const d = document.querySelector('#scrape-dialog'); return [!document.querySelector('#scrape-media'), d.scrollHeight <= d.clientHeight + 2, document.querySelector('#scrape-what-text')?.textContent || ''] }")
-            await pg.screenshot(path=str(out / "56b-scrape-short.png"))
-            await pg.click("#scrape-change")
-            await pg.wait_for_selector("#scrape-dialog #scrape-variants")
-            check("the Scrape window fits without scrolling, what's fetched in one line, its choices behind Change what's fetched… (D80)", short[0] and short[1] and "detail" in short[2], short)
-            again = await pg.evaluate("() => [document.querySelector('input[name=scrape-existing][value=replace]').checked, document.querySelector('#scrape-fresh').checked, document.querySelector('#scrape-dialog h2, #scrape-dialog .dialog-title')?.textContent || '']")
-            check("Scrape again… is the Scrape dialog set to replace and ask the sources afresh", again[0] and again[1] and "again" in again[2], again)
-            await pg.keyboard.press("Escape")
-            await pg.wait_for_selector("#scrape-dialog", state="detached")
-            await pg.click("#game-menu")
-            await pg.click('#context-menu [data-action="game-delete-metadata"]')
-            await pg.wait_for_selector("#meta-delete-dialog #meta-delete-what")
-            await pg.click("#meta-delete-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-dialog #organise-totals")
-            await pg.screenshot(path=str(out / "54-delete-metadata.png"))
-            await pg.click("#organise-dialog button[type=submit]")
-            said = await toast_text(pg, "Deleted")
-            alpha_json = json.loads((alpha / "game.json").read_text())
-            gone = not (alpha / "sources").exists() and not (alpha / "media/cover.png").exists() and not (alpha / "media/cover").exists()
-            check("Delete metadata… sets a game's details from sources and pictures aside; what you wrote and your own documents stay",
-                  gone and alpha_json["details"].get("developer") == "My Own Studio" and "description" not in alpha_json["details"] and (alpha / "docs/Alpha Map.txt").is_file(),
-                  (said, alpha_json.get("details"), sorted(x.name for x in alpha.rglob("*"))))
-            await pg.click("#toast .toast-action")
-            await toast_text(pg, "Undone")
-            alpha_json = json.loads((alpha / "game.json").read_text())
-            check("its Undo puts them back and the details are made again", (alpha / "media/cover.png").is_file() and alpha_json["details"].get("description") == "Alpha from IGDB.", alpha_json.get("details"))
-            sizes = cli_json("games", "sizes", "--home", str(home), "--json")
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.click("#meta-sizes-work")
-            await pg.wait_for_selector('#meta-sizes tr[data-platform="gb"]')
-            shown = await pg.inner_text("#settings-metadata")
-            check("Settings › Metadata shows what the metadata takes, by system and kind, and which source each detail comes from",
-                  "Game Boy" in shown and "Box front" in shown and sizes.get("kinds", {}).get("cover", 0) > 0 and await pg.locator('#details-from select[data-field="description"]').count() == 1, (shown[:300], sizes.get("kinds")))
-            await pg.screenshot(path=str(out / "55-settings-metadata.png"), full_page=True)
+                # the Collections rework (D49, D50): a collection from a folder of a subset kept
+                # elsewhere, matched by hash; from another tool's DAT; Export these…
+                subset = home / "Subsets" / "Handheld picks"
+                (subset / "more").mkdir(parents=True)
+                seen, picks_ = set(), []
+                for f in sorted((fx / "Roms").rglob("*.gb")):
+                    if ".gamerepo-set-aside" in f.parts or f.name == "alpha-eu.gb":
+                        continue
+                    h = hashlib.sha1(f.read_bytes()).hexdigest()
+                    if h not in seen:
+                        seen.add(h)
+                        picks_.append(f)
+                    if len(picks_) == 2:
+                        break
+                shutil.copy(picks_[0], subset / "first pick.gb")
+                shutil.copy(picks_[1], subset / "more" / "second.gb")
+                (subset / "readme.txt").write_text("my picks")
+                await pg.click("#collection-panel-new")
+                await pg.check('#collection-way input[value="folders"]')
+                pick(subset)
+                await pg.click("#new-add-folder")
+                await pg.wait_for_selector("#new-folders li")
+                await pg.click("#collection-new-dialog button[type=submit]")
+                await pg.wait_for_selector("#subset-review", timeout=30000)
+                found = await pg.eval_on_selector_all("#subset-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
+                unknown = await pg.eval_on_selector_all("#subset-unknown li", "els => els.map(e => e.dataset.path)")
+                named = await pg.input_value("#collection-name")
+                await pg.screenshot(path=str(out / "23b-collection-from-folders.png"))
+                check("From folders reads a folder kept elsewhere and finds its games in the full set by hash, whatever the files are called",
+                      len(found) == 2 and all(st == "have" for _, st in found) and unknown == ["Handheld picks/readme.txt"] and named == "Handheld picks", (found, unknown, named))
+                await pg.click("#subset-review button[type=submit]")
+                await toast_text(pg, "Made Handheld picks")
+                await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Handheld picks' && +document.querySelector('#collection-games').textContent === 2")
+                made = next(x for x in (json.loads(f.read_text()) for f in (library / "_library/collections").glob("*.json")) if x["name"] == "Handheld picks")
+                own = library / made["rules"]["from_files"][0] if made["rules"].get("from_files") else None
+                # the ribbon beside the menu is read again just after the collection opens (D69)
+                await pg.wait_for_function("() => [...document.querySelectorAll('#collection-panel-list .panel-link')].some(e => e.innerText.includes('Handheld picks'))")
+                side = await pg.eval_on_selector_all("#collection-panel-list .panel-link", "els => els.map(e => e.innerText)")
+                current = await pg.get_attribute('#collection-panel-list .panel-link[aria-current="page"]', "data-id")
+                check("it's kept as its own DAT in the library, listed in the ribbon on the left with its source, and its address names it",
+                      current == made["id"] and f"#/collections/{made['id']}" in await pg.evaluate("location.hash") and
+                      own is not None and own.is_file() and own.read_text().count("<game ") == 2 and made["made_from"]["kind"] == "folders"
+                      and any("Handheld picks" in x and "from Handheld picks" in x for x in side), (made.get("rules"), side))
+                await pg.screenshot(path=str(out / "23c-collection-made.png"), full_page=True)
+                # Export these: one game picked, to a plain folder
+                first = found[0][0]
+                await pg.click(f'#lib-games [data-key="gb/{first}"]')
+                await pg.wait_for_selector("#bar-count")
+                picked_n = await pg.inner_text("#bar-count")
+                await pg.click("#bar-export-these")
+                await pg.wait_for_selector("#export-part")
+                await pg.select_option("#export-layout", "folder")
+                part = home / "Part"
+                await pg.fill("#export-place-out", str(part))
+                await pg.click("#export-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-totals")
+                await pg.click("#export-dialog button[type=submit]")
+                await toast_text(pg, "Exported Handheld picks")
+                got = sorted(x.name for x in part.rglob("*") if x.is_file()) if part.is_dir() else []
+                rec = next((x for x in (json.loads(f.read_text()) for f in (library / "_library/exports").glob("*.json")) if x.get("name") == "Handheld picks"), {})
+                check("Export these… exports only the games picked, from the full set, and the export remembers them",
+                      picked_n == "1 selected" and len(got) == 1 and got[0].startswith(first) and rec.get("only") == [f"gb/{first}"], (picked_n, got, rec.get("only")))
+                await pg.keyboard.press("Escape")
+                # review H16: after a search, Ctrl+A and Export these… take only the games it found
+                second = found[1][0]
+                await pg.fill("#collection-search", second)
+                await pg.wait_for_function("(k) => [...document.querySelectorAll('#lib-games [data-key]')].map(e => e.dataset.key).join() === k", arg=f"gb/{second}")
+                await pg.click(f'#lib-games [data-key="gb/{second}"]')
+                await pg.keyboard.press("Control+a")
+                await pg.wait_for_selector("#bar-count")
+                await pg.click("#bar-export-these")
+                await pg.wait_for_selector("#export-part")
+                await pg.select_option("#export-layout", "folder")
+                part2 = home / "Part2"
+                await pg.fill("#export-place-out", str(part2))
+                await pg.click("#export-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-totals")
+                totals2 = await pg.inner_text("#organise-totals")
+                await pg.click("#export-dialog button[type=submit]")
+                await toast_text(pg, "Exported Handheld picks")
+                got2 = sorted(x.name for x in part2.rglob("*") if x.is_file()) if part2.is_dir() else []
+                check("Export these… after a search and Ctrl+A exports only the games the search found",
+                      len(got2) == 1 and got2[0].startswith(second) and "1 game" in totals2, (got2, totals2))
+                await pg.keyboard.press("Escape")
+                await pg.fill("#collection-search", "")
+                # from a DAT another tool made, with names of its own
+                gb2 = hashlib.sha1(picks_[1].read_bytes()).hexdigest()
+                crc2 = f"{zlib.crc32(picks_[1].read_bytes()):08x}"
+                mine = home / "my list.dat"
+                mine.write_text(f'<?xml version="1.0"?>\n<datafile><header><name>My list</name></header>'
+                                f'<game name="the second one"><rom name="x.gb" size="{picks_[1].stat().st_size}" crc="{crc2}" sha1="{gb2}"/></game>'
+                                f'<game name="nobody knows"><rom name="y.gb" size="3" crc="01020304"/></game></datafile>\n')
+                await pg.click("#collection-panel-new")
+                await pg.check('#collection-way input[value="dat"]')
+                await pg.fill("#new-dat-path", str(mine))
+                await pg.click("#collection-new-dialog button[type=submit]")
+                await pg.wait_for_selector("#subset-review")
+                found_dat = await pg.eval_on_selector_all("#subset-systems li", "els => els.map(e => e.dataset.name)")
+                unknown_dat = await pg.eval_on_selector_all("#subset-unknown li", "els => els.map(e => e.dataset.path)")
+                await pg.click("#subset-review button[type=submit]")
+                await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'my list'")
+                audit_dats = [x.read_text() for x in (library / "_library/dats").rglob("*.dat")]
+                check("From a DAT reads it in place and finds its games by hash, not by name, and it isn't made an audit DAT",
+                      len(found_dat) == 1 and found_dat[0] in [n for n, _ in found] and unknown_dat == ["nobody knows"]
+                      and not any("<name>My list</name>" in t for t in audit_dats), (found_dat, unknown_dat))
+                await pg.click('#collection-view [data-view="rules"]')
+                await pg.wait_for_selector("#collection-source")
+                source_tab = await pg.inner_text('#collection-view [data-view="rules"]')
+                check("a collection made from a DAT says so under Source (not \"made from\")", source_tab.strip() == "Source" and "Source" in await pg.inner_text("#collection-source h2"), source_tab)
+                await pg.click("#collection-read-again")
+                await pg.wait_for_selector("#subset-review")
+                await pg.click("#subset-review button[type=submit]")
+                await toast_text(pg, "Read my list again")
+                check("Read it again… reads the DAT again and keeps the collection", (await pg.inner_text("#collection-games")) == "1")
+                # a game the full set lacks, brought into the library from the folder, named as the DAT says
+                wanted = home / "Subsets" / "Wanted"
+                wanted.mkdir(parents=True)
+                (wanted / "europe one.gb").write_bytes(make_fixtures.rom(11, 32768))
+                await pg.click("#collection-panel-new")
+                await pg.check('#collection-way input[value="folders"]')
+                pick(wanted)
+                await pg.click("#new-add-folder")
+                await pg.wait_for_selector("#new-folders li")
+                await pg.click("#collection-new-dialog button[type=submit]")
+                await pg.wait_for_selector("#subset-review", timeout=30000)
+                lacking = await pg.eval_on_selector_all("#subset-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
+                pointed = await pg.inner_text("#subset-lacking")
+                await pg.click("#subset-review button[type=submit]")
+                await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Wanted'")
+                # collecting copies nothing (D71): the game the library lacks comes in from Import
+                # with a file no DAT knows beside it, taken as its folder's system; copied in full
+                (wanted / "homebrew.gb").write_bytes(b"a homebrew game nobody listed")
+                await pg.click('.sidebar a[href="#/import"]')
+                await pg.click("#import-games")
+                pick(wanted)
+                await pg.click("#import-add-folder")
+                await pg.wait_for_selector("#import-folders li")
+                systems_offered = await pg.eval_on_selector_all("#import-system option", "els => els.map(e => e.textContent)")
+                await pg.check('#import-mode input[value="always"]')
+                await pg.click("#import-games-dialog button[type=submit]")
+                await pg.wait_for_selector("#import-games-review", timeout=30000)
+                offered = await pg.eval_on_selector_all("#import-games-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
+                unknown_as = await pg.input_value('#import-games-unknown li[data-folder="Wanted"] select')
+                await pg.wait_for_selector('#import-places li[data-platform="gb"][data-dir]:not([data-dir=""])')
+                place = await pg.get_attribute('#import-places li[data-platform="gb"]', "data-dir")
+                games_first = await pg.evaluate("() => !!(document.querySelector('#import-games-systems').compareDocumentPosition(document.querySelector('#import-places')) & Node.DOCUMENT_POSITION_FOLLOWING)")
+                await pg.screenshot(path=str(out / "23d-import-review.png"))
+                # the window stays when the page behind it is clicked; closed, it comes back where it was
+                await pg.mouse.click(5, 5)
+                stayed = await pg.query_selector("#import-games-review") is not None
+                await pg.click('#import-games-review .dialog-head button[aria-label="Close"]')
+                await pg.wait_for_selector("#import-games-review", state="detached")
+                await pg.click("#import-games")
+                await pg.wait_for_selector("#import-games-review")
+                kept = await pg.input_value('#import-games-unknown li[data-folder="Wanted"] select')
+                await pg.click("#import-games-review button[type=submit]")
+                await pg.wait_for_selector("#bring-dialog #organise-totals")
+                await pg.screenshot(path=str(out / "23d-bring-in.png"))
+                bring_head = await pg.evaluate("() => [document.querySelector('#bring-dialog h2').textContent, document.querySelector('#organise-totals p').textContent, document.querySelector('#bring-dialog button[type=submit]').textContent]")
+                await pg.click("#bring-dialog button[type=submit]")
+                said = await toast_text(pg, "Imported 2 games into the library")
+                brought = [x for x in (fx / "Roms").rglob("Alpha (Europe).gb") if ".gamerepo-set-aside" not in x.parts]
+                await pg.wait_for_selector('#import-recent-list li[data-kind="bring"]')
+                recent = await pg.eval_on_selector_all("#import-recent-list li", "els => els.map(e => e.dataset.kind)")
+                await pg.locator("#import-recent").scroll_into_view_if_needed()
+                await pg.screenshot(path=str(out / "23e-recent-imports.png"))
+                check("the import review lists the games before where each system's go (review M42); its preview says what it will do with one word for it (M40); Recent imports lists it (D78)",
+                      games_first and bring_head == ["Import 2 games into the library", "2 games to import.", "Import"] and recent and recent[0] == "bring" and all(k in ("bring", "add", "import", "docs", "magazines", "bios") for k in recent),
+                      (games_first, bring_head, recent))
+                check("Import offers every system or one, and copy, always copy or move; its window stays put and comes back where it was; each system's games go to the folder its games are in, and a file no DAT knows to its folder's system",
+                      systems_offered[0].startswith("Every system") and "Game Boy" in systems_offered and unknown_as == "gb" and stayed and kept == "gb" and len(brought) == 1
+                      and brought[0].parent == Path(place) and (Path(place) / "homebrew.gb").is_file() and os.stat(brought[0]).st_nlink == 1,
+                      (systems_offered[:3], unknown_as, stayed, kept, place, brought))
+                await pg.click('.sidebar a[href="#/collections"]')
+                await pg.click('#collection-panel-list .panel-link:has-text("Wanted")')
+                await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Wanted' && document.querySelector('#collection-have')?.textContent === '1'", timeout=30000)
+                check("a collection from folders points at Import for the games the library lacks; Import copies one into its folder with games, named as the DAT says, and scans it",
+                      lacking == [["Alpha (Europe)", "missing"]] and "Import" in pointed and offered == [["Alpha (Europe)", "missing"]] and len(brought) == 1 and (wanted / "europe one.gb").is_file(), (lacking, pointed, offered, said, brought))
+                await pg.click('#collection-panel-list .panel-link:has-text("Best Of")')
+                await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Best Of'")
 
-            # Phase 7: an arcade set (MAME's -listxml), with its BIOS set, a device it lacks, and its set type
-            arc = fx / "Roms" / "MAME"
-            arc.mkdir(parents=True, exist_ok=True)
-            ab = lambda n: make_fixtures.rom(2000 + n, 64)
+            async with Section(pg, B, "Phase 4: PC games"):
+                # Phase 4: PC games. The inbox (set in Settings), Import… with its review list
+                # (one found by its goggame file, one by a search of the sources), the preview,
+                # each game's folder, artwork, Unpack and its program, Identify, Add to Steam, and a
+                # PC game's page: the shared game page with its PC section (D55)
+                inbox = home / "Inbox"
+                zeta = inbox / "Zeta Quest (1999)"
+                (zeta / "bin").mkdir(parents=True)
+                (zeta / "bin/zeta.exe").write_bytes(b"MZ zeta")
+                (zeta / "goggame-1207658930.info").write_text(json.dumps({"gameId": "1207658930", "rootGameId": "1207658930", "name": "Zeta Quest",
+                    "playTasks": [{"category": "game", "isPrimary": True, "path": "bin\\zeta.exe", "type": "FileTask"}]}))
+                with zipfile.ZipFile(inbox / "Alpha Strike.zip", "w") as z:
+                    z.writestr("Alpha Strike/alpha.exe", b"MZ alpha")
+                    z.writestr("Alpha Strike/data/level1.dat", b"level one")
+                steam = home / "Steam"
+                (steam / "userdata/22222/config").mkdir(parents=True)
+                (steam / "config").mkdir(parents=True)
+                (steam / "config/loginusers.vdf").write_text('"users"\n{\n\t"76561197960287950"\n\t{\n\t\t"AccountName"\t\t"tester"\n\t\t"PersonaName"\t\t"Tester"\n\t\t"Timestamp"\t\t"1790000000"\n\t}\n}\n')
+                await pg.click("#nav-pc")
+                await pg.wait_for_selector("#pc-empty")
+                await pg.click('.sidebar a[href="#/settings"]')
+                await pg.wait_for_selector("#settings-pc-inbox")
+                pick(inbox)
+                await pg.click('#settings-pc-inbox [data-action="choose"]')
+                await pg.wait_for_function("(p) => document.querySelector('#pc-inbox-path')?.textContent === p", arg=str(inbox))
+                pick(steam)
+                await pg.click("#steam-choose")
+                await pg.wait_for_function("(p) => document.querySelector('#steam-path')?.textContent === p", arg=str(steam))
+                check("Settings keeps the PC games inbox and Steam's folder, and lists Identify's sources",
+                      await pg.eval_on_selector_all("#sources > li", "els => els.map(e => e.dataset.source)") == ["steam", "gog", "screenscraper", "igdb", "thegamesdb", "launchbox"] and str(library / "PC") in await pg.inner_text("#pc-folder-path"), await pg.inner_text("#settings-sources"))
+                await pg.click("#nav-pc")
+                await pg.click("#pc-first")
+                await pg.wait_for_selector("#pc-items li", timeout=30000)
+                pc_at = await pg.evaluate("() => [location.hash, !!document.querySelector('#import-pc.import-here')]")
+                # review M35: with what it read shown, a stray click or Esc leaves the window up
+                await pg.mouse.click(5, 5)
+                await pg.keyboard.press("Escape")
+                pc_stayed = await pg.locator("#pc-items li").count()
+                check("PC games' Import… opens the Import page at PC games (D78), and its list stays through a stray click and Esc (M35)",
+                      pc_at == ["#/import/import-pc", True] and pc_stayed == 2, (pc_at, pc_stayed))
+                items = await pg.eval_on_selector_all("#pc-items li", "els => els.map(e => [e.querySelector('.pc-item-title').value, e.dataset.status, e.querySelector('.pc-item-meta').textContent])")
+                check("Import… reads the inbox: one game found by its goggame file, the other by a search of the sources",
+                      sorted(i[0] for i in items) == ["Alpha Strike", "Zeta Quest"] and all(i[1] == "ready" for i in items)
+                      and any("goggame" in i[2] and "GOG game 1207658930" in i[2] for i in items) and any("Steam app 4000" in i[2] and "search" in i[2] for i in items), items)
+                await pg.screenshot(path=str(out / "24-pc-import.png"))
+                pc_how = await pg.eval_on_selector_all("#pc-import-mode input", "els => els.map(e => e.value)")
+                await pg.click("#pc-import-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-totals")
+                pc_title = await pg.inner_text("#pc-import-dialog h2")
+                await pg.click("#pc-import-dialog button[type=submit]")
+                said = await toast_text(pg, "Imported 2 PC games", timeout=30000)
+                check("the PC import has the Import page's three ways in (D79) and a present-tense preview (M40)", pc_how == ["copy", "always", "move"] and pc_title == "Import 2 PC games", (pc_how, pc_title))
+                await pg.click("#nav-pc")
+                await pg.wait_for_selector("#pc-list li:nth-child(2)")
+                made = sorted(x.name for x in (library / "PC").iterdir()) if (library / "PC").is_dir() else []
+                alpha_dir = library / "PC/Alpha Strike (2001)"
+                alpha = json.loads((alpha_dir / "game.json").read_text()) if (alpha_dir / "game.json").exists() else {}
+                art = list((library / "_library/games/pc").glob("*/media/cover.*"))
+                check("each PC game gets its own folder with a game.json, and the artwork the sources offered",
+                      made == ["Alpha Strike (2001)", "Zeta Quest (1999)"] and alpha.get("ids") == {"steam": "4000"} and (alpha_dir / "install/Alpha Strike.zip").is_file()
+                      and (library / "PC/Zeta Quest (1999)/extracted/bin/zeta.exe").is_file() and len(art) == 1 and (inbox / "Alpha Strike.zip").is_file(), (said, made, alpha, art))
+                await pg.click('#pc-list .pc-row:has-text("Alpha Strike")')
+                await pg.wait_for_selector('#pc-unpack-section [data-action="unpack"]')
+                await pg.click('#pc-unpack-section [data-action="unpack"]')
+                await toast_text(pg, "Unpacked")
+                await pg.wait_for_selector("#pc-program")
+                programs = await pg.eval_on_selector_all("#pc-program option", "els => els.map(e => e.value)")
+                await pg.select_option("#pc-program", "extracted/Alpha Strike/alpha.exe")
+                await pg.click("#pc-program-form button[type=submit]")
+                await toast_text(pg, "Saved the program")
+                alpha = json.loads((alpha_dir / "game.json").read_text())
+                check("Unpack puts a game's archive in its extracted folder, and its program is chosen from what's there",
+                      "extracted/Alpha Strike/alpha.exe" in programs and (alpha_dir / "extracted/Alpha Strike/data/level1.dat").is_file()
+                      and alpha["launch"]["program"] == "extracted/Alpha Strike/alpha.exe", (programs, alpha.get("launch")))
+                await pg.screenshot(path=str(out / "25-pc-game.png"))
+                await pg.click('#pc-list .pc-row:has-text("Zeta Quest")')
+                await pg.click("#pc-identify")
+                await pg.wait_for_selector('#identify-results li[data-source="gog"]')
+                sources = await pg.eval_on_selector_all("#identify-results li", "els => els.map(e => e.dataset.source)")
+                await pg.screenshot(path=str(out / "26-identify.png"))
+                await pg.click('#identify-results li[data-source="gog"] [data-action="pick"]')
+                await pg.wait_for_selector("#identify-dialog", state="detached")
+                zeta_json = json.loads((library / "PC/Zeta Quest (1999)/game.json").read_text())
+                zeta_meta = library / f"_library/games/pc/{zeta_json['id']}"
+                zeta_shared, zeta_gog = {}, {}
+                for _ in range(50):
+                    zeta_shared = json.loads((zeta_meta / "game.json").read_text()) if (zeta_meta / "game.json").exists() else {}
+                    if zeta_shared.get("identified_by") == "gog":
+                        break
+                    await asyncio.sleep(0.2)
+                zeta_json = json.loads((library / "PC/Zeta Quest (1999)/game.json").read_text())
+                zeta_gog = json.loads((zeta_meta / "sources/gog.json").read_text()) if (zeta_meta / "sources/gog.json").exists() else {}
+                zeta_media = sorted(x.name for x in (zeta_meta / "media").iterdir())
+                check("Identify searches the sources in order; the pick keeps its id with the game, its answer kept as the source's, and its artwork",
+                      sources == ["steam", "gog"] and zeta_json["ids"].get("gog") == "1207658930" and "description" not in zeta_json.get("details", {})
+                      and zeta_gog.get("details", {}).get("description", "").startswith("Quest") and zeta_shared.get("details", {}).get("description", "").startswith("Quest")
+                      and zeta_shared.get("identified_by") == "gog" and "cover.png" in zeta_media and "hero.png" in zeta_media,
+                      (sources, zeta_json.get("details"), zeta_shared.get("details"), zeta_media))
+                await pg.click("#pc-steam")
+                await pg.wait_for_selector("#steam-preview")
+                preview = await pg.inner_text("#steam-preview")
+                await pg.screenshot(path=str(out / "26b-steam.png"))
+                await pg.click("#steam-dialog button[type=submit]")
+                said = await toast_text(pg, "Wrote 2 shortcuts")
+                vdf = (steam / "userdata/22222/config/shortcuts.vdf").read_bytes() if (steam / "userdata/22222/config/shortcuts.vdf").exists() else b""
+                grid = sorted(x.name for x in (steam / "userdata/22222/config/grid").iterdir()) if (steam / "userdata/22222/config/grid").is_dir() else []
+                check("Add to Steam writes the PC games as non-Steam shortcuts, tagged as the app's, with their artwork in Steam's grid",
+                      "2 shortcuts to add" in preview and b"Zeta Quest" in vdf and b"Alpha Strike" in vdf and b"Game Repo" in vdf and any(g.endswith("p.png") for g in grid), (preview, said, grid))
+                # Zeta's page: the shared game page, with the PC section; a detail edited, Steam's
+                # answer added by Identify…, a picture and a detail taken from another source, and
+                # a document dropped on it
+                zeta_key = f"pc/{zeta_json['id']}"
+                await pg.click('#pc-list .pc-row:has-text("Zeta Quest")')
+                await pg.click("#pc-open")
+                await pg.wait_for_selector(f'#game-page[data-key="{zeta_key}"][data-kind="pc"] #game-pc #pc-parts')
+                parts = await pg.evaluate("() => [!!document.querySelector('#game-pc #pc-program, #game-pc #pc-no-program'), !!document.querySelector('#game-pc #pc-reveal'), document.querySelector('#game-pc-line')?.textContent || '', !!document.querySelector('#game-files')]")
+                check("a PC game's page is the game page, with a PC section for its program, its folder and files",
+                      parts[0] and parts[1] and "GOG" in parts[2] and not parts[3] and await pg.locator("#game-developer").count() == 1, parts)
+                await pg.fill("#game-developer", "Zeta Folk")
+                await pg.press("#game-developer", "Tab")
+                await pg.wait_for_selector('.game-detail[data-field="developer"][data-edited="yes"]')
+                await pg.click("#game-identify-pc")
+                await pg.wait_for_selector('#identify-results li[data-source="steam"] [data-action="pick"]')
+                await pg.click('#identify-results li[data-source="steam"] [data-action="pick"]')
+                await pg.wait_for_selector("#identify-dialog", state="detached")
+                await pg.wait_for_selector('#game-variants[data-kind="cover"] button[data-name="steam"][aria-pressed="true"]')
+                await pg.click('#game-variants button[data-name="gog"]')
+                await pg.wait_for_selector('#game-variants button[data-name="gog"][aria-pressed="true"]')
+                row = '.game-detail[data-field="description"]'
+                await pg.click(f"{row} .game-detail-others summary")
+                await pg.click(f'{row} .game-detail-others [data-source="gog"] [data-action="use"]')
+                await pg.wait_for_function("() => document.querySelector('#game-description')?.value.startsWith('Quest')")
+                zeta_shared = json.loads((zeta_meta / "game.json").read_text())
+                zeta_json = json.loads((library / "PC/Zeta Quest (1999)/game.json").read_text())
+                covers = sorted(x.name for x in (zeta_meta / "media/cover").iterdir()) if (zeta_meta / "media/cover").is_dir() else []
+                check("on its page a PC game's details and pictures are kept as any game's: each source's answer, a picture from each, Use this, and your edits over them",
+                      zeta_shared.get("details", {}).get("developer") == "Zeta Folk" and "developer" in zeta_shared.get("edited", []) and zeta_shared.get("pinned", {}).get("description") == "gog"
+                      and zeta_shared.get("chosen", {}).get("cover") == "gog" and len(covers) == 1 and covers[0].startswith("steam.") and (zeta_meta / "sources/steam.json").is_file()
+                      and zeta_json["ids"] == {"gog": "1207658930", "steam": "4001"} and zeta_shared.get("identified_by") == "steam",
+                      (zeta_shared.get("details"), zeta_shared.get("chosen"), zeta_shared.get("pinned"), covers, zeta_json.get("ids")))
+                dropped = home / "PC guides" / "Zeta Map.txt"
+                dropped.parent.mkdir(exist_ok=True)
+                dropped.write_text("The map of Zeta's first world.")
+                await pg.evaluate("(p) => window.__shimEmit('tauri://drag-drop', { paths: [p], position: { x: 400, y: 400 } })", str(dropped))
+                await pg.wait_for_selector("#docs-import-dialog #doc-items li")
+                await pg.click("#docs-import-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-totals")
+                await pg.click("#docs-import-dialog button[type=submit]")
+                said = await toast_text(pg, "Imported 1 document")
+                await pg.wait_for_function("() => document.querySelector('#game-docs')?.textContent.includes('Zeta Map')")
+                check("a file dropped on a PC game's page is attached to it as a document, kept with its details", (zeta_meta / "docs/Zeta Map.txt").is_file(), said)
+                await pg.screenshot(path=str(out / "26c-pc-game-page.png"), full_page=True)
+                await pg.locator("#game-pc").scroll_into_view_if_needed()
+                await pg.screenshot(path=str(out / "26d-pc-game-section.png"))
 
-            def zipped(path, members):
-                with zipfile.ZipFile(path, "w") as z:
-                    for name, data in members:
-                        z.writestr(name, data)
-            zipped(arc / "alpha.zip", [("a.1", ab(1)), ("shared.2", ab(2))])
-            zipped(arc / "alphaj.zip", [("aj.1", ab(3)), ("shared.2", ab(2))])
-            zipped(arc / "bios1.zip", [("bios.bin", ab(4))])
-            zipped(arc / "beta.zip", [("b.1", ab(5))])
-            rx = lambda n, x, merge=None: make_fixtures.rom_xml(n, ab(x)).replace("<rom ", f'<rom merge="{merge}" ' if merge else "<rom ")
-            mame = home / "mame.xml"
-            mame.write_text('<?xml version="1.0"?>\n<mame build="0.271 (mame0271)">\n'
-                            f'<machine name="bios1" isbios="yes"><description>Test BIOS</description>{rx("bios.bin", 4)}</machine>\n'
-                            f'<machine name="dev1" isdevice="yes" runnable="no"><description>Test device</description>{rx("dev.bin", 6)}</machine>\n'
-                            f'<machine name="alpha"><description>Alpha Fighter (World)</description><year>1991</year><manufacturer>Acme</manufacturer>{rx("a.1", 1)}{rx("shared.2", 2)}</machine>\n'
-                            f'<machine name="alphaj" cloneof="alpha" romof="alpha"><description>Alpha Fighter (Japan)</description>{rx("aj.1", 3)}{rx("shared.2", 2, "shared.2")}</machine>\n'
-                            f'<machine name="beta" romof="bios1"><description>Beta Quest</description>{rx("bios.bin", 4, "bios.bin")}{rx("b.1", 5)}<device_ref name="dev1"/></machine>\n'
-                            '</mame>\n')
-            pick(mame)
-            await pg.click('.sidebar a[href="#/import"]')
-            await pg.click("#import-dats")
-            await toast_text(pg, "Imported")
-            await pg.goto(B + "#/")
-            await pg.click("#home-scan-button")
-            await toast_text(pg, "Scanned")
-            await pg.click('.sidebar a[href="#/audit"]')
-            await pg.wait_for_selector("#audit-page")
-            await pg.click('#audit-panel-list a[data-id="mame"]')
-            await pg.wait_for_selector("#audit-playable")
-            totals = await pg.inner_text("#audit-totals")
-            await pg.click('#audit-tabs [data-tab="have"]')
-            await pg.wait_for_selector('#audit-list[data-tab="have"] tr[data-name="beta"] .audit-needs')
-            needs = await pg.inner_text('#audit-list tr[data-name="beta"] .audit-needs')
-            alpha_row = await pg.inner_text('#audit-list tr[data-name="alpha"]')
-            await pg.screenshot(path=str(out / "56-arcade-audit.png"), full_page=True)
-            await pg.click('#audit-tabs [data-tab="sets"]')
-            await pg.wait_for_selector('#audit-list[data-tab="sets"] tr[data-name="bios1"]')
-            sets = await pg.inner_text("#audit-list")
-            check("an arcade DAT (MAME's -listxml) is audited: BIOS sets and devices apart from the games, what's playable, and what a game needs",
-                  "3 of 3 games" in totals.replace("\n", " ") and "2 playable" in totals and "1 of 2" in totals
-                  and "dev1" in needs and "Alpha Fighter" in alpha_row and "1991" in alpha_row and "bios1" in sets and "dev1" in sets and "missing" in sets.lower(),
-                  (totals, needs, alpha_row, sets))
-            await pg.select_option("#audit-set-type", "split")
-            await toast_text(pg, "split set")
-            await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"misnamed\"] .tab-count')?.textContent === '1'", timeout=15000)
-            kept = json.loads((library / "_library/library.json").read_text()).get("arcade_sets", {})
-            await pg.click('.sidebar a[href="#/"]')
-            await pg.wait_for_function("() => document.querySelector('#home-next')?.textContent.includes('Arcade (MAME) to put right')", timeout=15000)
-            nxt = await pg.inner_text("#home-next")
-            await pg.screenshot(path=str(out / "57-home-next.png"))
-            await pg.click('#home-next li[data-kind="misnamed"] a:has-text("Arcade")')
-            await pg.wait_for_selector('#audit-list[data-tab="misnamed"]')
-            check("Home's Next strip says what to do, and its link opens the page to do it on",
-                  "1 file in Arcade (MAME) to put right" in nxt and "#/audit" in await pg.evaluate("location.hash"), nxt)
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.wait_for_selector('#arcade-set-types li[data-system="mame"] select')
-            in_settings = await pg.input_value('#arcade-set-types li[data-system="mame"] select')
-            await pg.select_option('#arcade-set-types li[data-system="mame"] select', "non-merged")
-            await toast_text(pg, "non-merged set")
-            back_to = json.loads((library / "_library/library.json").read_text()).get("arcade_sets", {})
-            check("an arcade system's set type is kept in the library: split lists a clone's copy of its parent's ROM as misnamed, and Settings › Systems shows and changes it",
-                  kept.get("mame") == "split" and in_settings == "split" and back_to.get("mame") == "non-merged", (kept, in_settings, back_to))
+                # Add a game… (a system's ROM from outside its folders), scanned and checked against its DAT
+                downloads = home / "Downloads"
+                downloads.mkdir()
+                (downloads / "alpha-eu.gb").write_bytes(make_fixtures.rom(11, 32768))
+                await pg.click('.sidebar a[href="#/audit"]')
+                await pg.wait_for_selector("#audit-menu")
+                await pg.click("#audit-menu")
+                await pg.click('#context-menu [data-action="add-game"]')
+                await pg.wait_for_selector("#add-game-dialog")
+                await pg.select_option("#add-platform", "gb")
+                pick(downloads / "alpha-eu.gb")
+                await pg.click("#add-pick-files")
+                await pg.wait_for_function("() => document.querySelector('#add-files')?.textContent.includes('alpha-eu.gb') && document.querySelector('#add-into')?.value")
+                await pg.click("#add-game-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-totals")
+                await pg.click("#add-game-dialog button[type=submit]")
+                await pg.wait_for_selector("#add-results li", timeout=30000)
+                row = await pg.inner_text("#add-results li")
+                check("Add a game… copies a ROM into the folder its system's games are in, scans it and says which DAT game it is",
+                      "Alpha (Europe)" in row and (fx / "Roms/Game Boy/alpha-eu.gb").is_file() and (downloads / "alpha-eu.gb").is_file(), row)
+                await pg.screenshot(path=str(out / "27-add-game.png"))
+                await pg.click("#add-results-dialog button[type=submit]")
 
-            # magazines (D68): a folder of issues read, put right and brought in; covers,
-            # a comic book a page at a time, a list to check them against
-            mags = home / "Magazines in"
-            (mags / "Retro Gamer").mkdir(parents=True)
-            with zipfile.ZipFile(mags / "Game Fan 001 (1992-10).cbz", "w") as z:
-                for n in ("p1.png", "p2.png", "p10.png"):
-                    z.writestr(n, COVER)
-            (mags / "Game Fan 002 (1992-11).pdf").write_bytes(b"%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n")
-            with zipfile.ZipFile(mags / "Retro Gamer" / "100.cbz", "w") as z:
-                z.writestr("cover.png", WIDE)
-            await pg.click('.sidebar a[href="#/magazines"]')
-            await pg.wait_for_selector("#magazines-page #mag-empty")
-            pick(mags)
-            await pg.click("#mag-import")
-            await pg.wait_for_selector("#mag-items li", timeout=30000)
-            read = await pg.eval_on_selector_all("#mag-items li", "els => Object.fromEntries(els.map(e => [e.dataset.name, [e.querySelector('.mag-item-title').value, e.querySelector('.mag-item-number').value, e.querySelector('.mag-item-date').value]]))")
-            await pg.fill('#mag-items li[data-name="100.cbz"] .mag-item-date', "2012-06")
-            await pg.screenshot(path=str(out / "60-magazines-import.png"))
-            await pg.click("#mag-import-dialog button[type=submit]")
-            await pg.wait_for_selector("#organise-totals")
-            totals = await pg.inner_text("#organise-totals")
-            mag_head = await pg.evaluate("() => [document.querySelector('#mag-import-dialog h2').textContent, location.hash]")
-            await pg.click("#mag-import-dialog button[type=submit]")
-            said = await toast_text(pg, "Imported 3 magazine issues")
-            check("Magazines' import is the Import page's, its preview in the present tense (M40, D78)", mag_head == ["Import 3 magazine issues", "#/import/import-mags"], mag_head)
-            await pg.click('.sidebar a[href="#/magazines"]')
-            await pg.wait_for_selector('#mag-panel-list a[data-id="Game Fan"]')
-            fan = library / "Magazines" / "Game Fan"
-            fan_json = json.loads((fan / "magazine.json").read_text()) if (fan / "magazine.json").is_file() else {}
-            check("Import magazines… reads each file's magazine, number and date from its name (or its folder's), they're put right, and brought into Magazines/<title>/ (the originals stay)",
-                  read.get("Game Fan 001 (1992-10).cbz") == ["Game Fan", "1", "1992-10"] and read.get("100.cbz") == ["Retro Gamer", "100", ""]
-                  and "3 issues" in totals and [i.get("number") for i in fan_json.get("issues", [])] == ["1", "2"]
-                  and (library / "Magazines/Retro Gamer/magazine.json").is_file() and (mags / "Game Fan 001 (1992-10).cbz").is_file(),
-                  (read, totals, said, fan_json))
-            await pg.click('#mag-panel-list a[data-id="Game Fan"]')
-            await pg.wait_for_selector('#mag-issues li[data-number="1"] img.mag-cover')
-            await pg.wait_for_function("() => document.querySelector('#mag-issues li[data-number=\"1\"] img.mag-cover')?.naturalWidth > 0", timeout=15000)
-            await pg.wait_for_function("() => document.querySelector('#mag-issues li[data-number=\"2\"] img.mag-cover')?.naturalWidth > 0", timeout=15000)
-            plain = await pg.evaluate("async () => { const r = await fetch(document.querySelector('#mag-issues li[data-number=\"2\"] img.mag-cover').src); return [r.headers.get('content-type'), await r.text()]; }")
-            await pg.screenshot(path=str(out / "61-magazines.png"))
-            check("a magazine's issues show by their covers: a comic book's first page, and a PDF without a picture a plain one with its number",
-                  "svg" in (plain[0] or "") and "No. 2" in plain[1] and "Game Fan" in plain[1], (plain[0], plain[1][:200]))
-            await pg.click('#mag-issues li[data-number="1"] .mag-open')
-            await pg.wait_for_selector("#doc-dialog #comic-view")
-            first = await pg.inner_text("#comic-page")
-            await pg.click("#comic-next")
-            await pg.wait_for_function("() => document.querySelector('#comic-page').textContent.includes('Page 2')")
-            await pg.wait_for_function("() => document.querySelector('#comic-view .comic-page img')?.naturalWidth > 0", timeout=15000)
-            locked = await pg.is_disabled("#doc-edit-title")
-            await pg.screenshot(path=str(out / "62-comic.png"))
-            # Esc closes the reader, and so does going to another page (review M36)
-            await pg.keyboard.press("Escape")
-            await pg.wait_for_selector("#doc-dialog", state="detached")
-            await pg.click('#mag-issues li[data-number="1"] .mag-open')
-            await pg.wait_for_selector("#doc-dialog #comic-view")
-            await pg.evaluate("() => { location.hash = '#/home'; }")
-            await pg.wait_for_selector("#doc-dialog", state="detached")
-            await pg.evaluate("() => { location.hash = '#/magazines'; }")
-            await pg.wait_for_selector('#mag-issues li[data-number="1"]')
-            check("an issue opens in the document viewer, a comic book a page at a time (its pages in order), named on the Magazines page only; Esc or another page closes it",
-                  first == "Page 1 of 3" and locked, (first, locked))
-            listed = home / "game-fan.csv"
-            listed.write_text("magazine,number,date\nGame Fan,1,1992-10\nGame Fan,2,1992-11\nGame Fan,3,1992-12\n")
-            pick(listed)
-            await pg.click("#mag-add-list-button")
-            await toast_text(pg, "Imported the list")
-            await pg.wait_for_selector("#mag-missing li")
-            missing = await pg.inner_text("#mag-missing")
-            totals = await pg.inner_text("#mag-totals")
-            await pg.click("#mag-save-missing-one")
-            said = await toast_text(pg, "Saved 1 missing issue")
-            saved = list((library / "_library/reports").glob("Magazines missing*.csv"))
-            check("a list of issues (a CSV) says which are missing, and they're saved as a list of their own",
-                  "Game Fan 003 (1992-12)" in missing and "Game Fan 001" not in missing and "2 of the 3 listed" in totals and len(saved) == 1 and "Game Fan,3" in saved[0].read_text(),
-                  (missing, totals, said, [x.name for x in saved]))
+            async with Section(pg, B, "Phase 5: sources, scraping, documents and exports that carry them"):
+                # Phase 5: a source's key (Settings › Sources, kept on this computer), a scrape of a
+                # system's games by title (TheGamesDB's stand-in), a game's panel, documents imported
+                # from a folder with their pairings changed, searched by their words and read, and an
+                # export that carries the pictures and documents
+                await pg.click('.sidebar a[href="#/settings"]')
+                await pg.wait_for_selector('#sources li[data-source="thegamesdb"] .source-keys')
+                await pg.fill('#sources li[data-source="thegamesdb"] input[name="apikey"]', "test-key-123")
+                await pg.click('#sources li[data-source="thegamesdb"] [data-action="save-keys"]')
+                await pg.wait_for_selector('#sources li[data-source="thegamesdb"] .source-said')
+                said = await pg.inner_text('#sources li[data-source="thegamesdb"] .source-said')
+                shown = await pg.get_attribute('#sources li[data-source="thegamesdb"] input[name="apikey"]', "placeholder")
+                cfg = json.loads((home / "config/config.json").read_text())
+                in_library = "test-key-123" in (library / "_library/library.json").read_text()
+                check("Settings › Sources keeps a source's key on this computer (never shown again, never in the library) and Check asks the source",
+                      cfg.get("source_keys", {}).get("thegamesdb", {}).get("apikey") == "test-key-123" and "answered" in said and "test-key" not in (shown or "") and not in_library,
+                      (said, shown, cfg.get("source_keys")))
+                await pg.screenshot(path=str(out / "30-sources.png"))
+                await pg.click('.sidebar a[href="#/metadata"]')
+                await pg.wait_for_selector("#meta-page")
+                await pg.click('#meta-systems-list a[data-id="gb"]')
+                await pg.wait_for_selector('#meta-list .pc-row[data-name="Alpha (USA)"]')
+                counts = await pg.inner_text("#meta-counts")
+                await pg.click("#meta-scrape")
+                await pg.wait_for_selector("#scrape-dialog #scrape-sources")
+                off = await pg.eval_on_selector_all("#scrape-sources li", "els => els.filter(e => e.querySelector('input').disabled).map(e => e.dataset.source)")
+                await pg.screenshot(path=str(out / "31-scrape.png"))
+                await pg.click("#scrape-dialog button[type=submit]")
+                said = await toast_text(pg, "Scraped", timeout=60000)
+                alpha = library / "_library/games/gb/Alpha (USA)"
+                alpha_json = json.loads((alpha / "game.json").read_text()) if (alpha / "game.json").is_file() else {}
+                alpha_media = sorted(x.name for x in (alpha / "media").iterdir()) if (alpha / "media").is_dir() else []
+                check("Scrape… asks the ready sources for a system's games, by title, and keeps the details and pictures in each game's folder",
+                      "found" in said and sorted(off) == ["igdb", "launchbox", "screenscraper"] and alpha_json.get("details", {}).get("developer") == "Stand-in Soft"
+                      and alpha_json.get("ids", {}).get("thegamesdb") == "501" and "cover.png" in alpha_media and "screenshot.png" in alpha_media,
+                      (counts, said, off, alpha_json.get("details"), alpha_media))
+                row = '#meta-list .pc-row[data-name="Epsilon (USA)"]'
+                await pg.wait_for_function("(r) => document.querySelector(r)?.textContent.includes('nothing yet')", arg=row, timeout=10000)
+                epsilon = await pg.inner_text(row)
+                check("a game sharing a ROM with another (Epsilon's second track is Beta) isn't taken for it", "Beta" not in epsilon and "Epsilon (USA)" in epsilon, epsilon)
+                await pg.click('#meta-list .pc-row[data-name="Alpha (USA)"]')
+                await pg.wait_for_selector("#meta-panel #meta-description")
+                panel = await pg.inner_text("#meta-panel")
+                pics = await pg.eval_on_selector_all("#meta-media figure", "els => els.map(e => e.dataset.kind)")
+                check("a game's panel shows its details, where they came from, and its pictures",
+                      "Alpha's overview" in panel and "Stand-in Soft" in panel and "1990" in panel and sorted(pics) == ["cover", "screenshot"], (panel[:300], pics))
+                await pg.screenshot(path=str(out / "32-metadata.png"))
 
-            await pg.click('.sidebar a[href="#/settings"]')
-            await pg.wait_for_selector("#theme-select")
+                guides = home / "Guides" / "Game Boy"
+                guides.mkdir(parents=True)
+                (guides / "Alpha Manual.txt").write_text("How to play Alpha. Press the zebrafish button to jump.")
+                (guides / "beta_strategy_guide.md").write_text("# Beta strategy\n\nAlways go **left** at the second fork.")
+                (guides / "Unrelated Thing.txt").write_text("Delta's secret level is behind the waterfall.")
+                pick(guides)
+                await pg.click("#meta-menu")
+                await pg.click('#context-menu [data-action="meta-import-docs"]')
+                await pg.wait_for_selector("#doc-items li", timeout=30000)
+                pairings = await pg.eval_on_selector_all("#doc-items li", "els => Object.fromEntries(els.map(e => [e.dataset.name, e.dataset.pairing]))")
+                row = '#doc-items li[data-name="Unrelated Thing.txt"]'
+                await pg.click(f'{row} [data-action="change-game"]')
+                await pg.fill(f"{row} .game-pick-search", "delta")
+                await pg.wait_for_selector(f'{row} .game-pick-list [data-action="pick-game"]')
+                await pg.click(f'{row} .game-pick-list [data-action="pick-game"]')
+                await pg.wait_for_selector(f'{row}[data-pairing="you"]')
+                await pg.select_option(f"{row} .doc-item-kind", "guide")
+                await pg.screenshot(path=str(out / "33-docs-import.png"))
+                await pg.click("#docs-import-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-totals")
+                await pg.click("#docs-import-dialog button[type=submit]")
+                said = await toast_text(pg, "Imported 3 documents")
+                alpha_docs = json.loads((alpha / "docs/docs.json").read_text()) if (alpha / "docs/docs.json").is_file() else {}
+                delta_docs = sorted(x.name for x in (library / "_library/games/gb/Delta (World)/docs").iterdir()) if (library / "_library/games/gb/Delta (World)/docs").is_dir() else []
+                check("Import documents… pairs each file with its game by name, a pairing is changed by hand, and they're brought into the games' folders (the originals stay)",
+                      pairings.get("Alpha Manual.txt") == "sure" and pairings.get("beta_strategy_guide.md") in ("sure", "likely") and pairings.get("Unrelated Thing.txt") == "none"
+                      and alpha_docs.get("files", {}).get("Alpha Manual.txt", {}).get("kind") == "manual" and "Unrelated Thing.txt" in delta_docs and (guides / "Alpha Manual.txt").is_file(),
+                      (pairings, said, alpha_docs, delta_docs))
+                await pg.click('.sidebar a[href="#/documents"]')
+                await pg.wait_for_selector("#docs-page #docs-list .pc-row")
+                # the three brought in, and the map dropped on Zeta Quest's page in Phase 4
+                listed = await pg.eval_on_selector_all("#docs-list .pc-row", "els => els.length")
+                zeta_doc = await pg.locator('#docs-list .pc-row:has-text("Zeta Map")').inner_text() if await pg.locator('#docs-list .pc-row:has-text("Zeta Map")').count() else ""
+                await pg.fill("#docs-search", "zebrafish")
+                await pg.wait_for_function("() => document.querySelectorAll('#docs-list .pc-row').length === 1 && document.querySelector('#docs-list mark')")
+                hit = await pg.inner_text("#docs-list .pc-row")
+                await pg.click("#docs-list .pc-row")
+                await pg.wait_for_selector("#doc-view #doc-text")
+                text = await pg.inner_text("#doc-view #doc-text")
+                await pg.screenshot(path=str(out / "34-documents.png"))
+                await pg.fill("#docs-search", "")
+                await pg.select_option("#docs-kind", "guide")
+                await pg.wait_for_function("() => document.querySelectorAll('#docs-list .pc-row').length === 2")
+                await pg.click('#docs-list .pc-row:has-text("Beta")')
+                await pg.wait_for_selector("#doc-view #doc-text strong")
+                await pg.select_option("#docs-kind", "")
+                cli = cli_json("docs", "--home", str(home), "--search", "waterfall", "--json")
+                check("Documents lists every document, searches their words with the words marked, and shows one (Markdown made into text); the command line searches them too",
+                      listed == 4 and "Zeta Quest · PC" in zeta_doc and "Alpha Manual" in hit and "zebrafish" in hit.lower() and "zebrafish button" in text and cli.get("total") == 1 and cli["items"][0]["kind"] == "guide",
+                      (listed, zeta_doc, hit, text[:100], cli.get("total")))
 
-            # 7. the theme
-            await pg.select_option("#theme-select", "night")
-            theme = await pg.evaluate("() => document.documentElement.dataset.theme")
-            await pg.wait_for_timeout(500)  # preferences are saved after a short pause
-            check("the theme follows the setting and is kept", theme == "night" and prefs().get("theme") == "night", (theme, prefs()))
-            await pg.screenshot(path=str(out / "03-night.png"))
-            await pg.select_option("#theme-select", "system")
-            check("the theme is chosen in one place, Settings › Appearance (the menu has no theme button)",
-                  await pg.query_selector("#theme-toggle") is None and await pg.query_selector("#settings-appearance #theme-select") is not None)
+                # the export carries the pictures and the documents (a plain folder)
+                flat = home / "Flat"
+                await pg.click('.sidebar a[href="#/collections"]')
+                await pg.wait_for_selector("#collection-export:not([disabled])")
+                await pg.click("#collection-export")
+                await pg.wait_for_selector("#export-dialog")
+                await pg.wait_for_selector('#export-layout option[value="folder"]', state="attached")
+                await pg.select_option("#export-layout", "folder")
+                await pg.fill("#export-place-out", str(flat))
+                await pg.click("#export-carry summary")
+                await pg.check('#carry-media [data-id="cover"] input')
+                await pg.check("#carry-docs")
+                await pg.select_option("#carry-size", "320")
+                await pg.click("#export-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-totals")
+                await pg.click("#export-dialog button[type=submit]")
+                said = await toast_text(pg, "Exported Best Of")
+                carried = sorted(str(x.relative_to(flat)).replace("\\", "/") for x in flat.rglob("*") if x.is_file() and ".gamerepo" not in str(x))
+                check("an export to a folder carries the chosen pictures (made smaller) and the documents beside each game",
+                      any(c.endswith("/cover.png") for c in carried) and any(c.endswith("docs/Alpha Manual.txt") for c in carried), (said, carried))
 
-            # 8. the skin: Drafting Sheet unless chosen, changed at once (icons too) and kept
-            first = await pg.evaluate("() => document.documentElement.dataset.skin")
-            drawn = lambda: pg.evaluate("() => [...document.querySelectorAll('.nav-link[title=Home] svg g[data-sk]')].find((g) => getComputedStyle(g).display !== 'none')?.dataset.sk")
-            icon_before = await drawn()
-            options = await pg.eval_on_selector_all("#skin-select option", "els => els.map(e => e.value)")
-            await pg.select_option("#skin-select", "classic")
-            skin = await pg.evaluate("() => document.documentElement.dataset.skin")
-            icon_after = await drawn()
-            await pg.wait_for_timeout(500)
-            await pg.screenshot(path=str(out / "03-classic.png"))
-            saved = prefs().get("skin")
-            await pg.select_option("#skin-select", "drafting")
-            check("the skin is Drafting Sheet unless chosen; Classic changes the look and icons at once and is kept",
-                  first == "drafting" and icon_before == "drafting" and options == ["drafting", "classic"]
-                  and skin == "classic" and icon_after == "classic" and saved == "classic", (first, icon_before, options, skin, icon_after, saved))
+            async with Section(pg, B, "Phase 5b: BIOS files and export layouts"):
+                # Phase 5b. BIOS files: libretro's list (a stand-in), audited by system, gathered into the library
+                gb_bios = bytes((i * 7) % 256 for i in range(256))
+                (fx / "Roms" / "gb_bios.bin").write_bytes(gb_bios)
+                line = lambda name, b: f"\trom ( name {name} size {len(b)} crc {zlib.crc32(b):08x} sha1 {hashlib.sha1(b).hexdigest()} )\n"
+                (home / "starter-source/dat").mkdir(exist_ok=True)
+                (home / "starter-source/dat/System.dat").write_text(
+                    'clrmamepro (\n\tname "System"\n\tdescription "System"\n\tversion 1\n\tauthor "libretro"\n)\n\ngame (\n\tname "System"\n\tcomment "System"\n\n'
+                    f'\tcomment "Nintendo - Gameboy"\n{line("gb_bios.bin", gb_bios)}{line("sgb_bios.bin", bytes([1, 2, 3]))}\n\tcomment "Sega - Dreamcast"\n{line("dc/dc_boot.bin", bytes(512))})\n')
+                await pg.click('.sidebar a[href="#/"]')
+                await pg.click("#home-scan-button")
+                await toast_text(pg, "Scanned")
+                await pg.click('.sidebar a[href="#/bios"]')
+                await pg.wait_for_selector("#bios-empty")
+                await pg.click("#bios-get")
+                await pg.click("#ask-dialog button[type=submit]")
+                said = await toast_text(pg, "starter DATs for 1 system")
+                # (the list is got from Import › BIOS files, D78: back to the BIOS page to see it)
+                bios_list_at = await pg.evaluate("() => location.hash")
+                await pg.click('.sidebar a[href="#/bios"]')
+                gb_row = '#bios-list .bios-system[data-system="Nintendo - Gameboy"]'
+                await pg.wait_for_selector(gb_row)
+                shown = await pg.eval_on_selector_all("#bios-list .bios-system", "els => els.map(e => [e.dataset.system, +e.dataset.have, +e.dataset.missing])")
+                totals = await pg.inner_text("#bios-totals")
+                await pg.fill("#bios-search", "dreamcast")
+                await pg.wait_for_function("() => document.querySelectorAll('#bios-list .bios-system').length === 1")
+                searched = await pg.eval_on_selector_all("#bios-list .bios-system", "els => els.map(e => e.dataset.system)")
+                await pg.fill("#bios-search", "")
+                check("BIOS files: libretro's list is got from the BIOS page and every system audited, the ones you have games for first, with a search and no picker (D69)",
+                      shown == [["Nintendo - Gameboy", 1, 1], ["Sega - Dreamcast", 0, 1]] and searched == ["Sega - Dreamcast"] and "0 of 1 with every BIOS file" in totals
+                      and await pg.query_selector("#bios-show") is None and bios_list_at == "#/import/import-bios", (said, shown, searched, totals, bios_list_at))
+                await pg.screenshot(path=str(out / "40-bios.png"), full_page=True)
+                await pg.click("#bios-gather")
+                await pg.wait_for_selector("#bios-gather-dialog #organise-totals")
+                bios_how = await pg.eval_on_selector_all("#bios-gather-mode input", "els => els.map(e => e.value)")
+                bios_at = await pg.evaluate("() => location.hash")
+                await pg.click("#bios-gather-dialog button[type=submit]")
+                said = await toast_text(pg, "Imported the BIOS files")
+                gathered = library / "BIOS/Nintendo - Gameboy/gb_bios.bin"
+                check("Import copies the BIOS files the library has into its BIOS folder, a folder for each system, from the Import page with its three ways in (D78, D79)",
+                      gathered.is_file() and gathered.read_bytes() == gb_bios and (fx / "Roms/gb_bios.bin").is_file() and bios_how == ["copy", "always", "move"] and bios_at == "#/import/import-bios", (said, bios_how, bios_at))
 
-            # batch 4: the Audit bar fits a 1000 px window (review H22); a game opened from
-            # elsewhere has no Previous and Next (M33); Enter opens a game's tile (M38); the
-            # filters' counts show at 1280 px (M43); a remembered system with no DAT doesn't
-            # leave Metadata on "To start" (H23)
-            await pg.set_viewport_size({"width": 1000, "height": 800})
-            await pg.evaluate("() => { location.hash = '#/audit/nes'; }")
-            await pg.wait_for_selector('#audit-pick[data-platform="nes"]', state="attached")
-            await pg.wait_for_selector("#audit-convert")
-            bar = await pg.evaluate("() => [document.scrollingElement.scrollWidth, innerWidth, Math.round(document.querySelector('#audit-head .more-btn-bar, #audit-head [id$=menu]')?.getBoundingClientRect().right || 0)]")
-            await pg.set_viewport_size({"width": 1280, "height": 900})
-            await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Delta (World)'); }")
-            await pg.wait_for_selector('#game-page[data-key="gb/Delta (World)"]')
-            walk = await pg.query_selector("#game-prev")
-            await pg.evaluate("() => { location.hash = '#/library'; }")
-            await pg.wait_for_selector('.lib-tile[data-key="gb/Delta (World)"]')
-            filters = await pg.evaluate("() => { const f = document.querySelector('.lib-filters'); return [f.scrollWidth, f.clientWidth]; }")
-            await pg.focus('.lib-tile[data-key="gb/Delta (World)"]')
-            await pg.keyboard.press("Enter")
-            await pg.wait_for_selector('#game-page[data-key="gb/Delta (World)"]')
-            inv = "(a) => window.__TAURI__.core.invoke('api', a)"
-            kept = await pg.evaluate(f"async () => ({inv})({{ cmd: 'prefs_get', args: {{}} }})")
-            kept["gr-meta"] = {**kept.get("gr-meta", {}), "platform": "snes"}
-            await pg.evaluate(f"async (p) => ({inv})({{ cmd: 'prefs_set', args: {{ prefs: p }} }})", kept)
-            await pg.reload()
-            await pg.evaluate("() => { location.hash = '#/metadata'; }")
-            await pg.wait_for_selector("#meta-scrape")
-            check("the Audit bar fits a narrow window; a game opened from elsewhere has no Previous and Next; Enter opens a game; the filters fit; Metadata picks a system with a DAT",
-                  bar[0] <= bar[1] and 0 < bar[2] <= bar[1] and walk is None and filters[0] <= filters[1], (bar, walk, filters))
-            await pg.set_viewport_size({"width": 1400, "height": 900})
+                # the layout editor: Knulli's layout as a tree, a system's folder changed, saved as a new layout
+                await pg.click('.sidebar a[href="#/layouts"]')
+                await pg.wait_for_selector('#layout-list [data-id="knulli"]')
+                await pg.click('#layout-list [data-id="knulli"]')
+                await pg.wait_for_selector('#lt-tree .lt-node[data-path="card/roms/gb"]')
+                builtin_label = await pg.inner_text("#layout-save")
+                await pg.click('#lt-tree .lt-node[data-path="card/roms/gb"] > .lt-row .lt-name')
+                await pg.wait_for_selector('#lt-inspect[data-at="systems.gb"]')
+                await pg.fill("#lt-system-folder", "gameboy")
+                await pg.wait_for_selector('#lt-tree .lt-node[data-path="card/roms/gameboy"]')
+                game = await pg.get_attribute('#lt-tree .lt-node[data-at="games.path"][data-path^="card/roms/gameboy/"]', "data-path")
+                await pg.click(f'#lt-tree .lt-node[data-path="{game}"] > .lt-row .lt-name')
+                await pg.wait_for_selector('#lt-inspect[data-at="games.path"]')
+                await pg.fill("#lt-path", "roms/{folder}/{file}")
+                await pg.wait_for_selector("#lt-problems")
+                blocked = await pg.is_disabled("#layout-save")
+                await pg.fill("#lt-path", "{card}/roms/{folder}/{file}")
+                await pg.wait_for_selector("#lt-problems", state="detached")
+                await pg.select_option("#lt-sample", label="Best Of's first games")
+                await pg.wait_for_function("(n) => document.querySelector('#lt-tree')?.textContent.includes(n)", arg=names[0])
+                await pg.screenshot(path=str(out / "41-layout-editor.png"))
+                await pg.click("#lt-tab-json")
+                text = await pg.input_value("#lt-json")
+                await pg.click("#lt-tab-tree")
+                await pg.click("#layout-save")
+                await pg.fill("#layout-save-name", "Knulli (mine)")
+                await pg.click("#layout-save-dialog button[type=submit]")
+                await toast_text(pg, "Saved the layout Knulli")
+                await pg.wait_for_selector('#layout-list [data-id="knulli-mine"].active')
+                saved_file = library / "_library/layouts/knulli-mine.json"
+                mine = json.loads(saved_file.read_text()) if saved_file.exists() else {}
+                check("the layout editor shows Knulli's layout as a tree, follows a change at once, catches a path that breaks it, and saves the change as a new layout",
+                      builtin_label == "Save as new…" and blocked and '"gb": "gameboy"' in text and mine.get("systems", {}).get("gb") == "gameboy"
+                      and (mine.get("copied_from") or {}).get("id") == "knulli" and not mine.get("builtin"), (builtin_label, blocked, mine.get("systems"), mine.get("copied_from")))
 
-            # 9. About: versions, what's coming and the layout
-            await pg.click('.sidebar a[href="#/about"]')
-            await pg.wait_for_selector("#about-versions")
-            about = await pg.inner_text("#about-page")
-            check("About shows the version, what's coming and how a library is laid out",
-                  "Game Repo" in about and "Phase 9" in about and "_library/" in about and "game.json" in about, about[:200])
-            await pg.screenshot(path=str(out / "04-about.png"), full_page=True)
+                # an export to an SD card in the new layout, with the BIOS files
+                card = home / "Card"
+                await pg.click('.sidebar a[href="#/collections"]')
+                await pg.wait_for_selector("#collection-export:not([disabled])")
+                await pg.click("#collection-export")
+                await pg.wait_for_selector('#export-layout option[value="knulli-mine"]', state="attached")
+                await pg.select_option("#export-layout", "knulli-mine")
+                await pg.fill("#export-place-card", str(card))
+                await pg.evaluate("() => { document.querySelector('#export-carry').open = true; }")
+                await pg.check("#carry-bios")
+                await pg.click("#export-dialog button[type=submit]")
+                await pg.wait_for_selector("#export-layout-used")
+                await pg.click("#export-dialog button[type=submit]")
+                said = await toast_text(pg, "Exported Best Of")
+                on_card = sorted(str(x.relative_to(card)).replace("\\", "/") for x in card.rglob("*") if x.is_file() and ".gamerepo" not in str(x)) if card.is_dir() else []
+                gl = (card / "roms/gameboy/gamelist.xml").read_text() if (card / "roms/gameboy/gamelist.xml").exists() else ""
+                await pg.click('#collection-view [data-view="exports"]')
+                await pg.wait_for_selector('#exports li[data-target="knulli-mine"]')
+                listed = await pg.inner_text('#exports li[data-target="knulli-mine"]')
+                check("an export to a card in the new layout puts the games in its folders, with a gamelist, small pictures and the BIOS files",
+                      all(f"roms/gameboy/{n}" in " ".join(on_card) for n in names) and "bios/gb_bios.bin" in on_card and gl.count("<game>") == len(names)
+                      and any(c.startswith("roms/gameboy/images/") and c.endswith("-thumb.png") for c in on_card) and "Knulli (mine)" in listed, (said, on_card, gl[:300], listed))
+            async with Section(pg, B, "Phase 6: the Library and a game's page"):
+                # Phase 6. The Library: every game across the systems, by its pictures, filtered with counts
+                await pg.evaluate("() => window.__gamerepo.platform.store.prefs.set('gr-library-view', 'grid')")
+                await pg.click('.sidebar a[href="#/library"]')
+                await pg.wait_for_selector('#lib-games .lib-tile[data-key="gb/Alpha (USA)"]')
+                tiles = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.map(e => e.dataset.key)")
+                total = await pg.get_attribute("#lib-games", "data-total")
+                await pg.wait_for_function("() => { const i = document.querySelector('.lib-tile[data-key=\"gb/Alpha (USA)\"] img'); return i && i.complete && i.naturalWidth > 0; }", timeout=15000)
+                src = await pg.get_attribute('.lib-tile[data-key="gb/Alpha (USA)"] img', "src")
+                thumbs = [x for x in (home / "data/thumbs").rglob("*.jpg")] if (home / "data/thumbs").is_dir() else []
+                systems = await pg.eval_on_selector_all("#filter-platform [data-value]", "els => els.map(e => e.dataset.value)")
+                check("the Library shows every game you have across the systems (PC games too), with thumbnails made on this computer",
+                      "gb/Alpha (USA)" in tiles and "nes/Echo (USA)" in tiles and any(t.startswith("pc/") for t in tiles) and int(total) == len(tiles)
+                      and "~thumb/256/" in (src or "") and thumbs and not list(library.rglob("*.jpg")) and {"gb", "nes", "pc"} <= set(systems), (tiles, total, src, len(thumbs), systems))
+                await pg.screenshot(path=str(out / "50-library.png"))
+                action = await pg.inner_text('#filter-genre [data-value="Action"] .lib-count')
+                await pg.click('#filter-genre [data-value="Action"] input')
+                await pg.wait_for_selector('#lib-chips [data-chip="genre-Action"]')
+                await pg.wait_for_function("(n) => document.querySelectorAll('#lib-games .lib-tile').length === n", arg=int(action))
+                shown = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.map(e => e.dataset.key)")
+                address = await pg.evaluate("location.hash")
+                gb_count = await pg.inner_text('#filter-platform [data-value="gb"] .lib-count')
+                await pg.go_back()
+                await pg.wait_for_selector('#lib-chips [data-chip="genre-Action"]', state="detached")
+                await pg.wait_for_function("(n) => document.querySelectorAll('#lib-games .lib-tile').length === n", arg=len(tiles), timeout=10000)
+                back = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.length")
+                radios = await pg.eval_on_selector_all("#lib-filters input[type=radio]", "els => els.length")
+                drops = await pg.eval_on_selector_all("#lib-filters .lib-filter-select select", "els => els.map(e => e.id)")
+                await pg.select_option("#filter-players-select", "2")
+                await pg.wait_for_function("() => location.hash.includes('players=2') && !document.querySelector('.lib-tile[data-key=\"gb/Beta (Europe)\"]')")
+                two = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.map(e => e.dataset.key)")
+                await pg.select_option("#filter-players-select", "0")
+                await pg.wait_for_function("(n) => document.querySelectorAll('#lib-games .lib-tile').length === n", arg=len(tiles), timeout=10000)
+                check("Players and Rating are drop-downs in the filters, not lists of buttons, and 2 or more shows only the games for two",
+                      radios == 0 and "filter-players-select" in drops and "gb/Alpha (USA)" in two and "gb/Beta (Europe)" not in two, (radios, drops, two))
+                check("a filter's values have counts, its chip shows above the games, it's kept in the address and Back takes it off",
+                      int(action) >= 2 and "gb/Alpha (USA)" in shown and "gb/Beta (Europe)" in shown and "nes/Echo (USA)" not in shown and "genre=Action" in address
+                      and int(gb_count) == int(action) and back == len(tiles), (action, shown, address, gb_count, back))
+                await pg.fill("#lib-search", "stand-in")
+                await pg.wait_for_function("() => location.hash.includes('q=stand-in') && !document.querySelector('.lib-tile[data-key=\"nes/Echo (USA)\"]')")
+                found = await pg.eval_on_selector_all("#lib-games .lib-tile", "els => els.map(e => e.dataset.key)")
+                await pg.fill("#lib-search", "")
+                await pg.wait_for_selector('.lib-tile[data-key="nes/Echo (USA)"]')
+                check("the search finds games by their developer, description or title", "gb/Alpha (USA)" in found and "nes/Echo (USA)" not in found, found)
+                await pg.click('.lib-tile[data-key="gb/Alpha (USA)"]')
+                await pg.wait_for_selector('#lib-panel[data-key="gb/Alpha (USA)"] #lib-panel-title')
+                panel = await pg.inner_text("#lib-panel")
+                await pg.click('.lib-tile[data-key="gb/Beta (Europe)"]', modifiers=["Control"])
+                await pg.wait_for_selector('#lib-panel[data-count="2"]')
+                bar = await pg.inner_text("#bar-count")
+                await pg.keyboard.press("Control+a")
+                await pg.wait_for_function("(n) => document.querySelector('#bar-count')?.textContent.startsWith(String(n))", arg=len(tiles))
+                await pg.keyboard.press("Escape")
+                await pg.wait_for_selector("#lib-head:not(.selecting)")
+                check("picking a game shows it in the panel; Ctrl adds to the selection, Ctrl+A takes every game shown and Esc clears it",
+                      "Alpha" in panel and "Stand-in Soft" in panel and bar.startswith("2"), (panel[:200], bar))
+                await pg.click("#lib-view [data-view=table]")
+                await pg.wait_for_selector('#lib-games .lib-row[data-key="gb/Alpha (USA)"]')
+                await pg.click('.lib-thead [data-sort="year"]')
+                await pg.wait_for_function("() => location.hash.includes('sort=year')")
+                await pg.wait_for_function("() => document.querySelector('#lib-games .lib-row .lib-col-year')?.textContent === '1990'")
+                await pg.click("#lib-group")
+                await pg.click('#context-menu [data-action="group-system"]')
+                await pg.wait_for_selector('#lib-games .lib-group[data-group="gb"]')
+                groups = await pg.eval_on_selector_all("#lib-games .lib-group", "els => els.map(e => e.dataset.group)")
+                await pg.screenshot(path=str(out / "51-library-table.png"))
+                check("the table sorts by a column, and the games can be grouped by system", "gb" in groups and "nes" in groups and "pc" in groups, groups)
+                await pg.click("#lib-view [data-view=grid]")
+                await pg.click("#lib-group")
+                await pg.click('#context-menu [data-action="group-none"]')
+                # a game's page: its details edited by hand (kept over scrapes), a file dropped on it attached
+                await pg.dblclick('.lib-tile[data-key="gb/Alpha (USA)"]')
+                await pg.wait_for_selector('#game-page[data-key="gb/Alpha (USA)"] #game-developer')
+                await pg.fill("#game-developer", "My Own Studio")
+                await pg.press("#game-developer", "Tab")
+                await pg.wait_for_selector('.game-detail[data-field="developer"][data-edited="yes"]')
+                alpha_json = json.loads((alpha / "game.json").read_text())
+                pos = await pg.inner_text(".game-pos")
+                gallery = await pg.eval_on_selector_all("#game-strip [data-kind], .game-strip [data-kind]", "els => els.map(e => e.dataset.kind)")
+                check("a game's page shows its pictures and details; a detail changed there is kept in game.json, marked as yours",
+                      alpha_json["details"]["developer"] == "My Own Studio" and "developer" in alpha_json.get("edited", []) and alpha_json["scraped"]["developer"] == "you"
+                      and "of" in pos and sorted(gallery) == ["cover", "screenshot"], (alpha_json.get("details"), alpha_json.get("edited"), pos, gallery))
+                await pg.screenshot(path=str(out / "52-game.png"), full_page=True)
+                # the picture sits in one square box: picking another doesn't change its size
+                box = "() => { const r = document.querySelector('#game-gallery .game-hero').getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }"
+                sizes = []
+                for k in ["cover", "screenshot", "cover"]:
+                    await pg.click(f'#game-strip [data-kind="{k}"]')
+                    await pg.wait_for_function(f"() => document.querySelector('#game-strip [data-kind=\"{k}\"]').getAttribute('aria-selected') === 'true' && document.querySelector('#game-gallery .game-hero').complete")
+                    sizes.append(await pg.evaluate(box))
+                check("a game's picture keeps one square size whichever picture is picked", sizes[0][0] > 100 and all(s == [sizes[0][0]] * 2 for s in sizes), sizes)
+                dropped = home / "Guides" / "Alpha Map.txt"
+                dropped.write_text("The map of Alpha's second world.")
+                await pg.evaluate("(p) => window.__shimEmit('tauri://drag-drop', { paths: [p], position: { x: 400, y: 400 } })", str(dropped))
+                await pg.wait_for_selector("#docs-import-dialog #doc-items li")
+                await pg.click("#docs-import-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-totals")
+                await pg.click("#docs-import-dialog button[type=submit]")
+                said = await toast_text(pg, "Imported 1 document")
+                await pg.wait_for_function("() => document.querySelector('#game-docs')?.textContent.includes('Alpha Map')")
+                check("a file dropped on a game's page is attached to it as a document", (alpha / "docs/Alpha Map.txt").is_file(), said)
+                await pg.click("#game-next")
+                await pg.wait_for_function("() => document.querySelector('#game-page')?.dataset.key && document.querySelector('#game-page').dataset.key !== 'gb/Alpha (USA)'")
+                next_key = await pg.get_attribute("#game-page", "data-key")
+                await pg.click("#game-back")
+                await pg.wait_for_selector("#lib-page")
+                await pg.click('.lib-tile[data-key="gb/Alpha (USA)"]')
+                await pg.wait_for_selector('#lib-panel[data-key="gb/Alpha (USA)"]')
+                panel = await pg.inner_text("#lib-panel")
+                check("Next goes to the next game in the list it was opened from, and the Library follows the edit", next_key and next_key != "gb/Alpha (USA)" and "My Own Studio" in panel, (next_key, panel[:200]))
+                # the filters saved as a collection, whose rules keep up with the details
+                await pg.click('#filter-genre [data-value="Action"] input')
+                await pg.wait_for_selector('#lib-chips [data-chip="genre-Action"]')
+                await pg.click("#lib-menu")
+                await pg.click('#context-menu [data-action="lib-save"]')
+                await pg.fill("#lib-save-name", "Action games")
+                await pg.click("#lib-save-dialog button[type=submit]")
+                await toast_text(pg, "Saved Action games")
+                saved = [json.loads(x.read_text()) for x in (library / "_library/collections").glob("*.json")]
+                mine = next((c for c in saved if c.get("name") == "Action games"), {})
+                cli = cli_json("library", "--home", str(home), "--genre", "Action", "--json")
+                check("Save as a collection… makes the filters a collection's rules (by its games' details); the command line filters the same",
+                      mine.get("rules", {}).get("details", {}).get("genre") == ["Action"] and cli.get("total") == int(action), (mine.get("rules"), cli.get("total")))
+                await pg.click('#lib-chips [data-chip="genre-Action"] button')
 
-            # 10. a library made by a newer app opens read-only
-            future = home / "Future"
-            (future / "_library").mkdir(parents=True)
-            (future / "_library/library.json").write_text(json.dumps({"format": 99, "id": "lib-future", "name": "Future"}))
-            await pg.click('.sidebar a[href="#/settings"]')
-            pick(future)
-            await pg.click("#open-library")
-            await pg.wait_for_function("() => document.querySelector('#library-path')?.textContent.endsWith('Future')")
-            disabled = await pg.is_disabled("#library-name")
-            await pg.goto(B + "#/")
-            await pg.wait_for_selector(".home .warn-note")
-            note = await pg.inner_text(".home .warn-note")
-            check("a newer library opens read-only", disabled and "read-only" in note and sorted(x.name for x in future.iterdir()) == ["_library"]
-                  and not (future / "_library/README.txt").exists(), note)
-            await pg.screenshot(path=str(out / "05-read-only.png"))
+            async with Section(pg, B, "Phase 6b: each source's answer, Delete metadata and videos"):
+                # Phase 6b: each source's answer kept apart, one picture from each source to choose
+                # from, Delete metadata… with Undo, Scrape again… and the sizes in Settings. A second
+                # source's answer and box are put in Alpha's folder as an earlier scrape would have.
+                (alpha / "sources/igdb.json").write_text(json.dumps({"source": "igdb", "id": "55", "title": "Alpha", "details": {"description": "Alpha from IGDB."}}))
+                (alpha / "media/cover").mkdir(exist_ok=True)
+                (alpha / "media/cover/igdb.png").write_bytes(png(90, 60, (10, 160, 60)))
+                kept = json.loads((alpha / "sources/thegamesdb.json").read_text())
+                await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Alpha (USA)'); }")
+                await pg.wait_for_selector('#game-variants button[data-name="igdb"]')
+                await pg.click('#game-variants button[data-name="igdb"]')
+                await pg.wait_for_selector('#game-variants button[data-name="igdb"][aria-pressed="true"]')
+                hero = await pg.get_attribute("#game-gallery .game-hero", "src")
+                alpha_json = json.loads((alpha / "game.json").read_text())
+                check("a scrape keeps each source's answer apart, and a game's page shows each source's box to choose from (one each), the chosen one where exports look",
+                      kept.get("details", {}).get("developer") == "Stand-in Soft" and alpha_json.get("chosen", {}).get("cover") == "igdb"
+                      and (alpha / "media/cover.png").read_bytes() == png(90, 60, (10, 160, 60)) and (alpha / "media/cover/thegamesdb.png").is_file() and hero.endswith("v=igdb"),
+                      (kept, alpha_json.get("chosen"), hero, sorted(x.name for x in (alpha / "media").rglob("*"))))
+                await pg.screenshot(path=str(out / "53-game-variants.png"), full_page=True)
+                # the Media ribbon on the right (D69): every kind, each source's, larger, Use this; ] folds it.
+                # It starts folded (UI pass 3, finding 1), so the rail opens it
+                started_folded = await pg.evaluate("() => !document.querySelector('#pane-media') && !!document.querySelector('#rail-media')")
+                await pg.click("#rail-media")
+                await pg.wait_for_selector('#inspector[data-tab="media"] #game-media .media-kind[data-kind="cover"] .media-variant[data-name="igdb"].chosen')
+                in_ribbon = await pg.eval_on_selector_all('#game-media .media-kind[data-kind="cover"] .media-variant', "els => els.map(e => e.dataset.name)")
+                await pg.click('#game-media .media-kind[data-kind="cover"] .media-variant[data-name="thegamesdb"] .media-thumb')
+                await pg.wait_for_selector("#media-view img")
+                await pg.screenshot(path=str(out / "53b-game-media.png"))
+                await pg.click('#game-media .media-kind[data-kind="cover"] .media-variant[data-name="thegamesdb"] [data-action="use"]')
+                await pg.wait_for_selector('#game-media .media-variant[data-name="thegamesdb"].chosen')
+                chosen_now = json.loads((alpha / "game.json").read_text()).get("chosen", {}).get("cover")
+                await pg.keyboard.press("]")
+                await pg.wait_for_function("() => !document.querySelector('#pane-media') && document.querySelector('#rail-media')")
+                await pg.click("#rail-media")
+                await pg.wait_for_selector("#pane-media #game-media")
+                check("a game's page has a ribbon on the right, folded at first, with every source's pictures by kind, larger on a click, Use this, folded with ]",
+                      started_folded and sorted(in_ribbon) == ["igdb", "thegamesdb"] and chosen_now == "thegamesdb", (started_folded, in_ribbon, chosen_now))
+                # a game's video (batch 4, Jerred: its sound played twice): a small one in the ribbon
+                # is an icon, not a player; one video starting pauses the other; one the app can't
+                # play offers the system's own player. A short WebM is recorded by the page itself.
+                webm = await pg.evaluate("""async () => {
+                  const c = document.createElement('canvas'); c.width = 64; c.height = 48;
+                  const g = c.getContext('2d'); let i = 0;
+                  const rec = new MediaRecorder(c.captureStream(15), { mimeType: 'video/webm' });
+                  const parts = []; rec.ondataavailable = (e) => parts.push(e.data);
+                  const done = new Promise((r) => { rec.onstop = r; });
+                  const t = setInterval(() => { g.fillStyle = `hsl(${i++ * 40},70%,50%)`; g.fillRect(0, 0, 64, 48); }, 50);
+                  rec.start(); await new Promise((r) => setTimeout(r, 1200)); rec.stop(); await done; clearInterval(t);
+                  const b = new Uint8Array(await new Blob(parts).arrayBuffer()); let s = '';
+                  for (const x of b) s += String.fromCharCode(x);
+                  return btoa(s);
+                }""")
+                (alpha / "media/video.webm").write_bytes(base64.b64decode(webm))
+                await pg.evaluate("() => { location.hash = '#/library'; }")
+                await pg.wait_for_selector("#lib-page")
+                await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Alpha (USA)'); }")
+                await pg.wait_for_selector('#game-strip [data-kind="video"] .game-strip-video')
+                await pg.click('#game-strip [data-kind="video"]')
+                await pg.wait_for_selector("#game-gallery video.game-hero")
+                await pg.wait_for_selector('#game-media .media-kind[data-kind="video"] .media-thumb')
+                small_players = await pg.eval_on_selector_all('#game-media .media-kind[data-kind="video"] video', "els => els.length")
+                await pg.click('#game-media .media-kind[data-kind="video"] .media-thumb')
+                await pg.wait_for_selector("#media-view video")
+                await pg.wait_for_function("() => [...document.querySelectorAll('#game-gallery video, #media-view video')].every((v) => v.readyState >= 1)")
+                playing = await pg.evaluate("""async () => {
+                  const [hero, big] = [document.querySelector('#game-gallery video'), document.querySelector('#media-view video')];
+                  for (const v of [hero, big]) v.muted = true;
+                  await hero.play(); await big.play();
+                  await new Promise((r) => setTimeout(r, 200));
+                  return [hero.paused, big.paused, document.querySelectorAll('video').length];
+                }""")
+                await pg.click("#media-view-close")
+                (alpha / "media/video.webm").unlink()
+                (alpha / "media/video.avi").write_bytes(b"RIFF\x00\x00\x00\x00AVI LIST" + bytes(64))
+                await pg.evaluate("() => { location.hash = '#/library'; }")
+                await pg.wait_for_selector("#lib-page")
+                await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Alpha (USA)'); }")
+                await pg.click('#game-strip [data-kind="video"]')
+                await pg.wait_for_selector('#game-gallery [data-video="cant-play"]')
+                cant = await pg.inner_text('#game-gallery [data-video="cant-play"]')
+                check("a game's video: a small one is an icon, not a player; one starting pauses the other; one the app can't play offers its own player",
+                      small_players == 0 and playing == [True, False, 2] and "can't play" in cant, (small_players, playing, cant))
+                (alpha / "media/video.avi").unlink()
+                await pg.evaluate("() => { location.hash = '#/library'; }")
+                await pg.wait_for_selector("#lib-page")
+                await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Alpha (USA)'); }")
+                await pg.wait_for_selector('#game-page[data-key="gb/Alpha (USA)"] #game-variants')
+                await pg.click('#game-variants button[data-name="igdb"]')
+                await pg.wait_for_selector('#game-variants button[data-name="igdb"][aria-pressed="true"]')
+                row = '.game-detail[data-field="description"]'
+                await pg.click(f"{row} .game-detail-others summary")
+                await pg.click(f'{row} .game-detail-others [data-source="igdb"] [data-action="use"]')
+                await pg.wait_for_function("() => document.querySelector('#game-description')?.value === 'Alpha from IGDB.'")
+                alpha_json = json.loads((alpha / "game.json").read_text())
+                check("a detail lists what the other sources said, and Use this takes it from one (kept over the source order)",
+                      alpha_json.get("pinned", {}).get("description") == "igdb" and alpha_json["details"]["description"] == "Alpha from IGDB.", alpha_json.get("pinned"))
+                await pg.click("#game-menu")
+                await pg.click('#context-menu [data-action="game-scrape-again"]')
+                await pg.wait_for_selector("#scrape-dialog #scrape-sources")
+                # review M42, D80: what's fetched is a line, its choices behind Change what's fetched…
+                short = await pg.evaluate("() => { const d = document.querySelector('#scrape-dialog'); return [!document.querySelector('#scrape-media'), d.scrollHeight <= d.clientHeight + 2, document.querySelector('#scrape-what-text')?.textContent || ''] }")
+                await pg.screenshot(path=str(out / "56b-scrape-short.png"))
+                await pg.click("#scrape-change")
+                await pg.wait_for_selector("#scrape-dialog #scrape-variants")
+                check("the Scrape window fits without scrolling, what's fetched in one line, its choices behind Change what's fetched… (D80)", short[0] and short[1] and "detail" in short[2], short)
+                again = await pg.evaluate("() => [document.querySelector('input[name=scrape-existing][value=replace]').checked, document.querySelector('#scrape-fresh').checked, document.querySelector('#scrape-dialog h2, #scrape-dialog .dialog-title')?.textContent || '']")
+                check("Scrape again… is the Scrape dialog set to replace and ask the sources afresh", again[0] and again[1] and "again" in again[2], again)
+                await pg.keyboard.press("Escape")
+                await pg.wait_for_selector("#scrape-dialog", state="detached")
+                await pg.click("#game-menu")
+                await pg.click('#context-menu [data-action="game-delete-metadata"]')
+                await pg.wait_for_selector("#meta-delete-dialog #meta-delete-what")
+                await pg.click("#meta-delete-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-dialog #organise-totals")
+                await pg.screenshot(path=str(out / "54-delete-metadata.png"))
+                await pg.click("#organise-dialog button[type=submit]")
+                said = await toast_text(pg, "Deleted")
+                alpha_json = json.loads((alpha / "game.json").read_text())
+                gone = not (alpha / "sources").exists() and not (alpha / "media/cover.png").exists() and not (alpha / "media/cover").exists()
+                check("Delete metadata… sets a game's details from sources and pictures aside; what you wrote and your own documents stay",
+                      gone and alpha_json["details"].get("developer") == "My Own Studio" and "description" not in alpha_json["details"] and (alpha / "docs/Alpha Map.txt").is_file(),
+                      (said, alpha_json.get("details"), sorted(x.name for x in alpha.rglob("*"))))
+                await pg.click("#toast .toast-action")
+                await toast_text(pg, "Undone")
+                alpha_json = json.loads((alpha / "game.json").read_text())
+                check("its Undo puts them back and the details are made again", (alpha / "media/cover.png").is_file() and alpha_json["details"].get("description") == "Alpha from IGDB.", alpha_json.get("details"))
+                sizes = cli_json("games", "sizes", "--home", str(home), "--json")
+                await pg.click('.sidebar a[href="#/settings"]')
+                await pg.click("#meta-sizes-work")
+                await pg.wait_for_selector('#meta-sizes tr[data-platform="gb"]')
+                shown = await pg.inner_text("#settings-metadata")
+                check("Settings › Metadata shows what the metadata takes, by system and kind, and which source each detail comes from",
+                      "Game Boy" in shown and "Box front" in shown and sizes.get("kinds", {}).get("cover", 0) > 0 and await pg.locator('#details-from select[data-field="description"]').count() == 1, (shown[:300], sizes.get("kinds")))
+                await pg.screenshot(path=str(out / "55-settings-metadata.png"), full_page=True)
 
-            # 11. narrow window: the menu becomes a drawer
-            await pg.set_viewport_size({"width": 700, "height": 800})
-            await pg.wait_for_timeout(300)  # the drawer slides
-            hidden = await pg.evaluate("() => document.querySelector('.sidebar').getBoundingClientRect().right <= 0")
-            await pg.click(".cmdbar .bar-burger")
-            await pg.wait_for_selector(".sidebar.open")
-            await pg.wait_for_timeout(300)
-            shown = await pg.evaluate("() => document.querySelector('.sidebar').getBoundingClientRect().left >= 0")
-            check("the menu is a drawer in a narrow window", hidden and shown, (hidden, shown))
-            await pg.screenshot(path=str(out / "06-narrow.png"))
+            async with Section(pg, B, "the theme and the skin"):
+                await pg.click('.sidebar a[href="#/settings"]')
+                await pg.wait_for_selector("#theme-select")
+
+                # 7. the theme
+                await pg.select_option("#theme-select", "night")
+                theme = await pg.evaluate("() => document.documentElement.dataset.theme")
+                await pg.wait_for_timeout(500)  # preferences are saved after a short pause
+                check("the theme follows the setting and is kept", theme == "night" and prefs().get("theme") == "night", (theme, prefs()))
+                await pg.screenshot(path=str(out / "03-night.png"))
+                await pg.select_option("#theme-select", "system")
+                check("the theme is chosen in one place, Settings › Appearance (the menu has no theme button)",
+                      await pg.query_selector("#theme-toggle") is None and await pg.query_selector("#settings-appearance #theme-select") is not None)
+
+                # 8. the skin: Drafting Sheet unless chosen, changed at once (icons too) and kept
+                first = await pg.evaluate("() => document.documentElement.dataset.skin")
+                drawn = lambda: pg.evaluate("() => [...document.querySelectorAll('.nav-link[title=Home] svg g[data-sk]')].find((g) => getComputedStyle(g).display !== 'none')?.dataset.sk")
+                icon_before = await drawn()
+                options = await pg.eval_on_selector_all("#skin-select option", "els => els.map(e => e.value)")
+                await pg.select_option("#skin-select", "classic")
+                skin = await pg.evaluate("() => document.documentElement.dataset.skin")
+                icon_after = await drawn()
+                await pg.wait_for_timeout(500)
+                await pg.screenshot(path=str(out / "03-classic.png"))
+                saved = prefs().get("skin")
+                await pg.select_option("#skin-select", "drafting")
+                check("the skin is Drafting Sheet unless chosen; Classic changes the look and icons at once and is kept",
+                      first == "drafting" and icon_before == "drafting" and options == ["drafting", "classic"]
+                      and skin == "classic" and icon_after == "classic" and saved == "classic", (first, icon_before, options, skin, icon_after, saved))
+
+            async with Section(pg, B, "batch 4: narrow windows, Previous and Next, Enter, Metadata's system"):
+                # batch 4: the Audit bar fits a 1000 px window (review H22); a game opened from
+                # elsewhere has no Previous and Next (M33); Enter opens a game's tile (M38); the
+                # filters' counts show at 1280 px (M43); a remembered system with no DAT doesn't
+                # leave Metadata on "To start" (H23)
+                await pg.set_viewport_size({"width": 1000, "height": 800})
+                await pg.evaluate("() => { location.hash = '#/audit/nes'; }")
+                await pg.wait_for_selector('#audit-pick[data-platform="nes"]', state="attached")
+                await pg.wait_for_selector("#audit-convert")
+                bar = await pg.evaluate("() => [document.scrollingElement.scrollWidth, innerWidth, Math.round(document.querySelector('#audit-head .more-btn-bar, #audit-head [id$=menu]')?.getBoundingClientRect().right || 0)]")
+                await pg.set_viewport_size({"width": 1280, "height": 900})
+                await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Delta (World)'); }")
+                await pg.wait_for_selector('#game-page[data-key="gb/Delta (World)"]')
+                walk = await pg.query_selector("#game-prev")
+                await pg.evaluate("() => { location.hash = '#/library'; }")
+                await pg.wait_for_selector('.lib-tile[data-key="gb/Delta (World)"]')
+                filters = await pg.evaluate("() => { const f = document.querySelector('.lib-filters'); return [f.scrollWidth, f.clientWidth]; }")
+                await pg.focus('.lib-tile[data-key="gb/Delta (World)"]')
+                await pg.keyboard.press("Enter")
+                await pg.wait_for_selector('#game-page[data-key="gb/Delta (World)"]')
+                inv = "(a) => window.__TAURI__.core.invoke('api', a)"
+                kept = await pg.evaluate(f"async () => ({inv})({{ cmd: 'prefs_get', args: {{}} }})")
+                kept["gr-meta"] = {**kept.get("gr-meta", {}), "platform": "snes"}
+                await pg.evaluate(f"async (p) => ({inv})({{ cmd: 'prefs_set', args: {{ prefs: p }} }})", kept)
+                await pg.reload()
+                await pg.evaluate("() => { location.hash = '#/metadata'; }")
+                await pg.wait_for_selector("#meta-scrape")
+                check("the Audit bar fits a narrow window; a game opened from elsewhere has no Previous and Next; Enter opens a game; the filters fit; Metadata picks a system with a DAT",
+                      bar[0] <= bar[1] and 0 < bar[2] <= bar[1] and walk is None and filters[0] <= filters[1], (bar, walk, filters))
+                await pg.set_viewport_size({"width": 1400, "height": 900})
+
+            async with Section(pg, B, "About, a newer library and a narrow window"):
+                # 9. About: versions, what's coming and the layout
+                await pg.click('.sidebar a[href="#/about"]')
+                await pg.wait_for_selector("#about-versions")
+                about = await pg.inner_text("#about-page")
+                check("About shows the version, what's coming and how a library is laid out",
+                      "Game Repo" in about and "Phase 9" in about and "_library/" in about and "game.json" in about, about[:200])
+                await pg.screenshot(path=str(out / "04-about.png"), full_page=True)
+
+                # 10. a library made by a newer app opens read-only
+                future = home / "Future"
+                (future / "_library").mkdir(parents=True)
+                (future / "_library/library.json").write_text(json.dumps({"format": 99, "id": "lib-future", "name": "Future"}))
+                await pg.click('.sidebar a[href="#/settings"]')
+                pick(future)
+                await pg.click("#open-library")
+                await pg.wait_for_function("() => document.querySelector('#library-path')?.textContent.endsWith('Future')")
+                disabled = await pg.is_disabled("#library-name")
+                await pg.goto(B + "#/")
+                await pg.wait_for_selector(".home .warn-note")
+                note = await pg.inner_text(".home .warn-note")
+                check("a newer library opens read-only", disabled and "read-only" in note and sorted(x.name for x in future.iterdir()) == ["_library"]
+                      and not (future / "_library/README.txt").exists(), note)
+                await pg.screenshot(path=str(out / "05-read-only.png"))
+
+                # 11. narrow window: the menu becomes a drawer
+                await pg.set_viewport_size({"width": 700, "height": 800})
+                await pg.wait_for_timeout(300)  # the drawer slides
+                hidden = await pg.evaluate("() => document.querySelector('.sidebar').getBoundingClientRect().right <= 0")
+                await pg.click(".cmdbar .bar-burger")
+                await pg.wait_for_selector(".sidebar.open")
+                await pg.wait_for_timeout(300)
+                shown = await pg.evaluate("() => document.querySelector('.sidebar').getBoundingClientRect().left >= 0")
+                check("the menu is a drawer in a narrow window", hidden and shown, (hidden, shown))
+                await pg.screenshot(path=str(out / "06-narrow.png"))
+            for i, (name, part) in enumerate(OWN_HOMES, 1):
+                await own_home(b, name, a.port + i, part)
             await b.close()
     finally:
         server.terminate()
