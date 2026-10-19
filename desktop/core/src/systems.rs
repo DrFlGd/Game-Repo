@@ -122,6 +122,8 @@ mod tests {
         let mut s2 = System::from_json(&json!({ "id": "gizmo", "name": "Gizmo", "dat_names": ["Acme - Gizmo"], "media": "cartridge" })).unwrap();
         set(&lib, &s2, Some("acmegizmo")).unwrap();
         assert!(platforms::by_id("acmegizmo").is_none());
+        // (folder names are kept for scans, review M45: made again when the systems change)
+        assert_eq!(platforms::from_folder("gizmo").map(|p| p.id), Some("gizmo"));
         assert_eq!(platforms::formats("gizmo"), ["zip"]);
         // an id a DAT was given before shows as a system until it's described
         lib.update_meta(json!({ "dat_platforms": { "Nintendo - Satellite": "sat" } })).unwrap();
@@ -130,9 +132,11 @@ mod tests {
         s2.name = "Gizmo Two".into();
         set(&lib, &s2, None).unwrap();
         assert_eq!(platforms::name_of("gizmo"), "Gizmo Two");
+        assert_eq!(platforms::from_folder("Gizmo Two").map(|p| p.id), Some("gizmo"));
         remove(&lib, "gizmo").unwrap();
         remove(&lib, "sat").unwrap();
         assert!(platforms::by_id("gizmo").is_none() && platforms::by_id("sat").is_none());
+        assert!(platforms::from_folder("gizmo").is_none());
         platforms::configure(&json!({}));
         let _ = std::fs::remove_dir_all(&dir);
     }

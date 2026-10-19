@@ -6,6 +6,7 @@
 
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::sync::RwLock;
 
 pub struct Platform {
@@ -212,8 +213,13 @@ pub fn configure(meta: &Value) {
             out.push((Box::leak(Box::new(p)), Media::Cartridge));
         }
     }
+    // (the folder names are held while the table changes, so none are made from the old one)
+    let mut folders = FOLDERS.write().ok();
     if let Ok(mut c) = CUSTOM.write() {
         *c = out;
+    }
+    if let Some(f) = folders.as_mut() {
+        **f = None;
     }
 }
 
@@ -302,13 +308,26 @@ pub fn from_folder(name: &str) -> Option<&'static Platform> {
     if n.is_empty() {
         return None;
     }
-    all().find(|p| {
-        squash(p.id) == n
-            || squash(p.name) == n
-            || p.folders.iter().any(|f| squash(f) == n)
-            || p.dat_names.iter().any(|d| squash(d) == n)
-    })
+    if let Some(found) = FOLDERS.read().ok().and_then(|f| f.as_ref().map(|f| f.get(&n).copied())) {
+        return found;
+    }
+    let mut f = FOLDERS.write().ok()?;
+    // every name a system's folder can have, the first system's when two share one; made
+    // once, as a scan asks for each file's folders (review M45)
+    let names = f.get_or_insert_with(|| {
+        let mut names = HashMap::new();
+        for p in all() {
+            for name in [p.id, p.name].into_iter().chain(p.folders.iter().copied()).chain(p.dat_names.iter().copied()) {
+                names.entry(squash(name)).or_insert(p);
+            }
+        }
+        names
+    });
+    names.get(&n).copied()
 }
+
+/// [`from_folder`]'s names, made again when the library's systems change.
+static FOLDERS: RwLock<Option<HashMap<String, &'static Platform>>> = RwLock::new(None);
 
 /// The platform an extension belongs to, when only one platform uses it.
 pub fn from_ext(ext: &str) -> Option<&'static Platform> {

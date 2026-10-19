@@ -7,9 +7,10 @@ name: Desktop
 # section. Windows is the only platform for now (decision D3, docs/PLAN.md):
 # the Linux app and the Linux-to-Windows library check run only when asked for, from
 # Run workflow with "Linux too" ticked. Reports and screenshots go to the
-# desktop-ci-<os> branches. The token is read-only except in the two jobs that
-# write (reports and release), which run no build or test code; actions are pinned to
-# commits and tools to exact versions.
+# desktop-ci-<os> branches (a pull request's to desktop-ci-<os>-pr). The token is
+# read-only except in the two jobs that write (reports and release), which run no build
+# or test code; actions are pinned to commits and tools to exact versions. Only a push
+# to main publishes: Run workflow on main builds and tests but doesn't publish again.
 on:
   push:
     branches: [main]
@@ -71,7 +72,8 @@ jobs:
       - name: System packages
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 xvfb webkit2gtk-driver
+          # mame-tools: chdman, for the test that checks the CHDs written here (review M46)
+          sudo apt-get install -yq libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 xvfb webkit2gtk-driver mame-tools
           pip install selenium==4.51.0 playwright==1.64.0
           python -m playwright install --with-deps chromium 2>&1 | tail -2
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
@@ -81,12 +83,19 @@ jobs:
         run: python tools/set_version.py "${{ needs.version.outputs.version }}"
       - name: Check and test the Rust code
         working-directory: desktop
+        env:
+          GAMEREPO_TEST_CHDMAN: "1"   # chdman is installed: its test must run (review M46)
         run: |
           mkdir -p ../ci-out
           cargo build --release -p gamerepo-core 2>&1 | tee ../ci-out/core-build.log
           cargo test --release -p gamerepo-core 2>&1 | tee ../ci-out/core-test.log
           # the performance targets of docs/PLAN.md (100k-file rescan, 50k-ROM DAT), on generated data
           cargo test --release -p gamerepo-core -- --ignored timing --nocapture --test-threads=1 2>&1 | tee ../ci-out/core-timing.log
+          # every timing test ran: a filter that matches none passes too (review M46)
+          want=$(grep -rhoE "fn timing_[a-z0-9_]+" core/src | sort -u | wc -l)
+          ran=$(grep -oE "test result: ok\. [0-9]+ passed" ../ci-out/core-timing.log | awk '{n += $4} END {print n + 0}')
+          echo "timing tests: $ran of $want"
+          [ "$ran" -eq "$want" ] || { echo "::error title=Timing tests::$ran of the $want timing tests ran"; exit 1; }
           cp Cargo.lock ../ci-out/Cargo.lock
       - name: Front end
         run: |
@@ -103,8 +112,10 @@ jobs:
         if: always()
         run: |
           mkdir -p dist
-          find desktop/target/release/bundle -maxdepth 2 \( -name '*.AppImage' -o -name '*.deb' \) -exec cp {} dist/ \; || true
+          find desktop/target/release/bundle -maxdepth 2 \( -name '*.AppImage' -o -name '*.deb' \) -exec cp {} dist/ \;
           ls -la dist | tee -a ci-out/bundles.txt
+          # a bundle that wasn't made fails here, not later in the release (review M46)
+          ls dist/*.AppImage dist/*.deb > /dev/null
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: bundles-linux, path: dist/, retention-days: 3 }
       - name: Start the app once (startup log)
@@ -153,16 +164,39 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with: { workspaces: desktop }
+      # chdman, for the test that checks the CHDs written here (review M46): from MAME's
+      # own Windows build, its SHA-256 checked, kept between runs
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with: { path: ci-tools, key: chdman-mame0289-x64 }
+      - name: chdman (MAME 0.289)
+        run: |
+          if [ ! -f ci-tools/chdman.exe ]; then
+            mkdir -p ci-tools
+            tmp=$(cygpath -u "$RUNNER_TEMP")
+            curl -sSfL -o "$tmp/mame.exe" https://github.com/mamedev/mame/releases/download/mame0289/mame0289b_x64.exe
+            echo "a1aa7912168c9d1b05e611906bc21b8b9be3935822aead36d12a1da363150b7d  $tmp/mame.exe" | sha256sum -c -
+            7z e -y -oci-tools "$(cygpath -w "$tmp/mame.exe")" chdman.exe > /dev/null
+            rm "$tmp/mame.exe"
+          fi
+          (ci-tools/chdman.exe || true) 2>&1 | head -1
+          cygpath -w "$PWD/ci-tools" >> "$GITHUB_PATH"
       - name: Version ${{ needs.version.outputs.version }}
         run: python tools/set_version.py "${{ needs.version.outputs.version }}"
       - name: Check and test the Rust code
         working-directory: desktop
+        env:
+          GAMEREPO_TEST_CHDMAN: "1"   # chdman is installed: its test must run (review M46)
         run: |
           mkdir -p ../ci-out
           cargo build --release -p gamerepo-core 2>&1 | tee ../ci-out/core-build.log
           cargo test --release -p gamerepo-core 2>&1 | tee ../ci-out/core-test.log
           # the performance targets of docs/PLAN.md (100k-file rescan, 50k-ROM DAT), on generated data
           cargo test --release -p gamerepo-core -- --ignored timing --nocapture --test-threads=1 2>&1 | tee ../ci-out/core-timing.log
+          # every timing test ran: a filter that matches none passes too (review M46)
+          want=$(grep -rhoE "fn timing_[a-z0-9_]+" core/src | sort -u | wc -l)
+          ran=$(grep -oE "test result: ok\. [0-9]+ passed" ../ci-out/core-timing.log | awk '{n += $4} END {print n + 0}')
+          echo "timing tests: $ran of $want"
+          [ "$ran" -eq "$want" ] || { echo "::error title=Timing tests::$ran of the $want timing tests ran"; exit 1; }
           cp Cargo.lock ../ci-out/Cargo.lock
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: cli-windows, path: desktop/target/release/gamerepo-cli.exe, retention-days: 3 }
@@ -189,7 +223,8 @@ jobs:
         if: always()
         run: |
           mkdir -p dist
-          cp desktop/target/release/bundle/nsis/*.exe dist/ 2>/dev/null || true
+          # a missing installer fails here, not later in the release (review M46)
+          cp desktop/target/release/bundle/nsis/*.exe dist/
           ls -la dist | tee -a ci-out/bundles.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: bundles-windows, path: dist/, retention-days: 3 }
@@ -211,7 +246,8 @@ jobs:
   reports:
     name: Reports
     needs: [linux, windows]
-    if: always()
+    # (a pull request from a fork has no token to push with)
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -222,6 +258,8 @@ jobs:
       - name: Publish reports to desktop-ci-<os>
         env:
           GH_TOKEN: ${{ github.token }}
+          # main's reports stay main's: a pull request's go to desktop-ci-<os>-pr (review M46)
+          SUFFIX: ${{ github.event_name == 'pull_request' && '-pr' || '' }}
         run: |
           for os in linux windows; do
             [ -d "reports/reports-$os" ] || continue
@@ -229,10 +267,10 @@ jobs:
             (
               cd "reports/reports-$os"
               echo "${GITHUB_SHA}" > COMMIT
-              git init -q && git checkout -q -b "desktop-ci-$os"
+              git init -q && git checkout -q -b "desktop-ci-$os$SUFFIX"
               git -c user.name=ci -c user.email=ci@users.noreply.github.com add -A
               git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Desktop checks ($name) for ${GITHUB_SHA::7}"
-              git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" "desktop-ci-$os"
+              git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" "desktop-ci-$os$SUFFIX"
             )
           done
 
@@ -268,10 +306,11 @@ jobs:
   release:
     name: Release
     needs: [version, linux, windows, portability]
-    # only from main, and only when every check that ran passed (Linux and the
-    # portability check are skipped unless asked for)
+    # only for a push to main (review M46: Run workflow on main published the same code
+    # again), and only when every check that ran passed (Linux and the portability check
+    # are skipped unless asked for)
     if: >-
-      always() && github.ref == 'refs/heads/main' && needs.version.result == 'success' &&
+      always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.result == 'success' &&
       needs.windows.result == 'success' &&
       contains(fromJSON('["success","skipped"]'), needs.linux.result) &&
       contains(fromJSON('["success","skipped"]'), needs.portability.result)
@@ -313,3 +352,22 @@ jobs:
           } > notes.md
           gh release create "v$V" dist/* --title "Game Repo $V" --notes-file notes.md --target "$GITHUB_SHA" --latest
           echo "::notice title=Released::Game Repo $V"
+      - name: The version's heading in CHANGELOG.md
+        # what was just published under Unreleased gets its version's heading on main, so the
+        # next release's notes start empty (review M46); a push with this token starts no run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          [ -s unreleased.md ] || { echo "Nothing was under Unreleased."; exit 0; }
+          git fetch -q origin main
+          if ! git diff --quiet "$GITHUB_SHA" FETCH_HEAD -- CHANGELOG.md; then
+            echo "::warning title=Changelog::CHANGELOG.md changed on main after this build: the next pull request gives Unreleased its heading"
+            exit 0
+          fi
+          git checkout -q -B main FETCH_HEAD
+          awk -v h="## $V ($(date -u +%Y-%m-%d))" '!done && /^## Unreleased[[:space:]]*$/ { print; print ""; print h; done = 1; next } { print }' CHANGELOG.md > CHANGELOG.new
+          mv CHANGELOG.new CHANGELOG.md
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qam "CHANGELOG.md: $V is published"
+          git push -q "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:main \
+            || echo "::warning title=Changelog::couldn't push the heading: the next pull request gives Unreleased its heading"

@@ -14,3 +14,6 @@ No-Intro, Redump or anyone else are kept here.
 - `version.rar` is a test file of the [unrar](https://crates.io/crates/unrar)
   crate (MIT or Apache-2.0), as Model Library uses it: one file, `VERSION`,
   holding `unrar-0.4.0`. RAR can't be written by free tools, so it's committed.
+- `fake_dolphin_tool.py` stands in for dolphin-tool (`convert` and `verify` as the
+  app calls them); `fake_dolphin_tool.cmd` runs it on Windows, where a Python
+  script can't be started as a program.

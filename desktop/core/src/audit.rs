@@ -1191,14 +1191,24 @@ pub mod tests {
         let s = summary(f.ix.conn(), gc_id).unwrap();
         assert_eq!((s["have"].as_i64(), s["needs_tool"].as_i64()), (Some(0), Some(1)), "{s}");
         assert_eq!(home(&f.ix, &f.lib).unwrap()["needs_tool"], 1);
-        #[cfg(unix)]
         {
-            // a stand-in for dolphin-tool, printing what verify does
-            use std::os::unix::fs::PermissionsExt;
+            // a stand-in for dolphin-tool, printing what verify does (a batch file on Windows, review M46)
             let h = hash_reader(&mut &cube[..], cube.len() as u64, "x", &AtomicBool::new(false)).unwrap();
-            let tool = f.dir.join("tools/dolphin-tool");
-            write(&tool, format!("#!/bin/sh\necho 'Problems Found: No'\necho 'CRC32: {}'\necho 'SHA1: {}'\n", h.crc32, h.sha1.unwrap()).as_bytes());
-            std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let says = format!("echo Problems Found: No\necho CRC32: {}\necho SHA1: {}\n", h.crc32, h.sha1.unwrap());
+            #[cfg(unix)]
+            let tool = {
+                use std::os::unix::fs::PermissionsExt;
+                let tool = f.dir.join("tools/dolphin-tool");
+                write(&tool, format!("#!/bin/sh\n{says}").as_bytes());
+                std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+                tool
+            };
+            #[cfg(windows)]
+            let tool = {
+                let tool = f.dir.join("tools/dolphin-tool.cmd");
+                write(&tool, format!("@echo off\r\n{}", says.replace('\n', "\r\n")).as_bytes());
+                tool
+            };
             crate::tools::configure(&[("dolphin-tool".to_string(), tool)].into());
             run_scan(&f, false);
             crate::tools::configure(&Default::default());
@@ -1269,8 +1279,11 @@ pub mod tests {
             took = took.min(t.elapsed());
             assert_eq!(again["hashed"], 0);
         }
-        eprintln!("first scan {}s; rescan of 100,000 unchanged files {took:?}", first["seconds"]);
+        eprintln!("first scan {}s ({}); rescan of 100,000 unchanged files {took:?}", first["seconds"], first["took"]);
         assert!(took.as_secs_f64() < 5.0, "rescan took {took:?}");
+        // review M45: Windows' first scan took 188 s against 8 s on Linux (its index was
+        // written 250 files at a time, a checkpoint each)
+        assert!(first["seconds"].as_f64().unwrap() < 30.0, "first scan took {}s ({})", first["seconds"], first["took"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
