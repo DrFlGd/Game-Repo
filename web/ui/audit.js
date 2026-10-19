@@ -19,6 +19,7 @@ import { Icon } from "./icons.js";
 import { addGameDialog } from "./pcgames.js";
 import { gameHash } from "./browse.js";
 import { openMenu } from "./actions.js";
+import { importFrom } from "./importpage.js";
 
 const PAGE = 200;
 
@@ -234,9 +235,10 @@ export function Audit() {
     { id: "save-report", label: "Save the report", icon: "file", disabled: !dat, run: () => saveReport("txt") },
     { id: "save-report-csv", label: "Save the report as CSV", icon: "table", disabled: !dat, run: () => saveReport("csv") },
     { sep: true },
-    { id: "add-game", label: "Import a game file…", icon: "plus", disabled: !!s.library?.read_only, run: () => addGameDialog({ platform: sum?.dat.platform && sum.dat.platform !== "pc" ? sum.dat.platform : "" }) },
+    // the imports are the Import page's (D78)
+    { id: "add-game", label: "Import a game file…", icon: "plus", disabled: !!s.library?.read_only, run: () => importFrom("import-copy", () => addGameDialog({ platform: sum?.dat.platform && sum.dat.platform !== "pc" ? sum.dat.platform : "" })) },
     { id: "make-dat", label: "Make a DAT from a folder…", icon: "stack", run: () => ui.set({ dialog: { type: "make-dat" } }) },
-    ...(isDesktop() ? [{ id: "import-dats", label: "Import DATs…", icon: "plus", run: () => importDats() }] : []),
+    ...(isDesktop() ? [{ id: "import-dats", label: "Import DATs…", icon: "plus", run: () => importFrom("settings-dats", () => importDats()) }] : []),
   ];
 
   const pName = sum && (sum.platform_name || data.platforms.find((p) => p.id === sum.dat.platform)?.name);
@@ -264,8 +266,8 @@ export function Audit() {
           <li>Scan. Each file is read once; a second scan only reads what changed.</li>
         </ol>
         <div class="home-actions">
-          <button type="button" class="primary" id="audit-starter" disabled=${!!s.library?.read_only} onClick=${() => starterDats()}>Get starter DATs…</button>
-          ${isDesktop() ? html`<button type="button" class="ghost" id="audit-import" disabled=${!!s.library?.read_only} onClick=${() => importDats()}>Import DATs…</button>` : null}
+          <button type="button" class="primary" id="audit-starter" disabled=${!!s.library?.read_only} onClick=${() => importFrom("settings-dats", () => starterDats())}>Get starter DATs…</button>
+          ${isDesktop() ? html`<button type="button" class="ghost" id="audit-import" disabled=${!!s.library?.read_only} onClick=${() => importFrom("settings-dats", () => importDats())}>Import DATs…</button>` : null}
           <button type="button" class="ghost" disabled=${!!s.library?.read_only} onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a folder…</button>
         </div>
       </section>

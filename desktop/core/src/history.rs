@@ -23,7 +23,7 @@ use std::path::PathBuf;
 const KEEP: usize = 500;
 /// How many games a change of rules or a reading again lists (it's undone by what was
 /// before, not by its games).
-const SHOWN: usize = 50;
+const SHOWN: usize = 1000;
 
 fn keys(w: &Worked) -> BTreeSet<String> {
     w.games().map(|g| g.key()).collect()

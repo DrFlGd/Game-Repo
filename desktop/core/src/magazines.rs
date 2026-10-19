@@ -279,7 +279,7 @@ fn free(taken: &mut HashSet<String>, name: &str, ext: &str) -> String {
 
 /// Plan bringing the items into their magazines' folders (copied, hardlinked on the same
 /// drive unless `always_copy`), each folder's `magazine.json` written with them.
-pub fn plan(lib: &Library, items: &[Item], always_copy: bool) -> Result<Plan> {
+pub fn plan(lib: &Library, items: &[Item], mode: &str, always_copy: bool) -> Result<Plan> {
     lib.writable()?;
     let items: Vec<&Item> = items.iter().filter(|i| i.include).collect();
     if items.is_empty() {
@@ -319,7 +319,11 @@ pub fn plan(lib: &Library, items: &[Item], always_copy: bool) -> Result<Plan> {
         let name = free(&mut t.taken, &issue_name(&t.mag.title, number.as_deref(), date.as_deref()), &ext);
         let to = t.dir.join(&name);
         let size = std::fs::metadata(&src)?.len();
-        let op = if !always_copy && organise::same_drive(&src, &t.dir) { "link" } else { "copy" };
+        let op = match mode {
+            "move" => "move",
+            _ if !always_copy && organise::same_drive(&src, &t.dir) => "link",
+            _ => "copy",
+        };
         let s: Src = Src { size, sha1: Some(it.sha1.clone()).filter(|h| !h.is_empty()), ..outside(&src) };
         t.ops.push(Op { op: op.into(), game: t.mag.title.clone(), to: to.display().to_string(), from: vec![s], names: vec![], aside: vec![], size, note: None });
         t.mag.issues.push(Issue { number, date, file: name, size, sha1: Some(it.sha1.clone()).filter(|h| !h.is_empty()), added: now(), ..Default::default() });
@@ -881,7 +885,7 @@ mod tests {
             ("Nintendo Power".to_string(), Some("13".to_string()), Some("1990-06".to_string())),
             ("Nintendo Power".to_string(), Some("14".to_string()), None),
         ]);
-        let p = plan(&lib, &items, true).unwrap();
+        let p = plan(&lib, &items, "copy", true).unwrap();
         assert_eq!((p.kind.as_str(), p.games), ("magazines", 3));
         let r = organise::run(&ix, &lib, &p, &cancel, &mut |_| {}).unwrap();
         assert_eq!(r["failed"], json!([]), "{r}");
@@ -897,7 +901,7 @@ mod tests {
         assert!(found["items"].as_array().unwrap().iter().any(|d| d["title"] == "Nintendo Power 12 (1990-05)" && d["view"] == "comic"));
         let again = read_items(&lib, &[from.clone()], &cancel, &mut |_| {}).unwrap();
         assert!(again.iter().all(|i| i.have && !i.include));
-        assert!(plan(&lib, &again, true).is_err());
+        assert!(plan(&lib, &again, "copy", true).is_err());
         // pages in order, the first the cover; a PDF that isn't a scan has none until one's dropped on it
         let cbz = mag.join("Nintendo Power 012 (1990-05).cbz");
         assert_eq!(pages(&cbz).unwrap(), ["page1.png", "page2.png", "page10.png"]);
@@ -955,7 +959,7 @@ mod tests {
         comic(&more.join("Nintendo Power 016 (1990-09).cbz"), &[("01.png", png(16))]);
         let items = read_items(&lib, &[more.join("Nintendo Power 016 (1990-09).cbz")], &cancel, &mut |_| {}).unwrap();
         assert_eq!(items[0].title, "Nintendo Power");
-        let p16 = plan(&lib, &items, true).unwrap();
+        let p16 = plan(&lib, &items, "copy", true).unwrap();
         organise::run(&ix, &lib, &p16, &cancel, &mut |_| {}).unwrap();
         let (_, m) = by_title(&lib, "Nintendo Power (US)").unwrap();
         assert_eq!(m.issues.len(), 4, "{m:?}");

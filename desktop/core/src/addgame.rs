@@ -210,8 +210,8 @@ pub fn plan(lib: &Library, files: &[PathBuf], platform: &str, into: &Path, mode:
         id: organise::new_id(),
         created: now(),
         kind: "add".into(),
-        label: format!("Add {games} game{} to {name}", if games == 1 { "" } else { "s" }),
-        title: String::new(),
+        label: format!("Imported {games} game{} into {name}", if games == 1 { "" } else { "s" }),
+        title: format!("Import {games} game{} into {name}", if games == 1 { "" } else { "s" }),
         dat: Value::Null,
         platform: platform.into(),
         mode: mode.into(),
@@ -377,6 +377,8 @@ mod tests {
         let cancel = AtomicBool::new(false);
         let plan = plan(&lib, &[elsewhere.join("zeta.gb"), elsewhere.join("homebrew.gb")], "gb", &roms, "copy", true, &cancel).unwrap();
         assert_eq!((plan.games, plan.ops.len(), plan.kind.as_str()), (2, 2, "add"));
+        // review M40: the preview's title says what it will do, History's label what it did
+        assert_eq!((plan.title.as_str(), plan.label.as_str()), ("Import 2 games into Game Boy", "Imported 2 games into Game Boy"));
         organise::run(&ix, &lib, &plan, &cancel, &mut |_| {}).unwrap();
         assert!(roms.join("zeta.gb").is_file() && elsewhere.join("zeta.gb").is_file());
         let opts = crate::scan::Options { only: Some(plan.ops.iter().map(|o| PathBuf::from(&o.to)).collect()), ..Default::default() };

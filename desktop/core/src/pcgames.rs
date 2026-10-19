@@ -1075,8 +1075,8 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
         id: organise::new_id(),
         created: now(),
         kind: "import".into(),
-        label: format!("Import {n} PC game{}", if n == 1 { "" } else { "s" }),
-        title: String::new(),
+        label: format!("Imported {n} PC game{}", if n == 1 { "" } else { "s" }),
+        title: format!("Import {n} PC game{}", if n == 1 { "" } else { "s" }),
         dat: Value::Null,
         platform: "pc".into(),
         mode: mode.into(),
@@ -1324,6 +1324,7 @@ pub(crate) mod tests {
         items.iter_mut().find(|i| i.kind == "gog").unwrap().ids.insert("gog".into(), "1308320804".into());
         let plan = plan_import(&lib, &items, "copy", true).unwrap();
         assert_eq!(plan.games, 3);
+        assert_eq!((plan.title.as_str(), plan.label.as_str()), ("Import 3 PC games", "Imported 3 PC games"), "review M40");
         assert_eq!(plan.ops.iter().filter(|o| o.op == "text").count(), 3);
         let ix = crate::index::Index::open(&dir.join("index.sqlite"), &lib.id().unwrap()).unwrap();
         let r = organise::run(&ix, &lib, &plan, &cancel, &mut |_| {}).unwrap();

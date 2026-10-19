@@ -245,15 +245,16 @@ pub fn found_for(conn: &Connection, lib: &Library, system: &str) -> Result<Vec<(
 /// Plan *Gather the BIOS files*: a copy of each one found into the library's
 /// `BIOS/<system>/` (hardlinked on the same drive), nested as its DAT says, as an
 /// Organise change. The folder becomes a folder with games when it isn't in one.
-pub fn gather_plan(ix: &Index, lib: &Library) -> Result<Plan> {
+pub fn gather_plan(ix: &Index, lib: &Library, mode: &str, always_copy: bool) -> Result<Plan> {
     lib.writable()?;
     let list = dats(ix.conn())?;
     let Some((dat_id, _)) = list.first() else { bail!("Import a BIOS DAT first (Get starter DATs offers libretro's).") };
     let out = lib.root().join(FOLDER);
     let mut plan = organise::plan(ix, lib, &organise::Options {
-        dat_id: *dat_id, mode: "copy".into(), out: Some(out.clone()), format: "loose".into(), partial: true, per_game_folder: true,
+        dat_id: *dat_id, mode: if mode == "move" { "move".into() } else { "copy".into() }, always_copy, out: Some(out.clone()), format: "loose".into(), partial: true, per_game_folder: true,
         ..Default::default()
     })?;
+    plan.kind = "bios".into();
     plan.label = "Imported the BIOS files into the library's BIOS folder".into();
     plan.title = "Import the BIOS files into the library's BIOS folder".into();
     if organise::in_root(&roots::list(lib), &out.join("x")).is_none() {

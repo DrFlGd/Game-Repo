@@ -211,7 +211,11 @@ export function GamePage() {
     title: `Identify ${g.title}`, query: g.title, year: g.year, platform: "pc",
     onPick: async (x) => { await api("identify_pick", { source: x.source, id: x.id, game: g.pc_id, retitle: true }); await api("browse"); await reload(); },
   });
-  useDroppedFiles((paths) => { if (g && !off) attach(paths); });
+  useDroppedFiles((paths) => {
+    if (!g || off) return false;
+    attach(paths);
+    return true;
+  });
   const save = async (field, value) => {
     setBusy(true);
     setError("");

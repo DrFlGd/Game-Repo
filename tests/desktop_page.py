@@ -340,6 +340,8 @@ async def main():
                 pick(fx / "dats" / f)
             await pg.click("#home-import")
             await pg.wait_for_selector("#dat-platform-dialog")
+            # review M41 (D78): the import is the Import page's, opened at its DAT files
+            home_import_at = await pg.evaluate("() => [location.hash, !!document.querySelector('#import-page[data-at=\"settings-dats\"] #settings-dats')]")
             asked = await pg.inner_text("#dat-platform-dialog")
             # a new system, named here (its id follows from the name)
             await pg.select_option("#dat-platform-0", "__new")
@@ -354,6 +356,16 @@ async def main():
             check("DATs are imported (a zipped one too) and copied into the library; an unknown one is asked about, its new system added and remembered",
                   "Satellaview" in asked and len(dat_files) == 3 and dat_files[0].startswith("gb/") and remembered.get("Nintendo - Satellaview") == "satellaview"
                   and new_id == "satellaview" and systems.get("satellaview", {}).get("dat_names") == ["Nintendo - Satellaview"], (dat_files, remembered, new_id, systems))
+            check("Home's Import DATs… opens the Import page at its DAT files and imports there (review M41, D78)", home_import_at == ["#/import/settings-dats", True], home_import_at)
+            # a file dropped where no page takes it goes to the Import page, asked what it is (D78)
+            await pg.goto(B + "#/")
+            await pg.wait_for_selector("#home-platforms")
+            await pg.evaluate("(p) => window.__shimEmit('tauri://drag-drop', { paths: [p], position: { x: 400, y: 400 } })", str(fx / "dats" / "gb.dat"))
+            await pg.wait_for_selector("#import-drop-dialog")
+            dropped_as = await pg.evaluate("() => [location.hash, document.querySelector('#import-drop-kind input:checked')?.value]")
+            await pg.click("#import-drop-dialog-cancel")
+            check("a DAT dropped on Home goes to the Import page, taken for a DAT (D78)", dropped_as == ["#/import/import-dropped", "dats"], dropped_as)
+            await pg.goto(B + "#/")
             await pg.wait_for_selector('#home-platforms [data-platform="gb"]')
             bar = await pg.inner_text('#home-platforms [data-platform="gb"]')
             check("Home shows each system against its DAT, with one per title (1G1R)", "3 of 6" in bar and "One per title 3 of 5" in bar, bar)
@@ -523,7 +535,14 @@ async def main():
             await pg.click('.sidebar a[href="#/history"]')
             await pg.wait_for_selector("#history li")
             states = await pg.eval_on_selector_all("#history li", "els => els.map(e => e.dataset.state)")
+            days = await pg.eval_on_selector_all("#history .day-group", "els => els.map(e => [e.open, e.querySelector('summary').textContent])")
+            await pg.click('#history li:first-child [data-action="steps"]')
+            await pg.wait_for_selector("#history li:first-child .change-step")
+            steps_shown = await pg.eval_on_selector_all("#history li:first-child .change-step", "els => els.map(e => e.dataset.op)")
             await pg.screenshot(path=str(out / "16-history.png"), full_page=True)
+            await pg.click('#history li:first-child [data-action="steps"]')
+            check("History is grouped by day, the newest open, and a change opens to the steps it took (D78)",
+                  len(days) == 1 and days[0][0] and days[0][1].startswith("Today") and "3 changes" in days[0][1] and len(steps_shown) > 0, (days, steps_shown))
             await pg.click('#history li:first-child [data-action="undo"]')
             await toast_text(pg, "Undone")
             gone = not sorted_dir.exists() or not any(sorted_dir.iterdir())
@@ -1092,6 +1111,7 @@ async def main():
             unknown_as = await pg.input_value('#import-games-unknown li[data-folder="Wanted"] select')
             await pg.wait_for_selector('#import-places li[data-platform="gb"][data-dir]:not([data-dir=""])')
             place = await pg.get_attribute('#import-places li[data-platform="gb"]', "data-dir")
+            games_first = await pg.evaluate("() => !!(document.querySelector('#import-games-systems').compareDocumentPosition(document.querySelector('#import-places')) & Node.DOCUMENT_POSITION_FOLLOWING)")
             await pg.screenshot(path=str(out / "23d-import-review.png"))
             # the window stays when the page behind it is clicked; closed, it comes back where it was
             await pg.mouse.click(5, 5)
@@ -1104,9 +1124,17 @@ async def main():
             await pg.click("#import-games-review button[type=submit]")
             await pg.wait_for_selector("#bring-dialog #organise-totals")
             await pg.screenshot(path=str(out / "23d-bring-in.png"))
+            bring_head = await pg.evaluate("() => [document.querySelector('#bring-dialog h2').textContent, document.querySelector('#organise-totals p').textContent, document.querySelector('#bring-dialog button[type=submit]').textContent]")
             await pg.click("#bring-dialog button[type=submit]")
             said = await toast_text(pg, "Imported 2 games into the library")
             brought = [x for x in (fx / "Roms").rglob("Alpha (Europe).gb") if ".gamerepo-set-aside" not in x.parts]
+            await pg.wait_for_selector('#import-recent-list li[data-kind="bring"]')
+            recent = await pg.eval_on_selector_all("#import-recent-list li", "els => els.map(e => e.dataset.kind)")
+            await pg.locator("#import-recent").scroll_into_view_if_needed()
+            await pg.screenshot(path=str(out / "23e-recent-imports.png"))
+            check("the import review lists the games before where each system's go (review M42); its preview says what it will do with one word for it (M40); Recent imports lists it (D78)",
+                  games_first and bring_head == ["Import 2 games into the library", "2 games to import.", "Import"] and recent and recent[0] == "bring" and all(k in ("bring", "add", "import", "docs", "magazines", "bios") for k in recent),
+                  (games_first, bring_head, recent))
             check("Import offers every system or one, and copy, always copy or move; its window stays put and comes back where it was; each system's games go to the folder its games are in, and a file no DAT knows to its folder's system",
                   systems_offered[0].startswith("Every system") and "Game Boy" in systems_offered and unknown_as == "gb" and stayed and kept == "gb" and len(brought) == 1
                   and brought[0].parent == Path(place) and (Path(place) / "homebrew.gb").is_file() and os.stat(brought[0]).st_nlink == 1,
@@ -1151,15 +1179,26 @@ async def main():
             await pg.click("#nav-pc")
             await pg.click("#pc-first")
             await pg.wait_for_selector("#pc-items li", timeout=30000)
+            pc_at = await pg.evaluate("() => [location.hash, !!document.querySelector('#import-pc.import-here')]")
+            # review M35: with what it read shown, a stray click or Esc leaves the window up
+            await pg.mouse.click(5, 5)
+            await pg.keyboard.press("Escape")
+            pc_stayed = await pg.locator("#pc-items li").count()
+            check("PC games' Import… opens the Import page at PC games (D78), and its list stays through a stray click and Esc (M35)",
+                  pc_at == ["#/import/import-pc", True] and pc_stayed == 2, (pc_at, pc_stayed))
             items = await pg.eval_on_selector_all("#pc-items li", "els => els.map(e => [e.querySelector('.pc-item-title').value, e.dataset.status, e.querySelector('.pc-item-meta').textContent])")
             check("Import… reads the inbox: one game found by its goggame file, the other by a search of the sources",
                   sorted(i[0] for i in items) == ["Alpha Strike", "Zeta Quest"] and all(i[1] == "ready" for i in items)
                   and any("goggame" in i[2] and "GOG game 1207658930" in i[2] for i in items) and any("Steam app 4000" in i[2] and "search" in i[2] for i in items), items)
             await pg.screenshot(path=str(out / "24-pc-import.png"))
+            pc_how = await pg.eval_on_selector_all("#pc-import-mode input", "els => els.map(e => e.value)")
             await pg.click("#pc-import-dialog button[type=submit]")
             await pg.wait_for_selector("#organise-totals")
+            pc_title = await pg.inner_text("#pc-import-dialog h2")
             await pg.click("#pc-import-dialog button[type=submit]")
-            said = await toast_text(pg, "Import 2 PC games", timeout=30000)
+            said = await toast_text(pg, "Imported 2 PC games", timeout=30000)
+            check("the PC import has the Import page's three ways in (D79) and a present-tense preview (M40)", pc_how == ["copy", "always", "move"] and pc_title == "Import 2 PC games", (pc_how, pc_title))
+            await pg.click("#nav-pc")
             await pg.wait_for_selector("#pc-list li:nth-child(2)")
             made = sorted(x.name for x in (library / "PC").iterdir()) if (library / "PC").is_dir() else []
             alpha_dir = library / "PC/Alpha Strike (2001)"
@@ -1420,6 +1459,9 @@ async def main():
             await pg.click("#bios-get")
             await pg.click("#ask-dialog button[type=submit]")
             said = await toast_text(pg, "starter DATs for 1 system")
+            # (the list is got from Import › BIOS files, D78: back to the BIOS page to see it)
+            bios_list_at = await pg.evaluate("() => location.hash")
+            await pg.click('.sidebar a[href="#/bios"]')
             gb_row = '#bios-list .bios-system[data-system="Nintendo - Gameboy"]'
             await pg.wait_for_selector(gb_row)
             shown = await pg.eval_on_selector_all("#bios-list .bios-system", "els => els.map(e => [e.dataset.system, +e.dataset.have, +e.dataset.missing])")
@@ -1430,15 +1472,17 @@ async def main():
             await pg.fill("#bios-search", "")
             check("BIOS files: libretro's list is got from the BIOS page and every system audited, the ones you have games for first, with a search and no picker (D69)",
                   shown == [["Nintendo - Gameboy", 1, 1], ["Sega - Dreamcast", 0, 1]] and searched == ["Sega - Dreamcast"] and "0 of 1 with every BIOS file" in totals
-                  and await pg.query_selector("#bios-show") is None, (said, shown, searched, totals))
+                  and await pg.query_selector("#bios-show") is None and bios_list_at == "#/import/import-bios", (said, shown, searched, totals, bios_list_at))
             await pg.screenshot(path=str(out / "40-bios.png"), full_page=True)
             await pg.click("#bios-gather")
             await pg.wait_for_selector("#bios-gather-dialog #organise-totals")
+            bios_how = await pg.eval_on_selector_all("#bios-gather-mode input", "els => els.map(e => e.value)")
+            bios_at = await pg.evaluate("() => location.hash")
             await pg.click("#bios-gather-dialog button[type=submit]")
             said = await toast_text(pg, "Imported the BIOS files")
             gathered = library / "BIOS/Nintendo - Gameboy/gb_bios.bin"
-            check("Import copies the BIOS files the library has into its BIOS folder, a folder for each system",
-                  gathered.is_file() and gathered.read_bytes() == gb_bios and (fx / "Roms/gb_bios.bin").is_file(), said)
+            check("Import copies the BIOS files the library has into its BIOS folder, a folder for each system, from the Import page with its three ways in (D78, D79)",
+                  gathered.is_file() and gathered.read_bytes() == gb_bios and (fx / "Roms/gb_bios.bin").is_file() and bios_how == ["copy", "always", "move"] and bios_at == "#/import/import-bios", (said, bios_how, bios_at))
 
             # the layout editor: Knulli's layout as a tree, a system's folder changed, saved as a new layout
             await pg.click('.sidebar a[href="#/layouts"]')
@@ -1712,7 +1756,13 @@ async def main():
                   alpha_json.get("pinned", {}).get("description") == "igdb" and alpha_json["details"]["description"] == "Alpha from IGDB.", alpha_json.get("pinned"))
             await pg.click("#game-menu")
             await pg.click('#context-menu [data-action="game-scrape-again"]')
+            await pg.wait_for_selector("#scrape-dialog #scrape-sources")
+            # review M42, D80: what's fetched is a line, its choices behind Change what's fetched…
+            short = await pg.evaluate("() => { const d = document.querySelector('#scrape-dialog'); return [!document.querySelector('#scrape-media'), d.scrollHeight <= d.clientHeight + 2, document.querySelector('#scrape-what-text')?.textContent || ''] }")
+            await pg.screenshot(path=str(out / "56b-scrape-short.png"))
+            await pg.click("#scrape-change")
             await pg.wait_for_selector("#scrape-dialog #scrape-variants")
+            check("the Scrape window fits without scrolling, what's fetched in one line, its choices behind Change what's fetched… (D80)", short[0] and short[1] and "detail" in short[2], short)
             again = await pg.evaluate("() => [document.querySelector('input[name=scrape-existing][value=replace]').checked, document.querySelector('#scrape-fresh').checked, document.querySelector('#scrape-dialog h2, #scrape-dialog .dialog-title')?.textContent || '']")
             check("Scrape again… is the Scrape dialog set to replace and ask the sources afresh", again[0] and again[1] and "again" in again[2], again)
             await pg.keyboard.press("Escape")
@@ -1831,8 +1881,11 @@ async def main():
             await pg.click("#mag-import-dialog button[type=submit]")
             await pg.wait_for_selector("#organise-totals")
             totals = await pg.inner_text("#organise-totals")
+            mag_head = await pg.evaluate("() => [document.querySelector('#mag-import-dialog h2').textContent, location.hash]")
             await pg.click("#mag-import-dialog button[type=submit]")
             said = await toast_text(pg, "Imported 3 magazine issues")
+            check("Magazines' import is the Import page's, its preview in the present tense (M40, D78)", mag_head == ["Import 3 magazine issues", "#/import/import-mags"], mag_head)
+            await pg.click('.sidebar a[href="#/magazines"]')
             await pg.wait_for_selector('#mag-panel-list a[data-id="Game Fan"]')
             fan = library / "Magazines" / "Game Fan"
             fan_json = json.loads((fan / "magazine.json").read_text()) if (fan / "magazine.json").is_file() else {}

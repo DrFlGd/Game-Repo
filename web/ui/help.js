@@ -11,7 +11,7 @@ export const TERMS = [
   ["library", "Library", "The folder Game Repo keeps everything in. Its _library folder holds your DATs, collections, exports, the history of changes and each game's details, pictures and documents, as ordinary files that make sense without the app. Move it, or open it on another computer, and it's all there."],
   ["verbs", "Import, audit, organise, collect, export", "The five things the app does with your games, each on a page of its own. Import brings files into the library (Import). Audit checks what the library holds against the DATs and changes nothing (Audit, with BIOS files, Metadata and Documents under it). Organise changes files the library already holds: names, folders, formats (started from the Audit or the Library). Collect picks games for an export and moves no files (Collections). Export writes a collection to a device, a frontend or a folder."],
   ["folders-with-games", "Folders with games", "Folders of your own that hold ROMs and disc images, added on the Import page. They can be anywhere, on any drive; the app scans and watches them where they are, and changes them only when you organise."],
-  ["import", "Import", "Bringing files into the library: games kept in a folder with games, games copied into one (named as their DAT says), PC games, DATs, BIOS files, documents and magazines. All of it is on the Import page, and every import can be undone from History."],
+  ["import", "Import", "Bringing files into the library: games kept in a folder with games, games copied into one (named as their DAT says), PC games, DATs, BIOS files, documents and magazines. All of it is on the Import page (other pages' import buttons open it at their section, and files dropped on the window go there), every import has the same three ways in (copy, hardlinked on the same drive; always copy; move), and every import can be undone from Recent imports or History."],
   ["scan", "Scan", "Reading the folders with games: every file (and every file inside a ZIP, 7z, RAR or disc image) is hashed, so the app knows what it is whatever it's called. Files that haven't changed aren't read again."],
   ["dat", "DAT", "A list of games and the exact files each is made of (names, sizes and hashes), from No-Intro, Redump, TOSEC, libretro or another tool. The app reads Logiqx XML and ClrMamePro DATs, alone or zipped."],
   ["full-set", "Audit DAT", "A system's complete list of games: the DAT imported for that system, which your files are checked against. Collections are always parts of what's audited."],
@@ -58,18 +58,19 @@ export const PAGES = [
     "Save as a collection… keeps the filters as a collection's rules.",
   ]],
   ["pc", "PC games", "Your PC games, each in its own folder with what it is and how it starts (under the Library).", [
-    "Import… from the inbox, or Import files… and Import a game's folder…; Unpack GOG installers and archives; choose the program it starts with.",
+    "Import… from the inbox, or Import files… and Import a game's folder… (each opens Import › PC games); Unpack GOG installers and archives; choose the program it starts with.",
     "Identify… finds the game on Steam, GOG or LaunchBox; each source's details and pictures are kept apart, as for every other game.",
     "Open its page: the same page as any game, with a PC game section for its program, Unpack and its folder; Add to Steam… makes the games Steam shortcuts with their artwork.",
   ]],
   ["magazines", "Magazines", "Your magazines, each issue by its cover, readable here (under the Library).", [
-    "Import magazines… from files or a folder: each file's magazine, number and date are read from its name for you to check, then imported (copied or linked, with Undo).",
+    "Import magazines… (Import › Magazines) from files or a folder: each file's magazine, number and date are read from its name for you to check, then imported (copied, linked or moved, with Undo).",
     "Open an issue to read it (a PDF, or a comic book a page at a time); give it a cover by dropping a picture on it; Import a list… to see what's missing, and save that as a list.",
     "An export can carry the magazines into a Magazines folder (What it carries in the Export dialog).",
   ]],
   ["import", "Import", "Everything that comes into the library, in one place.", [
     "Games into the library: From a folder… reads folders (every system's games, or one system's), matches their files against your DATs and copies or moves the games the library lacks into each system's own folder with games, named as their DAT says. It asks where a system's games go when it has no folder yet, and which system files no DAT knows belong to. One game… is for a single ROM or disc.",
-    "PC games, BIOS files, documents and magazines, each with its own button.",
+    "PC games, BIOS files, documents and magazines, each with its own buttons. Files dropped on the window come here, and you're asked what they are.",
+    "Recent imports: what came in lately, a day at a time, with Steps for what each did and Undo for the newest.",
     "Folders with games: games you keep where they are, scanned and audited there. DAT files: Import DATs…, Get starter DATs… and Make a DAT from a folder…, and the DATs you have.",
   ]],
   ["audit", "Audit", "Your games checked against each system's DAT: what you have, have in part, or are missing. Nothing changes.", [
@@ -81,10 +82,10 @@ export const PAGES = [
   ]],
   ["bios", "BIOS files", "Each system's BIOS files: which you have, which are missing, and where they are (under the Audit).", [
     "Every system the BIOS DATs list, the ones you have games for first; search for a system or a file.",
-    "Get libretro's list… or Import a BIOS DAT…, then Import BIOS files… copies the ones you have into the library's BIOS folder; an export can take them with a collection's games.",
+    "Get libretro's list… or Import a BIOS DAT…, then Import BIOS files… (Import › BIOS files) copies or moves the ones you have into the library's BIOS folder; an export can take them with a collection's games.",
   ]],
   ["metadata", "Metadata", "Each game's details, pictures, video and manual, and how much of it you have (under the Audit).", [
-    "The systems are in the ribbon on the left. Scrape… a system, a collection or a game, choosing the sources and the kinds of pictures.",
+    "The systems are in the ribbon on the left. Scrape… a system, a collection or a game, choosing the sources; Change what's fetched… chooses the details and kinds of pictures.",
     "Delete metadata… or Scrape again… for a system or a game (with a preview and Undo); Import documents… from a folder.",
   ]],
   ["documents", "Documents", "Your guides, manuals and other documents, searchable and readable here (under the Audit).", [
@@ -95,13 +96,13 @@ export const PAGES = [
     "New collection…: by rules, from folders (matched by hash, so the files' names don't matter), or from a DAT read where it is; a review shows the games found before it's made. Add a group… adds a group made its own way (a system's translations, say), shown as a section of its own.",
     "Pick games (Ctrl or Shift for more, Ctrl+A for all) and Export these…, or Export… the whole collection; Update… and Check an export from Exported to. An ES-DE export can put each group in a subfolder or as a system of its own; every export makes a custom collection or playlist of each group where the frontend has them.",
     "Leave a game out by hand, or add one; set a size limit for a card; Save as DATs… for RomVault, clrmamepro or igir.",
-    "With their updates and DLC (a rule, on by default) takes the games' updates and DLC you have along; History lists each change to what's in it, and Undo puts one back.",
+    "With their updates and DLC (a rule, on by default) takes the games' updates and DLC you have along; History lists each change to what's in it, a day at a time, and Undo puts one back.",
   ]],
   ["layouts", "Export layouts", "Where an export puts things for ES-DE, RetroArch, Pegasus, LaunchBox, Playnite, a device's firmware or a folder.", [
     "See a layout as a folder tree with a collection's games, change it, and Save as new…; edit its JSON, or import one.",
   ]],
-  ["history", "History", "Every change the app has made to your files, newest first.", [
-    "Undo the newest; finish a change that was interrupted; empty what changes set aside, to free the space.",
+  ["history", "History", "Every change the app has made to your files, newest first, a day at a time.", [
+    "Steps lists what a change did; Undo the newest; finish a change that was interrupted; empty what changes set aside, to free the space.",
   ]],
   ["settings", "Settings", "How the app works for this library and this computer.", [
     "Sources and their keys, tools (dolphin-tool for RVZ, innoextract for GOG installers; CHD, CSO and ZSO the app writes itself), how folders are scanned, systems added by hand, naming and preferred formats.",

@@ -36,7 +36,33 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing", add: "Adding", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", metadata: "Deleting metadata" })[kind] || "Organising";
+const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing PC games", add: "Importing a game", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", bios: "Importing BIOS files", metadata: "Deleting metadata" })[kind] || "Organising";
+
+/** The changes that bring files into the library (the Import page's Recent imports, D78). */
+export const IMPORT_KINDS = ["bring", "add", "import", "docs", "magazines", "bios"];
+
+/** How an import brings its files in (D79), the same three choices everywhere: "copy"
+ *  (hardlinked on the same drive), "always" (a full copy) or "move". */
+export function HowControl({ id, value, onChange, what = "them" }) {
+  const row = (v, text, note) => html`<label class="check-row" key=${v}><input type="radio" name=${id} value=${v} checked=${value === v} onChange=${() => onChange(v)} /> ${text} <span class="muted">${note}</span></label>`;
+  return html`<div class="field-block how-control" role="radiogroup" aria-label="How" id=${id}>
+    <span class="field-label">How</span>
+    ${row("copy", `Copy ${what}, hardlinked on the same drive`, "(no extra space; the originals stay)")}
+    ${row("always", `Copy ${what}, always`, "(a full copy, even on the same drive)")}
+    ${row("move", `Move ${what} into the library`, "(Undo puts them back)")}
+  </div>`;
+}
+
+/** The plan arguments for a HowControl's value. */
+export const howArgs = (how) => ({ mode: how === "move" ? "move" : "copy", always_copy: how === "always" });
+
+/** What a plan's preview counts, in its own words (review M40): [one, many, what's done]. */
+const COUNTS = {
+  export: ["game", "games", "export"], bring: ["game", "games", "import"], add: ["game", "games", "import"], import: ["PC game", "PC games", "import"],
+  docs: ["document", "documents", "import"], magazines: ["issue", "issues", "import"], bios: ["system's BIOS files", "systems' BIOS files", "import"],
+  convert: ["game", "games", "convert"], extract: ["game", "games", "unpack"], folders: ["game's folder", "games' folders", "rename"],
+  metadata: ["game's metadata", "games' metadata", "delete"], aside: ["game", "games", "set extra copies aside for"],
+};
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
 export const organiseDialog = (opts) => ui.set({ dialog: { type: "organise", ...opts } });
@@ -130,7 +156,7 @@ export async function runPlan(plan) {
 /** The totals of a plan: what each kind of step does, and what's left alone. */
 function Totals({ plan }) {
   return html`<div class="organise-totals" id="organise-totals">
-    <p><b>${plan.kind === "magazines" ? plural(plan.games, "issue", "issues") : plural(plan.games, "game", "games")}</b> to ${plan.kind === "export" ? "export" : plan.kind === "bring" || plan.kind === "magazines" ? "bring in" : "change"}${plan.in_place ? html`, <span class="muted">${plan.in_place} already in place</span>` : null}.</p>
+    <p><b>${plural(plan.games, ...(COUNTS[plan.kind] || ["game", "games"]).slice(0, 2))}</b> to ${(COUNTS[plan.kind] || [])[2] || "organise"}${plan.in_place ? html`, <span class="muted">${plan.in_place} already in place</span>` : null}.</p>
     ${plan.by_op.length ? html`<ul class="ls-list">${plan.by_op.map((o) => html`<li key=${o.op} data-op=${o.op}><span>${OPS[o.op] || o.op}: ${plan.kind === "folders" ? plural(o.count, "folder", "folders") : plural(o.count, "file", "files")}</span><span class="muted">${size(o.bytes)}</span></li>`)}</ul>` : null}
     ${plan.set_aside ? html`<p class="muted">${plural(plan.set_aside, "file is", "files are")} set aside in <code>.gamerepo-set-aside</code> at the top of ${plan.set_aside === 1 ? "its" : "their"} folder, until you empty it (History).</p>` : null}
     ${plan.out ? html`<p class="muted">Into <span class="op-to" title=${plan.out}>${shortPath(plan.out, 3)}</span>${plan.new_root ? ", which becomes a folder with games" : ""}.</p>` : null}
@@ -170,6 +196,29 @@ export function Preview({ plan }) {
     ${list.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
     <ul class="ls-list organise-list" id="organise-list" data-total=${list.total}>${list.items.map(row)}</ul>
     ${list.items.length < list.total ? html`<div><button type="button" class="ghost" id="organise-more" onClick=${more}>Show more (${list.total - list.items.length} left)</button></div>` : null}`;
+}
+
+/** What a change did, step by step, a page at a time: opened under its row in History
+ *  and Recent imports (D78). Rows are divs, so a history's own list items stay its changes. */
+export function ChangeSteps({ id }) {
+  const [list, setList] = useState(null);
+  useEffect(() => {
+    let gone = false;
+    api("change_items", { id, offset: 0, limit: PAGE }).then((r) => { if (!gone) setList(r); }).catch((e) => { if (!gone) setList({ total: 0, items: [], error: e.message || String(e) }); });
+    return () => { gone = true; };
+  }, [id]);
+  if (!list) return html`<p class="muted change-steps">Reading…</p>`;
+  const more = async () => {
+    const r = await api("change_items", { id, offset: list.items.length, limit: PAGE });
+    setList((l) => ({ ...l, items: [...l.items, ...r.items] }));
+  };
+  return html`<div class="change-steps" data-total=${list.total}>
+    ${list.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
+    ${list.items.map((it, i) => html`<div class="change-step" key=${i} data-op=${it.op}><span class="op-kind">${OPS[it.op] || it.op}</span>
+      <span class="op-paths"><span class="op-to" title=${it.to_full}>${it.to}</span>
+        ${it.op !== "aside" && it.from[0] ? html`<span class="muted op-from" title=${it.from_full.join("\n")}>from ${it.from[0]}${it.from.length > 1 ? ` and ${it.from.length - 1} more` : ""}</span>` : null}</span></div>`)}
+    ${list.items.length < list.total ? html`<button type="button" class="ghost compact" data-action="more-steps" onClick=${more}>Show more (${list.total - list.items.length} left)</button>` : null}
+  </div>`;
 }
 
 /** Organise…: the choices, then the preview; Run starts the change. Opened with a

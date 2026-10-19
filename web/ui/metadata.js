@@ -21,6 +21,7 @@ import { identifyDialog } from "./pcgames.js";
 import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
 import { Icon } from "./icons.js";
 import { useSidePanel, useRouteArg, argHash } from "./panels.js";
+import { importFrom } from "./importpage.js";
 import { isVideo, Video } from "./video.js";
 
 const PAGE = 200;
@@ -97,6 +98,7 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
   const [o, setO] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [changing, setChanging] = useState(false);
   useEffect(() => {
     api("scrape_choices").then((x) => {
       setC(x);
@@ -143,6 +145,10 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
       ${ready.length && ready.length < c.sources.length ? html`<small class="muted" id="scrape-not-ready">${c.sources.filter((x) => x.needs).map((x) => x.name).join(", ")} ${c.sources.filter((x) => x.needs).length === 1 ? "needs" : "need"} setting up in <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a> first.</small>` : null}
       ${!ready.length ? html`<p class="warn-note" id="scrape-no-source">No source is ready: set their accounts or keys in <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a>, or get LaunchBox's database there.</p>` : null}
       <small class="muted">Each game is asked of the first source that knows it; a source asked by title is only believed when the title is the same.</small></div>
+    <div class="field-block" id="scrape-what"><span class="field-label">What's fetched</span>
+      <p id="scrape-what-text">${o.fields.length ? `${o.fields.length === c.fields.length ? "Every detail" : plural(o.fields.length, "detail", "details")}` : "No details"}${o.media.length ? `; ${c.media.filter((m) => o.media.includes(m.id)).map((m) => m.name.toLowerCase()).join(", ")}` : "; no pictures"}${(o.variants || []).some((k) => o.media.includes(k)) ? ", every source's kept" : ""}.</p>
+      <div><button type="button" class="ghost compact" id="scrape-change" aria-expanded=${changing ? "true" : "false"} onClick=${() => setChanging(!changing)}>${changing ? "Done changing" : "Change what's fetched…"}</button></div></div>
+    ${changing ? html`<div class="scrape-changing" id="scrape-changing">
     <div class="field-block"><span class="field-label">Details</span>
       <${Ticks} id="scrape-fields" items=${c.fields} value=${o.fields} onChange=${(fields) => set({ fields })} /></div>
     <div class="field-block"><span class="field-label">Pictures, video and manual</span>
@@ -174,6 +180,7 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
           ${c.sources.map((x) => html`<option key=${x.id} value=${x.id}>${x.name}</option>`)}
         </select></label>`)}</div></div>` : null}
     </details>
+    </div>` : null}
     <div class="field-block" role="radiogroup" aria-label="Games that have something already">
       <span class="field-label">Games that have something already</span>
       ${EXISTING.map(([k, l]) => html`<label class="check-row" key=${k}><input type="radio" name="scrape-existing" value=${k} checked=${o.existing === k} onChange=${() => set({ existing: k })} /> ${l}</label>`)}
@@ -265,7 +272,11 @@ function MetaPanel({ id, off, version, onChange }) {
   const load = () => api("meta_game", { id }).then(setG).catch((e) => setError(err(e)));
   useEffect(() => { setError(""); load(); }, [id, version]);
   // files dropped on the window while the panel shows are attached to its game
-  useDroppedFiles((paths) => { if (g && !off) attachDocs({ game: g.id, gameName: g.title, platform: g.platform, paths }); });
+  useDroppedFiles((paths) => {
+    if (!g || off) return false;
+    attachDocs({ game: g.id, gameName: g.title, platform: g.platform, paths });
+    return true;
+  });
   const pick = async (source, sid) => {
     setBusy(true);
     setError("");
@@ -392,7 +403,7 @@ export function Metadata() {
       onClick=${() => scrapeDialog({ platform: p, platformName: pName, have: counts.have || 0, all: counts.all || 0 })}>${Icon.scrape(15)} Scrape…</button>` : null}
     more=${{ id: "meta-menu", title: "Documents, sources", items: () => [
       { id: "meta-docs-page", label: "Documents", icon: "book", run: () => { location.hash = routeHash("documents"); } },
-      { id: "meta-import-docs", label: "Import documents…", icon: "file", disabled: off || !isDesktop(), run: () => attachDocs({ platform: p }) },
+      { id: "meta-import-docs", label: "Import documents…", icon: "file", disabled: off || !isDesktop(), run: () => importFrom("import-docs", () => attachDocs({ platform: p })) },
       { sep: true },
       { id: "meta-scrape-again", label: "Scrape again…", icon: "scrape", disabled: off || !p, run: () => scrapeDialog({ platform: p, platformName: pName, have: counts.have || 0, all: counts.all || 0, again: true }) },
       { id: "meta-delete-all", label: "Delete metadata…", icon: "trash", disabled: off || !p, run: () => deleteMetadata({ platform: p, platformName: pName }) },
@@ -406,7 +417,7 @@ export function Metadata() {
     return html`${head}<div class="pages"><div class="library-settings" id="meta-empty">
       <p class="page-lead">${Icon.scrape(18)} Each game's details, pictures, video and manual, from ScreenScraper, IGDB, TheGamesDB and LaunchBox, kept with the game in the library.</p>
       <section class="ls-section"><h2>To start</h2>
-        <p>Games are known by their DAT, so import one for a system first (the <a href=${routeHash("audit")}>Audit</a> page), then set the sources' accounts or keys in <a href=${routeHash("settings")}>Settings › Sources</a>.</p></section>
+        <p>Games are known by their DAT, so import one for a system first (<a href=${argHash("import", "settings-dats")} id="meta-empty-import">Import › DAT files</a>), then set the sources' accounts or keys in <a href=${routeHash("settings")}>Settings › Sources</a>.</p></section>
     </div></div>`;
   }
   const current = sel && list.items.some((g) => g.id === sel) ? sel : null;

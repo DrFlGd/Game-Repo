@@ -906,6 +906,7 @@ impl App {
                     "bring" => "Importing games",
                     "docs" => "Importing documents",
                     "magazines" => "Importing magazines",
+                    "bios" => "Importing BIOS files",
                     "metadata" => "Deleting metadata",
                     _ => "Organising",
                 };
@@ -949,6 +950,13 @@ impl App {
                     }
                     Ok(r)
                 }))
+            }
+            "change_items" => {
+                // what a change did, a page at a time (History's groups, D78)
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let (offset, limit) = (args["offset"].as_u64().unwrap_or(0) as usize, args["limit"].as_u64().unwrap_or(100) as usize);
+                j(organise::preview(&organise::load(&lib, &id).map_err(e2s)?, "all", offset, limit))
             }
             "change_history" => {
                 let lib = self.library()?;
@@ -1652,9 +1660,11 @@ impl App {
             }
             "bios_gather_plan" => {
                 let lib = self.library()?;
+                let mode = args["mode"].as_str().unwrap_or("copy").to_string();
+                let always_copy = args["always_copy"].as_bool().unwrap_or(false);
                 j(self
                     .with_index(move |ix| {
-                        let plan = crate::bios::gather_plan(ix, &lib)?;
+                        let plan = crate::bios::gather_plan(ix, &lib, &mode, always_copy)?;
                         organise::save_pending(&data_dir, &plan)?;
                         Ok(plan.summary())
                     })
@@ -1686,9 +1696,10 @@ impl App {
             "magazine_plan" => {
                 let lib = self.library()?;
                 let items: Vec<crate::magazines::Item> = serde_json::from_value(args["items"].clone()).map_err(|e| e.to_string())?;
+                let mode = args["mode"].as_str().unwrap_or("copy").to_string();
                 let always_copy = args["always_copy"].as_bool().unwrap_or(false);
                 j(blocking(Box::new(move || {
-                    let plan = crate::magazines::plan(&lib, &items, always_copy)?;
+                    let plan = crate::magazines::plan(&lib, &items, &mode, always_copy)?;
                     organise::save_pending(&data_dir, &plan)?;
                     Ok(plan.summary())
                 }))

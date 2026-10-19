@@ -13,8 +13,9 @@ import { api, toast, followJob, isDesktop, plural, size, libraryUrl } from "./li
 import { reveal } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
 import { Dialog, close } from "./dialogs.js";
-import { Preview, runPlan } from "./organise.js";
+import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { Icon } from "./icons.js";
+import { importFrom } from "./importpage.js";
 
 const PAGE = 100;
 const err = (e) => e.message || String(e);
@@ -202,8 +203,7 @@ function DocsImportDialog({ paths, game = null, folder = null, gameName = "", pl
   const [kinds, setKinds] = useState([]);
   const [progress, setProgress] = useState("");
   const [picking, setPicking] = useState(null);
-  const [mode, setMode] = useState("copy");
-  const [alwaysCopy, setAlwaysCopy] = useState(false);
+  const [how, setHow] = useState("copy");
   const [plan, setPlan] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -237,7 +237,7 @@ function DocsImportDialog({ paths, game = null, folder = null, gameName = "", pl
     setBusy(true);
     setError("");
     try {
-      setPlan(await api("docs_plan", { items, mode, always_copy: alwaysCopy }));
+      setPlan(await api("docs_plan", { items, ...howArgs(how) }));
     } catch (e) {
       setError(err(e));
     } finally {
@@ -247,16 +247,17 @@ function DocsImportDialog({ paths, game = null, folder = null, gameName = "", pl
   const one = game || folder;
   const title = one ? `Attach documents to ${gameName}` : "Import documents";
   if (plan) {
-    return html`<${Dialog} title=${plan.label} id="docs-import-dialog" wide=${true} onSubmit=${() => { close(); runPlan(plan).then(again); }} busy=${plan.short || !plan.ops} submitLabel="Import them"
+    return html`<${Dialog} title=${plan.title || plan.label} id="docs-import-dialog" wide=${true} sticky=${true} onSubmit=${() => { close(); runPlan(plan).then(again); }} busy=${plan.short || !plan.ops} submitLabel="Import"
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
-      <p class="muted">Each goes into its game's docs folder in the library (those with no game into _library/docs), with its kind and title in docs.json. ${mode === "copy" ? "Your files stay where they are." : "The files are moved; Undo puts them back."} Their text is read for searching afterwards.</p>
+      <p class="muted">Each goes into its game's docs folder in the library (those with no game into _library/docs), with its kind and title in docs.json. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."} Their text is read for searching afterwards.</p>
     <//>`;
   }
   const n = (k) => (items || []).filter((i) => i.pairing === k).length;
   const shown = (items || []).filter((it) => only === "all" || it.pairing === only);
   const included = (items || []).filter((i) => i.include).length;
-  return html`<${Dialog} title=${title} id="docs-import-dialog" wide=${true} onSubmit=${preview} busy=${busy || !items || !included} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
+  // a stray click or Esc doesn't lose the reading and the pairings (review M35)
+  return html`<${Dialog} title=${title} id="docs-import-dialog" wide=${true} sticky=${!items || items.length > 0} onSubmit=${preview} busy=${busy || !items || !included} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
     ${!items ? html`<p class="muted" id="docs-reading">Reading the files and pairing each with a game${progress ? html` (${progress})` : null}…</p>` : html`
       ${!one ? html`<div class="seg audit-tabs" role="tablist" id="docs-import-tabs">${[["all", "All", items.length], ["sure", "Sure", n("sure")], ["likely", "Likely", n("likely")], ["none", "No game", n("none")], ["you", "You chose", n("you")]].filter(([k, , c]) => k === "all" || c).map(([k, l, c]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${only === k ? "true" : "false"} onClick=${() => setOnly(k)}>${l} <span class="tab-count">${c}</span></button>`)}</div>` : null}
       <ul class="ls-list pc-items doc-items" id="doc-items">${shown.map((it) => {
@@ -277,11 +278,7 @@ function DocsImportDialog({ paths, game = null, folder = null, gameName = "", pl
           ${picking !== it.path && !one ? html`<button type="button" class="ghost compact" data-action="change-game" disabled=${!it.include} onClick=${() => setPicking(it.path)}>Change game…</button>` : null}
         </li>`;
       })}</ul>
-      <div class="field-block" role="radiogroup" aria-label="How">
-        <label class="check-row"><input type="radio" name="docs-import-mode" value="copy" checked=${mode === "copy"} onChange=${() => setMode("copy")} /> Copy them (hardlinked when they're on the same drive, so they take no space)</label>
-        <label class="check-row"><input type="radio" name="docs-import-mode" value="move" checked=${mode === "move"} onChange=${() => setMode("move")} /> Move them into the library</label>
-        ${mode === "copy" ? html`<label class="check-row"><input type="checkbox" id="docs-import-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> <span title="Hardlinks are a second name for the same file on the same drive: they take no space">Always copy (no hardlinks)</span></label>` : null}
-      </div>
+      <${HowControl} id="docs-import-mode" value=${how} onChange=${setHow} />
       <p class="muted"><b>${plural(included, "document", "documents")}</b> to import. Nothing changes until you've seen the preview.</p>`}
   <//>`;
 }
@@ -306,16 +303,30 @@ export async function attachDocs({ game = null, folder = null, gameName = "", pl
 let dropping = null;
 let listening = false;
 
-/** Files dropped on the window go to `fn(paths)` while the page using this is shown
- *  (a game's page, the Metadata page's panel: they're attached to its game). */
+/** Files dropped on the window (D78): to the shown page's own handler when it takes them
+ *  (`useDroppedFiles`), else to `otherwise(paths, hint)`, the Import page. Started once. */
+export function listenForDrops(otherwise) {
+  if (listening || !ctx.platform?.onDrop) return;
+  listening = true;
+  ctx.platform.onDrop((paths) => {
+    if (!paths?.length || ui.get().dialog) return;
+    const took = dropping ? dropping(paths) : false;
+    if (took !== true) otherwise(paths, took || null);
+  }, (on) => {
+    const el = document.documentElement;
+    el.classList.toggle("drop-over", !!(on && dropping));
+    el.classList.toggle("drop-over-import", !!(on && !dropping && !ui.get().dialog));
+  });
+}
+
+/** Files dropped on the window go to `fn(paths)` while the page using this is shown (a
+ *  game's page, the Metadata page's panel: they're attached to its game). It returns true
+ *  when it took them; otherwise they go to the Import page, with the kind it returns as a
+ *  hint ("mags"). */
 export function useDroppedFiles(fn) {
   const ref = useRef(fn);
   ref.current = fn;
   useEffect(() => {
-    if (!listening && ctx.platform?.onDrop) {
-      listening = true;
-      ctx.platform.onDrop((paths) => { if (paths?.length && dropping && !ui.get().dialog) dropping(paths); }, (on) => document.documentElement.classList.toggle("drop-over", !!(on && dropping)));
-    }
     const h = (paths) => ref.current?.(paths);
     dropping = h;
     return () => { if (dropping === h) dropping = null; };
@@ -379,14 +390,14 @@ export function Documents() {
     }
   };
   const menu = () => [
-    { id: "docs-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => attachDocs({ how: "files" }) },
-    { id: "docs-import-folder", label: "Import a folder…", icon: "folder", disabled: off || !isDesktop(), run: () => attachDocs({ how: "folder" }) },
+    { id: "docs-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => importFrom("import-docs", () => attachDocs({ how: "files" })) },
+    { id: "docs-import-folder", label: "Import a folder…", icon: "folder", disabled: off || !isDesktop(), run: () => importFrom("import-docs", () => attachDocs({ how: "folder" })) },
     { sep: true },
     { id: "docs-read", label: "Make them searchable", icon: "search", disabled: reading || !list.unread, run: readTexts },
   ];
   const head = html`<${CommandBar} id="docs-head" title="Documents" count=${list.loading ? null : plural(list.total, "document", "documents")}
     search=${html`<input type="search" id="docs-search" class="compact" placeholder="Search the documents' words" aria-label="Search the documents" value=${q} onInput=${(e) => setQ(e.target.value)} />`}
-    primary=${html`<button type="button" class="primary compact" id="docs-import" disabled=${off || !isDesktop()} title=${isDesktop() ? "Import a folder of guides, manuals or scans, each paired with its game" : "In the app"} onClick=${() => attachDocs({ how: "folder" })}>${Icon.inbox(15)} Import documents…</button>`}
+    primary=${html`<button type="button" class="primary compact" id="docs-import" disabled=${off || !isDesktop()} title=${isDesktop() ? "Import a folder of guides, manuals or scans, each paired with its game" : "In the app"} onClick=${() => importFrom("import-docs", () => attachDocs({ how: "folder" }))}>${Icon.inbox(15)} Import documents…</button>`}
     more=${{ id: "docs-menu", title: "Import files, read their text", items: menu }} />`;
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   const filtered = kind || platform || source;
@@ -394,8 +405,8 @@ export function Documents() {
     return html`${head}<div class="pages"><div class="library-settings" id="docs-empty">
       <p class="page-lead">${Icon.book(18)} Guides, FAQs, manuals, maps, posters and scans, searchable by their words and kept with their games.</p>
       <section class="ls-section"><h2>To start</h2>
-        <p>Import a folder of documents: each is paired with the game its name suggests, and you can change any pairing before they come in. Scraped manuals (the <a href=${routeHash("metadata")}>Metadata</a> page) are listed here too.</p>
-        <div class="home-actions"><button type="button" class="primary" id="docs-first" disabled=${off || !isDesktop()} onClick=${() => attachDocs({ how: "folder" })}>Import documents…</button></div></section>
+        <p>Import a folder of documents on the <a href=${routeHash("import")}>Import</a> page: each is paired with the game its name suggests, and you can change any pairing before they come in. Scraped manuals (the <a href=${routeHash("metadata")}>Metadata</a> page) are listed here too.</p>
+        <div class="home-actions"><button type="button" class="primary" id="docs-first" disabled=${off || !isDesktop()} onClick=${() => importFrom("import-docs", () => attachDocs({ how: "folder" }))}>Import documents…</button></div></section>
     </div></div>`;
   }
   const current = sel && list.items.some((d) => d.id === sel) ? sel : null;
