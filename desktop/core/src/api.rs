@@ -59,6 +59,18 @@ struct Changed {
     paths: Vec<PathBuf>,
 }
 
+/// What marks the running "change" as work writing games' details, before its label.
+const META_WRITER: &str = "meta:";
+
+/// Why something can't start now: what's running (`running`, the change's id or a
+/// `META_WRITER` label), then what to do.
+fn busy(running: &str, then: &str) -> String {
+    match running.strip_prefix(META_WRITER) {
+        Some(label) => format!("{label} is running: {then}."),
+        None => format!("A change is running: {then}."),
+    }
+}
+
 /// Clears the running change when its job ends, however it ends.
 struct ChangeDone(Arc<App>);
 
@@ -297,11 +309,37 @@ impl App {
             return Err("A scan is running: wait for it to finish first.".into());
         }
         let mut c = self.change.lock().unwrap();
-        if c.is_some() {
-            return Err("Another change is running: wait for it to finish first.".into());
+        if let Some(r) = c.as_deref() {
+            return Err(busy(r, "wait for it to finish first"));
         }
         *c = Some(id.to_string());
         Ok(ChangeDone(self.clone()))
+    }
+
+    /// Mark work that writes games' details as running (a scrape, Making details again,
+    /// Identify): it holds the change's place, so no change, other such work or hand edit
+    /// runs beside it (H17), though a scan may.
+    fn begin_meta(self: &Arc<Self>, label: &str) -> Result<ChangeDone, String> {
+        let mut c = self.change.lock().unwrap();
+        if let Some(r) = c.as_deref() {
+            return Err(busy(r, "wait for it to finish first"));
+        }
+        *c = Some(format!("{META_WRITER}{label}"));
+        Ok(ChangeDone(self.clone()))
+    }
+
+    /// Refuse a hand edit of a game while a change or a scrape is writing games (H17):
+    /// whichever wrote last would win.
+    fn editable(&self) -> Result<(), String> {
+        match self.change.lock().unwrap().as_deref() {
+            Some(r) => Err(busy(r, "change it when that's finished")),
+            None => Ok(()),
+        }
+    }
+
+    /// A change that isn't a scrape (or the like) is running: no scan now.
+    fn changing(&self) -> bool {
+        self.change.lock().unwrap().as_deref().is_some_and(|r| !r.starts_with(META_WRITER))
     }
 
     /// Start a scan job (from the page or the folder watcher).
@@ -391,7 +429,7 @@ impl App {
     /// Scan what the watcher saw change, unless a scan or a change is running (then
     /// this runs again when it ends).
     fn scan_changed(self: &Arc<Self>) {
-        if self.scanning() || self.change.lock().unwrap().is_some() {
+        if self.scanning() || self.changing() {
             return;
         }
         let Some(c) = self.changed.lock().unwrap().take() else { return };
@@ -543,7 +581,7 @@ impl App {
                 let lib = self.library()?;
                 lib.writable().map_err(e2s)?;
                 self.not_running(SCANNING)?;
-                if self.change.lock().unwrap().is_some() {
+                if self.changing() {
                     return Err("A change is running: scan when it's finished.".into());
                 }
                 let settings = self.config().scan;
@@ -996,6 +1034,7 @@ impl App {
             }
             "meta_edit" => {
                 let lib = self.library()?;
+                self.editable()?;
                 let id = id_arg("id")?;
                 let field = arg(&args, "field").map_err(e2s)?.to_string();
                 let value = args.get("value").cloned();
@@ -1033,6 +1072,7 @@ impl App {
                 // an update, DLC or patch linked to another game by hand ("base": null, to none),
                 // or ("clear": true) back to the game its name gives it (D66)
                 let lib = self.library()?;
+                self.editable()?;
                 let (platform, addon) = (arg(&args, "platform").map_err(e2s)?.to_string(), arg(&args, "addon").map_err(e2s)?.to_string());
                 let base = args["base"].as_str().map(String::from);
                 let clear = args["clear"].as_bool().unwrap_or(false);
@@ -1041,6 +1081,7 @@ impl App {
             }
             "browse_edit" => {
                 let lib = self.library()?;
+                self.editable()?;
                 let (key, field) = (arg(&args, "key").map_err(e2s)?.to_string(), arg(&args, "field").map_err(e2s)?.to_string());
                 // "value": null clears it; no "value" takes the edit mark off
                 let value = args.get("value").cloned();
@@ -1048,12 +1089,14 @@ impl App {
             }
             "meta_clear" => {
                 let lib = self.library()?;
+                self.editable()?;
                 let id = id_arg("id")?;
                 j(self.with_index(move |ix| meta::clear(ix, &lib, id)).await?)
             }
             // each source's answer, its pictures, deleting and sizes (Phase 6b, D46–D48)
             "meta_pin" => {
                 let lib = self.library()?;
+                self.editable()?;
                 let (folder, field) = (arg(&args, "folder").map_err(e2s)?.to_string(), arg(&args, "field").map_err(e2s)?.to_string());
                 let source = args["source"].as_str().map(String::from);
                 j(self
@@ -1066,6 +1109,7 @@ impl App {
             }
             "meta_choose" => {
                 let lib = self.library()?;
+                self.editable()?;
                 let (folder, kind, name) = (arg(&args, "folder").map_err(e2s)?.to_string(), arg(&args, "kind").map_err(e2s)?.to_string(), arg(&args, "name").map_err(e2s)?.to_string());
                 j(self
                     .with_index(move |ix| {
@@ -1081,14 +1125,17 @@ impl App {
                 let platform = args["platform"].as_str().filter(|s| !s.is_empty()).map(String::from);
                 let folder = args["folder"].as_str().filter(|s| !s.is_empty()).map(String::from);
                 let what: Vec<String> = serde_json::from_value(args["what"].clone()).map_err(|e| e.to_string())?;
-                j(self
-                    .with_index(move |ix| {
-                        meta::sync(ix, &lib)?;
-                        let plan = crate::sources::delete_plan(ix, &lib, platform.as_deref(), folder.as_deref(), &what)?;
-                        organise::save_pending(&data_dir, &plan)?;
-                        Ok(plan.summary())
-                    })
-                    .await?)
+                // planned on a connection of its own: it can read every game's folder (M28)
+                j(tokio::task::spawn_blocking(move || {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    meta::sync(&ix, &lib)?;
+                    let plan = crate::sources::delete_plan(&ix, &lib, platform.as_deref(), folder.as_deref(), &what)?;
+                    organise::save_pending(&data_dir, &plan)?;
+                    Ok::<_, anyhow::Error>(plan.summary())
+                })
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(e2s)?)
             }
             "meta_sizes" => {
                 let lib = self.library()?;
@@ -1107,10 +1154,11 @@ impl App {
                 // every game's details made again from the answers kept
                 let lib = self.library()?;
                 let field = arg(&args, "field").map_err(e2s)?.to_string();
-                crate::sources::set_details_from(&lib, &field, args["source"].as_str()).map_err(e2s)?;
                 let label = "Making details again";
-                self.not_running(label)?;
+                let running = self.begin_meta(label)?;
+                crate::sources::set_details_from(&lib, &field, args["source"].as_str()).map_err(e2s)?;
                 j(self.spawn_job(label, move |app, jid, cancel| {
+                    let _running = running;
                     let ix = Self::job_index(&data_dir, &lib)?;
                     meta::sync(&ix, &lib)?;
                     let n = crate::sources::remake_all(&ix, &lib, &cancel, &mut |p| app.job_progress(&jid, p))?;
@@ -1119,10 +1167,20 @@ impl App {
                 }))
             }
             "meta_pick" => {
+                // fetched on a connection of its own, so the pages aren't held up while the
+                // pictures come (M28)
                 let lib = self.library()?;
                 let game = id_arg("game")?;
                 let (source, id) = (arg(&args, "source").map_err(e2s)?.to_string(), arg(&args, "id").map_err(e2s)?.to_string());
-                j(self.with_index(move |ix| scrape::pick(ix, &lib, &cfg, &data_dir, game, &source, &id)).await?)
+                let running = self.begin_meta("Identify")?;
+                j(tokio::task::spawn_blocking(move || {
+                    let _running = running;
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    scrape::pick(&ix, &lib, &cfg, &data_dir, game, &source, &id)
+                })
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(e2s)?)
             }
             "meta_games" => {
                 // DAT games by name, to pair a document with by hand
@@ -1140,8 +1198,9 @@ impl App {
                 lib.writable().map_err(e2s)?;
                 let o: scrape::Options = serde_json::from_value(args["options"].clone()).map_err(|e| e.to_string())?;
                 let label = "Scraping";
-                self.not_running(label)?;
+                let running = self.begin_meta(label)?;
                 j(self.spawn_job(label, move |app, jid, cancel| {
+                    let _running = running;
                     let ix = Self::job_index(&data_dir, &lib)?;
                     let r = scrape::run(&ix, &lib, &cfg, &data_dir, &o, &cancel, &mut |p| app.job_progress(&jid, p))?;
                     // the manuals it kept, read for searching
@@ -1266,6 +1325,7 @@ impl App {
             }
             "pc_update" => {
                 let lib = self.library()?;
+                self.editable()?;
                 let id = arg(&args, "id").map_err(e2s)?.to_string();
                 let patch = args["patch"].clone();
                 j(blocking(Box::new(move || Ok(pcgames::update(&lib, &id, &patch)?.to_json(&lib)))).await?)
@@ -1370,16 +1430,19 @@ impl App {
                 let (source, id) = (arg(&args, "source").map_err(e2s)?.to_string(), arg(&args, "id").map_err(e2s)?.to_string());
                 let retitle = args["retitle"].as_bool().unwrap_or(true);
                 let (game, platform, file) = (args["game"].as_str().map(String::from), args["platform"].as_str().map(String::from), args["file"].clone());
-                j(self
-                    .with_index(move |ix| {
-                        let m = identify::details(&cfg, &data_dir, &source, &id)?;
-                        match (game, platform) {
-                            (Some(g), _) => Ok(crate::pcmeta::identify(ix, &lib, &g, &m, retitle)?.to_json(&lib)),
-                            (None, Some(p)) => addgame::identify_rom(&lib, &p, &file, &m),
-                            _ => bail!("missing game"),
-                        }
-                    })
-                    .await?)
+                // it can rename the game's folder: no change or scrape beside it (H17); and
+                // fetched on a connection of its own, so the pages aren't held up (M28)
+                let running = self.begin_meta("Identify")?;
+                j(blocking(Box::new(move || {
+                    let _running = running;
+                    let m = identify::details(&cfg, &data_dir, &source, &id)?;
+                    match (game, platform) {
+                        (Some(g), _) => Ok(crate::pcmeta::identify(&Self::job_index(&data_dir, &lib)?, &lib, &g, &m, retitle)?.to_json(&lib)),
+                        (None, Some(p)) => addgame::identify_rom(&lib, &p, &file, &m),
+                        _ => bail!("missing game"),
+                    }
+                }))
+                .await?)
             }
             "sources" => j(identify::sources(&cfg, &data_dir)),
             "sources_set" => {
@@ -2322,6 +2385,15 @@ mod tests {
         let p = call(&app, "organise_preview", json!({ "id": plan["id"] })).await;
         assert_eq!(p["items"][0]["op"], "rename");
         assert!(p["items"][0]["to"].as_str().unwrap().ends_with("Beta (USA).gb"), "{p}");
+        // H17: while a scrape writes games, no change, other scrape or hand edit runs beside
+        // it (a scan may)
+        let scraping = app.begin_meta("Scraping").unwrap();
+        for (cmd, a) in [("organise_run", json!({ "id": plan["id"] })), ("scrape_run", json!({ "options": {} })), ("browse_edit", json!({ "key": "gb/Alpha (USA)", "field": "description", "value": "x" })), ("meta_set_details_from", json!({ "field": "description" }))] {
+            let e = app.call(cmd, a).await.err().unwrap_or_default();
+            assert!(e.starts_with("Scraping is running"), "{cmd}: {e}");
+        }
+        assert!(!app.changing());
+        drop(scraping);
         let done = wait(&app, &call(&app, "organise_run", json!({ "id": plan["id"] })).await).await;
         assert_eq!(done["result"]["done"], 1, "{done}");
         assert!(roms.join("Beta (USA).gb").is_file() && !roms.join("x.gb").exists());

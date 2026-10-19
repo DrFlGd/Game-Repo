@@ -174,11 +174,66 @@ pub fn program_path(dir: &Path, l: &Launch) -> PathBuf {
 }
 
 fn read_manifest(p: &Path) -> Option<PcGame> {
-    serde_json::from_slice::<PcGame>(&std::fs::read(p).ok()?).ok().filter(|g| !g.id.is_empty())
+    let bytes = std::fs::read(p).ok()?;
+    let g = match serde_json::from_slice::<PcGame>(&bytes) {
+        Ok(g) => g,
+        // edited by hand ("year": "1999", a number for an id): read what can be, rather than
+        // the game going from the list and its Steam shortcut with it (M31)
+        Err(_) => serde_json::from_value(lenient(serde_json::from_slice(&bytes).ok()?)).ok()?,
+    };
+    Some(g).filter(|g| !g.id.is_empty())
+}
+
+/// A `game.json` with each known key made the type it should be, or left out.
+fn lenient(mut v: Value) -> Value {
+    let text = |x: &Value| match x {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    };
+    let Some(o) = v.as_object_mut() else { return v };
+    for k in ["id", "title", "source", "version", "imported", "modified", "installed"] {
+        if let Some(x) = o.get(k) {
+            match text(x) {
+                Some(t) => o.insert(k.into(), json!(t)),
+                None => o.remove(k),
+            };
+        }
+    }
+    if let Some(y) = o.get("year") {
+        let y = y.as_i64().or_else(|| y.as_f64().map(|f| f as i64)).or_else(|| y.as_str().and_then(|s| s.trim().parse().ok()));
+        o.insert("year".into(), json!(y));
+    }
+    if let Some(ids) = o.get("ids").cloned() {
+        let ids: Map<String, Value> = ids.as_object().into_iter().flatten().filter_map(|(k, x)| Some((k.clone(), json!(text(x)?)))).collect();
+        o.insert("ids".into(), json!(ids));
+    }
+    if o.get("details").is_some_and(|d| !d.is_object()) {
+        o.remove("details");
+    }
+    if let Some(files) = o.get("files").cloned() {
+        let files: Vec<Value> = files.as_array().into_iter().flatten().filter(|f| serde_json::from_value::<PcFile>((*f).clone()).is_ok()).cloned().collect();
+        o.insert("files".into(), json!(files));
+    }
+    if o.get("launch").is_some_and(|l| serde_json::from_value::<Option<Launch>>(l.clone()).is_err()) {
+        o.remove("launch");
+    }
+    if !o.contains_key("title") {
+        o.insert("title".into(), json!(""));
+    }
+    v
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many times the PC games were listed on this thread (M25's test).
+    pub(crate) static LISTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Every PC game, by title.
 pub fn list(lib: &Library) -> Vec<Entry> {
+    #[cfg(test)]
+    LISTED.with(|n| n.set(n.get() + 1));
     let mut v: Vec<Entry> = std::fs::read_dir(folder(lib))
         .into_iter()
         .flatten()
@@ -765,6 +820,10 @@ pub fn read_items(
         }
     }
     for (i, it) in items.iter_mut().enumerate() {
+        // each may ask a source on the web: Stop is heard between them (M30)
+        if cancel.load(Ordering::Relaxed) {
+            bail!("stopped");
+        }
         progress(json!({ "item": i + 1, "items": n, "name": it.name, "done": total, "total": total }));
         let held: Vec<&(String, String)> = it.files.iter().filter_map(|f| f.sha1.as_ref().and_then(|s| by_sha1.get(s))).collect();
         if !it.files.is_empty() && held.len() == it.files.len() && it.patches.iter().all(|p| p.sha1.as_ref().is_some_and(|s| by_sha1.contains_key(s))) {
@@ -1325,6 +1384,47 @@ pub(crate) mod tests {
         remove_unpacked(&lib, &id).unwrap();
         let e = get(&lib, &id).unwrap();
         assert!(!e.dir.join("extracted").exists() && e.game.launch.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_hand_edited_game_stays_listed_titles_are_read_once_and_stop_is_heard() {
+        let dir = temp_dir("pc-lenient");
+        let lib = Library::open(dir.join("lib")).unwrap();
+        // M31: a year as text and a number for an id, as a hand edit may leave them
+        let x = folder(&lib).join("Xeno (1999)");
+        std::fs::create_dir_all(&x).unwrap();
+        std::fs::write(x.join(MANIFEST), r#"{"id":"pc-x","title":"Xeno","year":"1999","ids":{"steam":4000,"gog":null},"files":[{"path":"a"}],"launch":"xeno.exe"}"#).unwrap();
+        let g = get(&lib, "pc-x").unwrap().game;
+        assert_eq!((g.year, g.ids.get("steam").map(String::as_str), g.files.len(), g.launch.is_none()), (Some(1999), Some("4000"), 0, true));
+        // M25: a sync reads the PC games once for every PC game's folder, not once for each
+        for i in 0..30 {
+            let d = folder(&lib).join(format!("Game {i}"));
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join(MANIFEST), format!(r#"{{"id":"pc-{i}","title":"Game {i}"}}"#)).unwrap();
+            let m = crate::meta::games_root(&lib).join("pc").join(format!("pc-{i}"));
+            std::fs::create_dir_all(&m).unwrap();
+            std::fs::write(m.join("game.json"), r#"{"platform":"pc"}"#).unwrap();
+        }
+        let ix = crate::index::Index::open(&dir.join("index.sqlite"), &lib.id().unwrap()).unwrap();
+        let before = LISTED.with(|n| n.get());
+        crate::meta::sync(&ix, &lib).unwrap();
+        assert!(LISTED.with(|n| n.get()) - before <= 1);
+        let t: String = ix.conn().query_row("SELECT title FROM meta_games WHERE folder LIKE '%/pc-7'", [], |r| r.get(0)).unwrap();
+        assert_eq!(t, "Game 7");
+        // M30: Stop is heard between the items a source is asked about
+        let inbox = dir.join("Downloads");
+        std::fs::create_dir_all(&inbox).unwrap();
+        std::fs::write(inbox.join("Alpha Thing.exe"), b"one").unwrap();
+        std::fs::write(inbox.join("Beta Thing.exe"), b"two").unwrap();
+        let (stop, asked) = (AtomicBool::new(false), std::sync::atomic::AtomicUsize::new(0));
+        let search = |_: &str, _: Option<i32>| {
+            asked.fetch_add(1, Ordering::Relaxed);
+            stop.store(true, Ordering::Relaxed);
+            None
+        };
+        assert!(read_items(&lib, &inbox_paths(&inbox).unwrap(), &search, &stop, &mut |_| {}).is_err());
+        assert_eq!(asked.load(Ordering::Relaxed), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

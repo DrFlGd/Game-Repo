@@ -62,11 +62,12 @@ pub fn keys_json(cfg: &AppConfig, source: &str) -> Value {
         .collect::<Vec<_>>())
 }
 
-/// The ids each source gives a system: (system, ScreenScraper, IGDB, TheGamesDB). Only
-/// ids the clients agree on are here; a system without one is searched by name alone.
+/// The ids each source gives a system: (system, ScreenScraper, IGDB, TheGamesDB), as the
+/// frontends' scrapers use them. A system without one is searched by name alone, and then
+/// what a search finds is only a candidate (H19).
 const SYSTEM_IDS: &[(&str, Option<u32>, Option<u32>, Option<&str>)] = &[
     ("nes", Some(3), Some(18), Some("7")),
-    ("fds", Some(106), None, None),
+    ("fds", Some(106), Some(51), Some("4936")),
     ("snes", Some(4), Some(19), Some("6")),
     ("n64", Some(14), Some(4), Some("3")),
     ("gb", Some(9), Some(33), Some("4")),
@@ -78,17 +79,21 @@ const SYSTEM_IDS: &[(&str, Option<u32>, Option<u32>, Option<&str>)] = &[
     ("mastersystem", Some(2), Some(64), Some("35")),
     ("gamegear", Some(21), Some(35), Some("20")),
     ("sega32x", Some(19), Some(30), Some("33")),
-    ("sg-1000", Some(109), None, None),
+    ("sg-1000", Some(109), Some(84), Some("4949")),
     ("atari2600", Some(26), Some(59), Some("22")),
-    ("atari5200", Some(40), None, None),
-    ("atari7800", Some(41), None, Some("27")),
+    ("atari5200", Some(40), Some(66), Some("26")),
+    ("atari7800", Some(41), Some(60), Some("27")),
     ("atarilynx", Some(28), Some(61), Some("4924")),
-    ("atarijaguar", Some(27), None, Some("28")),
+    ("atarijaguar", Some(27), Some(62), Some("28")),
     ("pcengine", Some(31), Some(86), Some("34")),
-    ("ngp", Some(25), None, Some("4922")),
+    ("ngp", Some(25), Some(119), Some("4922")),
     ("ngpc", Some(82), Some(120), Some("4923")),
-    ("wonderswan", Some(45), None, None),
-    ("wonderswancolor", Some(46), None, None),
+    ("wonderswan", Some(45), Some(57), Some("4925")),
+    ("wonderswancolor", Some(46), Some(123), Some("4926")),
+    ("colecovision", Some(48), Some(68), Some("31")),
+    ("intellivision", Some(115), Some(67), Some("32")),
+    ("vectrex", Some(102), Some(70), Some("4939")),
+    ("pokemini", Some(211), Some(166), Some("4957")),
     ("psx", Some(57), Some(7), Some("10")),
     ("ps2", Some(58), Some(8), Some("11")),
     ("psp", Some(61), Some(38), Some("13")),
@@ -96,12 +101,14 @@ const SYSTEM_IDS: &[(&str, Option<u32>, Option<u32>, Option<&str>)] = &[
     ("segacd", Some(20), Some(78), Some("21")),
     ("dreamcast", Some(23), Some(23), Some("16")),
     ("pcenginecd", Some(114), Some(150), Some("4955")),
-    ("neogeocd", Some(70), None, None),
-    ("3do", Some(29), None, Some("25")),
-    ("atarijaguarcd", Some(171), None, None),
+    ("pcfx", Some(72), Some(274), Some("4930")),
+    ("cdimono1", Some(133), Some(117), Some("4917")),
+    ("neogeocd", Some(70), Some(136), Some("4956")),
+    ("3do", Some(29), Some(50), Some("25")),
+    ("atarijaguarcd", Some(171), Some(410), Some("29")),
     ("gc", Some(13), Some(21), Some("2")),
     ("wii", Some(16), Some(5), Some("9")),
-    ("xbox", Some(32), None, None),
+    ("xbox", Some(32), Some(11), Some("14")),
     ("n3ds", Some(17), Some(37), Some("4912")),
     ("wiiu", Some(18), Some(41), Some("38")),
     ("switch", Some(225), Some(130), Some("4971")),
@@ -114,6 +121,16 @@ const SYSTEM_IDS: &[(&str, Option<u32>, Option<u32>, Option<&str>)] = &[
     ("fbneo", Some(75), Some(52), Some("23")),
     ("pc", Some(138), Some(6), Some("1")),
 ];
+
+/// Whether `source`'s search can be limited to `platform`'s games (else a game of the
+/// same name on another system could be taken, H19).
+pub fn searches_system(source: &str, platform: &str) -> bool {
+    match (source, ids_of(platform)) {
+        ("igdb", (_, Some(_), _)) | ("thegamesdb", (_, _, Some(_))) => true,
+        ("igdb" | "thegamesdb", _) => false,
+        _ => true,
+    }
+}
 
 fn ids_of(platform: &str) -> (Option<u32>, Option<u32>, Option<&'static str>) {
     SYSTEM_IDS.iter().find(|s| s.0 == platform).map(|s| (s.1, s.2, s.3)).unwrap_or((None, None, None))
