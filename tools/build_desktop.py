@@ -48,7 +48,8 @@ for doc in ("CHANGELOG.md", "THIRD_PARTY.md"):
 
 
 def commit():
-    sha = os.environ.get("GITHUB_SHA")
+    # GAMEREPO_COMMIT: CI's pick for a pull request (its own commit, not the merge it tests)
+    sha = os.environ.get("GAMEREPO_COMMIT") or os.environ.get("GITHUB_SHA")
     if not sha:
         try:
             sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
