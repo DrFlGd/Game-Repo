@@ -76,6 +76,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.26 (2026-10-19)
+
 - **A change to the plan alone is no longer built and tested.** A pull request that changes only the plan or these notes skips the Windows build, as merging one already publishes nothing.
 
 ## 0.5.25 (2026-10-19)
