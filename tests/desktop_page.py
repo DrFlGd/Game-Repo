@@ -1307,9 +1307,19 @@ async def main():
                 await pg.wait_for_selector("#export-groups")
                 placings = await pg.eval_on_selector_all("#export-groups [data-placing]", "els => els.map(e => e.dataset.placing)")
                 chosen_placing = await pg.eval_on_selector("#export-groups input:checked", "e => e.value")
+                # D81: Knulli has collections and folders for groups; ROCKNIX only folders
+                shown = "els => els.map(e => e.textContent)"
+                await pg.select_option("#export-layout", "rocknix")
+                await pg.wait_for_function("() => document.querySelector('#export-groups [data-placing] b')?.textContent === 'Together'")
+                rocknix = await pg.eval_on_selector_all("#export-groups [data-placing] b", shown)
+                await pg.select_option("#export-layout", "knulli")
+                await pg.wait_for_function("() => document.querySelector('#export-groups [data-placing] b')?.textContent === 'Collections only'")
+                knulli = await pg.eval_on_selector_all("#export-groups [data-placing] b", shown)
                 await pg.click("#export-dialog-cancel")
                 check("Export asks where a collection's groups go when the layout can place them, collections only by default",
                       placings == ["collections", "subfolders", "systems"] and chosen_placing == "collections", (placings, chosen_placing))
+                check("Knulli offers its groups as collections or folders, ROCKNIX in folders or together (D81)",
+                      knulli == ["Collections only", "Subfolders"] and rocknix == ["Together", "Subfolders"], (knulli, rocknix))
                 # renamed, then removed: the collection as it was
                 await pg.click('#collection-view [data-view="rules"]')
                 await pg.click('#collection-group-1 [data-action="group-rename"]')

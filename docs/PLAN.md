@@ -3323,7 +3323,29 @@ Order (Jerred agreed the order, and asked for the docs batch to go with the firs
      bundle; a pull request's reports go to `desktop-ci-<os>-pr`; only a push to `main`
      publishes; and the release job gives the published Unreleased section its version's
      heading on `main`.
-8. **Groups on devices** (D81).
+8. **Groups on devices** (D81). **Status: done (PR #38).** As built, after checking each
+   firmware's documentation (2026-10-19):
+   - Knulli: custom collections are Batocera's (knulli.org/configure/collections,
+     wiki.batocera.org/game_collection_settings): `custom-<name>.cfg` in
+     `/userdata/system/configs/emulationstation/collections/`, a game a line by its full
+     path (`/userdata/roms/nes/Game.zip`). The SHARE partition is `/userdata`, so the
+     layout's new `collection: "es-cfg"` writes one for each group under
+     `{card}/system/configs/emulationstation/collections`, naming the games from
+     `collections.device` (`/userdata`). Its games' path has `{group}`, so Subfolders is
+     offered too; the pictures (written into the gamelist) get `{group}` as well, nothing
+     for a first group. Separate systems isn't: Batocera's systems are defined in its
+     read-only system image, so there's nothing to copy one from.
+   - ROCKNIX: its EmulationStation has custom collections (rocknix.org/configure/collections),
+     but keeps them in `~/.config/emulationstation` on its ext4 storage partition, which
+     Windows can't write (rocknix.org/faqs), and the layout writes the games card. So it
+     gets Subfolders only; "Collections only" is *Together* in the Export dialog for a
+     layout with no collections, and the preview says so when the groups aren't kept apart.
+   - muOS: it has collections (muos.dev/tour/modules/muxcollect, `MUOS/info/collection/`),
+     but their `.cfg` format isn't documented, the 2508 Goose release changed it and broke
+     older files, and its developers don't plan PC tools for it. Nothing is written for
+     them; the preview says the groups are with the rest.
+   - LaunchBox and Playnite (no group lists) get the same note. The layout editor's
+     collection inspector chooses none, ES-DE's or the device's, and *Add to it* adds one.
 
 **D78 One Import page** (Jerred, 2026-10-18). Every import goes through the Import page:
 the buttons on Home, Audit, BIOS files, PC games, Documents and Magazines open its
@@ -3527,7 +3549,7 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     order, each a pull request merged on Jerred's word. Batches 1 and 2 are released
     (v0.5.19), batch 3, exports and collections, is v0.5.20; batch 4, the interface, is
     v0.5.21; batches 5 (metadata, PC games and magazines) and 6 (one Import page) are
-    v0.5.22; batch 7, the rest of CI and the tests, is done; batch 8, groups on devices
-    (D81), is next.
+    v0.5.22; batch 7, the rest of CI and the tests, is v0.5.23; batch 8, groups on devices
+    (D81), is done, which finishes the review's batches.
 14. Then Phase 9, serving games to devices on the home network (3.10). Later: reading
     magazines' text (PDF, CBZ and CBR) and tagging each issue with the games it covers.

@@ -356,6 +356,9 @@ const PLACEMENTS = {
   subfolders: ["Subfolders", "The first group in the system's folder, each other in a folder of its own inside it (roms/snes/Translations)."],
   systems: ["Separate systems", "Each other group a system of its own beside its system's (roms/snes-translations)."],
 };
+/** "Collections only" for a layout with no collection files (ROCKNIX's): its groups aren't kept apart (D81). */
+const NO_COLLECTIONS = ["Together", "Every game in its system's folder, the groups not kept apart (the layout has no collections)."];
+const placement = (k, l) => (k === "collections" && l && !l.collection ? NO_COLLECTIONS : PLACEMENTS[k]);
 
 /** Export…: a layout (ES-DE, a device's firmware, a plain folder: Settings › Export layouts),
  *  where its places are, what it carries, where its groups go, then the preview; Export
@@ -439,7 +442,7 @@ function ExportDialog({ c, sum, plan: given, only, count }) {
       ${p.note ? html`<small class="muted">${p.note}</small>` : null}</div>`)}
     ${offered.length > 1 ? html`<fieldset class="field-block export-groups" id="export-groups"><legend class="field-label">Its groups after the first</legend>
       ${offered.map((k) => html`<label class="check-row" key=${k} data-placing=${k}><input type="radio" name="export-groups" value=${k} checked=${groupsTo === k} onChange=${() => setPlacing(k)} />
-        <span><b>${PLACEMENTS[k]?.[0] || k}</b> <small class="muted">${PLACEMENTS[k]?.[1] || ""}</small></span></label>`)}
+        <span><b>${placement(k, l)?.[0] || k}</b> <small class="muted">${placement(k, l)?.[1] || ""}</small></span></label>`)}
       <small class="muted">Update… places them the same way.</small></fieldset>` : null}
     ${l?.gamelist ? html`<label class="check-row"><input type="checkbox" id="export-short" checked=${shortNames} onChange=${(e) => setShortNames(e.target.checked)} /> Name games in the gamelist by their title (Alpha), not the full name (Alpha (USA))${layout === "retroarch" ? html` <small class="muted">(RetroArch's thumbnails are named by the full name)</small>` : null}</label>` : null}
     ${l ? html`<${CarryChoices} value=${carry} onChange=${setCarry} carries=${l.carries} layout=${l} />` : null}

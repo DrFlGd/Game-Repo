@@ -5,6 +5,8 @@
 //! A path starts from a *place* the Export dialog asks for (`{card}`, `{roms}`…).
 //! A collection's groups (D75) are placed by `{group}` (a folder of their own in the
 //! system's) or by `groups.system` (a system of their own), as the Export dialog chooses.
+//! A device whose firmware keeps custom collections where the card can reach them
+//! (Knulli's, as Batocera's) gets them as `es-cfg` files (D81).
 
 use crate::config;
 use crate::library::{Library, APP_DIR};
@@ -60,8 +62,12 @@ pub struct Layout {
     pub documents: Option<Out>,
     pub bios: Option<Out>,
     pub pictures: Pictures,
-    /// `esde-cfg`: the collection as an ES-DE custom collection (one for each of its groups)
+    /// `esde-cfg`: the collection as an ES-DE custom collection (one for each of its groups);
+    /// `es-cfg`: as EmulationStation's on a device (Batocera's, Knulli's), in `collections`
     pub collection: Option<String>,
+    /// Where `es-cfg` collections go and how they name the games (D81)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collections: Option<CollectionsOut>,
     /// ES-DE's own folder (`{esde}`, `{card}/ES-DE`): where the custom collections go, and
     /// where a group placed as a system of its own is set up (`custom_systems/`); none:
     /// `{esde}`, if the layout has that place
@@ -141,6 +147,20 @@ pub struct GroupsOut {
     /// The folder of a group as a system of its own, beside its system's (`{folder}-{group}`,
     /// where `{group}` is the group's name in lower case with hyphens); empty: they can't be
     pub system: String,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+/// Where a device's EmulationStation keeps its custom collections, a `custom-<name>.cfg`
+/// for each, one game a line by its path on the device (D81).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CollectionsOut {
+    /// The folder (`{card}/system/configs/emulationstation/collections`)
+    pub path: String,
+    /// Where the games' place is on the device (`/userdata`, so a line is
+    /// `/userdata/roms/snes/Game.sfc`)
+    pub device: String,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -281,6 +301,9 @@ impl Layout {
         }
         if let Some(e) = &self.es_de {
             v.push(("es_de".into(), e.as_str()));
+        }
+        if let Some(c) = self.collections.as_ref().filter(|_| self.collection.as_deref() == Some("es-cfg")) {
+            v.push(("collections.path".into(), c.path.as_str()));
         }
         for p in &self.places {
             if let Some(f) = &p.from {
@@ -630,7 +653,7 @@ pub fn check(l: &Layout) -> Vec<Problem> {
             "games" => allowed.push("file"),
             "gamelist" => {}
             // a folder, the same for every system
-            "es_de" => allowed.clear(),
+            "es_de" | "collections" => allowed.clear(),
             "bios" => allowed.push("bios_file"),
             "documents" => allowed.extend(GAME_TOKENS.iter().chain(&["doc_file"])),
             _ => {
@@ -714,6 +737,8 @@ pub fn check(l: &Layout) -> Vec<Problem> {
         }
         let dir = l.games.path.trim().replace('\\', "/");
         let dir = dir.strip_suffix("/{file}").unwrap_or(&dir).to_lowercase();
+        // (the system's folder: a group's folder of its own is in it)
+        let dir = dir.strip_suffix("/{group}").map(str::to_string).unwrap_or(dir);
         for (k, o) in l.media.iter().filter(|(_, o)| o.tag.is_some()) {
             let tag = o.tag.as_deref().unwrap_or("");
             if g.kind == "retroarch" {
@@ -739,7 +764,18 @@ pub fn check(l: &Layout) -> Vec<Problem> {
     }
     match l.collection.as_deref() {
         None | Some("esde-cfg") => {}
-        Some(c) => say("collection", format!("There's no kind of collection file called {c} (esde-cfg).")),
+        Some("es-cfg") => match &l.collections {
+            None => say("collection", "Say where the device keeps its collections (collections.path) and where the games are there (collections.device).".into()),
+            Some(c) => {
+                if c.path.trim().is_empty() {
+                    say("collections.path", "Say where the device keeps its collections.".into());
+                }
+                if !c.device.trim().starts_with('/') {
+                    say("collections.device", "Where the games' place is on the device, from / (/userdata).".into());
+                }
+            }
+        },
+        Some(c) => say("collection", format!("There's no kind of collection file called {c} (esde-cfg, es-cfg).")),
     }
     // a group's own system: a folder's name, with the group's in it
     if let Some(g) = l.groups.as_ref().filter(|g| !g.system.trim().is_empty()) {
@@ -988,10 +1024,31 @@ mod tests {
         assert!(at("media.poster").contains("no kind of picture"), "{p:?}");
         assert!(at("games.path").contains("ends in /{file}"), "{p:?}");
         assert!(at("gamelist.fields.description").contains("isn't a tag"), "{p:?}");
-        // the video's path is the box's, before the cover changed: the same file twice
+        // the video's path is the box's: the same file twice
         let mut two = built_in()[2].clone();
-        two.media.get_mut("video").unwrap().path = "{card}/roms/{folder}/images/{stem}-thumb.{ext}".into();
+        two.media.get_mut("video").unwrap().path = two.media["cover"].path.clone();
         assert!(check(&two).iter().any(|p| p.message.contains("same path")), "{:?}", check(&two));
+    }
+
+    #[test]
+    fn a_devices_collections_say_where_they_go_and_where_the_games_are_there() {
+        // Knulli's: each group a custom collection, its games in a folder of their own if
+        // chosen, their pictures (written into the gamelist) in the system's folder (D81)
+        let k = built_in()[2].clone();
+        assert_eq!((k.collection.as_deref(), k.placements()), (Some("es-cfg"), vec!["collections", "subfolders"]));
+        assert_eq!(built_in()[3].placements(), ["collections", "subfolders"], "ROCKNIX: folders only");
+        assert_eq!(built_in()[4].placements(), ["collections"], "muOS: neither");
+        let mut l = k.clone();
+        l.collections = None;
+        assert!(check(&l).iter().any(|p| p.at == "collection" && p.message.contains("collections.path")), "{:?}", check(&l));
+        let mut l = k.clone();
+        l.collections = Some(CollectionsOut { path: "{card}/{folder}/collections".into(), device: "userdata".into(), ..Default::default() });
+        let p: Vec<(String, String)> = check(&l).into_iter().map(|p| (p.at, p.message)).collect();
+        assert!(p.iter().any(|(a, m)| a == "collections.path" && m.contains("{folder}")), "a folder the same for every system: {p:?}");
+        assert!(p.iter().any(|(a, m)| a == "collections.device" && m.contains("from /")), "{p:?}");
+        let mut l = k.clone();
+        l.collection = Some("es-xml".into());
+        assert!(check(&l).iter().any(|p| p.message.contains("esde-cfg, es-cfg")));
     }
 
     #[test]
