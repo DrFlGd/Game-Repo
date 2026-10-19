@@ -1,0 +1,36 @@
+    Finished `release` profile [optimized] target(s) in 0.17s
+     Running unittests src\lib.rs (target\release\deps\gamerepo_core-dd8421e1d10372ae.exe)
+
+running 5 tests
+test audit::tests::timing_import_and_audit_of_a_50k_rom_dat ... import of 50,000 ROMs 508.6458ms; audit 296.0173ms
+ok
+test audit::tests::timing_rescan_of_100k_unchanged_files ... first scan 10.1s ({"listing":0.08,"comparing":0.41,"hashing":4.37,"opening":1.46,"reading":2.86,"recording":4.29,"matching":5.26}); rescan of 100,000 unchanged files 264.7584ms
+ok
+test browse::tests::timing_the_library_of_200k_games ...   page at 120,000 by year: 5.8321ms
+  page at 120,000 by year (descending): 6.3915ms
+  page at 120,000 by rating: 6.641ms
+  page at 120,000 by size: 6.1234ms
+  page at 120,000 by date: 4.825ms
+  page at 120,000 by title (descending): 5.6266ms
+  page at 120,000 by system: 6.3501ms
+200,000 games written in 47.434317s; first page 3.2846ms, deepest page 6.641ms, a system's 1.1961ms, searched 1.3068ms, filtered and searched 409.5µs, searched for everything 158.656ms; counts 118.91ms, filtered counts 106.8548ms
+ok
+test export::tests::timing_export_of_8k_games_with_pictures_and_its_update ... export of 8,000 games with pictures planned in 1.6708257s; its Update in 2.2832451s
+ok
+test organise::tests::timing_plan_of_50k_files_and_renaming_10k ... plan of 50,000 files 841.2796ms; renaming 10,000 7.6490737s
+ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 142 filtered out; finished in 157.03s
+
+     Running unittests src\bin\gamerepo-cli.rs (target\release\deps\gamerepo_cli-c5556c2b9284e24c.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests gamerepo_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

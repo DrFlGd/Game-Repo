@@ -1,0 +1,16 @@
+{
+ "report": {
+  "platform": "desktop",
+  "title": "Game Repo",
+  "library": {
+   "path": "C:\\Users\\runneradmin\\Game Repo",
+   "_library": true,
+   "library.json": true,
+   "nothing else": true
+  },
+  "settings_path": "C:\\Users\\runneradmin\\Game Repo",
+  "index_path": "C:\\Users\\runneradmin\\AppData\\Local\\io.github.drflgd.gamerepo\\index\\lib-7c85e8522455c646.sqlite",
+  "theme": "night"
+ },
+ "failures": []
+}
