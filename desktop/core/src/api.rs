@@ -20,6 +20,11 @@ pub struct AppPaths {
     pub data_dir: PathBuf,
     /// how the page reaches library files: "library://localhost/", "/library/"...
     pub library_url: String,
+    /// Game Repo Server's data folder (one server per computer, D89)
+    pub server_data: PathBuf,
+    /// How to start Game Repo Server: its program and the arguments before its own
+    /// (empty: it isn't installed beside the app)
+    pub server_program: Vec<String>,
 }
 
 pub enum Reply {
@@ -102,7 +107,22 @@ pub struct App {
     systems_read: Mutex<Option<(PathBuf, Option<std::time::SystemTime>)>>,
     /// the layout editor's sample games (D39): (collection and what matched then, the sample)
     layout_sample: Mutex<Option<(String, Value)>>,
+    /// Game Repo Server when this app started it: holding its input, which it watches to
+    /// stop when the app ends (unless it's kept)
+    server: Mutex<Option<std::process::Child>>,
+    /// whether the server starts with Windows, as last read
+    with_windows: Mutex<Option<bool>>,
+    /// Why the server didn't start when the app opened (shown in Settings)
+    serve_error: Mutex<Option<String>>,
 }
+
+/// The commands that change the library without a job: Game Repo Server is told after
+/// them (and after every job), so the devices see the change.
+const TELLS_SERVER: &[&str] = &[
+    "addon_link", "collection_delete", "collection_from", "collection_hand", "collection_save", "collection_undo", "dat_remove", "dat_use",
+    "library_rename", "meta_choose", "meta_clear", "meta_edit", "meta_pick", "meta_pin", "meta_set_details_from", "roots_add", "roots_remove",
+    "roots_update", "systems_remove", "systems_set",
+];
 
 /// What `library()` says before any library was ever opened (the page then asks where).
 const NO_LIBRARY: &str = "No library is open yet.";
@@ -131,6 +151,9 @@ impl App {
             watching: AtomicBool::new(true),
             systems_read: Mutex::new(None),
             layout_sample: Mutex::new(None),
+            server: Mutex::new(None),
+            with_windows: Mutex::new(None),
+            serve_error: Mutex::new(None),
         }))
     }
 
@@ -277,6 +300,7 @@ impl App {
                 Err(e) => Err(e.to_string()),
             };
             app.job_done(&id, r);
+            app.tell_server();
             // changes seen while it ran are scanned now
             app.scan_changed();
         });
@@ -442,9 +466,156 @@ impl App {
         self.start_scan(lib, scan::Options { full: settings.full, readers: settings.readers, only }, true);
     }
 
+    // ------------------------------------------------------------ Game Repo Server (D89)
+
+    fn settings_set(&self, f: impl FnOnce(&mut crate::config::ServeSettings)) -> Result<()> {
+        let mut cfg = self.config();
+        f(&mut cfg.serve);
+        cfg.save(&self.config_path())
+    }
+
+    /// Start Game Repo Server with the open library.
+    fn serve_start(&self) -> Result<()> {
+        let lib = self.library().map_err(|e| anyhow!(e))?;
+        let cfg = self.config().serve;
+        let index_from = lib.id().map(|id| index::path_for(&self.paths.data_dir, &id));
+        let child = crate::serving::start(&crate::serving::Start {
+            program: &self.paths.server_program,
+            data: &self.paths.server_data,
+            library: lib.root(),
+            port: cfg.port,
+            index_from: index_from.as_deref(),
+            keep: cfg.keep,
+        })?;
+        *self.server.lock().unwrap() = Some(child);
+        *self.serve_error.lock().unwrap() = None;
+        Ok(())
+    }
+
+    fn serve_stop(&self) -> Result<()> {
+        if gamerepo_wire::control::running(&self.paths.server_data).is_some() {
+            crate::serving::stop(&self.paths.server_data)?;
+        }
+        if let Some(mut c) = self.server.lock().unwrap().take() {
+            let _ = c.wait();
+        }
+        Ok(())
+    }
+
+    fn serve_status(&self) -> Result<Value> {
+        let (running, status, devices) = crate::serving::state(&self.paths.server_data);
+        let lib = self.library.read().unwrap().clone();
+        let this = running.as_ref().is_some_and(|r| lib.as_ref().is_some_and(|l| Path::new(&r.library) == l.root()));
+        let with_windows = *self.with_windows.lock().unwrap().get_or_insert_with(crate::serving::with_windows);
+        Ok(json!({
+            "installed": !self.paths.server_program.is_empty(),
+            "running": running.is_some(),
+            "this_library": this,
+            "status": status,
+            "devices": devices,
+            "settings": self.config().serve,
+            "windows": cfg!(windows),
+            "with_windows": with_windows,
+            // (the installed server: not `gamerepo-cli serve-devices`)
+            "can_start_with_windows": cfg!(windows) && self.paths.server_program.len() == 1,
+            "start_error": self.serve_error.lock().unwrap().clone(),
+        }))
+    }
+
+    fn serve_call(&self, cmd: &str, args: &Value) -> Result<Value> {
+        let data = &self.paths.server_data;
+        let call = |method: &str, path: &str, body: Option<&Value>| gamerepo_wire::control::call(data, method, path, body).map_err(|e| anyhow!("{e}"));
+        match cmd {
+            "serve_status" => self.serve_status(),
+            "serve_start" => {
+                self.serve_start()?;
+                self.settings_set(|s| s.on = true)?;
+                self.serve_status()
+            }
+            "serve_stop" => {
+                self.serve_stop()?;
+                self.settings_set(|s| s.on = false)?;
+                self.serve_status()
+            }
+            // the open library instead of the one it's serving
+            "serve_restart" => {
+                self.serve_stop()?;
+                self.serve_start()?;
+                self.settings_set(|s| s.on = true)?;
+                self.serve_status()
+            }
+            "serve_pair" => call("POST", "/pair", None),
+            "serve_unpair" => call("DELETE", "/pair", None),
+            "serve_remove_device" => call("DELETE", &format!("/devices/{}", arg(args, "id")?), None),
+            "serve_set" => {
+                if let Some(keep) = args["keep"].as_bool() {
+                    self.settings_set(|s| s.keep = keep)?;
+                    if gamerepo_wire::control::running(data).is_some() {
+                        call("POST", "/keep", Some(&json!({ "keep": keep })))?;
+                    }
+                }
+                if let Some(port) = args.get("port").filter(|p| !p.is_null()) {
+                    let port = port.as_u64().filter(|p| (1024..=65535).contains(p)).ok_or_else(|| anyhow!("A port is a number from 1024 to 65535."))? as u16;
+                    if port != self.config().serve.port {
+                        self.settings_set(|s| s.port = port)?;
+                        // a server of this app's moves to it
+                        if self.server.lock().unwrap().is_some() && gamerepo_wire::control::running(data).is_some() {
+                            self.serve_stop()?;
+                            self.serve_start()?;
+                        }
+                    }
+                }
+                if let Some(on) = args["with_windows"].as_bool() {
+                    let [program] = self.paths.server_program.as_slice() else { bail!("Start with Windows is for Game Repo Server installed beside Game Repo.") };
+                    crate::serving::set_with_windows(Path::new(program), on)?;
+                    *self.with_windows.lock().unwrap() = Some(crate::serving::with_windows());
+                }
+                self.serve_status()
+            }
+            "serve_networks" => Ok(json!(crate::serving::networks())),
+            _ => bail!("unknown command {cmd}"),
+        }
+    }
+
+    /// Tell Game Repo Server the library changed, when it's serving this one.
+    fn tell_server(&self) {
+        if let Some(lib) = self.library.read().unwrap().as_ref() {
+            crate::serving::changed(&self.paths.server_data, lib.root());
+        }
+    }
+
+    /// When the app opens: serve again if it was serving when it closed (and the server
+    /// didn't stay).
+    pub fn serve_resume(&self) {
+        if !self.config().serve.on || self.paths.server_program.is_empty() || gamerepo_wire::control::running(&self.paths.server_data).is_some() {
+            return;
+        }
+        if let Err(e) = self.serve_start() {
+            *self.serve_error.lock().unwrap() = Some(format!("Game Repo Server didn't start when Game Repo opened: {e:#}"));
+        }
+    }
+
+    /// When the app closes: the server it started stops with it, unless it's kept.
+    pub fn serve_exit(&self) {
+        let Some(child) = self.server.lock().unwrap().take() else { return };
+        if !self.config().serve.keep {
+            let _ = gamerepo_wire::control::call(&self.paths.server_data, "POST", "/stop", None);
+        }
+        // its input closes with it: a server that isn't kept stops then anyway
+        drop(child);
+    }
+
     // ------------------------------------------------------------ commands
 
     pub async fn call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
+        let r = self.call_inner(cmd, args).await;
+        if r.is_ok() && TELLS_SERVER.contains(&cmd) {
+            self.tell_server();
+        }
+        r
+    }
+
+    async fn call_inner(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
         let j = |v: Value| Ok(Reply::Json(v));
         if !cmd.starts_with("job") {
             self.ensure_watch();
@@ -463,6 +634,10 @@ impl App {
         }
         if ["layout", "bios", "magazine"].iter().any(|p| cmd.starts_with(p)) {
             return self.device_call(cmd, args).await;
+        }
+        if cmd.starts_with("serve_") {
+            let (app, cmd) = (self.clone(), cmd.to_string());
+            return tokio::task::spawn_blocking(move || app.serve_call(&cmd, &args)).await.map_err(|e| e.to_string())?.map(Reply::Json).map_err(e2s);
         }
         match cmd {
             "app_info" => {
@@ -2181,6 +2356,8 @@ mod tests {
             config_dir: home.join("config"),
             data_dir: home.join("data"),
             library_url: "/library/".into(),
+            server_data: home.join("server"),
+            server_program: vec![],
         };
         (App::new(paths).unwrap(), home)
     }

@@ -30,7 +30,7 @@ use made::{Hashes, Made, Maker};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{BufReader, Write};
+use std::io::{BufReader, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -63,38 +63,19 @@ pub struct Options {
     pub watch: bool,
     /// The made files kept, at most, in bytes
     pub made_limit: u64,
+    /// Stop when the program that started it ends (its standard input closes), unless kept
+    pub parent: bool,
+    /// Keep serving after that program ends
+    pub keep: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { library: PathBuf::new(), data: PathBuf::new(), port: api::PORT, control_port: 0, index_from: None, announce: true, watch: true, made_limit: 20 << 30 }
+        Self { library: PathBuf::new(), data: PathBuf::new(), port: api::PORT, control_port: 0, index_from: None, announce: true, watch: true, made_limit: 20 << 30, parent: false, keep: false }
     }
 }
 
-/// The server's data folder on this computer (`%LOCALAPPDATA%\Game Repo Server\` on Windows).
-pub fn default_data() -> PathBuf {
-    if cfg!(windows) {
-        std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_default().join("Game Repo Server")
-    } else {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-            .unwrap_or_default()
-            .join("game-repo-server")
-    }
-}
-
-/// What `server.json` says about a running server.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Running {
-    pub pid: u32,
-    pub port: u16,
-    pub control: u16,
-    pub secret: String,
-    pub library: String,
-    pub version: String,
-}
+pub use gamerepo_wire::control::{default_data, Running};
 
 /// How the server is, as Settings shows it.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -117,6 +98,9 @@ pub struct Status {
     /// The code being shown, and the seconds it has left
     pub pairing: Option<(String, u64)>,
     pub announced: bool,
+    /// Kept serving when the program that started it ends
+    pub kept: bool,
+    pub pid: u32,
 }
 
 #[derive(Default)]
@@ -146,6 +130,9 @@ struct Shared {
     downloads: Mutex<HashMap<String, usize>>,
     connections: AtomicUsize,
     announced: AtomicBool,
+    kept: AtomicBool,
+    /// Asked to show its window (a second start of the program, POST /show)
+    show: AtomicBool,
 }
 
 pub struct Server {
@@ -175,17 +162,39 @@ pub fn local_address() -> Option<IpAddr> {
     s.local_addr().ok().map(|a| a.ip()).filter(|ip| !ip.is_unspecified())
 }
 
-/// The server's own settings, kept from its first start: its id.
-fn server_id(data: &Path) -> Result<String> {
-    let p = data.join("settings.json");
-    let mut v: Value = std::fs::read(&p).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({}));
-    if let Some(id) = v["id"].as_str().filter(|s| !s.is_empty()) {
-        return Ok(id.to_string());
+fn settings(data: &Path) -> Value {
+    std::fs::read(data.join("settings.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({}))
+}
+
+/// The server's own settings, kept from its first start: its id, and the library and port
+/// it served last (which it serves when started with none, as Start with Windows does).
+fn remember(data: &Path, library: &Path, port: u16) -> Result<String> {
+    let mut v = settings(data);
+    let mut id = v["id"].as_str().unwrap_or("").to_string();
+    let same_port = port == 0 || v["port"].as_u64() == Some(port as u64);
+    if !id.is_empty() && v["library"].as_str() == Some(&*library.to_string_lossy()) && same_port {
+        return Ok(id);
     }
-    let id = tls::random_hex(8);
+    if id.is_empty() {
+        id = tls::random_hex(8);
+    }
     v["id"] = json!(id);
-    tls::write_new(&p, &serde_json::to_vec_pretty(&v)?)?;
+    v["library"] = json!(library.to_string_lossy());
+    if port != 0 {
+        v["port"] = json!(port);
+    }
+    tls::write_new(&data.join("settings.json"), &serde_json::to_vec_pretty(&v)?)?;
     Ok(id)
+}
+
+/// The library the server served last, if any.
+pub fn last_library(data: &Path) -> Option<PathBuf> {
+    settings(data)["library"].as_str().filter(|s| !s.is_empty()).map(PathBuf::from)
+}
+
+/// The port the server served on last, if one was chosen.
+pub fn last_port(data: &Path) -> Option<u16> {
+    settings(data)["port"].as_u64().and_then(|p| u16::try_from(p).ok()).filter(|p| *p != 0)
 }
 
 /// The first index: Game Repo's copied when it's there and of this version (SQLite's own
@@ -298,6 +307,8 @@ impl Shared {
             devices: d.list().len(),
             pairing: d.pairing().map(|(c, left)| (c, left.as_secs())),
             announced: self.announced.load(Ordering::SeqCst),
+            kept: self.kept.load(Ordering::SeqCst),
+            pid: std::process::id(),
         }
     }
 }
@@ -312,7 +323,7 @@ impl Server {
         if let Some(r) = control::running(&o.data) {
             bail!("Game Repo Server is running already on this computer (process {}, serving {}).", r.pid, r.library);
         }
-        let id = server_id(&o.data)?;
+        let id = remember(&o.data, lib.root(), o.port)?;
         let identity = tls::identity(&o.data)?;
         let index_path = index::path_for(&o.data, &lib_id);
         if !index_path.is_file() {
@@ -351,6 +362,8 @@ impl Server {
             downloads: Mutex::default(),
             connections: AtomicUsize::new(0),
             announced: AtomicBool::new(false),
+            kept: AtomicBool::new(o.keep),
+            show: AtomicBool::new(false),
         });
         let secret = tls::random_hex(32);
         let mut threads = vec![];
@@ -369,6 +382,18 @@ impl Server {
         {
             let sh = sh.clone();
             threads.push(std::thread::Builder::new().name("keep".into()).spawn(move || sh.keep())?);
+        }
+        if o.parent {
+            // not joined: it waits on the standard input, which only the parent's end closes
+            let sh = sh.clone();
+            std::thread::Builder::new().name("parent".into()).spawn(move || {
+                let mut buf = [0u8; 256];
+                while matches!(std::io::stdin().read(&mut buf), Ok(n) if n > 0) {}
+                if !sh.kept.load(Ordering::SeqCst) {
+                    sh.stop.store(true, Ordering::SeqCst);
+                    sh.wake.1.notify_all();
+                }
+            })?;
         }
         let running = Running { pid: std::process::id(), port, control: control_port, secret, library: sh.lib.root().display().to_string(), version: VERSION.into() };
         tls::write_new(&o.data.join("server.json"), &serde_json::to_vec_pretty(&running)?)?;
@@ -449,6 +474,11 @@ impl Server {
             std::thread::sleep(Duration::from_millis(50));
         }
         false
+    }
+
+    /// Was it asked to show its window since the last time this was asked?
+    pub fn shown(&self) -> bool {
+        self.sh.show.swap(false, Ordering::SeqCst)
     }
 
     /// Asked to stop (by the control channel's `stop`).

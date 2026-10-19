@@ -1,0 +1,17 @@
+[package]
+name = "gamerepo-server"
+description = "Game Repo Server: the library served to devices on the home network, with a tray icon and a small window"
+version.workspace = true
+edition.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+gamerepo-core = { path = "../core" }
+gamerepo-serve = { path = "../serve" }
+gamerepo-wire = { path = "../wire" }

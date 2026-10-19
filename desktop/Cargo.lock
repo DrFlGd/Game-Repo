@@ -1561,6 +1561,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "gamerepo-server"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "gamerepo-core",
+ "gamerepo-serve",
+ "gamerepo-wire",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+]
+
+[[package]]
 name = "gamerepo-wire"
 version = "0.5.0"
 dependencies = [

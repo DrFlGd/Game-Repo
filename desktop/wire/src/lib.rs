@@ -5,6 +5,7 @@
 //! no archive or disc code, so the Android client can link it without the core.
 
 pub mod api;
+pub mod control;
 pub mod gamelist;
 pub mod plan;
 

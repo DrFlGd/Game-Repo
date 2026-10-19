@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Game Repo Server",
+  "identifier": "io.github.drflgd.gamerepo.server",
+  "build": {
+    "frontendDist": "../../build/desktop/ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Game Repo Server",
+        "url": "server.html",
+        "width": 640,
+        "height": 760,
+        "minWidth": 420,
+        "minHeight": 420,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Utility",
+    "shortDescription": "Serve a Game Repo library to devices on your home network",
+    "longDescription": "Lets phones and handhelds on your home network browse a Game Repo library and download games into ES-DE's folders, with Game Repo's app on the device. It reads the library and never changes it.",
+    "icon": [
+      "../src-tauri/icons/32x32.png",
+      "../src-tauri/icons/128x128.png",
+      "../src-tauri/icons/128x128@2x.png",
+      "../src-tauri/icons/icon.png",
+      "../src-tauri/icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "../installer/hooks.nsh"
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "wire", "serve", "device", "cli", "src-tauri"]
+members = ["core", "wire", "serve", "device", "cli", "src-tauri", "server"]
 
 [workspace.package]
 version = "0.5.0"

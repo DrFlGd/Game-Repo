@@ -4,7 +4,11 @@
 from tests/fixtures, and `gamerepo-cli device …` standing in for a phone with ES-DE.
 
     python3 tests/serve_devices.py --cli desktop/target/release/gamerepo-cli --home /tmp/sd \\
-        --out ci-out/serve-devices
+        --out ci-out/serve-devices [--server desktop/target/release/gamerepo-server]
+
+With --server, the server is that program instead of `gamerepo-cli serve-devices`: Game
+Repo Server's own (desktop/server, with its tray icon), given the library and Game Repo's
+index as Game Repo gives them.
 
 Checks: the server starts with a copy of Game Repo's index and announces itself (the
 device finds it by DNS-SD); a pairing code from the control channel pairs the device;
@@ -33,6 +37,7 @@ ap.add_argument("--cli", required=True)
 ap.add_argument("--home", required=True)
 ap.add_argument("--out", required=True)
 ap.add_argument("--no-find", action="store_true", help="don't look for the server by DNS-SD (a network without multicast)")
+ap.add_argument("--server", help="Game Repo Server's own program to run instead of `gamerepo-cli serve-devices`")
 a = ap.parse_args()
 
 cli = str(Path(a.cli).resolve())
@@ -103,8 +108,12 @@ before = snapshot(lib, fixtures / "Roms")
 
 # The server, as Game Repo starts it: its own data folder, the index copied from Game Repo's
 lines = queue.Queue()
-server = subprocess.Popen([cli, "serve-devices", "--data", str(data), "--port", "0", "--no-watch", "--home", str(home / "app"), "--library", str(lib)],
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8")
+if a.server:
+    lib_id = json.loads((lib / "_library" / "library.json").read_text(encoding="utf-8"))["id"]
+    command = [str(Path(a.server).resolve()), "--library", str(lib), "--data", str(data), "--port", "0", "--index-from", str(home / "app" / "data" / "index" / f"{lib_id}.sqlite")]
+else:
+    command = [cli, "serve-devices", "--data", str(data), "--port", "0", "--no-watch", "--home", str(home / "app"), "--library", str(lib)]
+server = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8")
 threading.Thread(target=lambda: [lines.put(l.rstrip("\n")) for l in server.stdout], daemon=True).start()
 said = []
 

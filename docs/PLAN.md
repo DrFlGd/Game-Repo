@@ -3519,7 +3519,7 @@ stand-in's code. D89–D95 were proposed here and Jerred agreed them (2026-10-19
   `Library::writable()` (72 places today), which then refuses; the build checks that none
   goes round it, and a test proves the folder unchanged (below). A library from a newer
   Game Repo is refused with "update the server". Its index, thumbnails, made files (D93)
-  and devices are in its own data folder (`%LOCALAPPDATA%\Game Repo Server\`), as a
+  and devices are in its own data folder (`%LOCALAPPDATA%\io.github.drflgd.gamerepo.server\`, part 3), as a
   second computer's would be.
 - **The first index** is a copy of Game Repo's when it's on the same computer and the same
   version (SQLite's online backup, safe while Game Repo writes), then checked by a quick
@@ -3836,6 +3836,62 @@ a stand-in device client, tested end to end. No window, tray icon or installer y
   -p gamerepo-serve -p gamerepo-device`, timings with `-p gamerepo-core -p gamerepo-serve`;
   `vendor.yml` vendors the new crates too.
 
+### Phase 9a notes, part 3: the tray app, Settings and the installers (built 2026-10-19)
+
+The last of 9a's three pull requests: Game Repo starting and stopping the server, Settings ›
+*Serve to devices*, Game Repo Server's own program with its tray icon and window, and the
+installers.
+
+- **Game Repo's side** (`core/src/serving.rs`, the `serve_*` commands in `api.rs`): the
+  server is started as its own process with `--library`, `--data`, `--port`, `--parent`,
+  Game Repo's index as `--index-from`, and `--keep` when ticked; its output goes to
+  `server.log` in the server's data folder, whose last lines are the message when it
+  doesn't start. Game Repo keeps the child's input open: with `--parent` the server reads
+  it until it closes (Game Repo ended, however it ended) and then stops unless it's kept,
+  so a crashed Game Repo doesn't leave a server behind it. *Keep serving* is told to a
+  running server (`POST /keep`) as well as kept in Game Repo's settings (`serve`: `on`,
+  `port`, `keep`). `on` brings the server back when Game Repo opens (`serve_resume`; why it
+  didn't start shows in Settings). After a job or a command that changes the library
+  (`TELLS_SERVER`), Game Repo tells a server serving that library (`POST /changed`).
+- **Start with Windows** is HKCU's Run value "Game Repo Server" (the name Tauri's
+  uninstaller already removes for the server's own install), pointing at the program;
+  started with no library, the server serves the library and port it served last
+  (`settings.json`). It's offered only where the program is installed (not for
+  `gamerepo-cli serve-devices`).
+- **The data folder** moved to `%LOCALAPPDATA%\io.github.drflgd.gamerepo.server\` (the
+  server app's identifier, as Tauri names its folders): the server's own installer puts
+  the program in `%LOCALAPPDATA%\Game Repo Server\`, which was to be the data folder, and
+  its uninstaller's "delete the app's data" now removes the server's data.
+- **Settings › Serve to devices** (`web/ui/serve.js`): the switch, the address, *Pair a
+  device* with the code counting down (it goes when a device pairs, and "Paired with …"
+  says which), the devices with what each holds and when it was seen, *Remove…* asked
+  in the row, "serving another library" with *Serve this one instead*, the public-network
+  note (`Get-NetConnectionProfile`) and, folded, the port, *Keep serving* and *Start with
+  Windows*. It polls `serve_status` every 2 s (every second while a code shows).
+- **Game Repo Server's program** (`desktop/server`, `gamerepo-server`): Tauri 2 with
+  `tray-icon`; the same options as Game Repo gives `serve-devices`. The tray menu has *Pair
+  a device…* (makes a code and opens the window), *Devices…*, *Open the library…* (serves
+  another, on the same port), *Start with Windows* (a tick) and *Stop*; a click opens the
+  window. The window is `server.html`, the same panel with *Open another library…* and
+  *Stop serving* in place of the switch; closing it hides it. One per computer: a second
+  start asks the first to show its window (`POST /show`) and ends. It ends when its
+  server is asked to stop (Game Repo's *Stop*, or Game Repo ending when it isn't kept).
+- **Installers** (`desktop/installer/hooks.nsh`, in both): the firewall rules are
+  "Game Repo Server" for its own install and "Game Repo Server (with Game Repo)" for the
+  copy beside the app, each for that program on private networks only: TCP (the port can
+  change) and UDP 5353. Adding a rule needs an administrator, so it's asked for once
+  (when the rule isn't there); if that's declined, Windows asks itself when the server
+  first listens. Installing or removing stops that copy of the server first; removing
+  (not updating) takes its rules away, and Start with Windows when it pointed there.
+- **Tests and CI**: the page test's part "serve" (a home of its own) starts the server
+  from Settings on a free port, pairs `gamerepo-cli device` with the code shown, sees it
+  in the list, removes it and sees it refused, stops and starts it, and checks it stops
+  when the backend that started it ends. `serve_devices.py --server` runs the stand-in
+  against Game Repo Server's own program. Windows CI builds the server with its
+  installer, runs the stand-in against it, copies it beside Game Repo and builds Game
+  Repo's installer (checked to carry it), and the release adds
+  `Game Repo Server_<version>_x64-setup.exe`.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -3843,9 +3899,10 @@ a stand-in device client, tested end to end. No window, tray icon or installer y
   but the window's to a `crates-vendor` branch whenever one of their `Cargo.toml`s
   changes, and a session can
   build offline from it (CHANGELOG.md, "For agents").
-- The Tauri app itself can't be built in a cloud session; the backend is tested with
-  `gamerepo-cli serve` + `tests/tauri_shim.js` in the pre-installed Chromium. The real app
-  builds only in CI.
+- The Tauri apps build in a cloud session once WebKitGTK is installed (CHANGELOG.md, "For
+  agents"), and Game Repo Server's program runs there under Xvfb; the backend is tested
+  with `gamerepo-cli serve` + `tests/tauri_shim.js` in the pre-installed Chromium. The
+  installers build only in CI.
 - CI reports and acceptance screenshots land on a `desktop-ci-windows` branch.
 
 ---
@@ -4023,5 +4080,6 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     2026-10-19) and is built in three pull requests; the first, the groundwork in the core,
     is v0.5.27 ("Phase 9a notes, part 1"); the second, the server and the stand-in device
     from the CLI, is built ("Phase 9a notes, part 2"); the third, the tray app, Settings ›
-    Serve to devices and the installers, waits for Jerred's go-ahead. Later: reading magazines' text
+    Serve to devices and the installers, is built ("Phase 9a notes, part 3"). Next is 9b,
+    the Windows and Android clients. Later: reading magazines' text
     (PDF, CBZ and CBR) and tagging each issue with the games it covers.

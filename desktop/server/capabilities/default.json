@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The server's window: core IPC (its api command). The folder dialog is opened from Rust, not from the page.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

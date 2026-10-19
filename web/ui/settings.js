@@ -3,7 +3,8 @@
 // named, the look, and the app's version with a link to About. Storage formats and external tools
 // (Phase 2b), PC games, Identify's sources and Steam (Phase 4), and the sources' accounts and keys
 // (Phase 5) have sections of their own, and so does Metadata (Phase 6b: which source each
-// detail is taken from, and the space the library's metadata takes). The folders with games and the DAT files are
+// detail is taken from, and the space the library's metadata takes), and so does Serve to
+// devices (Phase 9a, ui/serve.js: Game Repo Server with the open library). The folders with games and the DAT files are
 // on the Import page and the history of changes on its own (D71), from the sections exported here.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
@@ -17,6 +18,7 @@ import { SystemsSection } from "./systems.js";
 import { CommandBar, DayGroups } from "./layout.js";
 import { PcSettings, SourcesSettings, SteamSettings } from "./pcgames.js";
 import { Icon } from "./icons.js";
+import { ServePanel } from "./serve.js";
 
 function RenameForm({ lib }) {
   const [name, setName] = useState(lib.name || "");
@@ -427,7 +429,7 @@ export function Settings() {
         <ul class="ls-list" id="recent-libraries">${others.map((p) => html`<li key=${p}><span>${p}</span>
           <button type="button" class="ghost" onClick=${() => openLibrary(p)}>Open</button></li>`)}</ul>` : null}
     </section>
-    ${lib ? html`<${ScanSection} lib=${lib} key=${`s-${lib.path}`} /><${SystemsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${LayoutsSection} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${MetadataSection} lib=${lib} key=${`m-${lib.path}`} />` : null}
+    ${lib ? html`<${ScanSection} lib=${lib} key=${`s-${lib.path}`} /><${SystemsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${LayoutsSection} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${MetadataSection} lib=${lib} key=${`m-${lib.path}`} /><${ServePanel} call=${api} />` : null}
     <${SourcesSettings} />
     <${SteamSettings} />
     <${ToolsSection} />

@@ -2,9 +2,9 @@
 //! device's client with a folder holding `ES-DE/` and `ROMs/` (docs/PLAN.md, "Phase 9a
 //! design").
 
-use crate::{app_dirs, bytes, Args};
+use crate::{bytes, Args};
 use anyhow::{bail, Context, Result};
-use gamerepo_core::config::AppConfig;
+use gamerepo_core::config::{app_dirs, AppConfig};
 use gamerepo_device::{self as device, AddOptions, Device};
 use gamerepo_serve::{control, Options, Server};
 use gamerepo_wire::api::{self, Collection, Page, System};
@@ -117,9 +117,12 @@ async fn run(mut a: Args, data: PathBuf) -> Result<()> {
         Some(h) => (PathBuf::from(&h).join("config"), PathBuf::from(&h).join("data")),
         None => app_dirs(),
     };
+    // the library asked for, else the one served last, else Game Repo's
     let library = match a.flag("--library") {
         Some(l) => PathBuf::from(l),
-        None => AppConfig::load(&config_dir.join("config.json")).library.context("No library is open in Game Repo: give --library <dir>.")?,
+        None => gamerepo_serve::last_library(&data)
+            .or_else(|| AppConfig::load(&config_dir.join("config.json")).library)
+            .context("No library is open in Game Repo: give --library <dir>.")?,
     };
     let port = number(&mut a, "--port")?.unwrap_or(api::PORT);
     let index_from = match a.flag("--index-from") {
@@ -127,7 +130,17 @@ async fn run(mut a: Args, data: PathBuf) -> Result<()> {
         None => gamerepo_core::Library::open_read_only(&library)?.id().map(|id| gamerepo_core::index::path_for(&app_data, &id)),
     };
     let pair = switch(&mut a, "--pair");
-    let o = Options { library, data, port, index_from, announce: !switch(&mut a, "--no-announce"), watch: !switch(&mut a, "--no-watch"), ..Default::default() };
+    let o = Options {
+        library,
+        data,
+        port,
+        index_from,
+        announce: !switch(&mut a, "--no-announce"),
+        watch: !switch(&mut a, "--no-watch"),
+        parent: switch(&mut a, "--parent"),
+        keep: switch(&mut a, "--keep"),
+        ..Default::default()
+    };
     let s = Server::start(o)?;
     let st = s.status();
     println!("Game Repo Server {} serving {} ({})", st.version, st.library_name, st.library);

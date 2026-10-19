@@ -1,8 +1,9 @@
 name: Desktop
 
-# Builds the desktop app (Tauri) for Windows, runs the Rust tests and the acceptance
-# test (the page against the app's real backend), Game Repo Server against the stand-in
-# device client, drives the app through WebDriver,
+# Builds the desktop app (Tauri) for Windows with Game Repo Server beside it and on its
+# own, runs the Rust tests and the acceptance test (the page against the app's real
+# backend), Game Repo Server (as the CLI and as its tray app) against the stand-in device
+# client, drives the app through WebDriver,
 # and when everything passes on main publishes a numbered release (v0.0.0, v0.0.1,
 # ...; see tools/set_version.py) with notes taken from CHANGELOG.md's Unreleased
 # section. Windows is the only platform for now (decision D3, docs/PLAN.md):
@@ -160,8 +161,9 @@ jobs:
           timeout 300 python tests/serve_devices.py --cli desktop/target/release/gamerepo-cli \
             --home "$RUNNER_TEMP/serve-devices" --out ci-out/serve-devices 2>&1 | tee ci-out/serve-devices.log
       - name: Build the app (AppImage, deb)
-        working-directory: desktop
-        run: npx --yes @tauri-apps/cli@2.12.3 build --bundles appimage,deb 2>&1 | tee ../ci-out/tauri-build.log
+        # (Game Repo Server goes beside the app on Windows only: D3)
+        working-directory: desktop/src-tauri
+        run: npx --yes @tauri-apps/cli@2.12.3 build --bundles appimage,deb 2>&1 | tee ../../ci-out/tauri-build.log
       - name: Collect bundles
         if: always()
         run: |
@@ -283,9 +285,22 @@ jobs:
         run: |
           desktop/target/release/gamerepo-cli.exe dat starter --home "$RUNNER_TEMP/starter" --library "$RUNNER_TEMP/starter/lib" 2>&1 | tee ci-out/starter-dats.log
           desktop/target/release/gamerepo-cli.exe dat list --home "$RUNNER_TEMP/starter" --library "$RUNNER_TEMP/starter/lib" 2>&1 | tee -a ci-out/starter-dats.log
-      - name: Build the app (NSIS installer)
-        working-directory: desktop
-        run: npx --yes @tauri-apps/cli@2.12.3 build --bundles nsis 2>&1 | tee ../ci-out/tauri-build.log
+      - name: Build Game Repo Server (its own installer, and the program beside Game Repo)
+        working-directory: desktop/server
+        run: |
+          npx --yes @tauri-apps/cli@2.12.3 build --bundles nsis 2>&1 | tee ../../ci-out/tauri-build-server.log
+          # Game Repo's installer puts it beside the app (src-tauri/tauri.windows.conf.json)
+          mkdir -p ../src-tauri/binaries
+          cp ../target/release/gamerepo-server.exe ../src-tauri/binaries/gamerepo-server-x86_64-pc-windows-msvc.exe
+      - name: Game Repo Server (its tray app) and a stand-in device
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          timeout 300 python tests/serve_devices.py --cli desktop/target/release/gamerepo-cli.exe --server desktop/target/release/gamerepo-server.exe \
+            --home "$RUNNER_TEMP/serve-devices-app" --out ci-out/serve-devices-app 2>&1 | tee ci-out/serve-devices-app.log
+      - name: Build the app (NSIS installer, with Game Repo Server beside it)
+        working-directory: desktop/src-tauri
+        run: npx --yes @tauri-apps/cli@2.12.3 build --bundles nsis 2>&1 | tee ../../ci-out/tauri-build.log
       - name: Collect bundles
         if: always()
         run: |
@@ -293,6 +308,13 @@ jobs:
           # a missing installer fails here, not later in the release (review M46)
           cp desktop/target/release/bundle/nsis/*.exe dist/
           ls -la dist | tee -a ci-out/bundles.txt
+          ls dist/"Game Repo_"*_x64-setup.exe dist/"Game Repo Server_"*_x64-setup.exe > /dev/null
+          # Game Repo's installer carries the server, installed beside the app
+          if 7z l dist/"Game Repo_"*_x64-setup.exe > ci-out/installer-files.txt 2>&1 && grep -q "game-repo.exe" ci-out/installer-files.txt; then
+            grep -q "gamerepo-server.exe" ci-out/installer-files.txt || { echo "::error title=Installer::Game Repo's installer doesn't carry Game Repo Server"; exit 1; }
+          else
+            echo "::warning title=Installer::7-Zip couldn't list Game Repo's installer, so what it carries wasn't checked"
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: bundles-windows, path: dist/, retention-days: 3 }
       - name: Drive the app (WebDriver)
@@ -414,10 +436,11 @@ jobs:
           V: ${{ needs.version.outputs.version }}
         run: |
           ls -la dist
-          ls dist/*_"${V}"_x64-setup.exe > /dev/null   # the installer is this version's
+          ls dist/"Game Repo_${V}_x64-setup.exe" dist/"Game Repo Server_${V}_x64-setup.exe" > /dev/null   # the installers are this version's
           prev=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -1)
           {
-            echo "**Windows:** the \`-setup.exe\` (unsigned, so SmartScreen asks once: More info → Run anyway)."
+            echo "**Windows:** \`Game Repo_${V}_x64-setup.exe\` (unsigned, so SmartScreen asks once: More info → Run anyway). It installs Game Repo Server beside the app."
+            echo "\`Game Repo Server_${V}_x64-setup.exe\` is Game Repo Server on its own, for a computer that serves a library to devices without Game Repo."
             if ls dist/*.deb dist/*.AppImage > /dev/null 2>&1; then
               echo "**Linux:** the \`.deb\` or the \`.AppImage\`."
             fi

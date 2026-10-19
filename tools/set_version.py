@@ -2,7 +2,7 @@
 """Release version numbers for the desktop app.
 
 The repository keeps <major>.<minor>.0 (desktop/src-tauri/tauri.conf.json and the
-Rust workspace); the minor number goes up with each roadmap phase. CI gives each
+Rust workspace, whose version Game Repo Server's desktop/server/tauri.conf.json takes); the minor number goes up with each roadmap phase. CI gives each
 release the next number in that series, from the release tags already on GitHub:
 v0.0.0, v0.0.1, v0.0.2, ... and v0.1.0 once the repository says 0.1.0.
 
@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CONF = ROOT / "desktop/src-tauri/tauri.conf.json"
 CARGO = ROOT / "desktop/Cargo.toml"
 LOCK = ROOT / "desktop/Cargo.lock"
-PACKAGES = ("game-repo", "gamerepo-core", "gamerepo-wire", "gamerepo-serve", "gamerepo-device", "gamerepo-cli")
+PACKAGES = ("game-repo", "gamerepo-core", "gamerepo-wire", "gamerepo-serve", "gamerepo-device", "gamerepo-cli", "gamerepo-server")
 
 
 def series():

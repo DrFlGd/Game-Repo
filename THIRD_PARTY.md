@@ -18,7 +18,7 @@
 | [rustls](https://crates.io/crates/rustls) with [ring](https://crates.io/crates/ring), [rcgen](https://crates.io/crates/rcgen) and [mdns-sd](https://crates.io/crates/mdns-sd) | Game Repo Server: its HTTPS with a certificate of its own, and announcing it on the home network so devices find it | rustls: Apache-2.0, ISC or MIT; ring: Apache-2.0 and ISC; rcgen: MIT or Apache-2.0; mdns-sd: Apache-2.0 or MIT |
 | [Archivo](https://github.com/google/fonts/tree/main/ofl/archivo) | Interface font of the Classic skin (bundled into the app by `tools/build_desktop.py --fetch-fonts`) | SIL OFL 1.1 |
 | [Overpass](https://github.com/google/fonts/tree/main/ofl/overpass) and [Overpass Mono](https://github.com/google/fonts/tree/main/ofl/overpassmono) | Fonts of the Drafting Sheet skin (bundled the same way) | SIL OFL 1.1 |
-| [Tauri](https://tauri.app) 2 and its dialog and opener plugins | The desktop app's window | MIT or Apache-2.0 |
+| [Tauri](https://tauri.app) 2 and its dialog and opener plugins, with its tray icon ([tray-icon](https://crates.io/crates/tray-icon)) | The desktop app's window, and Game Repo Server's window and icon by the clock | MIT or Apache-2.0 |
 
 The app's shell, interface pieces, tests and build tools started as copies from
 [Model Library](https://github.com/DrFlGd/Model-Library) (same owner, MIT).

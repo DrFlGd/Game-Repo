@@ -9,56 +9,22 @@
 //!   GET /devices           the paired devices
 //!   DELETE /devices/<id>   remove one
 //!   POST /changed          the library changed: {"paths": [...]} or everything
+//!   POST /keep             {"keep": true}: keep serving when the program that started it ends
+//!   POST /show             show the server's window (Game Repo Server started again)
 //!   POST /stop             stop the server
 
 use crate::http::{self, Response};
-use crate::{tls, Running, Shared};
-use anyhow::{anyhow, bail, Context, Result};
+use crate::{tls, Shared};
+use anyhow::Result;
 use serde_json::{json, Value};
-use std::io::{BufReader, Read, Write};
+use std::io::BufReader;
 use std::net::{TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// The header carrying the secret.
-pub const SECRET: &str = "X-Game-Repo-Secret";
-
-pub fn read_running(data: &Path) -> Option<Running> {
-    serde_json::from_slice(&std::fs::read(data.join("server.json")).ok()?).ok()
-}
-
-/// The server running for this data folder, if one answers.
-pub fn running(data: &Path) -> Option<Running> {
-    let r = read_running(data)?;
-    call_at(&r, "GET", "/status", None).ok().map(|_| r)
-}
-
-/// Ask the server running for `data`.
-pub fn call(data: &Path, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
-    let r = read_running(data).ok_or_else(|| anyhow!("Game Repo Server isn't running (there's no {}).", data.join("server.json").display()))?;
-    call_at(&r, method, path, body)
-}
-
-fn call_at(r: &Running, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], r.control));
-    let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).context("Game Repo Server isn't answering")?;
-    s.set_read_timeout(Some(Duration::from_secs(30)))?;
-    let body = body.map(|b| serde_json::to_vec(b).unwrap_or_default()).unwrap_or_default();
-    write!(s, "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n{SECRET}: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", r.secret, body.len())?;
-    s.write_all(&body)?;
-    let mut all = vec![];
-    s.read_to_end(&mut all)?;
-    let text = String::from_utf8_lossy(&all);
-    let (head, rest) = text.split_once("\r\n\r\n").ok_or_else(|| anyhow!("Game Repo Server's answer can't be read"))?;
-    let status: u16 = head.split_whitespace().nth(1).and_then(|c| c.parse().ok()).unwrap_or(0);
-    let v: Value = serde_json::from_str(rest).unwrap_or(Value::Null);
-    if status != 200 {
-        bail!("{}", v["error"].as_str().unwrap_or("Game Repo Server refused that"));
-    }
-    Ok(v)
-}
+pub use gamerepo_wire::control::{call, read_running, running, SECRET};
 
 pub(crate) fn accept(sh: Arc<Shared>, listener: TcpListener, secret: String) {
     while !sh.stop.load(Ordering::Relaxed) {
@@ -118,6 +84,17 @@ fn route(sh: &Arc<Shared>, req: &http::Request) -> Response {
             let v: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
             let paths = v["paths"].as_array().map(|a| a.iter().filter_map(|p| p.as_str().map(PathBuf::from)).collect());
             sh.changed(paths);
+            Response::json(200, &json!({}))
+        }
+        ("POST", "/keep") => {
+            drop(devices);
+            let v: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
+            sh.kept.store(v["keep"].as_bool().unwrap_or(false), Ordering::SeqCst);
+            Response::json(200, &json!({}))
+        }
+        ("POST", "/show") => {
+            drop(devices);
+            sh.show.store(true, Ordering::SeqCst);
             Response::json(200, &json!({}))
         }
         ("POST", "/stop") => {

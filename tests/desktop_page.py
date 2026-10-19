@@ -40,7 +40,9 @@ index are the same after the library is moved (library-info, index-info).
 (Phase 8a) a collection exported to RetroArch, Pegasus, LaunchBox and Playnite, each
 read back where that frontend looks. In homes of their own: (Phase 7) an arcade set
 with its BIOS set, a device and its set type; (Phase 8c) magazines; (D77) games of two
-systems moved in from a folder, one to a new folder named for its system, and Undo.
+systems moved in from a folder, one to a new folder named for its system, and Undo;
+(Phase 9a) Settings › Serve to devices starting Game Repo Server, pairing the stand-in
+device and removing it, and the server stopping with the app.
 Writes <out>/library-info.json and <out>/library.zip for the cross-platform check.
 
 Each part runs as a `Section` (review M44): a timeout or error in it is a FAIL of its
@@ -517,8 +519,64 @@ async def import_by_system(pg, base, home, library):
     check("Undo moves them back, and takes away the new folder and its place in the library", all(back), (back, roots))
 
 
+async def serve_to_devices(pg, base, home, library):
+    """Phase 9a: Settings › Serve to devices starts Game Repo Server (`gamerepo-cli
+    serve-devices` standing in for the program installed beside the app) on a port of its
+    own, shows a code, the stand-in device pairs with it and shows in the list, Remove takes
+    it off and the stand-in is refused, and the switch stops it. Started again, it stops
+    when the app's backend ends (checked after this part)."""
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    data, phone = home / "server", home / "phone"
+    (phone / "ES-DE" / "settings").mkdir(parents=True)
+    (phone / "ES-DE" / "settings" / "es_settings.xml").write_text('<?xml version="1.0"?>\n<string name="ROMDirectory" value="~/ROMs" />\n', encoding="utf-8")
+    device = lambda *args: subprocess.run([a.cli, "device", *map(str, args), "--to", str(phone)], capture_output=True, text=True, encoding="utf-8", timeout=120)
+    await pg.click('.sidebar a[href="#/settings"]')
+    await pg.wait_for_selector("#settings-serve #serve-on")
+    state = await pg.inner_text("#serve-state")
+    check("Settings › Serve to devices: not serving at first", "Not serving" in state and not await pg.is_checked("#serve-on"), state)
+    await pg.click("#settings-serve .serve-more > summary")
+    await pg.fill("#serve-port", str(port))
+    await pg.click("#serve-port-set")
+    await pg.wait_for_selector("#serve-port-set[disabled]")
+    kept = json.loads((home / "config/config.json").read_text()).get("serve", {})
+    check("its port is kept in the app's settings", kept.get("port") == port and kept.get("on") is False, kept)
+    await pg.check("#serve-on")
+    await pg.wait_for_selector('#settings-serve[data-running="yes"] #serve-address', timeout=60000)
+    address = await pg.inner_text("#serve-address")
+    running = json.loads((data / "server.json").read_text())
+    check("the switch starts the server with the open library, on that port", address.endswith(f":{port}") and running["port"] == port and Path(running["library"]) == library
+          and json.loads((home / "config/config.json").read_text())["serve"]["on"] is True, (address, running))
+    await pg.wait_for_function("() => /Paired devices can browse it/.test(document.querySelector('#serve-state')?.textContent || '')", timeout=60000)
+    await pg.click("#serve-pair")
+    await pg.wait_for_selector("#serve-code")
+    code = (await pg.inner_text("#serve-code")).replace(" ", "")
+    left = await pg.inner_text("#serve-code-left")
+    check("Pair a device shows a six-digit code and how long it works", len(code) == 6 and code.isdigit() and left.startswith(("for 9:", "for 10:")), (code, left))
+    paired = device("pair", f"127.0.0.1:{port}", code, "--name", "Page phone")
+    await pg.wait_for_selector('#serve-devices li:has-text("Page phone")', timeout=15000)
+    said = await pg.inner_text("#settings-serve")
+    check("the stand-in device pairs with the code and shows in the list", paired.returncode == 0 and "Paired with Page phone." in said
+          and await pg.query_selector("#serve-code") is None, (paired.stderr, said))
+    await pg.screenshot(path=str(out / "60-serve-to-devices.png"), full_page=True)
+    systems = device("systems")
+    check("the paired device browses the library", systems.returncode == 0, systems.stderr)
+    await pg.click('#serve-devices li:has-text("Page phone") [data-action="remove"]')
+    await pg.click('#serve-devices li:has-text("Page phone") [data-action="remove-yes"]')
+    await pg.wait_for_selector("#serve-devices-none")
+    refused = device("systems")
+    check("Remove takes the device off and it's refused", refused.returncode != 0 and "pair it again" in refused.stderr, refused.stderr)
+    await pg.uncheck("#serve-on")
+    await pg.wait_for_selector('#settings-serve[data-running="no"]', timeout=30000)
+    check("the switch stops the server", not (data / "server.json").exists() and "Not serving" in await pg.inner_text("#serve-state"))
+    await pg.check("#serve-on")
+    await pg.wait_for_selector('#settings-serve[data-running="yes"]', timeout=60000)
+
+
 # the parts with homes of their own, run after the rest
-OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system)]
+OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("serve", serve_to_devices)]
 
 
 async def main():
@@ -2271,6 +2329,15 @@ async def main():
             for i, (name, part) in enumerate(OWN_HOMES, 1):
                 await own_home(b, name, a.port + i, part)
             await b.close()
+        # the server Serve to devices started again stops with the backend that started it
+        # (its input closes), as it does with the app unless it's kept
+        served = Path(f"{home}-serve") / "server" / "server.json"
+        try:
+            await until(lambda: not served.exists(), 30)
+            stopped = True
+        except TimeoutError:
+            stopped = False
+        check("Game Repo Server stops when the app that started it ends", stopped)
     finally:
         server.terminate()
         server.wait(timeout=20)

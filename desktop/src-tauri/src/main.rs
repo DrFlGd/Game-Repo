@@ -1,15 +1,15 @@
 // Game Repo desktop app: the front end in web/ in a window, with the library
 // folder behind web/platform-desktop.js. Nearly every command goes through
 // gamerepo_core::api::App::call (the same table `gamerepo-cli serve` uses for testing);
-// this file adds what needs the window: pick dialogs, the file manager and the
-// library:// protocol.
+// this file adds what needs the window: pick dialogs, the file manager, the
+// library:// protocol, and Game Repo Server beside the app (started and stopped with it).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::ipc::Response;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, RunEvent, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use gamerepo_core::api::{App, AppPaths, Reply};
@@ -168,13 +168,19 @@ fn main() {
             });
         })
         .setup(|app| {
+            // Game Repo Server, installed beside the app (tauri.windows.conf.json's externalBin)
+            let server = std::env::current_exe()?.with_file_name(if cfg!(windows) { "gamerepo-server.exe" } else { "gamerepo-server" });
             let paths = AppPaths {
                 config_dir: app.path().app_config_dir()?,
                 data_dir: app.path().app_local_data_dir()?,
                 library_url: if cfg!(windows) { "http://library.localhost/".into() } else { "library://localhost/".into() },
+                server_data: gamerepo_core::serving::default_data(),
+                server_program: if server.is_file() { vec![server.display().to_string()] } else { vec![] },
             };
             let core = App::new(paths)?;
-            app.manage(AppState { app: core });
+            app.manage(AppState { app: core.clone() });
+            // serving again if it was when the app closed
+            std::thread::spawn(move || core.serve_resume());
             // the window (tauri.conf.json, "create": false), made here so that a link in a readme or a
             // PDF can't take it over: the web opens in the browser, and no other windows open
             let cfg = app.config().app.windows.iter().find(|w| w.label == "main").cloned().ok_or("tauri.conf.json has no main window")?;
@@ -197,6 +203,12 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![api, api_bytes, pick_folder, pick_file, pick_files, reveal, open_path, open_url])
-        .run(tauri::generate_context!())
-        .expect("error while running Game Repo");
+        .build(tauri::generate_context!())
+        .expect("error while running Game Repo")
+        .run(|app, e| {
+            // the server it started stops with it, unless it's kept serving
+            if let RunEvent::Exit = e {
+                app.state::<AppState>().app.serve_exit();
+            }
+        });
 }
