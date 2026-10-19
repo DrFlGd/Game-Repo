@@ -76,6 +76,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.24 (2026-10-19)
+
 - **Releases come out sooner after a change is merged.** When the change was already built and tested on Windows exactly as it is once merged, that tested installer is published within minutes instead of being built and tested again for about 20 minutes.
 
 ## 0.5.23 (2026-10-19)
