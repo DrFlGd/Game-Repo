@@ -24,8 +24,16 @@ on:
       - "tools/**"
       - "tests/**"
       - ".github/workflows/desktop.yml"
+  # a pull request that changes only the plan, other docs or CHANGELOG.md builds nothing,
+  # as such a push to main publishes nothing
   pull_request:
     branches: [main]
+    paths:
+      - "desktop/**"
+      - "web/**"
+      - "tools/**"
+      - "tests/**"
+      - ".github/workflows/desktop.yml"
   workflow_dispatch:
     inputs:
       linux:
