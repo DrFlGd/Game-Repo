@@ -11,6 +11,10 @@ name: Desktop
 # read-only except in the two jobs that write (reports and release), which run no build
 # or test code; actions are pinned to commits and tools to exact versions. Only a push
 # to main publishes: Run workflow on main builds and tests but doesn't publish again.
+# A push whose files a pull request's run already built and tested on Windows, for the
+# same version, publishes that run's installer instead of building and testing again
+# (the "Already tested" job); any difference, such as another merge in between, runs
+# everything.
 on:
   push:
     branches: [main]
@@ -53,6 +57,41 @@ jobs:
           v=$(python3 tools/set_version.py --next)
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "::notice title=Version::$v"
+
+  tested:
+    name: Already tested
+    needs: version
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read   # lists other runs' artifacts
+    outputs:
+      run: ${{ steps.find.outputs.run }}
+    steps:
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          # the Windows job's last step names what it passed with: these files (their git tree)
+          # and this version. Only a run from this repository's own branches counts (a fork's
+          # pull request could name any files), and only while its installer is kept.
+          tree=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq .commit.tree.sha)
+          name="tested-$tree-$V"
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name" \
+            --jq '.artifacts[] | select(.expired | not) | .workflow_run | select(.head_repository_id == ${{ github.repository_id }}) | .id')
+          for run in $runs; do
+            [ "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" --jq .path)" = .github/workflows/desktop.yml ] || continue
+            kept=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
+              --jq '[.artifacts[] | select(.name == "bundles-windows" and (.expired | not))] | length')
+            [ "$kept" = 1 ] || continue
+            echo "run=$run" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Already tested::run $run built and tested these files as $V: publishing its installer"
+            exit 0
+          done
+          echo "::notice title=Not tested yet::no run built and tested these files as $V: building and testing"
 
   linux:
     name: Linux app
@@ -149,7 +188,9 @@ jobs:
 
   windows:
     name: Windows app
-    needs: version
+    needs: [version, tested]
+    # (Already tested runs only for a push; a pull request's run and Run workflow build)
+    if: ${{ !cancelled() && needs.version.result == 'success' && !needs.tested.outputs.run }}
     runs-on: windows-2022
     timeout-minutes: 60
     defaults:
@@ -201,6 +242,10 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: cli-windows, path: desktop/target/release/gamerepo-cli.exe, retention-days: 3 }
       - name: Front end
+        env:
+          # About shows the commit: a pull request's own, which main keeps when it's merged
+          # (GITHUB_SHA is the pull request merged into main, a commit main never has)
+          GAMEREPO_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python tools/build_desktop.py --out build/desktop --fetch-fonts
       - name: Acceptance test (the page and the app's backend)
@@ -239,6 +284,16 @@ jobs:
           sleep 3
           timeout 600 python tests/desktop_ui.py --app desktop/target/release/game-repo.exe \
             --out ci-out/shots 2>&1 | tee ci-out/desktop-ui.log
+      - name: What passed
+        # only reached when every step above passed: names these files and this version, so
+        # a push to main with the same files publishes this installer (see Already tested)
+        run: |
+          mkdir -p tested
+          git rev-parse 'HEAD^{tree}' > tested/TREE
+          echo "${{ needs.version.outputs.version }}" > tested/VERSION
+          echo "TESTED=tested-$(cat tested/TREE)-${{ needs.version.outputs.version }}" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: "${{ env.TESTED }}", path: tested/, retention-days: 3 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with: { name: reports-windows, path: ci-out/, retention-days: 3, include-hidden-files: true }
@@ -247,7 +302,10 @@ jobs:
     name: Reports
     needs: [linux, windows]
     # (a pull request from a fork has no token to push with)
-    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    # (nothing to report when Windows' was already tested and Linux wasn't asked for)
+    if: >-
+      always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+      (needs.windows.result != 'skipped' || needs.linux.result != 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -305,30 +363,36 @@ jobs:
 
   release:
     name: Release
-    needs: [version, linux, windows, portability]
+    needs: [version, tested, linux, windows, portability]
     # only for a push to main (review M46: Run workflow on main published the same code
     # again), and only when every check that ran passed (Linux and the portability check
-    # are skipped unless asked for)
+    # are skipped unless asked for), or Windows' was passed by a run with the same files
     if: >-
       always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.result == 'success' &&
-      needs.windows.result == 'success' &&
+      (needs.windows.result == 'success' || (needs.windows.result == 'skipped' && needs.tested.outputs.run != '')) &&
       contains(fromJSON('["success","skipped"]'), needs.linux.result) &&
       contains(fromJSON('["success","skipped"]'), needs.portability.result)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write   # creates the release and its tag
+      actions: read     # the installer of the run that tested these files (Already tested)
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { persist-credentials: false, fetch-depth: 0 }   # tags and history, for "what changed"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.tested.outputs.run == ''
         with: { pattern: bundles-*, path: dist, merge-multiple: true }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.tested.outputs.run != ''
+        with: { name: bundles-windows, path: dist, run-id: "${{ needs.tested.outputs.run }}", github-token: "${{ github.token }}" }
       - name: Publish v${{ needs.version.outputs.version }}
         env:
           GH_TOKEN: ${{ github.token }}
           V: ${{ needs.version.outputs.version }}
         run: |
           ls -la dist
+          ls dist/*_"${V}"_x64-setup.exe > /dev/null   # the installer is this version's
           prev=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -1)
           {
             echo "**Windows:** the \`-setup.exe\` (unsigned, so SmartScreen asks once: More info → Run anyway)."
