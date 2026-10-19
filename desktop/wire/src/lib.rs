@@ -4,6 +4,7 @@
 //! (gamerepo-core's export.rs) writes its gamelists with the same merge. Kept small, with
 //! no archive or disc code, so the Android client can link it without the core.
 
+pub mod api;
 pub mod gamelist;
 pub mod plan;
 
@@ -32,6 +33,17 @@ pub fn merge_lines(old: Option<&str>, lines: &[String]) -> Option<String> {
     (!added.is_empty()).then_some(out)
 }
 
+/// A text file of lines without these (compared as [`merge_lines`] does). None: nothing changes.
+pub fn remove_lines(old: &str, lines: &[String]) -> Option<String> {
+    let norm = |l: &str| l.trim().replace('\\', "/");
+    let gone: std::collections::HashSet<String> = lines.iter().map(|l| norm(l)).collect();
+    let kept: Vec<&str> = old.lines().filter(|l| !gone.contains(&norm(l))).collect();
+    if kept.len() == old.lines().count() {
+        return None;
+    }
+    Some(kept.iter().map(|l| format!("{l}\n")).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -43,5 +55,7 @@ mod tests {
         assert_eq!(merge_lines(Some("%ROMPATH%/nes/C.zip"), &lines).as_deref(), Some("%ROMPATH%/nes/C.zip\n%ROMPATH%/snes/A.zip\n%ROMPATH%/snes/B.zip\n"));
         assert_eq!(merge_lines(Some("%ROMPATH%\\snes\\A.zip\r\n%ROMPATH%/snes/B.zip\r\n"), &lines), None, "a line there in another form is the same line");
         assert_eq!(merge_lines(Some("x\n"), &[]), None);
+        assert_eq!(remove_lines("a\n%ROMPATH%\\snes\\B.zip\nc\n", &["%ROMPATH%/snes/B.zip".to_string()]).as_deref(), Some("a\nc\n"));
+        assert_eq!(remove_lines("a\n", &["b".to_string()]), None);
     }
 }

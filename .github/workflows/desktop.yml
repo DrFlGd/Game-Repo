@@ -1,7 +1,8 @@
 name: Desktop
 
 # Builds the desktop app (Tauri) for Windows, runs the Rust tests and the acceptance
-# test (the page against the app's real backend), drives the app through WebDriver,
+# test (the page against the app's real backend), Game Repo Server against the stand-in
+# device client, drives the app through WebDriver,
 # and when everything passes on main publishes a numbered release (v0.0.0, v0.0.1,
 # ...; see tools/set_version.py) with notes taken from CHANGELOG.md's Unreleased
 # section. Windows is the only platform for now (decision D3, docs/PLAN.md):
@@ -134,12 +135,13 @@ jobs:
           GAMEREPO_TEST_CHDMAN: "1"   # chdman is installed: its test must run (review M46)
         run: |
           mkdir -p ../ci-out
-          cargo build --release -p gamerepo-core 2>&1 | tee ../ci-out/core-build.log
-          cargo test --release -p gamerepo-core -p gamerepo-wire 2>&1 | tee ../ci-out/core-test.log
-          # the performance targets of docs/PLAN.md (100k-file rescan, 50k-ROM DAT), on generated data
-          cargo test --release -p gamerepo-core -- --ignored timing --nocapture --test-threads=1 2>&1 | tee ../ci-out/core-timing.log
+          cargo build --release -p gamerepo-cli 2>&1 | tee ../ci-out/core-build.log
+          cargo test --release -p gamerepo-core -p gamerepo-wire -p gamerepo-serve -p gamerepo-device 2>&1 | tee ../ci-out/core-test.log
+          # the performance targets of docs/PLAN.md (100k-file rescan, 50k-ROM DAT, a catalogue
+          # of 100k games, a download on this computer), on generated data
+          cargo test --release -p gamerepo-core -p gamerepo-serve -- --ignored timing --nocapture --test-threads=1 2>&1 | tee ../ci-out/core-timing.log
           # every timing test ran: a filter that matches none passes too (review M46)
-          want=$(grep -rhoE "fn timing_[a-z0-9_]+" core/src | sort -u | wc -l)
+          want=$(grep -rhoE "fn timing_[a-z0-9_]+" core/src serve | sort -u | wc -l)
           ran=$(grep -oE "test result: ok\. [0-9]+ passed" ../ci-out/core-timing.log | awk '{n += $4} END {print n + 0}')
           echo "timing tests: $ran of $want"
           [ "$ran" -eq "$want" ] || { echo "::error title=Timing tests::$ran of the $want timing tests ran"; exit 1; }
@@ -152,6 +154,11 @@ jobs:
         run: |
           timeout 600 python tests/desktop_page.py --cli desktop/target/release/gamerepo-cli --ui build/desktop/ui \
             --home "$RUNNER_TEMP/pagehome" --out ci-out/page 2>&1 | tee ci-out/desktop-page.log
+      - name: Game Repo Server and a stand-in device
+        if: always()
+        run: |
+          timeout 300 python tests/serve_devices.py --cli desktop/target/release/gamerepo-cli \
+            --home "$RUNNER_TEMP/serve-devices" --out ci-out/serve-devices 2>&1 | tee ci-out/serve-devices.log
       - name: Build the app (AppImage, deb)
         working-directory: desktop
         run: npx --yes @tauri-apps/cli@2.12.3 build --bundles appimage,deb 2>&1 | tee ../ci-out/tauri-build.log
@@ -237,12 +244,13 @@ jobs:
           GAMEREPO_TEST_CHDMAN: "1"   # chdman is installed: its test must run (review M46)
         run: |
           mkdir -p ../ci-out
-          cargo build --release -p gamerepo-core 2>&1 | tee ../ci-out/core-build.log
-          cargo test --release -p gamerepo-core -p gamerepo-wire 2>&1 | tee ../ci-out/core-test.log
-          # the performance targets of docs/PLAN.md (100k-file rescan, 50k-ROM DAT), on generated data
-          cargo test --release -p gamerepo-core -- --ignored timing --nocapture --test-threads=1 2>&1 | tee ../ci-out/core-timing.log
+          cargo build --release -p gamerepo-cli 2>&1 | tee ../ci-out/core-build.log
+          cargo test --release -p gamerepo-core -p gamerepo-wire -p gamerepo-serve -p gamerepo-device 2>&1 | tee ../ci-out/core-test.log
+          # the performance targets of docs/PLAN.md (100k-file rescan, 50k-ROM DAT, a catalogue
+          # of 100k games, a download on this computer), on generated data
+          cargo test --release -p gamerepo-core -p gamerepo-serve -- --ignored timing --nocapture --test-threads=1 2>&1 | tee ../ci-out/core-timing.log
           # every timing test ran: a filter that matches none passes too (review M46)
-          want=$(grep -rhoE "fn timing_[a-z0-9_]+" core/src | sort -u | wc -l)
+          want=$(grep -rhoE "fn timing_[a-z0-9_]+" core/src serve | sort -u | wc -l)
           ran=$(grep -oE "test result: ok\. [0-9]+ passed" ../ci-out/core-timing.log | awk '{n += $4} END {print n + 0}')
           echo "timing tests: $ran of $want"
           [ "$ran" -eq "$want" ] || { echo "::error title=Timing tests::$ran of the $want timing tests ran"; exit 1; }
@@ -264,6 +272,12 @@ jobs:
           python -m playwright install chromium 2>&1 | tail -2
           timeout 900 python tests/desktop_page.py --cli desktop/target/release/gamerepo-cli.exe --ui build/desktop/ui \
             --home "$RUNNER_TEMP/pagehome" --out ci-out/page 2>&1 | tee ci-out/desktop-page.log
+      - name: Game Repo Server and a stand-in device
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          timeout 300 python tests/serve_devices.py --cli desktop/target/release/gamerepo-cli.exe \
+            --home "$RUNNER_TEMP/serve-devices" --out ci-out/serve-devices 2>&1 | tee ci-out/serve-devices.log
       - name: Starter DATs from libretro (a real download; reported, not required)
         continue-on-error: true
         run: |

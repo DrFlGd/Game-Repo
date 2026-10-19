@@ -365,12 +365,12 @@ struct Lists {
 /// The games of a system on several discs (two or more of them here), for ES-DE (D94):
 /// each disc's set by its name, and each set's folder (`<name>.m3u`), name and discs in order.
 #[derive(Default)]
-struct Discs {
-    of: HashMap<String, usize>,
-    sets: Vec<(String, String, Vec<String>)>,
+pub struct Discs {
+    pub of: HashMap<String, usize>,
+    pub sets: Vec<(String, String, Vec<String>)>,
 }
 
-fn disc_sets<'a>(names: impl Iterator<Item = &'a str>) -> Discs {
+pub fn disc_sets<'a>(names: impl Iterator<Item = &'a str>) -> Discs {
     let mut by: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     for n in names {
         if let Some((base, which)) = platforms::disc_of(n) {
@@ -962,7 +962,7 @@ fn plan_with(ix: &Index, lib: &Library, o: &Options, given: Option<collection::C
                 _ => {
                     laid.lists.push((at.clone(), gamerepo_wire::List {
                         kind: gl.kind.clone(), system: system.clone(),
-                        entries: list.iter().map(|(e, game, title)| gamerepo_wire::Entry { path: e.clone(), name: title.clone(), game: game.clone(), fields: mine.get(&e.to_lowercase()).cloned().unwrap_or_default() }).collect(),
+                        entries: list.iter().map(|(e, game, title)| gamerepo_wire::Entry { path: e.clone(), name: title.clone(), game: game.clone(), fields: mine.get(&e.to_lowercase()).cloned().unwrap_or_default(), ..Default::default() }).collect(),
                         ..Default::default()
                     }));
                     (merge_gamelist(old.as_deref(), &list, &mine), "The system's list of games: entries are added for the games exported, with the details and pictures chosen; the rest of it is kept.")
@@ -1239,7 +1239,7 @@ pub fn lay_out(ix: &Index, lib: &Library, ask: &DeviceAsk, scratch: &Path) -> Re
             }
             _ => None,
         };
-        out.files.push(gamerepo_wire::File { place, path, size: op.size, sha1, system, game: op.game.clone(), role, needed_by, made });
+        out.files.push(gamerepo_wire::File { place, path, size: op.size, sha1, system, game: op.game.clone(), role, needed_by, made, ..Default::default() });
         ops.push(op);
     }
     for (a, mut list) in laid.lists {

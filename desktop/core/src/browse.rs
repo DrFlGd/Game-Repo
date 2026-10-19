@@ -77,6 +77,8 @@ struct Row {
     regions: Vec<String>,
     languages: Vec<String>,
     have: bool,
+    /// Had in part: some of its files only
+    partial: bool,
     folder: Option<String>,
     picture: Option<String>,
     media: String,
@@ -97,9 +99,9 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
     let mut ins = conn.prepare_cached(
         "INSERT INTO library (key, kind, platform, dat_game, name, title, sort, year, developer, publisher, players, rating, regions, have,
                               folder, picture, media, described, docs, review, size, date, best_all, best_have, genre, genres, languages,
-                              year_sort, rating_sort, size_sort, date_sort, addons)
+                              year_sort, rating_sort, size_sort, date_sort, addons, partial)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27,
-                 ?28, ?29, ?30, ?31, ?32)",
+                 ?28, ?29, ?30, ?31, ?32, ?33)",
     )?;
     let mut val = conn.prepare_cached("INSERT INTO library_values (game, field, value) VALUES (?1, ?2, ?3)")?;
     let mut fts = conn.prepare_cached("INSERT INTO library_text (rowid, title, name, body) VALUES (?1, ?2, ?3, ?4)")?;
@@ -124,6 +126,7 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
             description.is_some() as i64, r.docs, r.review as i64, r.size, r.date, r.best_all as i64, r.best_have as i64, genres.first(),
             genres.join(SEP), r.languages.join(","),
             year.unwrap_or(i64::MAX), rating.map(|x| -x).unwrap_or(f64::MAX), -r.size, r.date.map(|d| -d).unwrap_or(i64::MAX), r.addons,
+            r.partial as i64,
         ])?;
         let id = conn.last_insert_rowid();
         for g in &genres {
@@ -224,6 +227,7 @@ fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<
                 regions: split(&regions),
                 languages: split(&x.get::<_, String>(4)?),
                 have: status != "missing",
+                partial: status == "partial",
                 picture: picture_path(&folder, &picture, x.get(19)?),
                 folder,
                 media: x.get(13)?,
@@ -484,7 +488,7 @@ pub struct Query {
 }
 
 /// The words of a search as an FTS5 query: each a prefix, all wanted.
-fn fts_query(s: &str) -> Option<String> {
+pub fn fts_query(s: &str) -> Option<String> {
     let words: Vec<String> = s.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(|w| format!("\"{}\"*", w.to_lowercase())).collect();
     (!words.is_empty()).then(|| words.join(" "))
 }

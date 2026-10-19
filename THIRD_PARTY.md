@@ -15,6 +15,7 @@
 | [notify](https://crates.io/crates/notify) | Noticing changes in the folders with games while the app is open | CC0-1.0, MIT or Apache-2.0 |
 | [fs4](https://crates.io/crates/fs4) and, on Windows, [windows-sys](https://crates.io/crates/windows-sys) | Free space on a drive before a change; telling network drives apart | MIT or Apache-2.0 |
 | [ureq](https://crates.io/crates/ureq) (with rustls and webpki-roots) | Downloading starter DATs when asked | MIT or Apache-2.0 (webpki-roots: CDLA-Permissive-2.0 / MPL-2.0 data) |
+| [rustls](https://crates.io/crates/rustls) with [ring](https://crates.io/crates/ring), [rcgen](https://crates.io/crates/rcgen) and [mdns-sd](https://crates.io/crates/mdns-sd) | Game Repo Server: its HTTPS with a certificate of its own, and announcing it on the home network so devices find it | rustls: Apache-2.0, ISC or MIT; ring: Apache-2.0 and ISC; rcgen: MIT or Apache-2.0; mdns-sd: Apache-2.0 or MIT |
 | [Archivo](https://github.com/google/fonts/tree/main/ofl/archivo) | Interface font of the Classic skin (bundled into the app by `tools/build_desktop.py --fetch-fonts`) | SIL OFL 1.1 |
 | [Overpass](https://github.com/google/fonts/tree/main/ofl/overpass) and [Overpass Mono](https://github.com/google/fonts/tree/main/ofl/overpassmono) | Fonts of the Drafting Sheet skin (bundled the same way) | SIL OFL 1.1 |
 | [Tauri](https://tauri.app) 2 and its dialog and opener plugins | The desktop app's window | MIT or Apache-2.0 |

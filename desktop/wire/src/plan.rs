@@ -17,6 +17,11 @@ pub struct Plan {
     /// What can't go, and why
     pub left: Vec<Left>,
     pub notes: Vec<String>,
+    /// Every file can be fetched now; else some are still being made, and asking for the
+    /// plan again gives them as they're done
+    pub ready: bool,
+    /// Each media kind's size for these games, asked for or not (C13)
+    pub kinds: Vec<crate::api::KindSize>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -34,15 +39,22 @@ pub struct File {
     pub system: String,
     /// The game it's for (its DAT name), or the BIOS set or device it is
     pub game: String,
+    /// The catalogue's key of the game it's for (empty for what a system needs, such as its
+    /// BIOS files, and for a set games share: see `needed_by`)
+    pub key: String,
     /// game | bios | device | playlist | manual | doc | bios-file | text, or a media kind (cover…)
     pub role: String,
-    /// For a BIOS set or device: the games of the plan that need it, so it stays while one does
+    /// For a BIOS set or device: the games of the plan that need it (their catalogue keys),
+    /// so it stays while one does
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub needed_by: Vec<String>,
     /// Made by the server rather than sent as the library has it (a set rebuilt as a ZIP,
     /// a ROM taken out of an archive, a cue sheet rewritten, a picture made smaller, a playlist)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub made: bool,
+    /// Where it's fetched from (`/v1/files/…`), with its SHA-1 at the same address with
+    /// `?sha1` once it's known
+    pub url: String,
 }
 
 /// A system's gamelist and the entries to merge into it.
@@ -66,6 +78,8 @@ pub struct Entry {
     pub name: String,
     /// The game (its DAT name; a game on several discs, its first disc's)
     pub game: String,
+    /// The catalogue's key of the game
+    pub key: String,
     /// The details chosen, as the list's (tag, value)
     pub fields: Vec<(String, String)>,
 }

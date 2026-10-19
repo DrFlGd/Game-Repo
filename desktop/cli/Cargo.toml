@@ -1,0 +1,19 @@
+[package]
+name = "gamerepo-cli"
+description = "Game Repo's backend without the window, Game Repo Server without its tray icon, and a stand-in device client"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "gamerepo-cli"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+gamerepo-core = { path = "../core" }
+gamerepo-device = { path = "../device" }
+gamerepo-serve = { path = "../serve" }
+gamerepo-wire = { path = "../wire" }
+serde = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time", "signal"] }

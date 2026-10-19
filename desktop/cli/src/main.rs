@@ -10,12 +10,16 @@
 //!   gamerepo-cli systems, collections, collection, export, exports
 //!   gamerepo-cli pc, identify, sources, launchbox, steam, add
 //!   gamerepo-cli games, game, scrape, docs
+//!   gamerepo-cli serve-devices [status|pair|devices|remove|changed|stop]
+//!   gamerepo-cli device find|pair|unpair|systems|collections|games|game|add|remove|holdings
 //!
 //! `serve` runs the app's commands behind a local web server, so the page can be
 //! tested in an ordinary browser (with tests/tauri_shim.js standing in for Tauri's
 //! `invoke`). The library commands (roots, scan, dat, audit, make-dat) work on the
 //! app's own library and index unless --library and --home say otherwise; they go
 //! through the same commands as the window (gamerepo_core::api).
+
+mod devices;
 
 use anyhow::{bail, Context, Result};
 use gamerepo_core::api::{App, AppPaths, Reply};
@@ -213,6 +217,48 @@ under <dir>/config and <dir>/data instead of the app's own folders.
         [--always-copy] [--dry-run]
                              bring documents into the library, each with the game it's
                              paired with (shown first)
+
+Game Repo Server serves the library to paired devices on the home network; its data
+(index, certificate, devices) is kept in --data <dir> (by default its own folder).
+
+  serve-devices [--library <dir>] [--port 47210] [--index-from <file>] [--pair]
+        [--no-announce] [--no-watch]
+                             run the server until Ctrl+C or serve-devices stop (the open
+                             library by default; its first index copied from Game Repo's);
+                             --pair shows a pairing code at once
+  serve-devices status       how the running server is
+  serve-devices pair         a code to pair a device with (for 10 minutes)
+  serve-devices unpair       stop pairing
+  serve-devices devices      the paired devices, with what each holds
+  serve-devices remove <id>  remove a device: it has to pair again
+  serve-devices changed [<path>...]
+                             tell the server the library changed (those paths, or all)
+  serve-devices stop         stop the server
+
+The device commands stand in for a device's client: --to <dir> is a folder holding
+ES-DE/ (with its settings) and ROMs/, as ES-DE has them.
+
+  device find [--wait <seconds>]
+                             the servers announcing themselves on the network
+  device pair <address> <code> --to <dir> [--name <name>]
+                             pair with a server (its address, port 47210 unless given)
+  device unpair --to <dir>   forget the server, and tell it
+  device systems|collections --to <dir>
+                             the server's systems, or its collections with their groups
+  device games --to <dir> [--system <id>] [--search <text>] [--collection <id>]
+        [--group <id>] [--sort title|year|size] [--desc] [--offset <n>] [--limit <n>]
+                             the games, a page at a time, with their keys
+  device game <key> --to <dir>
+                             a game's details and files
+  device add <key>... --to <dir> [--media cover,screenshot,…] [--manuals]
+        [--size <pixels>] [--collection <name>] [--bios]
+                             fetch games into ES-DE's folders with their pictures (made
+                             as small as --size, the screen's longest side), manuals and
+                             gamelist entries, in a custom collection if named
+  device remove <key>... --to <dir>
+                             remove games with their files and entries (files another
+                             game it holds needs stay)
+  device holdings --to <dir> what the device holds from the server
 ";
 
 struct Args {
@@ -273,6 +319,8 @@ async fn run() -> Result<()> {
             Ok(())
         }
         "serve" => serve(a).await,
+        "serve-devices" => devices::serve_devices(a).await,
+        "device" => devices::device_command(a),
         "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" | "organise" | "duplicates" | "history" | "undo" | "finish"
         | "set-aside" | "convert" | "extract" | "formats" | "tools" | "systems" | "collections" | "collection" | "export" | "exports" | "pc" | "identify"
         | "sources" | "launchbox" | "steam" | "add" | "games" | "game" | "scrape" | "docs" | "layouts" | "layout" | "bios" | "library" => library_command(&cmd, a).await,

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CONF = ROOT / "desktop/src-tauri/tauri.conf.json"
 CARGO = ROOT / "desktop/Cargo.toml"
 LOCK = ROOT / "desktop/Cargo.lock"
-PACKAGES = ("game-repo", "gamerepo-core")
+PACKAGES = ("game-repo", "gamerepo-core", "gamerepo-wire", "gamerepo-serve", "gamerepo-device", "gamerepo-cli")
 
 
 def series():

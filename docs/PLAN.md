@@ -3757,11 +3757,90 @@ the same plans as before except for games on several discs (D94).
   copies `desktop/wire` into the vendoring workspace and runs when its `Cargo.toml`
   changes.
 
+### Phase 9a notes, part 2: the server and the stand-in device (built 2026-10-19)
+
+The second of 9a's three pull requests: Game Repo Server as a crate, run from the CLI, and
+a stand-in device client, tested end to end. No window, tray icon or installer yet (part 3).
+
+- **Crates**: `desktop/serve` (`gamerepo-serve`), `desktop/device` (`gamerepo-device`) and
+  `desktop/cli` (`gamerepo-cli`, the binary moved out of the core, same name and place in
+  `target/`). The server is plain threads, one per connection (at most 64), with HTTP/1.1
+  written by hand over rustls (ring) rather than a web framework, so ranges, streaming in
+  1 MiB pieces and the slots per device are in plain view; the client the same. New
+  crates: rustls, ring, rcgen (the certificate) and mdns-sd (DNS-SD), all at least two
+  weeks old; mdns-sd is pinned (`=0.21.4`).
+- **D89**: `server.json` in the data folder (`%LOCALAPPDATA%\Game Repo Server\`, or
+  `--data`) holds the process, the HTTPS port, the control port and secret, the library
+  and the version; a second start is refused while the first answers. The control channel
+  (`GET /status`, `POST`/`DELETE /pair`, `GET /devices`, `DELETE /devices/<id>`,
+  `POST /changed`, `POST /stop`) is built now, so the CLI's `serve-devices status|pair|…`
+  use it as Game Repo will.
+- **D90**: the first index is a copy of Game Repo's (`VACUUM INTO`, only when its schema is
+  this build's), else made from scratch; the server keeps it up to date itself (DATs,
+  scan, metadata, the Library rows, then the catalogue) when told over the control
+  channel, when a watched local folder changes, or every 30 minutes. Until the first pass
+  is done the catalogue answers 503 ("still reading the library"). The library is opened
+  with `open_read_only`; the tests take the library and the folders with games byte for
+  byte and time for time.
+- **D91**: the certificate is ECDSA P-256 for the name `gamerepo-server`; a device pins its
+  SHA-256 at pairing and refuses any other ("pair it again"). Pairing codes are six
+  digits, ten minutes, five wrong ones end the pairing; `devices.json` keeps each token's
+  SHA-256 only. Connections from outside the home network's addresses (private,
+  link-local, loopback, IPv6 unique-local) are closed unanswered. The TXT record carries
+  `id`, `library`, `version` and `api`.
+- **D92**: the catalogue is `serve_games` in the server's index, made from the Library's
+  `library` rows of the DAT games had **whole**: a game had in part is left out, as an
+  export leaves it out. For that the core's `library` table gained a `partial` column (a
+  new index step, which makes every system's rows again once). PC games and files no DAT
+  knows aren't in it yet. Each row has a hash; a refresh gives the rows that changed (and
+  those gone, kept as `gone`) the next marker. The first marker is the time, so a
+  catalogue made again never follows a marker from before (410). Pages sort by title,
+  year or size, each with an index of its own (a deep page by size was 330 ms with
+  100,000 games before them, 25 ms after). `GET /v1/games/<key>` gives the game's details
+  and files as Game Repo's game page has them.
+- **D93**: a plan is `export::lay_out` in a scratch folder under the data folder, as part 1
+  built it. Each file gets the catalogue key of its game (`key`; empty for a set or BIOS
+  file, whose `needed_by` lists the catalogue keys that need it) and a URL. The kinds'
+  sizes come from a second `lay_out` with every media kind and manuals; pictures not
+  asked for are estimated from their size and the device's screen (`estimated`). Made
+  files are kept by **recipe** (a hash of the step, its sources' paths, sizes and times),
+  not by their SHA-1, since a plan names them before they're made; a made file's URL is
+  `/v1/files/made/<recipe>` and answers 202 until it's ready. The SHA-1 of any file is
+  `GET <its URL>?sha1`, which waits up to 20 s, then 202. `PlanAsk` has `bios` too. The
+  device builds its record from the plan (the server sends no separate record).
+- **D95**: a file in a folder with games is `/v1/files/roots/<root id>/<path>` and one in
+  the library folder `/v1/files/library/<path>` (only `_library/games/**/media|docs/**`,
+  `_library/docs/**` and files outside `_library`), rather than one `library/<path>`, as
+  the folders with games needn't be in the library. ETag `"<size>-<mtime ms>"`,
+  `If-Range`, single ranges, 429 with `Retry-After: 1` past four downloads per device.
+- **The device** (`gamerepo-device`): ES-DE's folders from `es_settings.xml`
+  (`ROMDirectory`, `MediaDirectory`, `~` the device's home), files fetched three at a time
+  to `<name>.gamerepo-part` with the ETag beside it, checked by SHA-1 and renamed into
+  place; entries and collection lines merged with `gamerepo-wire`; the record
+  `ES-DE/gamerepo/device.json` lists each game's files and its entries (collection lines
+  as `line:…`), so `remove` deletes only what it added and keeps a file another held game
+  lists. The stand-in keeps its pairing in `ES-DE/gamerepo/server.json`; 9b's client keeps
+  the token in the system's secure storage.
+- **Tests**: `serve/tests/devices.rs` (pairing, wrong codes and the limit, a removed
+  device, a changed certificate; a game on two discs as one game and its `.m3u` folder;
+  pictures made smaller; a shared BIOS set kept until both arcade games are gone; resume
+  at 40%; a file changed under a resume; four at once and a fifth refused; `changes` after
+  a game is added and one goes; identify; the library unchanged). Timings: a page of a
+  100,000-game catalogue in every order under 200 ms (25–30 ms here), `changes` under
+  100 ms (1 ms), a 512 MiB download at least 250 MB/s (320 MB/s here with the disk, 690
+  in memory). `tests/serve_devices.py` runs the two programs on Windows CI: found by
+  DNS-SD (it worked in the cloud session too), paired by a code from the control channel,
+  games added and removed, a removed device refused, the library unchanged.
+- **CI**: builds with `-p gamerepo-cli`, tests `-p gamerepo-core -p gamerepo-wire
+  -p gamerepo-serve -p gamerepo-device`, timings with `-p gamerepo-core -p gamerepo-serve`;
+  `vendor.yml` vendors the new crates too.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
-  blocked in many cloud sessions, so `vendor.yml` pushes the core's dependencies to a
-  `crates-vendor` branch whenever `desktop/core/Cargo.toml` changes, and a session can
+  blocked in many cloud sessions, so `vendor.yml` pushes the dependencies of every crate
+  but the window's to a `crates-vendor` branch whenever one of their `Cargo.toml`s
+  changes, and a session can
   build offline from it (CHANGELOG.md, "For agents").
 - The Tauri app itself can't be built in a cloud session; the backend is tested with
   `gamerepo-cli serve` + `tests/tauri_shim.js` in the pre-installed Chromium. The real app
@@ -3941,5 +4020,7 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     Server on Windows, 9b the client for Windows and Android with ES-DE, 9c the Steam
     Deck, 9d later. 9a's design ("Phase 9a design", D89–D95) is agreed (Jerred,
     2026-10-19) and is built in three pull requests; the first, the groundwork in the core,
-    is built ("Phase 9a notes, part 1"). Later: reading magazines' text
+    is v0.5.27 ("Phase 9a notes, part 1"); the second, the server and the stand-in device
+    from the CLI, is built ("Phase 9a notes, part 2"); the third, the tray app, Settings ›
+    Serve to devices and the installers, waits for Jerred's go-ahead. Later: reading magazines' text
     (PDF, CBZ and CBR) and tagging each issue with the games it covers.

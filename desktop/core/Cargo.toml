@@ -7,10 +7,6 @@ edition.workspace = true
 [lib]
 name = "gamerepo_core"
 
-[[bin]]
-name = "gamerepo-cli"
-path = "src/bin/gamerepo-cli.rs"
-
 [dependencies]
 anyhow = "1"
 gamerepo-wire = { path = "../wire" }
