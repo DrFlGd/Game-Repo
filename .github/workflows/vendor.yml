@@ -1,13 +1,13 @@
 name: Vendor crates
 
-# For local development without crates.io: vendors gamerepo-core's dependencies
-# (Linux only) and pushes them, with a matching Cargo.lock, to the
-# "crates-vendor" branch. Build offline with:
+# For local development without crates.io: vendors gamerepo-core's dependencies (with
+# gamerepo-wire's, which it uses; Linux only) and pushes them, with a matching
+# Cargo.lock, to the "crates-vendor" branch. Build offline with:
 #   cargo build --offline --config <branch>/vendor-config.toml
 on:
   push:
     branches: [main]
-    paths: ["desktop/core/Cargo.toml", ".github/workflows/vendor.yml"]
+    paths: ["desktop/core/Cargo.toml", "desktop/wire/Cargo.toml", ".github/workflows/vendor.yml"]
   workflow_dispatch:
 
 permissions:
@@ -26,7 +26,8 @@ jobs:
         run: |
           mkdir -p out ws
           cp -r desktop/core ws/core
-          printf '[workspace]\nresolver = "2"\nmembers = ["core"]\n\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n' > ws/Cargo.toml
+          cp -r desktop/wire ws/wire
+          printf '[workspace]\nresolver = "2"\nmembers = ["core", "wire"]\n\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n' > ws/Cargo.toml
           cd ws
           cargo generate-lockfile 2>&1 | tee ../out/vendor.log
           cargo install cargo-vendor-filterer --locked 2>&1 | tail -2 | tee -a ../out/vendor.log

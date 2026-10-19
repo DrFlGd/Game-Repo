@@ -168,6 +168,9 @@ pub struct Options {
     /// Files placed before (an export's), by path key: their size and modified time then.
     /// One still the same is there already, without reading it again.
     pub known: HashMap<String, (u64, i64)>,
+    /// For ES-DE (`esde`): the discs of a game on several, by name, each with the folder
+    /// they go in together (`<name>.m3u`, D94)
+    pub disc_dirs: HashMap<String, String>,
 }
 
 // ------------------------------------------------------------ names
@@ -823,9 +826,13 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             let src_dir = |c: &Cand| Path::new(&c.src.path).parent().map(Path::to_path_buf).unwrap_or_default();
             let first = chosen[0].1;
             let multi = g.roms.len() > 1;
-            // for ES-DE, a game of several files is a folder named as the file it starts from
-            let per_game = (naming.folder || o.per_game_folder) && !o.esde && !arcade;
-            let folder_name = if o.esde {
+            // for ES-DE, a game of several files is a folder named as the file it starts from,
+            // and a game on several discs a folder of its discs, named for its playlist (D94)
+            let disc_dir = if o.esde { o.disc_dirs.get(&g.fields.name) } else { None };
+            let per_game = ((naming.folder || o.per_game_folder) && !o.esde && !arcade) || disc_dir.is_some();
+            let folder_name = if let Some(d) = disc_dir {
+                d.clone()
+            } else if o.esde {
                 let start = g.roms.iter().find(|r| cue::is_sheet(&r.name)).or(g.roms.first()).map(|r| r.name.rsplit(['/', '\\']).next().unwrap_or(&r.name).to_string());
                 safe_name(&start.unwrap_or_else(|| base.clone()))
             } else {

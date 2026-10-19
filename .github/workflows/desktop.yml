@@ -135,7 +135,7 @@ jobs:
         run: |
           mkdir -p ../ci-out
           cargo build --release -p gamerepo-core 2>&1 | tee ../ci-out/core-build.log
-          cargo test --release -p gamerepo-core 2>&1 | tee ../ci-out/core-test.log
+          cargo test --release -p gamerepo-core -p gamerepo-wire 2>&1 | tee ../ci-out/core-test.log
           # the performance targets of docs/PLAN.md (100k-file rescan, 50k-ROM DAT), on generated data
           cargo test --release -p gamerepo-core -- --ignored timing --nocapture --test-threads=1 2>&1 | tee ../ci-out/core-timing.log
           # every timing test ran: a filter that matches none passes too (review M46)
@@ -238,7 +238,7 @@ jobs:
         run: |
           mkdir -p ../ci-out
           cargo build --release -p gamerepo-core 2>&1 | tee ../ci-out/core-build.log
-          cargo test --release -p gamerepo-core 2>&1 | tee ../ci-out/core-test.log
+          cargo test --release -p gamerepo-core -p gamerepo-wire 2>&1 | tee ../ci-out/core-test.log
           # the performance targets of docs/PLAN.md (100k-file rescan, 50k-ROM DAT), on generated data
           cargo test --release -p gamerepo-core -- --ignored timing --nocapture --test-threads=1 2>&1 | tee ../ci-out/core-timing.log
           # every timing test ran: a filter that matches none passes too (review M46)
