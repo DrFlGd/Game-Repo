@@ -21,7 +21,7 @@ export const MODES = [
 
 export const FORMATS = [
   ["keep", "As they are"],
-  ["zip", "A ZIP for each game (TorrentZip: the same game gives the same file as other tools)"],
+  ["zip", "A ZIP for each game (TorrentZip)"],
   ["loose", "Loose files"],
 ];
 
@@ -161,9 +161,9 @@ export function Preview({ plan }) {
           ${it.note ? html`<span class="muted">${it.note}</span>` : null}</span></li>`;
     }
     if (what === "conflicts") return html`<li key=${i}><span class="op-paths"><span>${it.game}</span><span class="muted">${it.to} is another file: it's left as it is, and this game isn't changed.</span></span></li>`;
-    if (what === "duplicates") return html`<li key=${i}><span class="op-paths"><span>${it.path}</span><span class="muted">another copy of ${it.rom}</span></span></li>`;
+    if (what === "duplicates") return html`<li key=${i}><span class="op-paths"><span title=${it.path}>${shortPath(it.path, 3)}</span><span class="muted">another copy of ${it.rom}</span></span></li>`;
     if (what === "present") return html`<li key=${i}><span class="op-paths"><span>${it.game}</span><span class="muted op-to">${it.to}</span></span></li>`;
-    return html`<li key=${i}><span class="op-paths"><span>${it.path}</span><span class="muted">${it.why}</span></span></li>`;
+    return html`<li key=${i}><span class="op-paths"><span title=${it.path}>${shortPath(it.path, 3)}</span><span class="muted">${it.why}</span></span></li>`;
   };
   return html`<${Totals} plan=${plan} />
     ${tabs.length > 1 ? html`<div class="seg audit-tabs" role="tablist" id="organise-tabs">${tabs.map(([k, label, n]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${what === k ? "true" : "false"} onClick=${() => setWhat(k)}>${label} <span class="tab-count">${n}</span></button>`)}</div>` : null}
@@ -220,7 +220,7 @@ export function OrganiseDialog({ dat, platform, platformName, plan: given }) {
     </div>
     ${mode !== "rename" ? html`<div class="field-block"><span class="field-label">${mode === "copy" ? "Copy to" : "Move to (optional)"}</span>
       <div class="pick-row">
-        <input type="text" id="organise-out" placeholder=${mode === "copy" ? "A folder for the sorted set" : `The library's ${platformName || "platform"} folder`} value=${out} onInput=${(e) => setOut(e.target.value)} />
+        <input type="text" id="organise-out" placeholder=${mode === "copy" ? "A folder for the sorted set" : `The library's ${platformName || "system's"} folder`} value=${out} onInput=${(e) => setOut(e.target.value)} />
         ${isDesktop() ? html`<button type="button" class="ghost" id="organise-pick" onClick=${pick}>Choose…</button>` : null}
       </div></div>` : null}
     ${disc ? html`<p class="muted" id="organise-disc-note">Disc images are kept as they are (CHDs, ISOs and cue/bin sets, with their cue sheets rewritten to the new names). Convert… changes their format.</p>` : html`<label class="field-block"><span class="field-label">Format</span>
@@ -254,7 +254,7 @@ export function ConvertDialog({ dat, platform, platformName, games }) {
     }).catch(() => {});
     return () => { gone = true; };
   }, [platform]);
-  const what = games?.length === 1 ? games[0] : games?.length ? plural(games.length, "game", "games") : `${platformName || "this platform"}'s games`;
+  const what = games?.length === 1 ? games[0] : games?.length ? plural(games.length, "game", "games") : `${platformName || "this system"}'s games`;
   const pick = async () => {
     const p = await ctx.platform.library.pickFolder("The folder the converted games go to");
     if (p) setOut(p);

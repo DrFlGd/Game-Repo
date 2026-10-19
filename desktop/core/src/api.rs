@@ -666,8 +666,11 @@ impl App {
                         (None, Some(p)) => audit::primary_dat(conn, &lib, p)?,
                         (None, None) => None,
                     };
+                    let plats: Vec<Value> = with_dats.iter().map(|p| json!({ "id": p, "name": platforms::name_of(p) })).collect();
+                    // a system with no DAT (removed, or one of another library's) still gets the
+                    // systems that have one, to pick from (review H23)
                     let Some(dat_id) = dat_id else {
-                        return Ok(json!({ "summary": null, "platforms": [], "dats": [] }));
+                        return Ok(json!({ "summary": null, "platforms": plats, "dats": [] }));
                     };
                     let summary = audit::summary(conn, dat_id)?;
                     let platform = summary["dat"]["platform"].as_str().unwrap_or("").to_string();
@@ -675,7 +678,6 @@ impl App {
                     let dats: Vec<Value> = q
                         .query_map([&platform], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "version": r.get::<_, String>(2)? })))?
                         .collect::<rusqlite::Result<_>>()?;
-                    let plats: Vec<Value> = with_dats.iter().map(|p| json!({ "id": p, "name": platforms::name_of(p) })).collect();
                     Ok(json!({ "summary": summary, "platforms": plats, "dats": dats }))
                 })
                 .await?)

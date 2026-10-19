@@ -3208,6 +3208,34 @@ Order (Jerred agreed the order, and asked for the docs batch to go with the firs
    and add a page test that plays one); .mov and .m4v shown as broken pictures
    (`isVideo` in gamepage.js and metadata.js); .avi and .mkv may not play (`mime()` in
    main.rs has no mkv); the video thumbnail uses the picture icon.
+   **Status: done (PR #34).** As built:
+   - Video: `web/ui/video.js` has `isVideo` (mp4, m4v, mov, webm, mkv, avi) and `Video`,
+     the one player used by the game page's hero, the Media ribbon's large view and the
+     Metadata page's `Picture`. The cause of the double audio was a `<video>` in each
+     Media ribbon thumbnail as well as the large view: thumbnails now show the video icon
+     (`Icon.video`) and never a player, and a capturing `play` listener pauses every other
+     playing video or audio. A video that fails shows *This video can't play in the app*
+     with *Open it in its own player* (`openPath`). `mime()` in main.rs and the CLI's
+     server send mkv as video/webm (WebView2 plays Matroska with VP8/VP9/AV1) and avi as
+     video/x-msvideo (which falls to the message). The page test records a WebM in the
+     page, plays both players and checks only one plays, then an AVI's message.
+   - H22: the Audit bar's place shrinks and its count is cut with an ellipsis; the page
+     test checks no sideways scroll at 1000 px. H23: `audit_summary` returns `platforms`
+     with a null summary, and Metadata and Audit forget a remembered system that has no
+     DAT now.
+   - M33: `opened.key` is the game the list was opened at; Previous/Next show only on
+     that game. M34: the game page's *Leave out* calls `collection_hand` with `leave_out`.
+   - M36: the document dialog closes on Esc and when the page changes. M37: a layout's
+     unsaved draft is kept per library while away from the page, the Library's scroll is
+     kept per view and query, and Import resets when the library changes. M38: Enter on a
+     Library tile or line opens it. M39: DAT imports end in one message (`failedLines`).
+     M43: the filter panel's column is `minmax(0, 1fr)`.
+   - Low items: the Library table's columns fit 1280 px (min-width 800), *Choose…* beside
+     its box, `shortPath` for long folders, `ID_NAMES` for store ids, "system" for
+     "platform", *Put back*, Close-only dialogs when there's nothing to do, BIOS left out
+     of collection systems, the narrow breakpoint the same 900 px everywhere, the first
+     start's command bar. Not done: making the export plan a job with Stop (batch 3's
+     note); it plans 8,000 games in 1.4 s, so it waits until someone asks.
 5. **Metadata, PC games and magazines** (H17–H21, M25–M32).
 6. **One Import page** (D78–D80, which take in H5, H6, M8, M35, M40–M42 and H3).
 7. **The rest of CI and tests** (M44–M46): chdman fetched, a dolphin-tool stand-in on
@@ -3415,7 +3443,7 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     and a new system's own folder (v0.5.18): all released.
 13. Hardening after the v0.5.18 review (D78–D82): the eight batches in that section, in
     order, each a pull request merged on Jerred's word. Batches 1 and 2 are released
-    (v0.5.19); batch 3, exports and collections, is done; batch 4, the interface, is
-    next.
+    (v0.5.19), batch 3, exports and collections, is v0.5.20; batch 4, the interface, is
+    done; batch 5, metadata, PC games and magazines, is next.
 14. Then Phase 9, serving games to devices on the home network (3.10). Later: reading
     magazines' text (PDF, CBZ and CBR) and tagging each issue with the games it covers.

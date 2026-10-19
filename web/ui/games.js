@@ -3,7 +3,7 @@
 // these are in desktop/core/src/api.rs.
 import { ui } from "./state.js";
 import { ctx } from "./context.js";
-import { api, toast, followJob, isDesktop, plural, size, loadIndex } from "./library.js";
+import { api, toast, followJob, isDesktop, plural, size, loadIndex, baseName } from "./library.js";
 
 /** The platforms the app knows ([{ id, name, dat, exts }]), read once. */
 export async function platforms() {
@@ -37,7 +37,7 @@ export async function addRoot(path, platform) {
   try {
     const root = await api("roots_add", { path: target, platform: platform || null });
     await refreshGames();
-    toast(`Added ${root.dir}. Scan to read what's in it.`, { ms: 8000, action: { label: "Scan now", run: () => scan() } });
+    toast(`Added ${baseName(root.dir)}. Scan to read what's in it.`, { ms: 8000, action: { label: "Scan now", run: () => scan() } });
     return root;
   } catch (e) {
     toast(`Couldn't add that folder: ${e.message || e}`, 8000);
@@ -63,7 +63,7 @@ export async function repointRoot(root) {
 export async function removeRoot(root) {
   await api("roots_remove", { id: root.id });
   await refreshGames();
-  toast(`${root.dir} won't be scanned any more; nothing in it was changed.`, 6000);
+  toast(`${baseName(root.dir)} won't be scanned any more; nothing in it was changed.`, 6000);
 }
 
 // ------------------------------------------------------------ scanning
@@ -148,13 +148,17 @@ export async function importDats(paths, answers = {}) {
     if (done.error) throw new Error(done.error);
     const r = done.result || {};
     const got = r.imported || [];
+    // one message for the lot, each file by its name: a message each replaced the one
+    // before, so only the last failure showed (review M39)
+    const said = [];
     if (got.length) {
       const fresh = got.filter((d) => !d.already);
-      toast(fresh.length
+      said.push(fresh.length
         ? `Imported ${fresh.map((d) => `${d.name} for ${d.platform_name}`).join(", ")}: ${plural(fresh.reduce((n, d) => n + d.games, 0), "game", "games")}, ${fresh.reduce((n, d) => n + d.matched, 0)} matched.`
-        : `${got.map((d) => d.name).join(", ")} ${got.length === 1 ? "was" : "were"} imported already.`, 8000);
+        : `${got.map((d) => d.name).join(", ")} ${got.length === 1 ? "was" : "were"} imported already.`);
     }
-    for (const f of r.failed || []) toast(`Couldn't import ${f.path}: ${f.error}`, 8000);
+    said.push(...failedLines(r.failed, (f) => baseName(f.path), "Couldn't import", "files"));
+    if (said.length) toast(said.join(" "), r.failed?.length ? 15000 : 8000);
     await refreshGames();
     if (got.some((d) => !d.already)) offerFolderRenames();
     if (r.needs_platform?.length) {
@@ -193,6 +197,15 @@ export function starterDats(platforms = null) {
     button: bios ? "Download it" : "Download them", run: () => runStarter(platforms) } });
 }
 
+/** What failed, as one or two sentences: the first three by name, and how many more. */
+function failedLines(failed, name, verb, what) {
+  if (!failed?.length) return [];
+  const why = (f) => String(f.error || "").replace(/\.$/, "");
+  if (failed.length === 1) return [`${verb} ${name(failed[0])}: ${why(failed[0])}.`];
+  const more = failed.length > 3 ? `; and ${failed.length - 3} more` : "";
+  return [`${verb} ${failed.length} ${what}: ${failed.slice(0, 3).map((f) => `${name(f)} (${why(f)})`).join("; ")}${more}.`];
+}
+
 async function runStarter(platforms) {
   try {
     const { job } = await api("starter_dats", platforms ? { platforms } : {});
@@ -201,9 +214,9 @@ async function runStarter(platforms) {
     const r = done.result || {};
     const n = (r.imported || []).length;
     const extra = [r.skipped?.length ? `${r.skipped.length} already had one` : null, r.missing?.length ? `${r.missing.length} not available` : null, r.failed?.length ? `${r.failed.length} failed` : null].filter(Boolean).join(", ");
-    toast(`${n ? `Imported starter DATs for ${plural(n, "system", "systems")}` : "No starter DATs were needed"}${extra ? ` (${extra})` : ""}.`, 8000);
-    for (const f of (r.failed || []).slice(0, 2)) toast(`Couldn't get the ${f.platform} DAT: ${f.error}`, 8000);
-    if (r.note) toast(r.note, 12000);
+    const said = [`${n ? `Imported starter DATs for ${plural(n, "system", "systems")}` : "No starter DATs were needed"}${extra ? ` (${extra})` : ""}.`,
+      ...failedLines(r.failed, (f) => `the ${f.platform} DAT`, "Couldn't get", "DATs"), ...(r.note ? [r.note] : [])];
+    toast(said.join(" "), r.failed?.length || r.note ? 15000 : 8000);
     await refreshGames();
     return r;
   } catch (e) {

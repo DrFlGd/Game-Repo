@@ -21,6 +21,7 @@ import { identifyDialog } from "./pcgames.js";
 import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
 import { Icon } from "./icons.js";
 import { useSidePanel, useRouteArg, argHash } from "./panels.js";
+import { isVideo, Video } from "./video.js";
 
 const PAGE = 200;
 const err = (e) => e.message || String(e);
@@ -48,7 +49,7 @@ const REGIONS = [["us", "USA"], ["eu", "Europe"], ["wor", "World"], ["jp", "Japa
 function Picture({ media, title, cls = "meta-cover", kind }) {
   const rel = kind ? media?.[kind] : media?.cover || media?.box3d || media?.screenshot || media?.titlescreen;
   const [broken, setBroken] = useState(false);
-  if (rel && /\.(mp4|webm|mkv|avi)$/i.test(rel)) return html`<video class=${cls} src=${libraryUrl(rel)} controls preload="metadata"></video>`;
+  if (isVideo(rel)) return html`<${Video} cls=${cls} rel=${rel} src=${libraryUrl(rel)} />`;
   return rel && !broken ? html`<img class=${cls} src=${libraryUrl(rel)} alt="" loading="lazy" onError=${() => setBroken(true)} />` : html`<span class=${`${cls} pc-cover-none`} aria-hidden="true">${(title || "?").slice(0, 1)}</span>`;
 }
 
@@ -344,7 +345,16 @@ export function Metadata() {
   useEffect(() => {
     if (!s.library) return;
     let gone = false;
-    api("audit_summary", { platform }).then((d) => { if (!gone) setSummary(d); }).catch((e) => { if (!gone) setSummary({ error: err(e) }); });
+    api("audit_summary", { platform }).then((d) => {
+      if (gone) return;
+      // the system remembered has no DAT now (removed, or another library's): the first that has one (review H23)
+      if (!d.summary && platform && !arg && d.platforms?.length) {
+        prefs()?.set("gr-meta", { ...(prefs()?.get("gr-meta", {}) || {}), platform: null });
+        setPlatform(null);
+        return;
+      }
+      setSummary(d);
+    }).catch((e) => { if (!gone) setSummary({ error: err(e) }); });
     return () => { gone = true; };
   }, [s.library?.path, platform, s.home]);
   const p = summary?.summary?.dat?.platform;

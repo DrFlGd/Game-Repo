@@ -26,12 +26,12 @@ import { convertDialog } from "./organise.js";
 import { opened, gameHash, systemColour } from "./browse.js";
 import { Icon } from "./icons.js";
 import { Inspector } from "./panels.js";
+import { isVideo, Video } from "./video.js";
 
 const err = (e) => e.message || String(e);
 const PICTURES = { cover: "Box front", back: "Back", box3d: "3D box", screenshot: "Screenshot", titlescreen: "Title screen", marquee: "Logo", fanart: "Fan art", physical: "Cartridge or disc", video: "Video", banner: "Banner", hero: "Hero", logo: "Logo", icon: "Icon" };
 const ORDER = ["cover", "box3d", "back", "screenshot", "titlescreen", "fanart", "physical", "marquee", "video", "hero", "banner", "logo", "icon"];
 const FIELDS = [["title", "Title"], ["year", "Year"], ["released", "Release date"], ["developer", "Developer"], ["publisher", "Publisher"], ["genres", "Genres"], ["players", "Players"], ["rating", "Rating"], ["description", "Description"]];
-const isVideo = (rel) => /\.(mp4|webm|mkv|avi)$/i.test(rel || "");
 
 const ADDON_KINDS = { update: "Update", dlc: "DLC", patch: "Patch" };
 
@@ -132,14 +132,14 @@ function Gallery({ g, off, onChoose }) {
   if (!kinds.length) return html`<div class="game-gallery" id="game-gallery"><span class="game-hero lib-cover-none" style=${`background:${systemColour(g.platform)}`} aria-hidden="true">${(g.title || "?").slice(0, 1)}</span>
     <p class="muted">No pictures yet: ${g.kind === "pc" ? "Identify… brings them" : "Scrape… brings them"}.</p></div>`;
   return html`<div class="game-gallery" id="game-gallery">
-    ${isVideo(rel) ? html`<video class="game-hero" src=${url(kind)} controls preload="metadata"></video>` : html`<img class="game-hero" src=${url(kind)} alt=${PICTURES[cur] || cur} />`}
+    ${isVideo(rel) ? html`<${Video} cls="game-hero" rel=${rel} src=${url(kind)} />` : html`<img class="game-hero" src=${url(kind)} alt=${PICTURES[cur] || cur} />`}
     ${kinds.length > 1 ? html`<div class="game-strip" id="game-strip" role="tablist" aria-label="Pictures">${kinds.map((k) => html`<button type="button" role="tab" key=${k} data-kind=${k} aria-selected=${k === cur ? "true" : "false"} title=${PICTURES[k] || k} onClick=${() => setCur(k)}>
-      ${isVideo(media[k]) ? html`<span class="game-strip-video">${Icon.image(16)} Video</span>` : html`<img src=${url(k, "~thumb/128/")} alt="" loading="lazy" />`}</button>`)}</div>` : null}
+      ${isVideo(media[k]) ? html`<span class="game-strip-video">${Icon.video(16)} Video</span>` : html`<img src=${url(k, "~thumb/128/")} alt="" loading="lazy" />`}</button>`)}</div>` : null}
     <p class="muted game-caption">${PICTURES[cur] || cur}${g.scraped?.media?.[cur] ? ` · from ${sourceName(g.scraped.media[cur])}` : ""}</p>
     ${vs.length > 1 ? html`<p class="game-variants-label">${PICTURES[cur] || cur} from each source</p>
     <div class="game-variants" id="game-variants" data-kind=${cur} role="group" aria-label="From each source">${vs.map((x) => html`<button type="button" key=${x.name} data-name=${x.name} aria-pressed=${x.chosen ? "true" : "false"}
       disabled=${off} title=${x.chosen ? `Shown: ${x.source_name}'s` : `Use ${x.source_name}'s`} onClick=${() => { if (!x.chosen) onChoose(cur, x.name); }}>
-      ${isVideo(x.path) ? html`<span class="game-strip-video">${Icon.image(16)} Video</span>` : html`<img src=${libraryUrl(`~thumb/128/${x.path}`)} alt="" loading="lazy" />`}
+      ${isVideo(x.path) ? html`<span class="game-strip-video">${Icon.video(16)} Video</span>` : html`<img src=${libraryUrl(`~thumb/128/${x.path}`)} alt="" loading="lazy" />`}
       <span class="muted">${x.source_name}${x.chosen ? " · shown" : ""}</span></button>`)}</div>` : null}
   </div>`;
 }
@@ -152,8 +152,11 @@ function MediaPane({ g, off, onChoose }) {
   const kinds = [...ORDER.filter((k) => media[k]), ...Object.keys(media).filter((k) => !ORDER.includes(k))];
   if (!kinds.length) return html`<p class="muted media-none" id="game-media">No pictures yet: ${g.kind === "pc" ? "Identify… brings them" : "Scrape… brings them"}.</p>`;
   const shownName = (k) => g.variants?.[k]?.find((x) => x.chosen)?.name || "";
+  // a video plays only when seen larger: a small one in its button showed no controls of its
+  // own but could start, and opening it larger then played it a second time (Jerred, batch 4)
   const pic = (rel, name, thumb) => isVideo(rel)
-    ? html`<video src=${`${libraryUrl(rel)}?v=${encodeURIComponent(name)}`} controls preload="metadata"></video>`
+    ? thumb ? html`<span class="game-strip-video">${Icon.video(16)} Video</span>`
+      : html`<${Video} rel=${rel} src=${`${libraryUrl(rel)}?v=${encodeURIComponent(name)}`} />`
     : html`<img src=${`${libraryUrl(`${thumb}${rel}`)}?v=${encodeURIComponent(name)}`} alt="" loading="lazy" />`;
   return html`<div class="media-pane" id="game-media">
     ${big ? html`<figure class="media-view" id="media-view">
@@ -241,12 +244,13 @@ export function GamePage() {
     ? save(field, (g.sources || []).find((a) => a.source === source)?.[field] ?? null)
     : changed("meta_pin", { field, source }));
   const choose = (kind, name) => changed("meta_choose", { kind, name });
+  const fromList = !!opened.query && opened.index >= 0 && opened.key === key;
   const step = async (by) => {
     const i = opened.index + by;
-    if (!opened.query || i < 0 || i >= opened.total) return;
+    if (!fromList || i < 0 || i >= opened.total) return;
     const r = await api("browse_query", { query: { ...opened.query, offset: i, limit: 1 } });
     if (!r.items[0]) return;
-    opened.index = i;
+    Object.assign(opened, { index: i, key: r.items[0].key });
     // in place of this game in the history, so Back goes to the list rather than through every game stepped past
     location.replace(gameHash(r.items[0].key));
   };
@@ -256,7 +260,6 @@ export function GamePage() {
     else if (e.key === "ArrowRight" || e.key === "PageDown") step(1);
     else if (e.key === "ArrowLeft" || e.key === "PageUp") step(-1);
   });
-  const fromList = opened.query && opened.index >= 0;
   const more = () => [
     ...(dat ? [{ id: "game-identify", label: "Identify…", icon: "search", disabled: off, run: () => identifyDialog({ title: `Identify ${g.name}`, query: g.title, platform: g.platform, onPick: async (x) => { setG(await api("meta_pick", { game: g.id, source: x.source, id: x.id }).then(() => api("browse_game", { key }))); } }) }] : []),
     ...(pc ? [{ id: "game-pc", label: "Open in PC games", icon: "monitor", run: () => { location.hash = routeHash("pc"); } }] : []),
@@ -267,7 +270,7 @@ export function GamePage() {
     // a PC game's own folder (PC/<Title> (<Year>)), else where its metadata is kept
     { id: "game-reveal", label: "Show in folder", icon: "folder", disabled: !isDesktop() || !(g?.pc?.dir || g?.folder_path || g?.dir), run: () => reveal(g.pc?.dir || g.folder_path || g.dir) },
     { sep: true },
-    { id: "game-add", label: "Add to a collection…", icon: "collection", disabled: off || !dat, run: () => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } }) },
+    { id: "game-add", label: "Add to a collection…", icon: "collection", disabled: off || (!dat && "Collections hold games from DATs, and a PC game has none"), run: () => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } }) },
   ];
   const head = html`<${CommandBar} id="game-head" back=${{ id: "game-back", run: back }} title=${g?.title || "A game"} count=${g ? [g.regions, g.platform_name].filter(Boolean).join(" · ") || null : null}
     tools=${fromList ? html`<span class="seg"><button type="button" class="ghost compact" id="game-prev" title="The previous game in the list (←)" disabled=${opened.index <= 0} onClick=${() => step(-1)}>‹</button>
@@ -281,10 +284,8 @@ export function GamePage() {
   if (!g) return html`${head}<div class="pages"><p class="muted">Reading…</p></div>`;
   const removeFrom = async (c) => {
     try {
-      const cur = (await api("collection_get", { id: c.id })).collection;
-      cur.added = (cur.added || []).filter((k) => k !== g.key);
-      if (!cur.removed.includes(g.key)) cur.removed = [...cur.removed, g.key];
-      await api("collection_save", { collection: cur });
+      // the collection takes it out of whichever group has it, and History can undo it (review M34)
+      await api("collection_hand", { id: c.id, leave_out: [g.key] });
       ui.set((x) => ({ changes: (x.changes || 0) + 1 }));
       toast(`Left ${g.title} out of ${c.name}.`, 6000);
     } catch (e) {

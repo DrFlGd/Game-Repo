@@ -471,7 +471,8 @@ function Ticks({ id, items, value, onChange, none }) {
 function RulesEditor({ rules: r, onSet, off, prefix = "rule", id = "collection-rules" }) {
   const dats = useStore(ui, (s) => s.dats) || [];
   const set = (patch) => onSet(patch);
-  const systems = [...new Map(dats.filter((d) => d.current).map((d) => [d.platform, d.platform_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  // (BIOS files aren't a system of games: low finding)
+  const systems = [...new Map(dats.filter((d) => d.current && d.platform !== "bios").map((d) => [d.platform, d.platform_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
   const datNames = [...new Set(dats.map((d) => d.name))].sort().map((n) => [n, n]);
   const own = r.dats || [];
   const more = [own.length ? `games of ${own.join(", ")}` : "", r.languages.length ? `languages ${r.languages.join(", ")}` : "", r.exclude.length ? `${r.exclude.length} left out` : "", r.search ? `names with "${r.search}"` : "", r.from_dats.length ? plural(r.from_dats.length, "DAT", "DATs") : ""].filter(Boolean).join(" · ");
@@ -800,7 +801,7 @@ export function Collections() {
   const removeGroup = (g, i) => confirmDialog({
     title: `Remove the group ${g.name}?`, button: "Remove",
     text: `Its rules and the games added or left out of it by hand go from ${c.name}, and with them its games no other group has.${i === 0 ? ` ${groupsOf(c)[1]?.name} becomes the first group.` : ""} History can undo it.`,
-    run: () => apply((x) => withoutGroup(x, g.id)),
+    undoable: true, run: () => apply((x) => withoutGroup(x, g.id)),
   });
   const duplicate = () => ui.set({ dialog: { type: "collection-name", title: `Duplicate ${c.name}`, value: `${c.name} (copy)`, button: "Duplicate", run: async (name) => {
     const r = await save({ ...c, id: "", name });
@@ -816,7 +817,7 @@ export function Collections() {
   /** A group's systems (by id; "" is the first): those its rules name, else every one with a DAT. */
   const systemsOf = (gid = "") => {
     const g = groupsOf(c).find((x) => x.id === gid) || groupsOf(c)[0];
-    const ids = g.rules.platforms?.length ? g.rules.platforms : [...new Set((s.dats || []).filter((d) => d.current).map((d) => d.platform))];
+    const ids = g.rules.platforms?.length ? g.rules.platforms : [...new Set((s.dats || []).filter((d) => d.current && d.platform !== "bios").map((d) => d.platform))];
     return ids.map((p) => ({ id: p, name: (s.platforms || []).find((x) => x.id === p)?.name || p })).sort((a, b) => a.name.localeCompare(b.name));
   };
 
@@ -831,7 +832,7 @@ export function Collections() {
     ui.set({ dialog: { type: "export", c, sum, only, count: picked.all && q.trim() ? only.length : picked.count } });
   };
   const openGame = (g, i) => {
-    Object.assign(opened, { query: { ...lq }, index: i, total: games.total });
+    Object.assign(opened, { query: { ...lq }, index: i, total: games.total, key: g.key });
     location.hash = gameHash(g.key);
   };
   const gameActions = show === "out" ? [

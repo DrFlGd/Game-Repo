@@ -75,8 +75,9 @@ export function hashOf(q) {
 
 const filtered = (q) => LISTS.some((k) => q[k].length) || q.look || q.players || q.rating || q.collection || q.search;
 
-/** The list a game page was opened from, so Previous and Next go through it. */
-export const opened = { query: null, index: -1, total: 0 };
+/** The list a game page was opened from, so Previous and Next go through it, and the
+ *  game opened (a game opened from elsewhere, Audit or Home, has no list: review M33). */
+export const opened = { query: null, index: -1, total: 0, key: null };
 
 /** A game's page. */
 export const gameHash = (key) => `#/game/${key.split("/").map(encodeURIComponent).join("/")}`;
@@ -292,10 +293,18 @@ function TableHead({ q, set }) {
     aria-sort=${sort && q.sort === sort ? (q.desc ? "descending" : "ascending") : null}>${sort ? html`<button type="button" class="lib-sort" data-sort=${sort} onClick=${() => set({ sort, desc: q.sort === sort ? !q.desc : false })}>${label}${q.sort === sort ? (q.desc ? " ▾" : " ▴") : ""}</button>` : label}</span>`)}</div>`;
 }
 
+const scrolledTo = new Map();
+
 /** The grid, list or table, drawing only what's in view. `jump` ({ value }, a new object
  *  each time) scrolls to the heading of the group with that value. */
 export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMenu, scrollRef, jump }) {
   const [box, setBox] = useState({ w: 800, h: 600, top: 0 });
+  // where the list was scrolled to, for each list and view, so coming back to it (from a
+  // game's page, say) is where it was left (review M37)
+  const where = `${view}|${JSON.stringify(q)}`;
+  const whereRef = useRef(where);
+  whereRef.current = where;
+  const restored = useRef(null);
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -304,7 +313,11 @@ export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMen
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     let raf = 0;
-    const onScroll = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => setBox((b) => ({ ...b, top: el.scrollTop }))); };
+    const onScroll = () => {
+      if (restored.current === whereRef.current) scrolledTo.set(whereRef.current, el.scrollTop);
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => setBox((b) => ({ ...b, top: el.scrollTop })));
+    };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => { ro.disconnect(); el.removeEventListener("scroll", onScroll); cancelAnimationFrame(raf); };
   }, [view]);
@@ -315,6 +328,13 @@ export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMen
   const colW = view === "grid" ? (inner - gap * (cols - 1)) / cols : inner;
   const rowH = view === "grid" ? Math.round(colW * 1.38) + 52 + gap : view === "list" ? 58 : 34;
   const { segs, height } = useMemo(() => layout(games.total, q.group ? games.groups : null, cols, rowH, 44), [games.total, games.groups, cols, rowH, q.group]);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || restored.current === where || !height) return;
+    restored.current = where;
+    const top = scrolledTo.get(where);
+    if (top) { el.scrollTop = top; setBox((b) => ({ ...b, top: el.scrollTop })); }
+  }, [where, height]);
   // (once for each jump: the sections can be laid out again as the games come in)
   const jumped = useRef(null);
   useEffect(() => {
@@ -607,7 +627,7 @@ export function Browse() {
   const pickView = (v) => { setView(v); prefs()?.set("gr-library-view", v); };
   const pickSize = (v) => { setPx(v); prefs()?.set("gr-library-size", v); };
   const open = (g, i) => {
-    Object.assign(opened, { query: { ...q }, index: i, total: games.total });
+    Object.assign(opened, { query: { ...q }, index: i, total: games.total, key: g.key });
     location.hash = gameHash(g.key);
   };
   /** The games selected, every one (asked of the core when everything is). */

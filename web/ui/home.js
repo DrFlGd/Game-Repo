@@ -74,7 +74,7 @@ function AttentionCard({ home, off }) {
     ${missing.map((r) => html`<p class="warn-note" key=${r.id}>${r.dir} isn't on this computer.
       ${isDesktop() ? html` <button type="button" class="ghost" onClick=${() => repointRoot(r)}>Point it elsewhere…</button>` : null}</p>`)}
     ${loose.length ? html`<h3>Without a DAT</h3><ul class="ls-list" id="home-loose">${loose.map((l) => html`<li key=${l.platform || "none"}>
-      <span>${l.platform_name || "No platform worked out"}</span><span class="muted">${plural(l.files, "file", "files")}</span></li>`)}</ul>
+      <span>${l.platform_name || "No system worked out"}</span><span class="muted">${plural(l.files, "file", "files")}</span></li>`)}</ul>
       <small class="muted">Files whose system has no DAT yet, or whose system couldn't be worked out (set it on their folder in Import › Folders with games).</small>` : null}
   </section>`;
 }
@@ -112,7 +112,8 @@ export function Home() {
 /** First start: no library was ever opened, so ask where it should go. */
 function FirstRun() {
   const def = ctx.platform?.info?.default_library || "";
-  return html`<div class="first-run" id="first-run">
+  // (with the bar, so a narrow window has its menu button: low finding)
+  return html`<${CommandBar} id="home-head" title="Game Repo" /><div class="first-run" id="first-run">
     <h1>Where should your library go?</h1>
     <p>The library is an ordinary folder. The app keeps its own files in a <code>_library</code> folder inside it: each game's details, scraped pictures and your documents. Your ROMs can stay where they are, or be moved into the library when you choose.</p>
     <p>Choose an empty folder for a new library, a folder that already is one, or the folder your games are in: nothing in it is changed.</p>

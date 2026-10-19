@@ -1439,7 +1439,11 @@ fn content_type(path: &str) -> &'static str {
         "gif" => "image/gif",
         "ttf" => "font/ttf",
         "pdf" => "application/pdf",
-        "mp4" => "video/mp4",
+        // as the app's own (main.rs `mime`)
+        "mp4" | "m4v" => "video/mp4",
+        "webm" | "mkv" => "video/webm",
+        "mov" => "video/quicktime",
+        "avi" => "video/x-msvideo",
         "txt" | "md" => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
     }

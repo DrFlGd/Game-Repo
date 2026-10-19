@@ -81,6 +81,7 @@ export const Icon = {
   folder: (s) => svg(skinned(html`<path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />`, OWN.folder), s),
   refresh: (s) => svg(html`<path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" />`, s),
   image: (s) => svg(html`<rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="2" /><path d="M21 16l-5-5-8 8" />`, s),
+  video: (s) => svg(html`<rect x="3" y="5" width="18" height="14" rx="2" /><path d="M10 9.5v5l4.5-2.5z" />`, s),
   inbox: (s) => svg(skinned(html`<path d="M3 13l3-8h12l3 8v6H3z" /><path d="M3 13h5l1 2h6l1-2h5" />`, OWN.inbox), s),
   move: (s) => svg(html`<path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M9 13h7M13 10l3 3-3 3" />`, s),
   layers: (s) => svg(skinned(html`<path d="M3 8.5l9-4.5 9 4.5-9 4.5z" /><path d="M3 12.5l9 4.5 9-4.5" /><path d="M3 16.5l9 4.5 9-4.5" />`, OWN.layers), s),

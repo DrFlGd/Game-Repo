@@ -428,6 +428,8 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
   width: 100%; padding: 8px 10px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); background: var(--white); color: var(--ink); font: inherit; font-size: 14px; }
 .field-block small { font-size: 13px; line-height: 1.45; }
 .pick-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+/* a folder's box takes the row, its Choose… beside it (low finding: it fell under the box) */
+.pick-row > input[type="text"] { flex: 1 1 220px; width: auto; min-width: 0; }
 .pick-path { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: normal; padding: 8px 10px; background: var(--panel); border: 1px solid var(--steel-2); border-radius: var(--radius-s); font-size: 12.5px; line-height: 1.45; }
 /* settings page */
 .library-settings { display: grid; gap: 6px; }
@@ -1089,7 +1091,7 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 }
 .preview-shade { display: none; }
 
-@media (max-width: 899px) {
+@media (max-width: 900px) {
   .model-page { padding: 0; }
   .model-page > .page-head { padding: 10px 12px; }
   .model-workspace { display: flex; }
@@ -1207,11 +1209,12 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 @container (max-width: 600px) { .cmdbar .bar-place .page-count { display: none; } .cmdbar .bar-search { min-width: 90px; } }
 .bar-burger { display: none; flex: none; padding: 6px 8px; }
 .bar-back, .bar-clear { flex: none; padding: 6px 8px; }
-.bar-place { display: flex; align-items: baseline; gap: 4px 10px; min-width: 0; flex: 0 0.01 auto; overflow: hidden; }
+/* the place gives way before the commands do: a long DAT name ends in "…" (review H22) */
+.bar-place { display: flex; align-items: baseline; gap: 4px 10px; min-width: 0; flex: 0 1 auto; overflow: hidden; }
 .bar-place h1 { margin: 0; font-size: 20px; font-family: var(--font-head); font-stretch: var(--head-stretch); font-weight: 800; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .bar-place h1.crumbs { display: inline-flex; align-items: center; gap: 7px; }
 .bar-place .crumbs-name { overflow: hidden; text-overflow: ellipsis; }
-.bar-place .page-count { flex: none; }
+.bar-place .page-count { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .bar-up { display: inline-flex; align-items: baseline; gap: 6px; font-size: 13px; color: var(--graphite); white-space: nowrap; min-width: 0; overflow: hidden; flex: 0 1000 auto; }
 .bar-place > h1 { flex: 0 1 auto; min-width: 6em; }
 @media (max-width: 1600px) { .cmdbar #layout-switch .view-label { display: none; } }
@@ -1276,7 +1279,7 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 .panel-strip .panel-strip-icon { display: flex; color: var(--graphite); }
 .filters { padding-top: 10px; }
 .browse-scroll { padding-top: 12px; }
-@media (max-width: 899px) {
+@media (max-width: 900px) {
   .inspector-pane { position: absolute; right: 100%; top: 0; bottom: 0; z-index: 30; width: min(420px, calc(100vw - 60px)) !important; box-shadow: var(--shadow); }
   .pane-resize { display: none; }
 }
@@ -1513,7 +1516,9 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 .op-from { font-size: 12.5px; }
 .change-list li { flex-wrap: wrap; }
 .change-list .change-label { flex: 1 1 260px; display: grid; gap: 1px; }
-.change-list .badge { flex: none; }
+/* a change's state is a word, not something to press (low finding: Done looked like a button) */
+.change-list .badge { flex: none; border-color: transparent; background: var(--panel); color: var(--graphite); font-weight: 500; }
+.change-list .badge.review { color: var(--warn-ink); border-color: var(--warn-border); background: var(--warn-bg); font-weight: 600; }
 .tool-where { overflow-wrap: anywhere; }
 .naming-examples { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
 .naming-examples code { font-size: 12.5px; }
@@ -1787,7 +1792,8 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 
 /* The Library (Phase 6): filters, the games (a virtualised grid, list or table), the panel */
 .lib-page { flex: 1; min-height: 0; display: grid; grid-template-columns: 230px minmax(0, 1fr) 300px; }
-.lib-filters { overflow: auto; padding: 12px 12px 60px 16px; border-right: 1px solid var(--steel-2); display: grid; gap: 6px; align-content: start; font-size: 13px; }
+/* (one column no wider than the panel: a long system name ends in "…" and its count shows, review M43) */
+.lib-filters { overflow: auto; padding: 12px 12px 60px 16px; border-right: 1px solid var(--steel-2); display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; align-content: start; font-size: 13px; }
 .lib-switches { display: grid; gap: 2px; padding-bottom: 6px; border-bottom: 1px solid var(--steel-2); }
 .lib-filter > summary { cursor: pointer; font-weight: 700; padding: 4px 0; list-style-position: outside; }
 .lib-filter-on { display: inline-block; min-width: 16px; padding: 0 5px; border-radius: 8px; background: var(--ink); color: var(--white); font-size: 11px; text-align: center; }
@@ -1831,7 +1837,8 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 .lib-line-main > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lib-line-title { font-weight: 650; }
 .lib-stars { color: var(--star); font-size: 12px; letter-spacing: 1px; }
-.lib-row { display: grid; grid-template-columns: minmax(180px, 3fr) minmax(90px, 1.2fr) 52px minmax(90px, 1.4fr) minmax(90px, 1.4fr) 54px 80px 90px 76px 110px; gap: 8px; align-items: center; height: 34px; padding: 0 8px; border: 1px solid transparent; border-bottom-color: var(--steel); font-size: 12.5px; }
+/* (narrow enough to show every column beside the filters at 1280 px: low finding, Size was cut off) */
+.lib-row { display: grid; grid-template-columns: minmax(140px, 3fr) minmax(80px, 1.2fr) 40px minmax(70px, 1.2fr) minmax(70px, 1.2fr) 48px 64px minmax(56px, 70px) 64px 96px; gap: 6px; align-items: center; height: 34px; padding: 0 8px; border: 1px solid transparent; border-bottom-color: var(--steel); font-size: 12.5px; }
 .lib-thead { position: sticky; top: -12px; z-index: 2; height: 32px; background: var(--white); border-bottom: 1px solid var(--steel-2); font-weight: 700; font-size: 12px; }
 .lib-cell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lib-col-rating { color: var(--star); }
@@ -1840,7 +1847,7 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 .lib-sort { border: 0; background: transparent; padding: 0; min-height: 0; font-size: inherit; color: inherit; text-decoration: none; }
 .lib-sort:hover { color: var(--focus); }
 .lib-scroll:has(.lib-thead.no-system) .lib-col-system { display: none; }
-.lib-scroll:has(.lib-thead.no-system) .lib-row { grid-template-columns: minmax(180px, 3fr) 52px minmax(90px, 1.4fr) minmax(90px, 1.4fr) 54px 80px 90px 76px 110px; }
+.lib-scroll:has(.lib-thead.no-system) .lib-row { grid-template-columns: minmax(140px, 3fr) 40px minmax(70px, 1.2fr) minmax(70px, 1.2fr) 48px 64px minmax(56px, 70px) 64px 96px; }
 .lib-panel { overflow: auto; padding: 14px 16px 60px; border-left: 1px solid var(--steel-2); display: grid; gap: 8px; align-content: start; font-size: 13px; }
 .lib-panel h2 { margin: 0; font-size: 17px; }
 .lib-panel p { margin: 0; }
@@ -1872,6 +1879,8 @@ span.game-hero { display: grid; place-items: center; font-size: 96px; }
 .game-strip button[aria-selected="true"] { border-color: var(--accent-edge); box-shadow: inset 0 0 0 1px var(--accent-edge); }
 .game-strip img { width: 100%; height: 100%; object-fit: contain; }
 .game-strip-video { display: grid; place-items: center; font-size: 11px; }
+.media-thumb .game-strip-video { width: 100%; min-height: 72px; gap: 4px; color: var(--graphite); }
+.video-none { display: grid; place-items: center; align-content: center; gap: 8px; padding: 16px; text-align: center; color: var(--graphite); background: var(--thumb-bg); border-radius: var(--radius-m); }
 .game-variants { display: flex; flex-wrap: wrap; gap: 8px; }
 .game-variants button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 3px; width: 76px; border-radius: var(--radius-s); }
 .game-variants button img { width: 64px; height: 64px; object-fit: contain; background: var(--white); border-radius: var(--radius-s); }
@@ -1921,8 +1930,8 @@ span.game-hero { display: grid; place-items: center; font-size: 96px; }
   .game-top { grid-template-columns: minmax(0, 1fr); }
   .game-fields { grid-template-columns: minmax(0, 1fr); }
 }
-.lib-canvas.lib-table, .lib-thead { min-width: 1000px; }
-.game-page .ls-section > button { justify-self: start; width: auto; }
+.lib-canvas.lib-table, .lib-thead { min-width: 800px; }
+.game-page .ls-section > button, #mag-missing > button, #mag-lists > button { justify-self: start; width: auto; }
 #details-from.prefer-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); column-gap: 24px; }
 #sources li { align-items: flex-start; padding: 10px 0; }
 #sources li > button { margin-top: 2px; }
