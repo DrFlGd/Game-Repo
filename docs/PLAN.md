@@ -3176,8 +3176,38 @@ Order (Jerred agreed the order, and asked for the docs batch to go with the firs
      hardlink per drive; where it can't be made, links count as copies (`copied` in the
      plan's `space`) and the preview says so.
 3. **Exports and collections** (C5, H12–H16, M17–M19, M21, M22, M24).
+   **Status: done (PR #33).** As built:
+   - C5: `export::plan` keeps the recorded files of a game still in the collection that
+     the library can't place now (they're wanted again, carried ones too), and says so
+     in `left`.
+   - H12: `collection::Sources.names` holds (system, name); a source file's system comes
+     from its header name, else from its ROMs' CRC and size in the index's DATs, else
+     any system. H13: a game from a DAT of the system's own that `addons::kind_of` tags
+     is not a game of the collection; an add-on DAT's are.
+   - H14: a folder entry (`entry_dirs`) is started from the file it's named for inside
+     it in RetroArch playlists, LaunchBox's ApplicationPath and Pegasus' `file:`; Pegasus'
+     `extensions` on a disc system leave out bin, img, raw, wav, sub and ccd.
+   - H15: `next_game` finds `<game …>` with attributes. H16: *Export these…* with every
+     game picked and a search sends the search's games as `only`.
+   - M17: Check groups a system's DAT ROMs by archive or not; an arcade ZIP is checked
+     against the non-merged places in it (`arcade::places`), an arcade CHD by
+     `image::chd_sha1`. M18: undoing a step that read DATs again restores them
+     (`history::before` with "read"). M21: `merge_pegasus` keeps the user's block for an
+     exported file and sets keys with `pegasus_set`.
+   - M22: with short names, titles shared by two games of a system become their full
+     names (LaunchBox and RetroArch name pictures by title). M24: `export::record`
+     counts text ops as written, so carried text files are recorded and set aside.
+   - M19: recorded files indexed by path and by game, carried files deduplicated with
+     sets, folder entries from `entry_dirs`, playlists and LaunchBox lists merged by a
+     path map. `timing_export_of_8k_games_with_pictures_and_its_update` (ignored, run
+     in CI): 1.4 s to plan and 1.4 s for a no-op Update on Linux. Making the plan a job
+     with Stop is left for batch 4's interface work if it's still wanted.
 4. **Interface fixes** (H22, H23, M33, M34, M36–M39, M43, the Low wording and layout
-   items).
+   items), and video previews (Jerred, 2026-10-19): audio playing twice, as if a hidden
+   copy autoplayed before Play was pressed (look for two `<video>` elements for one file,
+   and add a page test that plays one); .mov and .m4v shown as broken pictures
+   (`isVideo` in gamepage.js and metadata.js); .avi and .mkv may not play (`mime()` in
+   main.rs has no mkv); the video thumbnail uses the picture icon.
 5. **Metadata, PC games and magazines** (H17–H21, M25–M32).
 6. **One Import page** (D78–D80, which take in H5, H6, M8, M35, M40–M42 and H3).
 7. **The rest of CI and tests** (M44–M46): chdman fetched, a dolphin-tool stand-in on
@@ -3385,6 +3415,7 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     and a new system's own folder (v0.5.18): all released.
 13. Hardening after the v0.5.18 review (D78–D82): the eight batches in that section, in
     order, each a pull request merged on Jerred's word. Batches 1 and 2 are released
-    (v0.5.19); batch 3, exports and collections, is next.
+    (v0.5.19); batch 3, exports and collections, is done; batch 4, the interface, is
+    next.
 14. Then Phase 9, serving games to devices on the home network (3.10). Later: reading
     magazines' text (PDF, CBZ and CBR) and tagging each issue with the games it covers.

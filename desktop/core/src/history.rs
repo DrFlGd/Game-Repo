@@ -209,7 +209,12 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, step_id: &str) -> Result<Value>
     if s["how"] == "made" {
         bail!("Making the collection can't be undone: delete it instead.");
     }
-    let b = before(ix, lib, id, "", "")?;
+    // undoing a reading again keeps the DATs it put back over, so that this undo can be
+    // undone in turn (review M18)
+    let b = match s["dats_before"].as_str() {
+        Some(_) => before(ix, lib, id, "read", s["group"].as_str().unwrap_or_default())?,
+        None => before(ix, lib, id, "", "")?,
+    };
     let mut c = b.collection.clone();
     if let Some(was) = s.get("before") {
         if all.iter().position(|x| x.get("before").is_some()) != Some(i) {
@@ -379,6 +384,13 @@ mod tests {
         undo(&ix, &lib, &c.id, step["id"].as_str().unwrap()).unwrap();
         assert_eq!(games(&ix, &lib, &c.id), ["gb/Alpha (Europe)", "gb/Delta (World)"]);
         assert_eq!(collection::load(&lib, &c.id).unwrap().made_from, Some(json!({ "folders": [] })));
+        // review M18: the undo can be undone in turn, and the reading's DATs come back
+        let newest = steps(&lib, &c.id).unwrap()[0].clone();
+        assert_eq!(newest["how"], "undo");
+        assert!(newest["dats_before"].is_string(), "{newest}");
+        undo(&ix, &lib, &c.id, newest["id"].as_str().unwrap()).unwrap();
+        assert_eq!(games(&ix, &lib, &c.id), ["gb/Delta (World)"]);
+        assert_eq!(collection::load(&lib, &c.id).unwrap().made_from, Some(json!({ "folders": ["again"] })));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

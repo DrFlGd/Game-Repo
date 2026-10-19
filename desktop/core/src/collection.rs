@@ -673,7 +673,9 @@ pub fn work_out(ix: &Index, lib: &Library, c: &Collection) -> Result<Arc<Worked>
 
 /// The hashes of the ROMs, and the names of the games, of the DATs a collection takes its games from.
 struct Sources {
-    names: HashSet<String>,
+    /// (system, game name): a DAT's names count only in its own system (review H12); a
+    /// game of a DAT for no one system takes the systems its ROMs are in, "" for any
+    names: HashSet<(String, String)>,
     sha1: HashSet<String>,
     crc: HashSet<(String, i64)>,
     /// The collection's own DATs' (`from_files`): a game is theirs only when they hold
@@ -693,30 +695,47 @@ fn sources(conn: &Connection, lib: &Library, names: &[String], files: &[String],
             missing.push(f.rsplit('/').next().unwrap_or(f).to_string());
             continue;
         };
-        for g in read.into_iter().flat_map(|d| d.games) {
-            for rom in &g.roms {
-                if let Some(h) = &rom.sha1 {
-                    s.own_sha1.insert(h.clone());
+        let mut systems_of = conn.prepare_cached(
+            "SELECT DISTINCT d.platform FROM dat_roms r JOIN dats d ON d.id = r.dat_id WHERE r.crc32 = ?1 AND r.size = ?2",
+        )?;
+        for d in read {
+            let platform = platforms::from_dat_name(&d.name).map(|p| p.id.to_string());
+            for g in d.games {
+                let mut systems: HashSet<String> = platform.iter().cloned().collect();
+                for rom in &g.roms {
+                    if let Some(h) = &rom.sha1 {
+                        s.own_sha1.insert(h.clone());
+                    }
+                    if let (Some(c), Some(z)) = (&rom.crc32, rom.size) {
+                        s.own_crc.insert((c.clone(), z as i64));
+                        if platform.is_none() {
+                            for p in systems_of.query_map(params![c.to_ascii_lowercase(), z as i64], |r| r.get::<_, String>(0))? {
+                                systems.insert(p?);
+                            }
+                        }
+                    }
                 }
-                if let (Some(c), Some(z)) = (&rom.crc32, rom.size) {
-                    s.own_crc.insert((c.clone(), z as i64));
+                if systems.is_empty() {
+                    systems.insert(String::new());
+                }
+                for p in systems {
+                    s.names.insert((p, g.name.clone()));
                 }
             }
-            s.names.insert(g.name);
         }
     }
     for n in names {
-        let ids: Vec<i64> = conn
-            .prepare("SELECT id FROM dats WHERE name = ?1 AND current = 1")?
-            .query_map([n], |r| r.get(0))?
+        let ids: Vec<(i64, String)> = conn
+            .prepare("SELECT id, platform FROM dats WHERE name = ?1 AND current = 1")?
+            .query_map([n], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
         if ids.is_empty() {
             missing.push(n.clone());
         }
-        for id in ids {
+        for (id, platform) in ids {
             let mut q = conn.prepare("SELECT name FROM dat_games WHERE dat_id = ?1")?;
             for g in q.query_map([id], |r| r.get::<_, String>(0))? {
-                s.names.insert(g?);
+                s.names.insert((platform.clone(), g?));
             }
             let mut q = conn.prepare("SELECT sha1, crc32, size FROM dat_roms WHERE dat_id = ?1")?;
             let mut rows = q.query([id])?;
@@ -775,6 +794,9 @@ fn group_systems(conn: &Connection, lib: &Library, g: &Group, dats: &[(String, O
             })?
             .collect::<rusqlite::Result<_>>()?;
         let sizes = sizes(conn, dat_id)?;
+        // a DLC, update or patch tagged in the system's own DAT goes with its game, not as a
+        // game of its own (review H13; the Library does the same)
+        let addon_dat = conn.query_row("SELECT name FROM dats WHERE id = ?1", [dat_id], |r| r.get::<_, String>(0)).map(|n| crate::addons::is_addon_dat(&n))?;
         // a source DAT's games by their ROMs' hashes
         let by_hash: HashSet<i64> = match &src {
             Some(s) => {
@@ -807,13 +829,18 @@ fn group_systems(conn: &Connection, lib: &Library, g: &Group, dats: &[(String, O
         let with_details = if r.details.is_empty() { None } else { Some(crate::browse::matching(conn, platform, &r.details)?) };
         let passes = |g: &Row| -> bool {
             r.include != "none"
+                && (addon_dat || crate::addons::kind_of(&g.name, false).is_none())
                 && (r.include == "all" || g.status == "have")
                 && with_details.as_ref().is_none_or(|d| d.contains(&g.id))
                 && !split(&g.flags).any(|f| exclude.contains(f))
                 && (langs.is_empty() || g.languages.is_empty() || split(&g.languages).any(|l| langs.contains(&l.to_ascii_lowercase())))
                 && (search.is_empty() || g.name.to_lowercase().contains(&search))
                 && (!r.only_regions || rank(&g.regions) < r.regions.len())
-                && src.as_ref().is_none_or(|s| s.names.contains(&g.name) || by_hash.contains(&g.id))
+                && src.as_ref().is_none_or(|s| {
+                    by_hash.contains(&g.id)
+                        || s.names.contains(&(platform.clone(), g.name.clone()))
+                        || s.names.contains(&(String::new(), g.name.clone()))
+                })
         };
         let mut picked: Vec<&Row> = rows.iter().filter(|g| passes(g)).collect();
         if r.one_per_title {
@@ -1197,6 +1224,44 @@ pub(crate) mod tests {
         assert_eq!(d.games.iter().find(|g| g.name == "Alpha (Japan)").unwrap().cloneof.as_deref(), Some("Alpha (USA)"));
         delete(&lib, &c.id).unwrap();
         assert!(list(&lib).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // review H12: a DAT of games of several systems brings in each game in its own system
+    // only, not a game of another system by the same name
+    #[test]
+    fn a_source_dat_of_several_systems_matches_each_game_in_its_own_system() {
+        let (dir, lib, ix) = fixture("collection-systems");
+        let r = |n: u32| rom(n, 1024);
+        let nes = vec![("Zeta (Japan)", None, rom_xml("Zeta (Japan).nes", &r(40))), ("Pac (USA)", None, rom_xml("Pac (USA).nes", &r(41)))];
+        std::fs::write(dir.join("nes.dat"), fixture_dat("Nintendo - Nintendo Entertainment System", "1", &nes)).unwrap();
+        crate::dat::import(&ix, &lib, &dir.join("nes.dat"), &serde_json::Map::new()).unwrap();
+        // the user's own list: Game Boy's Zeta and NES's Pac, in a DAT named for neither
+        let mix = vec![("Zeta (Japan)", None, rom_xml("Zeta (Japan).gb", &r(10))), ("Pac (USA)", None, rom_xml("Pac (USA).nes", &r(41)))];
+        std::fs::write(lib.root().join("mix.dat"), fixture_dat("My Mix", "1", &mix)).unwrap();
+        let c = with(|r| { r.platforms = vec!["gb".into(), "nes".into()]; r.include = "all".into(); r.from_files = vec!["mix.dat".into()]; });
+        let w = work_out(&ix, &lib, &c).unwrap();
+        let mut got: Vec<String> = w.systems.iter().flat_map(|s| s.games.iter().map(move |g| format!("{}/{}", s.platform, g.name))).collect();
+        got.sort();
+        assert_eq!(got, ["gb/Zeta (Japan)", "nes/Pac (USA)"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // review H13: a DLC tagged in the system's own DAT goes with its game, not as a game
+    #[test]
+    fn a_tagged_dlc_in_the_systems_dat_is_not_a_game_of_the_collection() {
+        let (dir, lib, ix) = fixture("collection-dlc");
+        let r = |n: u32| rom(n, 1024);
+        let games = vec![("Delta (World)", None, rom_xml("Delta (World).gb", &r(8))), ("Delta (World) (DLC)", None, rom_xml("Delta (World) (DLC).gb", &r(50)))];
+        std::fs::write(dir.join("gb2.dat"), fixture_dat("Nintendo - Game Boy", "20261101", &games)).unwrap();
+        std::fs::write(dir.join("Roms/Delta (World) (DLC).gb"), r(50)).unwrap();
+        crate::scan::scan(&ix, &lib, &crate::scan::Options::default(), &std::sync::atomic::AtomicBool::new(false), &mut |_| {}).unwrap();
+        crate::dat::import(&ix, &lib, &dir.join("gb2.dat"), &serde_json::Map::new()).unwrap();
+        let gb: i64 = ix.conn().query_row("SELECT id FROM dats WHERE version = '20261101'", [], |r| r.get(0)).unwrap();
+        audit::choose_dat(ix.conn(), &lib, gb).unwrap();
+        let w = work_out(&ix, &lib, &with(|r| r.include = "all".into())).unwrap();
+        let names: Vec<String> = w.systems.iter().flat_map(|s| s.games.iter().map(|g| g.name.clone())).collect();
+        assert!(names.contains(&"Delta (World)".to_string()) && !names.iter().any(|n| n.contains("(DLC)")), "{names:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
