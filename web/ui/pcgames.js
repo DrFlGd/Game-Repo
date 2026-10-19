@@ -180,7 +180,7 @@ function ImportDialog({ paths, restore }) {
                 ${PARTS.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}</select>
             </span>
             <span class="muted pc-item-meta"><span class=${`pc-badge pc-badge-${it.status}`} title=${why}>${badge}${where}</span>
-              ${[size(it.files.reduce((n, f) => n + (f.size || 0), 0)), it.version ? `version ${it.version}` : null, Object.entries(it.ids || {}).map(([k, v]) => `${k} ${v}`).join(", ") || null, it.found ? `found by ${FOUND[it.found] || it.found}` : null].filter(Boolean).join(" · ")}</span>
+              ${[size(it.files.reduce((n, f) => n + (f.size || 0), 0)), it.version ? `version ${it.version}` : null, idsLine(it.ids), it.found ? `found by ${FOUND[it.found] || it.found}` : null].filter(Boolean).join(" · ")}</span>
             ${it.note ? html`<span class="muted">${it.note}</span>` : null}
           </div>
           ${it.status !== "have" ? html`<button type="button" class="ghost compact" data-action="identify" onClick=${() => identify(it)}>Identify…</button>` : null}
@@ -242,10 +242,11 @@ function SteamDialog() {
       setBusy(false);
     }
   };
-  if (!info) return html`<${Dialog} title="Add to Steam" id="steam-dialog" onSubmit=${close} submitLabel="OK" error=${error}><p class="muted">Looking for Steam…</p><//>`;
+  // (nothing to do yet, so one button that closes it: low finding, Cancel and OK did the same)
+  if (!info) return html`<${Dialog} title="Add to Steam" id="steam-dialog" onSubmit=${close} submitLabel="Close" cancelLabel="" error=${error}><p class="muted">Looking for Steam…</p><//>`;
   if (!info.steam) {
-    return html`<${Dialog} title="Add to Steam" id="steam-dialog" onSubmit=${close} submitLabel="OK" error=${error}>
-      <p id="steam-none">Steam isn't on this computer, or isn't where it usually is. Choose its folder in <a href=${routeHash("settings")} onClick=${close}>Settings › Steam</a>.</p><//>`;
+    return html`<${Dialog} title="Add to Steam" id="steam-dialog" onSubmit=${close} submitLabel="Close" cancelLabel="" error=${error}>
+      <p id="steam-none">Steam isn't on this computer, or isn't where it usually is. Choose its folder in <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-steam")?.scrollIntoView(), 200); }}>Settings › Steam</a>.</p><//>`;
   }
   const off = info.running || busy || !pv;
   const last = info.users.find((u) => u.id === user)?.last_written;
@@ -442,7 +443,10 @@ export function PcParts({ g, off, onChange }) {
 }
 
 /** A PC game's one line under its title: where it's from, its version, size and ids. */
-export const pcLine = (g) => [g.source && g.source !== "other" ? g.source.toUpperCase() : null, g.version ? `version ${g.version}` : null, size(g.size), Object.entries(g.ids || {}).map(([k, v]) => `${k} ${v}`).join(", ") || null].filter(Boolean).join(" · ");
+/** A game's ids at the stores, as people know them ("Steam app 4000", not "steam 4000": low finding). */
+const ID_NAMES = { steam: "Steam app", gog: "GOG game", epic: "Epic game", itch: "itch.io game" };
+const idsLine = (ids) => Object.entries(ids || {}).map(([k, v]) => `${ID_NAMES[k] || k} ${v}`).join(", ") || null;
+export const pcLine = (g) => [g.source && g.source !== "other" ? g.source.toUpperCase() : null, g.version ? `version ${g.version}` : null, size(g.size), idsLine(g.ids)].filter(Boolean).join(" · ");
 
 // ------------------------------------------------------------ a game's panel
 

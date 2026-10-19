@@ -59,7 +59,7 @@ function AskDialog({ title, text, button, cancel = "Not now", run }) {
 
 /** Ask before something that can't be undone:
  *  one red button that names what it does. Open it with `confirmDialog`. */
-function ConfirmDialog({ title, text, button, run }) {
+function ConfirmDialog({ title, text, button, run, undoable = false }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const submit = async () => {
@@ -76,11 +76,12 @@ function ConfirmDialog({ title, text, button, run }) {
   };
   return html`<${Dialog} title=${title} id="confirm-dialog" onSubmit=${submit} busy=${busy} error=${error} submitLabel=${button} danger=${true}>
     <p>${text}</p>
-    <p class="muted">This can't be undone.</p>
+    ${undoable ? null : html`<p class="muted">This can't be undone.</p>`}
   <//>`;
 }
 
-/** `{ title, text, button, run }`: `run()` is what happens after the red button. */
+/** `{ title, text, button, run, undoable }`: `run()` is what happens after the red button;
+ *  `undoable`, History can undo it (so it isn't said that it can't be). */
 export const confirmDialog = (opts) => ui.set({ dialog: { type: "confirm", ...opts } });
 
 /** A system picker: every system the app knows (built-in and added), or a new one,

@@ -135,6 +135,13 @@ export function onWindowKey(e) {
     if (box) { e.preventDefault(); box.focus(); box.select?.(); }
     return;
   }
+  // Enter on a game's tile or line opens it, as a double click does (review M38)
+  const tile = key === "Enter" && !e.ctrlKey && !e.metaKey && !e.altKey && e.target.closest?.(".lib-tile, .lib-line");
+  if (tile) {
+    e.preventDefault();
+    tile.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    return;
+  }
   if ((key === "Enter" || key === " ") && onControl(e)) return;
   if ((e.shiftKey && key === "F10") || key === "ContextMenu") {
     e.preventDefault();

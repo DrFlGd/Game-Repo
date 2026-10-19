@@ -20,7 +20,7 @@ const STATUS = { have: "You have it", missing: "Missing", wrong: "A file of its 
 /** Import BIOS files: the plan's preview, then Import. */
 function GatherDialog({ plan }) {
   const nothing = !plan.ops;
-  return html`<${Dialog} title=${plan.label} id="bios-gather-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Import"}>
+  return html`<${Dialog} title=${plan.label} id="bios-gather-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "Close" : "Import"} cancelLabel=${nothing ? "" : "Cancel"}>
     <${Preview} plan=${plan} />
     ${nothing ? html`<p id="organise-nothing">Nothing to import: ${plan.in_place ? "the BIOS files the library has are in its BIOS folder already." : "the library has none of the files the BIOS DATs list. Add the folder they're in (Import › Folders with games) and scan."}</p>`
       : html`<p class="muted">Each file is copied (or hardlinked) into the library's BIOS folder, in a folder for its system, and checked. The files where they are now aren't changed. The change can be undone from the message afterwards or from History.</p>`}
@@ -82,7 +82,7 @@ export function Bios() {
     { id: "bios-starter", label: "Get libretro's list of BIOS files…", icon: "download", disabled: off, run: () => starterDats(["bios"]) },
     ...(isDesktop() ? [{ id: "bios-import", label: "Import a BIOS DAT…", icon: "plus", disabled: off, run: importOne }] : []),
     { sep: true },
-    { id: "bios-report", label: "Save a list of what's missing", icon: "file", disabled: off || !has, run: report },
+    { id: "bios-report", label: "Save a report of what's missing", icon: "file", disabled: off || !has, run: report },
     ...(isDesktop() && data?.folder ? [{ id: "bios-folder", label: "Show the BIOS folder", icon: "folder", run: () => ctx.platform.library.openPath(data.folder) }] : []),
   ];
   const head = html`<${CommandBar} id="bios-head" title="BIOS files" count=${data?.systems ? plural(data.systems.length, "system", "systems") : null}

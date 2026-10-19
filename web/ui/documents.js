@@ -141,6 +141,16 @@ const loadKinds = (kinds) => { if (kinds?.length) docsState.set({ kinds: kinds.m
 
 function DocDialog({ id }) {
   useEffect(() => { if (!docsState.get().kinds.length) api("docs_list", { limit: 1, offset: 1 }).then((r) => loadKinds(r.kinds)).catch(() => {}); }, []);
+  // Esc closes it, and so does going to another page (review M36); a field being edited
+  // takes its own Esc first
+  useEffect(() => {
+    const key = (e) => { if (e.key === "Escape" && !e.defaultPrevented && !e.target.closest?.("input, select, textarea")) close(); };
+    const page = location.hash.replace(/^#\/?/, "").split(/[/?]/)[0];
+    const moved = () => { if (location.hash.replace(/^#\/?/, "").split(/[/?]/)[0] !== page) close(); };
+    addEventListener("keydown", key);
+    addEventListener("hashchange", moved);
+    return () => { removeEventListener("keydown", key); removeEventListener("hashchange", moved); };
+  }, []);
   const off = !!ui.get().library?.read_only;
   return html`<div class="dialog-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget) close(); }}>
     <div class="dialog wide doc-dialog" id="doc-dialog" role="dialog" aria-modal="true" aria-label="Document">

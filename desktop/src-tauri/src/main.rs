@@ -123,6 +123,10 @@ fn mime(path: &str) -> &'static str {
         "mp4" | "m4v" => "video/mp4",
         "webm" => "video/webm",
         "mov" => "video/quicktime",
+        // Matroska plays where its codecs do (WebView2 reads it as WebM); an AVI never does,
+        // and the page offers the system's own player
+        "mkv" => "video/webm",
+        "avi" => "video/x-msvideo",
         "txt" | "md" => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
     }

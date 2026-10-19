@@ -49,6 +49,17 @@ function PlaceRow({ platform, name, count, places, value, onChange }) {
    the background) loses nothing, and From a folder… or the status bar brings it back. */
 const blank = () => ({ folders: [], typed: "", only: "", mode: "copy", review: null, off: [], where: {}, lists: {}, given: {}, work: null, plan: null, error: "" });
 const imp = createStore(blank());
+// another library opened: what was picked for this one is dropped (review M37)
+let impLibrary = ui.get().library?.path;
+ui.subscribe((st) => {
+  const now = st.library?.path;
+  if (now === impLibrary) return;
+  impLibrary = now;
+  if (!imp.get().work) {
+    imp.set(blank());
+    if (importShown()) close();
+  }
+});
 const showImport = () => ui.set({ dialog: { type: "import-games" } });
 const importShown = () => ui.get().dialog?.type === "import-games";
 const hide = () => { if (importShown()) close(); };

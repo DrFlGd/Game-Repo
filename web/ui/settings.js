@@ -282,7 +282,7 @@ export function HistorySection({ lib }) {
       <span class="change-label"><span>${c.label}</span><span class="muted">${c.created?.replace("T", " ").slice(0, 16)} · ${plural(c.ops, "step", "steps")}${c.held ? ` · ${size(c.held)} set aside` : ""}</span></span>
       <span class=${c.state === "interrupted" ? "badge review" : "badge"}>${state[c.state] || c.state}</span>
       ${c.state === "interrupted" ? html`<button type="button" class="ghost" data-action="finish" disabled=${busy || off} onClick=${() => act(() => finishChange(c.id).then(() => "Finished it."))}>Finish</button>` : null}
-      ${c.can_undo ? html`<button type="button" class="ghost" data-action="undo" disabled=${busy || off} onClick=${() => act(() => undoChange(c.id))}>Undo</button>` : null}
+      ${c.can_undo ? html`<button type="button" class="ghost" data-action="undo" disabled=${busy || off} title=${c.state === "interrupted" ? "Put back what it had done, as it was before it started" : null} onClick=${() => act(() => undoChange(c.id))}>${c.state === "interrupted" ? "Put back" : "Undo"}</button>` : null}
       ${c.held && c.state !== "running" ? html`<button type="button" class="ghost" data-action="empty" disabled=${busy || off} onClick=${() => empty(c)}>Empty…</button>` : null}
     </li>`)}</ul>` : null}
     ${held ? html`<div class="home-actions"><button type="button" class="ghost" id="history-empty" disabled=${busy || off} onClick=${() => empty(null)}>Empty everything set aside (${size(held)})…</button></div>` : null}
@@ -304,7 +304,7 @@ function FormatsSection({ lib }) {
   const items = Array.isArray(list) ? list.filter((p) => p.formats.length > 1) : [];
   return html`<section class="ls-section" id="settings-formats">
     <h2>Preferred formats</h2>
-    <p class="muted">What Convert… offers first for each platform. CD and DVD systems keep CHD, GameCube and Wii RVZ, and cartridges a ZIP for each game; the platforms below have a choice.</p>
+    <p class="muted">What Convert… offers first for each system. CD and DVD systems keep CHD, GameCube and Wii RVZ, and cartridges a ZIP for each game; the systems below have a choice.</p>
     ${list?.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
     ${items.length ? html`<ul class="ls-list" id="formats">${items.map((p) => html`<li key=${p.platform} data-platform=${p.platform}>
       <span>${p.name}</span>
@@ -352,7 +352,7 @@ function ToolsSection() {
 function LayoutsSection() {
   return html`<section class="ls-section" id="settings-layouts">
     <h2>Export layouts</h2>
-    <p class="muted">Where an export puts the games, gamelists, pictures, manuals and BIOS files for ES-DE, muOS, Knulli, ROCKNIX or a plain folder. Copy one and change it for a new firmware or frontend, seeing what it would write as you go.</p>
+    <p class="muted">Where an export puts the games, gamelists, pictures, manuals and BIOS files for ES-DE, muOS, Knulli, ROCKNIX, RetroArch, Pegasus, LaunchBox, Playnite or a plain folder. Copy one and change it for a new firmware or frontend, seeing what it would write as you go.</p>
     <div class="home-actions"><a class="button ghost" id="settings-layouts-link" href=${routeHash("layouts")}>${Icon.layers(15)} Export layouts…</a></div>
   </section>`;
 }

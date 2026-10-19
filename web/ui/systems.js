@@ -68,7 +68,7 @@ function SystemDialog({ system }) {
   return html`<${Dialog} title=${editing ? `Change ${system.name}` : "Add a system"} id="system-dialog" onSubmit=${submit} busy=${busy || !name.trim() || !shownId} error=${error} submitLabel=${editing ? "Save" : "Add"}>
     <label class="field-block"><span class="field-label">Name</span>
       <input type="text" id="system-name" maxlength="80" placeholder="e.g. Satellaview" value=${name} onInput=${(e) => setName(e.target.value)} /></label>
-    <label class="field-block"><span class="field-label">Id</span>
+    <label class="field-block"><span class="field-label">Folder name</span>
       <input type="text" id="system-id" maxlength="40" value=${shownId} onInput=${(e) => { setIdTyped(true); setId(e.target.value.trim().toLowerCase()); }} />
       <small class="muted">The folder exports use: ES-DE's name for the system, if it has one (its <code>es_systems.xml</code> lists them).${editing && system.dats ? " It can't change while the system has DATs." : ""}</small></label>
     <label class="field-block"><span class="field-label">DAT names</span>

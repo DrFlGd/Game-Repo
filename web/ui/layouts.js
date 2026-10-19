@@ -273,6 +273,10 @@ export function LayoutDialogs({ dialog }) {
 
 // ------------------------------------------------------------ the page
 
+/** A layout's changes not saved yet, kept when the page is left, so they're there on
+ *  coming back (review M37). */
+let unsaved = null;
+
 export function Layouts() {
   const s = useStore(ui, (st) => ({ library: st.library, changes: st.changes }));
   const off = !!s.library?.read_only;
@@ -300,8 +304,10 @@ export function Layouts() {
     setId(lid);
     prefs()?.set("gr-layout", lid);
     setBase(r);
-    setDraft(clone(r.layout));
-    setText(JSON.stringify(r.layout, null, 2));
+    const kept = unsaved && unsaved.id === lid && unsaved.library === ui.get().library?.path ? unsaved.draft : null;
+    unsaved = null;
+    setDraft(clone(kept || r.layout));
+    setText(JSON.stringify(kept || r.layout, null, 2));
     setTextError("");
     setChosen(null);
     setCompare(null);
@@ -324,6 +330,7 @@ export function Layouts() {
   const summary = list?.find((x) => x.id === id);
   const builtin = !!summary?.builtin;
   const dirty = !!(draft && base && JSON.stringify(draft) !== JSON.stringify(base.layout));
+  useEffect(() => { if (base) unsaved = dirty ? { library: s.library?.path, id, draft } : null; }, [draft, base]);
   const edit = (next) => { setDraft(next); setText(JSON.stringify(next, null, 2)); setTextError(""); };
   const editText = (v) => {
     setText(v);

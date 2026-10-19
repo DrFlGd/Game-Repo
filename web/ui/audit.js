@@ -10,7 +10,7 @@ import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
-import { api, toast, isDesktop, plural } from "./library.js";
+import { api, toast, isDesktop, plural, shortPath } from "./library.js";
 import { importDats, starterDats, reveal, scan } from "./games.js";
 import { CommandBar, SearchNote, SortMenu } from "./layout.js";
 import { useSidePanel, useRouteArg, argHash } from "./panels.js";
@@ -107,7 +107,7 @@ function Table({ items, tab, arcade, platform, onConvert }) {
   return html`<table class="audit-table" id="audit-list-table"><thead><tr><th>File</th>${tab === "unknown" ? null : html`<th>${tab === "misnamed" ? "Should be" : "Game"}</th>`}<th>Folder</th><th></th></tr></thead>
     <tbody>${items.map((it) => row(it, html`<td class="audit-name">${it.name}${note(it) ? html` <span class="muted">${note(it)}</span>` : null}</td>
       ${tab === "unknown" ? null : html`<td>${tab === "misnamed" ? name(it, it.expected) : name(it, it.game || "")}</td>`}
-      <td class="audit-path muted" title=${it.shown || null}>${it.shown || ""}</td>`))}</tbody></table>`;
+      <td class="audit-path muted" title=${it.shown || null}>${shortPath(it.shown, 3)}</td>`))}</tbody></table>`;
 }
 
 /** Every system's counts, a row each. */
@@ -164,7 +164,16 @@ export function Audit() {
     if (!s.library) return;
     let gone = false;
     api("audit_summary", { platform, dat: datId })
-      .then((d) => { if (!gone) setData(d); })
+      .then((d) => {
+        if (gone) return;
+        // the system remembered has no DAT now: the first that has one (review H23)
+        if (!d.summary && platform && !arg && d.platforms?.length) {
+          prefs()?.set("gr-audit", { ...(prefs()?.get("gr-audit", {}) || {}), platform: null });
+          setSaved(null);
+          return;
+        }
+        setData(d);
+      })
       .catch((e) => { if (!gone) setData({ error: e.message || String(e) }); });
     return () => { gone = true; };
   }, [s.library?.path, platform, datId, s.home, s.changes, tick]);
@@ -207,7 +216,7 @@ export function Audit() {
     try {
       const r = await api("audit_fixdat", { dat });
       toast(`Wrote a fixdat of ${plural(r.games, "game", "games")} to ${r.rel || r.path}.`, { ms: 10000, actions: isDesktop() ? [{ label: "Show", run: () => reveal(r.path) }] : [] });
-    } catch (e) { toast(`Couldn't write the fixdat: ${e.message || e}`, 8000); }
+    } catch (e) { toast(`Couldn't save the list of what's missing: ${e.message || e}`, 8000); }
   };
   const copyReport = async () => {
     const { text } = await api("audit_report", { dat });

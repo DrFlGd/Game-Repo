@@ -126,7 +126,7 @@ const MIN = 260, MAX = 560;
 export function Inspector({ page, tabs, open: startOpen = true, label = "Details" }) {
   const st = useStore(ui, (s) => ({ open: s.inspector?.[page], tab: s.inspectorTab?.[page], width: s.inspectorWidth }));
   const list = tabs.filter((t) => t.body !== undefined && t.body !== false && t.body !== null);
-  const narrow = useMedia("(max-width: 899px)");
+  const narrow = useMedia(NARROW);
   const [localOpen, setLocalOpen] = useState(false);
   useLayoutEffect(() => setLocalOpen(false), [narrow]);
   const isOpen = narrow ? localOpen : st.open == null ? startOpen : st.open === "open";

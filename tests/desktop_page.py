@@ -41,6 +41,7 @@ Writes <out>/library-info.json and <out>/library.zip for the cross-platform chec
 """
 import argparse
 import asyncio
+import base64
 import functools
 import hashlib
 import http.server
@@ -1153,7 +1154,7 @@ async def main():
             items = await pg.eval_on_selector_all("#pc-items li", "els => els.map(e => [e.querySelector('.pc-item-title').value, e.dataset.status, e.querySelector('.pc-item-meta').textContent])")
             check("Import… reads the inbox: one game found by its goggame file, the other by a search of the sources",
                   sorted(i[0] for i in items) == ["Alpha Strike", "Zeta Quest"] and all(i[1] == "ready" for i in items)
-                  and any("goggame" in i[2] and "gog 1207658930" in i[2] for i in items) and any("steam 4000" in i[2] and "search" in i[2] for i in items), items)
+                  and any("goggame" in i[2] and "GOG game 1207658930" in i[2] for i in items) and any("Steam app 4000" in i[2] and "search" in i[2] for i in items), items)
             await pg.screenshot(path=str(out / "24-pc-import.png"))
             await pg.click("#pc-import-dialog button[type=submit]")
             await pg.wait_for_selector("#organise-totals")
@@ -1650,6 +1651,56 @@ async def main():
             await pg.wait_for_selector("#pane-media #game-media")
             check("a game's page has a ribbon on the right, folded at first, with every source's pictures by kind, larger on a click, Use this, folded with ]",
                   started_folded and sorted(in_ribbon) == ["igdb", "thegamesdb"] and chosen_now == "thegamesdb", (started_folded, in_ribbon, chosen_now))
+            # a game's video (batch 4, Jerred: its sound played twice): a small one in the ribbon
+            # is an icon, not a player; one video starting pauses the other; one the app can't
+            # play offers the system's own player. A short WebM is recorded by the page itself.
+            webm = await pg.evaluate("""async () => {
+              const c = document.createElement('canvas'); c.width = 64; c.height = 48;
+              const g = c.getContext('2d'); let i = 0;
+              const rec = new MediaRecorder(c.captureStream(15), { mimeType: 'video/webm' });
+              const parts = []; rec.ondataavailable = (e) => parts.push(e.data);
+              const done = new Promise((r) => { rec.onstop = r; });
+              const t = setInterval(() => { g.fillStyle = `hsl(${i++ * 40},70%,50%)`; g.fillRect(0, 0, 64, 48); }, 50);
+              rec.start(); await new Promise((r) => setTimeout(r, 1200)); rec.stop(); await done; clearInterval(t);
+              const b = new Uint8Array(await new Blob(parts).arrayBuffer()); let s = '';
+              for (const x of b) s += String.fromCharCode(x);
+              return btoa(s);
+            }""")
+            (alpha / "media/video.webm").write_bytes(base64.b64decode(webm))
+            await pg.evaluate("() => { location.hash = '#/library'; }")
+            await pg.wait_for_selector("#lib-page")
+            await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Alpha (USA)'); }")
+            await pg.wait_for_selector('#game-strip [data-kind="video"] .game-strip-video')
+            await pg.click('#game-strip [data-kind="video"]')
+            await pg.wait_for_selector("#game-gallery video.game-hero")
+            await pg.wait_for_selector('#game-media .media-kind[data-kind="video"] .media-thumb')
+            small_players = await pg.eval_on_selector_all('#game-media .media-kind[data-kind="video"] video', "els => els.length")
+            await pg.click('#game-media .media-kind[data-kind="video"] .media-thumb')
+            await pg.wait_for_selector("#media-view video")
+            await pg.wait_for_function("() => [...document.querySelectorAll('#game-gallery video, #media-view video')].every((v) => v.readyState >= 1)")
+            playing = await pg.evaluate("""async () => {
+              const [hero, big] = [document.querySelector('#game-gallery video'), document.querySelector('#media-view video')];
+              for (const v of [hero, big]) v.muted = true;
+              await hero.play(); await big.play();
+              await new Promise((r) => setTimeout(r, 200));
+              return [hero.paused, big.paused, document.querySelectorAll('video').length];
+            }""")
+            await pg.click("#media-view-close")
+            (alpha / "media/video.webm").unlink()
+            (alpha / "media/video.avi").write_bytes(b"RIFF\x00\x00\x00\x00AVI LIST" + bytes(64))
+            await pg.evaluate("() => { location.hash = '#/library'; }")
+            await pg.wait_for_selector("#lib-page")
+            await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Alpha (USA)'); }")
+            await pg.click('#game-strip [data-kind="video"]')
+            await pg.wait_for_selector('#game-gallery [data-video="cant-play"]')
+            cant = await pg.inner_text('#game-gallery [data-video="cant-play"]')
+            check("a game's video: a small one is an icon, not a player; one starting pauses the other; one the app can't play offers its own player",
+                  small_players == 0 and playing == [True, False, 2] and "can't play" in cant, (small_players, playing, cant))
+            (alpha / "media/video.avi").unlink()
+            await pg.evaluate("() => { location.hash = '#/library'; }")
+            await pg.wait_for_selector("#lib-page")
+            await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Alpha (USA)'); }")
+            await pg.wait_for_selector('#game-page[data-key="gb/Alpha (USA)"] #game-variants')
             await pg.click('#game-variants button[data-name="igdb"]')
             await pg.wait_for_selector('#game-variants button[data-name="igdb"][aria-pressed="true"]')
             row = '.game-detail[data-field="description"]'
@@ -1806,9 +1857,16 @@ async def main():
             await pg.wait_for_function("() => document.querySelector('#comic-view .comic-page img')?.naturalWidth > 0", timeout=15000)
             locked = await pg.is_disabled("#doc-edit-title")
             await pg.screenshot(path=str(out / "62-comic.png"))
-            await pg.click('#doc-dialog button[aria-label="Close"]')
+            # Esc closes the reader, and so does going to another page (review M36)
+            await pg.keyboard.press("Escape")
             await pg.wait_for_selector("#doc-dialog", state="detached")
-            check("an issue opens in the document viewer, a comic book a page at a time (its pages in order), named on the Magazines page only",
+            await pg.click('#mag-issues li[data-number="1"] .mag-open')
+            await pg.wait_for_selector("#doc-dialog #comic-view")
+            await pg.evaluate("() => { location.hash = '#/home'; }")
+            await pg.wait_for_selector("#doc-dialog", state="detached")
+            await pg.evaluate("() => { location.hash = '#/magazines'; }")
+            await pg.wait_for_selector('#mag-issues li[data-number="1"]')
+            check("an issue opens in the document viewer, a comic book a page at a time (its pages in order), named on the Magazines page only; Esc or another page closes it",
                   first == "Page 1 of 3" and locked, (first, locked))
             listed = home / "game-fan.csv"
             listed.write_text("magazine,number,date\nGame Fan,1,1992-10\nGame Fan,2,1992-11\nGame Fan,3,1992-12\n")
@@ -1853,6 +1911,36 @@ async def main():
             check("the skin is Drafting Sheet unless chosen; Classic changes the look and icons at once and is kept",
                   first == "drafting" and icon_before == "drafting" and options == ["drafting", "classic"]
                   and skin == "classic" and icon_after == "classic" and saved == "classic", (first, icon_before, options, skin, icon_after, saved))
+
+            # batch 4: the Audit bar fits a 1000 px window (review H22); a game opened from
+            # elsewhere has no Previous and Next (M33); Enter opens a game's tile (M38); the
+            # filters' counts show at 1280 px (M43); a remembered system with no DAT doesn't
+            # leave Metadata on "To start" (H23)
+            await pg.set_viewport_size({"width": 1000, "height": 800})
+            await pg.evaluate("() => { location.hash = '#/audit/nes'; }")
+            await pg.wait_for_selector('#audit-pick[data-platform="nes"]', state="attached")
+            await pg.wait_for_selector("#audit-convert")
+            bar = await pg.evaluate("() => [document.scrollingElement.scrollWidth, innerWidth, Math.round(document.querySelector('#audit-head .more-btn-bar, #audit-head [id$=menu]')?.getBoundingClientRect().right || 0)]")
+            await pg.set_viewport_size({"width": 1280, "height": 900})
+            await pg.evaluate("() => { location.hash = '#/game/gb/' + encodeURIComponent('Delta (World)'); }")
+            await pg.wait_for_selector('#game-page[data-key="gb/Delta (World)"]')
+            walk = await pg.query_selector("#game-prev")
+            await pg.evaluate("() => { location.hash = '#/library'; }")
+            await pg.wait_for_selector('.lib-tile[data-key="gb/Delta (World)"]')
+            filters = await pg.evaluate("() => { const f = document.querySelector('.lib-filters'); return [f.scrollWidth, f.clientWidth]; }")
+            await pg.focus('.lib-tile[data-key="gb/Delta (World)"]')
+            await pg.keyboard.press("Enter")
+            await pg.wait_for_selector('#game-page[data-key="gb/Delta (World)"]')
+            inv = "(a) => window.__TAURI__.core.invoke('api', a)"
+            kept = await pg.evaluate(f"async () => ({inv})({{ cmd: 'prefs_get', args: {{}} }})")
+            kept["gr-meta"] = {**kept.get("gr-meta", {}), "platform": "snes"}
+            await pg.evaluate(f"async (p) => ({inv})({{ cmd: 'prefs_set', args: {{ prefs: p }} }})", kept)
+            await pg.reload()
+            await pg.evaluate("() => { location.hash = '#/metadata'; }")
+            await pg.wait_for_selector("#meta-scrape")
+            check("the Audit bar fits a narrow window; a game opened from elsewhere has no Previous and Next; Enter opens a game; the filters fit; Metadata picks a system with a DAT",
+                  bar[0] <= bar[1] and 0 < bar[2] <= bar[1] and walk is None and filters[0] <= filters[1], (bar, walk, filters))
+            await pg.set_viewport_size({"width": 1400, "height": 900})
 
             # 9. About: versions, what's coming and the layout
             await pg.click('.sidebar a[href="#/about"]')
