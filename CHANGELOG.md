@@ -103,7 +103,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
   - A scan that finds nothing new keeps the Audit's counts instead of working them all out again.
   - An undated DAT no longer stays the current version over a newer dated one.
   - The preview of a change counts hardlinks on a drive that can't hold them (exFAT, many network shares) as copies, and says so.
-- **CI** asks for no more access than each job needs, keeps no credentials after checkout, and runs pinned versions of every action and tool.
+- **CI** asks for no more access than each job needs, keeps no credentials after checkout, and runs pinned versions of every action and tool. The page test of Convert's preferred format waits for the right system's audit (it sometimes read the one before).
 
 ## 0.5.18 (2026-10-18)
 
