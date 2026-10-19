@@ -4,7 +4,7 @@
 // server: `call(cmd, args)` runs one of the serve_* commands (desktop/core/src/api.rs in
 // Game Repo, desktop/server/src/main.rs in the server's window). It imports nothing of the
 // app's, so the server's window loads only this.
-import { html, useState, useEffect } from "../lib/html.js";
+import { html, useState, useEffect, useRef } from "../lib/html.js";
 
 const message = (e) => e?.message || String(e);
 
@@ -42,7 +42,12 @@ export function ServePanel({ call, alone = false }) {
   const [port, setPort] = useState("");
   const [, tick] = useState(0);
 
-  const load = () => call("serve_status").then(setS).catch((e) => setError(message(e)));
+  // each answer numbered: one asked for before a start or stop ended is out of date
+  const asked = useRef(0);
+  const load = () => {
+    const n = ++asked.current;
+    return call("serve_status").then((r) => { if (n === asked.current) setS(r); }).catch((e) => setError(message(e)));
+  };
   const st = s?.status || null;
   const code = s?.running && st?.pairing ? st.pairing : null;
   useEffect(() => {
@@ -71,6 +76,7 @@ export function ServePanel({ call, alone = false }) {
     setSaid("");
     try {
       const r = await call(cmd, args);
+      asked.current++;
       if (r && "running" in r) setS(r);
       else await load();
       return r;

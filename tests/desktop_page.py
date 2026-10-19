@@ -569,8 +569,10 @@ async def serve_to_devices(pg, base, home, library):
     refused = device("systems")
     check("Remove takes the device off and it's refused", refused.returncode != 0 and "pair it again" in refused.stderr, refused.stderr)
     await pg.uncheck("#serve-on")
-    await pg.wait_for_selector('#settings-serve[data-running="no"]', timeout=30000)
-    check("the switch stops the server", not (data / "server.json").exists() and "Not serving" in await pg.inner_text("#serve-state"))
+    await pg.wait_for_function("() => /Not serving/.test(document.querySelector('#settings-serve[data-running=\"no\"] #serve-state')?.textContent || '')", timeout=30000)
+    await pg.wait_for_timeout(2500)  # and an answer asked for before it stopped doesn't say otherwise
+    state = await pg.inner_text("#serve-state")
+    check("the switch stops the server", not (data / "server.json").exists() and "Not serving" in state, ((data / "server.json").exists(), state))
     await pg.check("#serve-on")
     await pg.wait_for_selector('#settings-serve[data-running="yes"]', timeout=60000)
 
