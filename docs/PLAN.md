@@ -630,7 +630,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets, add-ons, magazines | RetroArch playlists, Pegasus, Playnite and LaunchBox exports (8a); updates, DLC and patches with their base game (D56) and a collection's history (D52) (8b); magazines (3.8, D31) (8c). MobyGames dropped (Jerred, 2026-10-18). |
-| **9** | Device client | 9a Game Repo Server on Windows, started from Game Repo (D85). 9b the client for Windows and Android, ES-DE first (D84, D86–D88). 9c the Steam Deck: the client built for Linux, usable with the Deck's controls in Game Mode. 9d later: the server on a NAS (Unraid, Synology), access from outside the home network (parked), other frontends, the read-only WebDAV view, muOS/Knulli/ROCKNIX handhelds. Needs Phase 5b's layouts. |
+| **9** | Device client | 9a Game Repo Server on Windows, started from Game Repo (D85; "Phase 9a design", D89–D95). 9b the client for Windows and Android, ES-DE first (D84, D86–D88). 9c the Steam Deck: the client built for Linux, usable with the Deck's controls in Game Mode. 9d later: the server on a NAS (Unraid, Synology), access from outside the home network (parked), other frontends, the read-only WebDAV view, muOS/Knulli/ROCKNIX handhelds. Needs Phase 5b's layouts. |
 | **Later** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). It reads every format Magazines imports: a PDF's pages and a CBZ's or CBR's images alike. |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
@@ -3466,6 +3466,245 @@ per kind when installing and removed with the game (or on its own); the client m
 remove any game ES-DE lists on the device, with its media and gamelist entry, and
 nothing outside ES-DE's folders.
 
+### Phase 9a design: Game Repo Server (written 2026-10-19; Jerred agreed it the same day)
+
+Jerred asked (2026-10-19) for the server and client milestone to start with Game Repo
+Server (D85). 9a builds requirements S1–S6 on Windows and tests them with a stand-in
+client, as the sources were tested with stand-ins; 9b builds the client's screens on the
+stand-in's code. D89–D95 were proposed here and Jerred agreed them (2026-10-19).
+
+**What's built**
+
+- `desktop/wire` (`gamerepo-wire`): what the server and a client say to each other: the
+  API's types, a plan, the device's record (`device.json`), and the gamelist and
+  custom-collection merges, moved out of `export.rs`, which keeps using them. It's small
+  and has no archive or disc code, so the Android client can link it without the core.
+- `desktop/serve` (`gamerepo-serve`): the server as a library on the core: HTTPS,
+  discovery, pairing, the API, plans and downloads.
+- `desktop/server` (`gamerepo-server`, Tauri 2): Game Repo Server itself, a tray icon and
+  a small window opened from it.
+- `gamerepo-cli serve-devices` (the same server without a window) and `gamerepo-cli
+  device …` (the stand-in client). The CLI moves to a crate of its own (`desktop/cli`,
+  same binary name and place in `target/`) so it can use the server's crate; CI builds it
+  with `-p gamerepo-cli`.
+- Settings › *Serve to devices* in Game Repo, and the server's installer on the release.
+
+**D89 One server program, started by Game Repo**
+
+- `gamerepo-server.exe` is installed with Game Repo (a Tauri sidecar, beside the app) and
+  is also on the release as an installer of its own, for a PC without Game Repo. One copy
+  runs per computer: it writes `server.json` in its data folder (its process, ports, and a
+  secret for the control channel below) and a second start finds the first.
+- Game Repo starts it as a separate process with the open library (`--library <folder>`)
+  and talks to it on a **control channel**: plain HTTP on `127.0.0.1` only, a port of its
+  own, every request carrying the secret from `server.json`. Through it Game Repo shows
+  whether it's running and where, the pairing code, the Devices list, and *Stop*; it also
+  tells the server when it changed the library (D90).
+- Settings › *Serve to devices*: a switch (start, stop), the address devices see, *Pair a
+  device*, the Devices list, the port, and two choices that default to off: *Keep serving
+  when Game Repo is closed* (the server stays with its tray icon) and *Start with Windows*.
+  When Game Repo is closed and the server isn't kept, it stops with Game Repo.
+- Alone, the tray icon's menu has *Pair a device…*, *Devices…*, *Open the library…*
+  (another library folder) and *Stop*. Its window is the same Preact component as Game
+  Repo's Settings panel, talking to the same control channel.
+- The installers add a Windows Firewall rule for the server on **private** networks only
+  (inbound TCP on its port, UDP 5353 for discovery). Windows often puts a new home Wi-Fi
+  network down as public, which the rule then keeps out, so Settings says when the
+  network is public (`Get-NetConnectionProfile`) and how to make it private.
+
+**D90 Its own index, never writing to the library** (S2)
+
+- The server opens the library read-only: a new `Library::open_read_only` creates nothing
+  (no `_library/`, no README, no `library.json`), and the library's writes go through
+  `Library::writable()` (72 places today), which then refuses; the build checks that none
+  goes round it, and a test proves the folder unchanged (below). A library from a newer
+  Game Repo is refused with "update the server". Its index, thumbnails, made files (D93)
+  and devices are in its own data folder (`%LOCALAPPDATA%\Game Repo Server\`), as a
+  second computer's would be.
+- **The first index** is a copy of Game Repo's when it's on the same computer and the same
+  version (SQLite's online backup, safe while Game Repo writes), then checked by a quick
+  scan (size and modified time, as now). Otherwise it's built from the library like a new
+  computer's (D15): its folders with games, DATs and `game.json` files, then a scan.
+- **Kept up to date**: Game Repo tells it over the control channel which folders and
+  systems a finished job changed, and it scans those again by size and time; alone, it
+  watches the folders with games and `_library/` with `watch.rs`, and folders on network
+  drives (which don't report changes) get a quick scan at start and every 30 minutes. Each
+  scan ends by rebuilding the changed systems' Library rows (`browse::refresh`), so the
+  catalogue is the Library page's own `library` table.
+
+**D91 Found on the home network, paired with a code** (S3)
+
+- **Discovery**: DNS-SD over multicast DNS, service `_gamerepo._tcp`, with the library's
+  name, the server's id, its version and the API version in the TXT record (the
+  `mdns-sd` crate). A device can also be given an
+  address (`192.168.1.20`, or with `:port`).
+- **HTTPS with a pinned certificate**: the server makes itself a certificate the first
+  time (ECDSA P-256, `rcgen`), served with `rustls`. A client accepts it at pairing and
+  from then on talks only to a server with that certificate, so the token never crosses
+  the network in the clear and later connections can't be listened to or answered by
+  another machine. The gap left: someone actively intercepting on the home network at
+  the moment of pairing. That's closed later, when outside access is designed, by
+  pairing with a password-authenticated exchange (SPAKE2, as Android's wireless
+  debugging pairs with its six-digit code). The alternative is plain HTTP with a token,
+  as media servers often do at home: simpler, but anyone on the network could read the
+  token and the library.
+- **Pairing**: *Pair a device* shows a six-digit code for 10 minutes. The device sends
+  the code with its name and kind (`POST /v1/pair`); the server answers with a token (32
+  random bytes) and keeps only its SHA-256. Five wrong codes end the pairing; it's
+  started again from Settings. Every other request carries `Authorization: Bearer
+  <token>`; a removed device gets 401 and the client says it must pair again. The token
+  is kept in the device's secure storage (Windows Credential Manager, Android Keystore).
+- **Home network only** (D86): the server answers only addresses on the local network
+  (private IPv4 ranges, link-local, IPv6 unique-local and link-local), whatever the
+  firewall says, and never sets up port forwarding.
+- **Devices** (S3): each paired device with its name, kind, when it was paired and last
+  seen, its address, and what it holds (the client reports its record's games, their
+  size and the free space when it connects, `PUT /v1/device`), with *Remove*. A device
+  can unpair itself too (`DELETE /v1/device`, C2).
+
+**D92 The API: a catalogue a client can keep** (S4)
+
+JSON over HTTPS, versioned by path (`/v1/`); `GET /v1/info` (the one request without a
+token) gives the server's id, the library's name, the version and the API version, and a
+client refuses a newer API than it knows with "update the client".
+
+| Request | What it gives |
+|---|---|
+| `GET /v1/systems` | each system with games: id, name, ES-DE folder, game count and size |
+| `GET /v1/collections` | each collection with its groups, game count and size |
+| `GET /v1/games?system=&collection=&group=&q=&sort=&offset=&limit=` | a page of games (at most 500): key, system, title, year, size, the media kinds it has, its picture's link; `total` and the catalogue's `rev` |
+| `GET /v1/games/<key>` | one game's details (description, developer, publisher, genres, players, rating, regions, its files, discs and add-ons, each media kind with its size) |
+| `GET /v1/changes?since=<rev>&offset=` | the games changed since `rev` (as the list gives them) and the keys gone, a page at a time, with the current `rev`; `410` when `rev` is too old, so the client fetches the whole list again |
+| `GET /v1/pictures/<key>/<kind>?size=128\|256\|512` | a game's picture as a thumbnail (D43's, cached on the server), with an ETag |
+| `POST /v1/identify` | for files on a device (name, size, and CRC32s: a ZIP's members' from its directory, or a CHD's SHA-1 from its header), the library's game for each (C18) |
+| `POST /v1/plans` | a plan (D93) |
+| `GET /v1/files/…` | a file of a plan (D95) |
+
+- Paging, sorting and search are `browse::query`'s, in SQL with FTS5 (already timed at
+  120,000 games); a game's key is the Library's (`<system>/<DAT name>`,
+  `<system>/~<folder>`, `pc/<id>`).
+- **The change marker**: the server keeps a hash of each game's list fields and a
+  counter, `rev`. When a refresh changes a game's row, or adds or removes one, the counter
+  goes up and the game is marked with it, so `changes?since=` is one indexed query. A
+  client that keeps the catalogue (C8) fetches it once and then only what changed, and
+  browses and searches its own copy, which makes scrolling instant away from home too;
+  the server's paging and search are there for the first minutes and for small clients.
+
+**D93 The plan: the export's layout engine with the device's places** (S5)
+
+A client asks for a plan for some games (`POST /v1/plans` with their keys, the media
+kinds wanted, whether manuals come, the device's longest screen side, and the layout,
+the built-in `esde` for now). The server answers with every file to write:
+
+- each with its **place** (`roms`, `esde` or `media`, the ES-DE layout's own places, which
+  the client finds on the device from `es_settings.xml`, C3), its **path** in that place,
+  its size, its SHA-1, its game, its role (game, disc, playlist, BIOS, parent set, device
+  set, a media kind, manual) and, for a BIOS, parent or device set, every game in the plan
+  that needs it (C12, C20);
+- the **gamelist entries** for each system's `gamelists/<folder>/gamelist.xml`, as data
+  (the entry's path and fields), which the client merges into the device's gamelist with
+  the export's own merge (D35, now in `gamerepo-wire`), keeping ES-DE's entries;
+- the lines for an ES-DE **custom collection** when one is asked for (C16, D75), in
+  ES-DE's `%ROMPATH%` form, merged the same way;
+- each **media kind's size** for the games, the kinds not asked for too, so the client can
+  show them before the user picks (C13, D88), pictures as they'll be at the device's
+  size;
+- the **record** to add to `ES-DE/gamerepo/device.json` once it's all written (each game's
+  key, title, system, files with their roles and hashes); the format is `gamerepo-wire`'s.
+
+How it's worked out:
+
+- `export::plan` is split in two. The first half, new as `export::lay_out`, takes the
+  games, the layout and the carry choices and gives the files with their places, paths
+  and sources, and the list entries; it reads nothing at the destination. The second
+  half (what's there already, merging lists with what's on disk, the journal) stays the
+  export's. Exports keep their tests and give the same plans; a test checks that a
+  device plan's paths are those an ES-DE export of the same games writes, with its places
+  as folders.
+- The library's files go as they are (its formats, D12). Files that have to be made are
+  made in the server's data folder when the plan is asked for and kept there by hash
+  (the newest 20 GB, set in Settings): an arcade set rebuilt for the set type an export
+  uses (D61, with TorrentZip, so the same set gives the same file), a ROM taken out of a
+  larger archive, a picture shrunk to the device's size (`export::shrink`, as JPEG or PNG
+  as it was). A plan with files to make answers at once with `ready: false` and the
+  files as they're made; most plans are ready straight away.
+- A file's SHA-1 comes from the index when it has the whole file's (loose ROMs). Archives,
+  CHD, RVZ and CSO files are hashed by the server in the plan's order, alongside the
+  downloads (the disk is quicker than the network), and remembered by path, size and
+  modified time; the client checks the hash once its file is complete
+  (`GET /v1/files/…/sha1`, which waits until it's known) (C11).
+- A plan is only advice: it holds no lock and the server keeps nothing for it but its
+  made files, so a client can ask again at any time, and a game in the library that
+  changed since gives a new plan whose files no longer match.
+
+**D94 A game on several discs is one game on the device** (C12)
+
+The Library lists each disc of a Redump set as a game. On a device, discs of one game
+(names the same once `(Disc N)` is taken out, same system and DAT) are one game in the
+catalogue, with the discs' total size; a plan writes them into a folder
+`<name>.m3u/` in the system's folder, with `<name>.m3u` inside listing the discs, which
+ES-DE shows as one game (its *directories interpreted as files*), and one gamelist entry
+and one set of media for it. Only for systems whose ES-DE extensions include `.m3u`
+(`platforms.rs`); others keep a game per disc. The ES-DE export writes discs the same
+way, in 9a, as the same code (Jerred, 2026-10-19).
+
+**D95 Downloads that resume, several at once** (S6)
+
+- `GET /v1/files/library/<path>` for a file in the library, `GET /v1/files/made/<sha1>`
+  for a made one. Only files in the folders with games and the games' media and
+  documents can be fetched (never `_library/`'s settings, journal or DATs, never outside
+  the library). A link stays good while the file is unchanged: its ETag is its size and
+  modified time, so a resume of a file that changed (`If-Range`) starts again.
+- Single byte ranges (`Range: bytes=n-`), so a download picks up where it stopped (C10).
+  Files are streamed from disk in 1 MiB pieces, never read into memory (the page test's
+  `library_range` reads a range whole and stays as it is).
+- Up to four downloads at once per device (the client runs three by default), any number
+  of devices. The client writes each under a temporary name, checks its SHA-1 and renames
+  it into place (C11).
+- Thumbnails and pictures carry `Cache-Control` with their ETag, so a client asks again
+  only when one changed.
+
+**The stand-in client and the tests**
+
+- `gamerepo-cli device find | pair <address> <code> | systems | games [--system …] [--q …]
+  | add <keys…> --to <folder> [--media cover,manual] [--size 640] | remove <keys…> --to
+  <folder> | holdings --to <folder>`, where `<folder>` stands for a device: a folder with
+  `ES-DE/settings/es_settings.xml` and `ROMs/`. Its downloading, checking, gamelist
+  merging, record keeping and removing (shared sets kept while needed, saves left alone,
+  nothing outside ES-DE's folders) are a crate, `desktop/device`, that 9b's client is
+  built on.
+- Rust tests: pairing (wrong codes, the limit, a removed device's 401, a pinned
+  certificate that changed); the library folder unchanged, byte for byte and time for
+  time, after a server has indexed it, served it and made files; plans against the ES-DE
+  export's paths; a multi-disc game's folder and `.m3u`; an arcade game's sets, with a
+  set shared by two games kept until both are removed; a download cut at 40% and resumed;
+  four at once; a file changed under a resume; `changes?since=` after a library change;
+  the discovery record built and read back (multicast itself isn't on every test
+  machine, so it's tried end to end on Windows CI).
+- Timings (`--ignored timing`, as now): with 100,000 games, a system's first page under
+  200 ms at the server (leaving the network the rest of the second), `changes?since=`
+  under 100 ms, one download over loopback HTTPS at least 250 MB/s (twice gigabit).
+- Page test: Settings › *Serve to devices* starts the server, shows a code, the stand-in
+  pairs with it, the device shows in the list, *Remove* takes it off and the stand-in
+  is refused.
+- CI: Windows builds the server, its installer and the stand-in, and runs the stand-in
+  against the server; the release adds `Game Repo Server_<version>_x64-setup.exe` to the
+  same GitHub release (with D83's reuse of a tested pull request's files).
+
+**Not in 9a**: the client's screens and the Android build (9b); the Linux build and the
+Steam Deck (9c); the NAS container, outside access, pairing by SPAKE2, other frontends,
+the read-only WebDAV view and handhelds (9d). 3.10's web page for any browser is left out
+too: the client covers it.
+
+**Notes for 9b, found in this design**: pictures reach the client's page through its own
+protocol (as Game Repo's `library://`), since a web view won't trust the server's own
+certificate; Android needs a multicast lock while it looks for the server.
+
+**Order of the build**, each a pull request tested before the next: (1) the groundwork in
+the core: `open_read_only`, `export::lay_out`, the discs rule and `gamerepo-wire`, with
+exports unchanged; (2) the server crate and the stand-in, from the CLI; (3) Game Repo
+Server's tray app, Settings › *Serve to devices*, the installers and the firewall rule.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -3609,7 +3848,7 @@ nothing outside ES-DE's folders.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D89). D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D96). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -3648,5 +3887,6 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     (D81), is done, which finishes the review's batches.
 14. Then Phase 9, the device client ("Device client requirements", D84–D88): 9a Game Repo
     Server on Windows, 9b the client for Windows and Android with ES-DE, 9c the Steam
-    Deck, 9d later. Later: reading magazines' text (PDF, CBZ and CBR) and tagging each
-    issue with the games it covers.
+    Deck, 9d later. 9a's design ("Phase 9a design", D89–D95) is agreed (Jerred,
+    2026-10-19) and is built in three pull requests. Later: reading magazines' text
+    (PDF, CBZ and CBR) and tagging each issue with the games it covers.
