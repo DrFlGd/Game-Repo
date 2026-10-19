@@ -94,6 +94,8 @@ fn msf(s: &str) -> Option<u64> {
 
 /// The files and tracks of a cue sheet (lines it doesn't know are left out).
 pub fn parse(text: &str) -> Vec<File> {
+    // a sheet saved with a UTF-8 byte-order mark (Notepad's) would hide its first line
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut files: Vec<File> = vec![];
     for line in text.lines() {
         let w = words(line);
@@ -155,6 +157,8 @@ pub struct GdiTrack {
 }
 
 pub fn gdi_tracks(text: &str) -> Vec<GdiTrack> {
+    // a sheet saved with a UTF-8 byte-order mark (Notepad's) would hide its first line
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     text.lines()
         .skip(1)
         .filter_map(|l| {
@@ -163,7 +167,7 @@ pub fn gdi_tracks(text: &str) -> Vec<GdiTrack> {
                 number: w[0].parse().unwrap_or(0),
                 lba: w[1].parse().unwrap_or(0),
                 kind: w[2].parse().unwrap_or(4),
-                sector: w[3].parse().unwrap_or(SECTOR),
+                sector: w[3].parse().ok().filter(|&s| s > 0).unwrap_or(SECTOR),
                 file: w[4].clone(),
             })
         })
@@ -172,6 +176,8 @@ pub fn gdi_tracks(text: &str) -> Vec<GdiTrack> {
 
 /// The sheet with the files it names renamed (`renames`: old name -> new), all else as it was.
 pub fn rewrite(text: &str, renames: &HashMap<String, String>, gdi: bool) -> String {
+    // written without a byte-order mark, as Redump's sheets are
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut out = String::with_capacity(text.len() + 64);
     for (i, line) in text.split_inclusive('\n').enumerate() {
         let body = line.trim_end_matches(['\r', '\n']);
@@ -229,6 +235,15 @@ mod tests {
         assert_eq!(out.len(), CUE.len() + 1);
         let unquoted = rewrite("FILE a.bin BINARY\n", &HashMap::from([("a.bin".into(), "b c.bin".into())]), false);
         assert_eq!(unquoted, "FILE \"b c.bin\" BINARY\n");
+    }
+
+    // review: a byte-order mark hid a cue's first FILE line
+    #[test]
+    fn a_byte_order_mark_doesnt_hide_the_first_file() {
+        let bom = format!("\u{feff}{CUE}");
+        assert_eq!(parse(&bom).len(), parse(CUE).len());
+        assert_eq!(file_names(&bom, false), file_names(CUE, false));
+        assert!(!rewrite(&bom, &HashMap::new(), false).starts_with('\u{feff}'));
     }
 
     #[test]

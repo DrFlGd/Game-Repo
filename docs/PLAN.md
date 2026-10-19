@@ -3116,7 +3116,7 @@ Order (Jerred agreed the order, and asked for the docs batch to go with the firs
    that appeared after the preview; a failed game keeps its archive; Undo never removes a
    folder with games or the folders above it, and re-indexes what it put back; an
    unreadable library.json or config.json is refused, never rewritten.
-   **Status: built on branch `hardening-1`, in review.** Fixed: C1–C4, H1, H2, H4, M1–M5,
+   **Status: done, merged with batch 2 (PR #32) and released in v0.5.19.** Fixed: C1–C4, H1, H2, H4, M1–M5,
    M7 and History's Undo label (from M43), and the "Docs (batch 1)" items. The Rust tests
    in `organise.rs`, `library.rs` and `addgame.rs` reproduce the findings and name them in
    a comment (M3's checks are in `names_are_safe_and_follow_the_template`); every finding
@@ -3143,6 +3143,38 @@ Order (Jerred agreed the order, and asked for the docs batch to go with the firs
      counting hardlinks as free, was in no batch and goes in batch 2.
 2. **CI permissions** (H24) on their own, then **scanning and audit** (H7–H11, M10–M14,
    the cue byte-order mark), and M6 (try one hardlink when planning).
+   **Status: done, merged with batch 1 (PR #32) and released in v0.5.19.** The tests name
+   the finding in a comment. As built:
+   - H24: the workflow's token reads only (`permissions: contents: read`); checkouts keep
+     no credentials; every action is pinned to a commit and every tool to a version
+     (Tauri CLI, selenium, playwright, tauri-driver, msedgedriver-tool). The test jobs
+     upload their reports as artifacts and a `reports` job (the only one that writes,
+     with `release`) pushes the `desktop-ci-<os>` branches.
+   - H7: a ZIP, 7z or RAR member that can have a copier header (`hash::may_have_header`)
+     is read in full even in a quick scan, so its headerless hashes match. H8: a member
+     that can't be read is passed over, not the whole archive; an archive that can't be
+     opened for a reason other than its format (locked, unplugged) fails and is tried
+     again on the next scan. The `zip` crate is built without AES or zstd but with
+     deflate64, bzip2 and lzma. RAR scratch folders are one per call.
+   - H9: hashing results are committed every 250 files, every second, and after half a
+     second with none; an error recording one stops the readers and fails the scan.
+   - H10: a CHD with a hunk size of 0 or over 64 MiB, and a CSO whose block index runs
+     past the file, are refused; a GDI sector size of 0 counts as 2352. The cue byte-order
+     mark is dropped when reading and rewriting a sheet.
+   - H11: arcade duplicates are the files matched to one ROM more than once where
+     neither is in its own place (`DUPLICATES_ARCADE`), so a non-merged set's clones
+     aren't duplicates; the count and the list come from one query (`dm`).
+   - M10: a folder's files are guessed again when its system hint or place changes, at
+     once (`scan::reguess_root`, from `roots_update`) and at the next scan when
+     library.json changed elsewhere. M11: `arcade::refresh_places` writes an arcade DAT's
+     places when it has none or another set type's (`index_meta` `places:<dat id>`), and
+     drops them from a DAT whose system isn't arcade any more; it runs at every scan and
+     when a system is saved. M12: unmatched cue sheets beside newly hashed files are
+     looked at again. M13: a scan that changed nothing keeps the audit's summaries and the
+     collections' generation, and a watcher scan reads only the index rows under its
+     places. M14: an undated DAT is older than any dated one. M6: planning tries one
+     hardlink per drive; where it can't be made, links count as copies (`copied` in the
+     plan's `space`) and the preview says so.
 3. **Exports and collections** (C5, H12–H16, M17–M19, M21, M22, M24).
 4. **Interface fixes** (H22, H23, M33, M34, M36–M39, M43, the Low wording and layout
    items).
@@ -3352,7 +3384,7 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     UI pass 3 with collection groups (D71–D76, v0.5.16), import by system (D77, v0.5.17)
     and a new system's own folder (v0.5.18): all released.
 13. Hardening after the v0.5.18 review (D78–D82): the eight batches in that section, in
-    order, each a pull request merged on Jerred's word. Batch 1 is in review; batch 2 is
-    next.
+    order, each a pull request merged on Jerred's word. Batches 1 and 2 are released
+    (v0.5.19); batch 3, exports and collections, is next.
 14. Then Phase 9, serving games to devices on the home network (3.10). Later: reading
     magazines' text (PDF, CBZ and CBR) and tagging each issue with the games it covers.

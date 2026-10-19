@@ -135,6 +135,7 @@ function Totals({ plan }) {
     ${plan.set_aside ? html`<p class="muted">${plural(plan.set_aside, "file is", "files are")} set aside in <code>.gamerepo-set-aside</code> at the top of ${plan.set_aside === 1 ? "its" : "their"} folder, until you empty it (History).</p>` : null}
     ${plan.out ? html`<p class="muted">Into <span class="op-to" title=${plan.out}>${shortPath(plan.out, 3)}</span>${plan.new_root ? ", which becomes a folder with games" : ""}.</p>` : null}
     ${plan.space.filter((s) => s.short).map((s) => html`<p class="warn-note" role="alert" key=${s.drive}>Not enough space on ${s.drive}: ${size(s.needed)} needed, ${size(s.free)} free.</p>`)}
+    ${plan.space.filter((s) => s.copied > 0).map((s) => html`<p class="muted" key=${"copied-" + s.drive}>${s.drive} can't hold hardlinks, so ${size(s.copied)} is copied instead.</p>`)}
   </div>`;
 }
 

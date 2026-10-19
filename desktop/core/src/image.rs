@@ -240,6 +240,11 @@ impl ChdImage {
         } else {
             Layout::Raw
         };
+        // a damaged header's hunk size would divide by nought, or ask for any amount of memory
+        let hs = chd.header().hunk_size();
+        if hs == 0 || hs > 1 << 26 {
+            return Err(other(format!("its hunk size ({hs} bytes) isn't one a CHD has")));
+        }
         let hunk = chd.get_hunksized_buffer();
         Ok(Self { chd, layout, cmp: vec![], hunk, loaded: None })
     }
@@ -692,7 +697,13 @@ impl CsoReader {
         if block == 0 || block > 1 << 24 {
             return Err(other("its block size isn't one a CSO has"));
         }
-        let blocks = total.div_ceil(block as u64) as usize;
+        let blocks = total.div_ceil(block as u64);
+        // the index is in the file: a damaged header's total can't ask for more than that
+        let len = f.get_ref().metadata()?.len();
+        if (blocks + 1).saturating_mul(4).saturating_add(header.max(24)) > len {
+            return Err(other("its header says it's bigger than the file can hold"));
+        }
+        let blocks = blocks as usize;
         f.seek(SeekFrom::Start(header.max(24)))?;
         let mut idx = vec![0u8; (blocks + 1) * 4];
         f.read_exact(&mut idx)?;
@@ -929,6 +940,23 @@ pub(crate) mod tests {
             assert_eq!(m.hashes.crc32, e[file]["crc32"].as_str().unwrap(), "{file}");
             assert_eq!(m.hashes.sha1.as_deref(), e[file]["sha1"].as_str(), "{file}");
         }
+    }
+
+    // review H10: a damaged header is an error, never a crash
+    #[test]
+    fn a_damaged_cso_header_is_refused() {
+        let dir = crate::library::tests::temp_dir("cso-damaged");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("bad.cso");
+        let mut h = b"CISO".to_vec();
+        h.extend_from_slice(&24u32.to_le_bytes());
+        h.extend_from_slice(&(1u64 << 49).to_le_bytes());
+        h.extend_from_slice(&2048u32.to_le_bytes());
+        h.extend_from_slice(&[1, 0, 0, 0]);
+        h.extend_from_slice(&[0u8; 64]);
+        std::fs::write(&p, &h).unwrap();
+        assert!(read(&p, "cso", &AtomicBool::new(false)).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

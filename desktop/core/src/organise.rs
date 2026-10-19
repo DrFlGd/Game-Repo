@@ -999,26 +999,53 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     Ok(p.plan)
 }
 
+/// Whether a hardlink can be made on the drive `to` is on: exFAT and many network
+/// shares can't, so their "links" are copies (review M6). Tried once with a file of the
+/// app's own, made and removed beside the nearest folder that exists.
+fn links_work(to: &Path) -> bool {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = existing(to.parent().unwrap_or(to));
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    let a = dir.join(format!(".gamerepo-linktest-{}-{n}", std::process::id()));
+    let b = dir.join(format!(".gamerepo-linktest-{}-{n}.link", std::process::id()));
+    let ok = std::fs::write(&a, b"").is_ok() && std::fs::hard_link(&a, &b).is_ok();
+    let _ = std::fs::remove_file(&b);
+    let _ = std::fs::remove_file(&a);
+    ok
+}
+
 /// The space a change's steps take on each drive they write to, and what's free there.
+/// `copied` is what of it is links that will be copies, as that drive can't hold links.
 pub(crate) fn space_needed(ops: &[Op]) -> Vec<Value> {
-    let mut need: BTreeMap<String, (u64, PathBuf)> = BTreeMap::new();
+    let mut need: BTreeMap<String, (u64, u64, PathBuf)> = BTreeMap::new();
+    let mut linkable: HashMap<String, bool> = HashMap::new();
     for op in ops {
         let to = Path::new(&op.to);
         let from = op.from.first().map(|s| PathBuf::from(&s.path)).unwrap_or_default();
-        let bytes = match op.op.as_str() {
-            "rename" | "aside" => 0,
-            "move" | "link" if same_drive(&from, to) => 0,
-            _ => op.size,
+        let (bytes, copied) = match op.op.as_str() {
+            "rename" | "aside" => (0, false),
+            "move" if same_drive(&from, to) => (0, false),
+            "link" if same_drive(&from, to) => {
+                if *linkable.entry(drive_name(to)).or_insert_with(|| links_work(to)) {
+                    (0, false)
+                } else {
+                    (op.size, true)
+                }
+            }
+            _ => (op.size, false),
         };
         if bytes > 0 {
-            let e = need.entry(drive_name(to)).or_insert((0, to.to_path_buf()));
+            let e = need.entry(drive_name(to)).or_insert((0, 0, to.to_path_buf()));
             e.0 += bytes;
+            if copied {
+                e.1 += bytes;
+            }
         }
     }
     need.into_iter()
-        .map(|(drive, (bytes, at))| {
+        .map(|(drive, (bytes, copied, at))| {
             let free = fs4::available_space(existing(&at)).unwrap_or(u64::MAX);
-            json!({ "drive": drive, "needed": bytes, "free": free, "short": bytes > free })
+            json!({ "drive": drive, "needed": bytes, "free": free, "short": bytes > free, "copied": copied })
         })
         .collect()
 }
@@ -2234,6 +2261,23 @@ pub fn empty_set_aside(lib: &Library, id: Option<&str>) -> Result<Value> {
 mod tests {
     use super::*;
     use crate::audit::tests::{fixture, import, names, run_scan, Fixture};
+
+    // review M6: a link counts as free only where the drive can hold one, and trying leaves nothing behind
+    #[test]
+    fn links_count_as_free_only_where_they_can_be_made() {
+        let dir = crate::library::tests::temp_dir("links-space");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.bin"), vec![1u8; 4096]).unwrap();
+        let src = Src { file_id: 1, root: "r".into(), rel: "a.bin".into(), path: dir.join("a.bin").to_string_lossy().into(), member: None, size: 4096, crc32: String::new(), sha1: None };
+        let op = |kind: &str| Op { op: kind.into(), game: "A".into(), to: dir.join("Out/New/a.bin").to_string_lossy().into(), from: vec![src.clone()], names: vec![], aside: vec![], size: 4096, note: None };
+        assert!(links_work(&dir.join("Out/New/a.bin")));
+        assert!(space_needed(&[op("link")]).is_empty(), "a link on the same drive takes no space");
+        let copy = space_needed(&[op("copy")]);
+        assert_eq!((copy[0]["needed"].as_u64(), copy[0]["copied"].as_u64()), (Some(4096), Some(0)));
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(left, ["a.bin"], "the trial link is gone");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// Every file under `dir` with its SHA1 (hidden folders and files included).
     fn tree(dir: &Path) -> BTreeMap<String, String> {

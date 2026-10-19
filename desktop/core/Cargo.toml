@@ -34,7 +34,7 @@ sha2 = "0.10"
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }
 unrar = "0.5"
 ureq = "3"
-zip = { version = "9", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate", "deflate64", "bzip2", "lzma"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }

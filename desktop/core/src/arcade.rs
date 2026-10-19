@@ -274,8 +274,42 @@ pub fn write_places(conn: &Connection, dat_id: i64, kind: &str) -> Result<()> {
             ins.execute(params![p.rom_id, p.container, p.member])?;
         }
     }
+    // the set type they were written for, so a change made elsewhere is noticed (review M11)
+    tx.execute(
+        "INSERT INTO index_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
+        params![format!("places:{dat_id}"), kind],
+    )?;
     tx.commit()?;
     Ok(())
+}
+
+/// Bring each DAT's places in line with its system as it is now (review M11): an arcade
+/// DAT with none (loaded before arcade systems had them, or for a system made arcade
+/// since) or with another set type's (changed on another computer) gets them written
+/// again; a DAT whose system is no longer arcade loses them. Returns whether any changed.
+pub fn refresh_places(conn: &Connection, lib: &Library) -> Result<bool> {
+    let dats: Vec<(i64, String, Option<String>)> = conn
+        .prepare("SELECT d.id, d.platform, m.value FROM dats d LEFT JOIN index_meta m ON m.key = 'places:' || d.id")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut changed = false;
+    for (id, platform, written) in dats {
+        if platforms::is_arcade(&platform) {
+            let kind = set_type(lib, &platform);
+            if written.as_deref() != Some(kind.as_str()) {
+                write_places(conn, id, &kind)?;
+                changed = true;
+            }
+        } else if written.is_some() {
+            let tx = conn.unchecked_transaction()?;
+            tx.execute("DELETE FROM dat_places WHERE rom_id IN (SELECT id FROM dat_roms WHERE dat_id = ?1)", [id])?;
+            tx.execute("DELETE FROM index_meta WHERE key = ?1", [format!("places:{id}")])?;
+            tx.commit()?;
+            changed = true;
+        }
+    }
+    conn.execute("DELETE FROM index_meta WHERE key LIKE 'places:%' AND CAST(substr(key, 8) AS INTEGER) NOT IN (SELECT id FROM dats)", [])?;
+    Ok(changed)
 }
 
 /// After a DAT is loaded: an arcade DAT's places, in its system's set type.
@@ -548,6 +582,8 @@ pub mod tests {
         assert_eq!(sum["arcade"]["playable"], 4, "{sum}");
         assert_eq!((sum["arcade"]["sets"].as_i64(), sum["arcade"]["sets_have"].as_i64()), (Some(2), Some(1)));
         assert_eq!(sum["misnamed"], 0, "a non-merged set is named as it should be: {sum}");
+        // review H11: the clone's own copy of its parent's ROM isn't a duplicate
+        assert_eq!(sum["duplicates"], 0, "{sum}");
         assert_eq!(sum["unknown"], 1, "the sample (samples aren't in the DAT's ROMs): {sum}");
         let have = crate::audit::list(&ix, &lib, id, "have", "", 0, 50).unwrap();
         let item = |n: &str| have["items"].as_array().unwrap().iter().find(|i| i["name"] == n).cloned().unwrap();
@@ -557,6 +593,22 @@ pub mod tests {
         assert_eq!(item("alpha")["year"], "1991");
         let sets = crate::audit::list(&ix, &lib, id, "sets", "", 0, 50).unwrap();
         assert_eq!(sets["total"], 2);
+
+        // review M11: a DAT loaded before arcade systems had places gets them on the next scan
+        let places = |ix: &crate::index::Index| ix.conn().query_row("SELECT COUNT(*) FROM dat_places", [], |r| r.get::<_, i64>(0)).unwrap();
+        let had = places(&ix);
+        ix.conn().execute("DELETE FROM dat_places", []).unwrap();
+        ix.conn().execute("DELETE FROM index_meta WHERE key LIKE 'places:%'", []).unwrap();
+        crate::dat::sync_library(&ix, &lib).unwrap();
+        assert_eq!(places(&ix), had);
+        assert_eq!(crate::audit::summary(ix.conn(), id).unwrap()["misnamed"], 0);
+        // and a set type changed on another computer is noticed (split: below)
+        lib.update_meta(json!({ "arcade_sets": { "mame": "split" } })).unwrap();
+        crate::dat::sync_library(&ix, &lib).unwrap();
+        assert_eq!(crate::audit::summary(ix.conn(), id).unwrap()["misnamed"], 1);
+        lib.update_meta(json!({ "arcade_sets": { "mame": "non-merged" } })).unwrap();
+        crate::dat::sync_library(&ix, &lib).unwrap();
+        assert_eq!(crate::audit::summary(ix.conn(), id).unwrap()["misnamed"], 0);
 
         // split: the clone's copy of its parent's ROM is in the wrong ZIP now
         set_set_type(ix.conn(), &lib, "mame", "split").unwrap();
