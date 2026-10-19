@@ -76,6 +76,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.25 (2026-10-19)
+
 - **A collection's groups reach Knulli and ROCKNIX** (the last part of the review of v0.5.18). On a Knulli card each group becomes one of Knulli's custom collections, and the Export dialog can also put each group after the first in a folder of its own inside its system's folder. ROCKNIX keeps its collections where Windows can't write them, so there the groups can go in folders of their own. muOS's collection files aren't documented and changed with its 2508 release, so a muOS export (and a LaunchBox or Playnite one) says its groups are together with the rest.
 
 ## 0.5.24 (2026-10-19)
