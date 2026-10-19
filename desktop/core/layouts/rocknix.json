@@ -1,9 +1,9 @@
 {
   "format": 1,
   "id": "rocknix",
-  "version": 1,
+  "version": 2,
   "name": "ROCKNIX",
-  "about": "ROCKNIX's games card: a folder per system in roms/ (/storage/roms on the device), with its gamelist.xml and pictures beside the games. BIOS files go in roms/bios/.",
+  "about": "ROCKNIX's games card: a folder per system in roms/ (/storage/roms on the device), with its gamelist.xml and pictures beside the games. ROCKNIX keeps custom collections in its storage partition, which Windows can't write, so a collection's groups can go in folders of their own instead. BIOS files go in roms/bios/.",
   "places": [
     {
       "id": "card",
@@ -16,7 +16,7 @@
     "neogeocd": "neocd"
   },
   "games": {
-    "path": "{card}/roms/{folder}/{file}",
+    "path": "{card}/roms/{folder}/{group}/{file}",
     "style": "frontend"
   },
   "gamelist": {
@@ -34,23 +34,23 @@
   },
   "media": {
     "cover": {
-      "path": "{card}/roms/{folder}/images/{stem}-thumb.{ext}",
+      "path": "{card}/roms/{folder}/images/{group}/{stem}-thumb.{ext}",
       "tag": "thumbnail"
     },
     "screenshot": {
-      "path": "{card}/roms/{folder}/images/{stem}-image.{ext}",
+      "path": "{card}/roms/{folder}/images/{group}/{stem}-image.{ext}",
       "tag": "image"
     },
     "marquee": {
-      "path": "{card}/roms/{folder}/images/{stem}-marquee.{ext}",
+      "path": "{card}/roms/{folder}/images/{group}/{stem}-marquee.{ext}",
       "tag": "marquee"
     },
     "video": {
-      "path": "{card}/roms/{folder}/videos/{stem}-video.{ext}",
+      "path": "{card}/roms/{folder}/videos/{group}/{stem}-video.{ext}",
       "tag": "video"
     },
     "manual": {
-      "path": "{card}/roms/{folder}/manuals/{stem}-manual.pdf",
+      "path": "{card}/roms/{folder}/manuals/{group}/{stem}-manual.pdf",
       "tag": "manual"
     }
   },

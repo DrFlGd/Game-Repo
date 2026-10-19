@@ -1,9 +1,9 @@
 {
   "format": 1,
   "id": "knulli",
-  "version": 1,
+  "version": 2,
   "name": "Knulli",
-  "about": "Knulli's SHARE partition: a folder per system in roms/ (names are case-sensitive), with its gamelist.xml and pictures beside the games. BIOS files go in bios/.",
+  "about": "Knulli's SHARE partition (/userdata on the device): a folder per system in roms/ (names are case-sensitive), with its gamelist.xml and pictures beside the games. A collection is a custom collection in system/configs/emulationstation/collections/, as Batocera keeps them. BIOS files go in bios/.",
   "places": [
     {
       "id": "card",
@@ -23,7 +23,7 @@
     "gc": "gamecube"
   },
   "games": {
-    "path": "{card}/roms/{folder}/{file}",
+    "path": "{card}/roms/{folder}/{group}/{file}",
     "style": "frontend"
   },
   "gamelist": {
@@ -41,23 +41,23 @@
   },
   "media": {
     "cover": {
-      "path": "{card}/roms/{folder}/images/{stem}-thumb.{ext}",
+      "path": "{card}/roms/{folder}/images/{group}/{stem}-thumb.{ext}",
       "tag": "thumbnail"
     },
     "screenshot": {
-      "path": "{card}/roms/{folder}/images/{stem}-image.{ext}",
+      "path": "{card}/roms/{folder}/images/{group}/{stem}-image.{ext}",
       "tag": "image"
     },
     "marquee": {
-      "path": "{card}/roms/{folder}/images/{stem}-marquee.{ext}",
+      "path": "{card}/roms/{folder}/images/{group}/{stem}-marquee.{ext}",
       "tag": "marquee"
     },
     "video": {
-      "path": "{card}/roms/{folder}/videos/{stem}-video.{ext}",
+      "path": "{card}/roms/{folder}/videos/{group}/{stem}-video.{ext}",
       "tag": "video"
     },
     "manual": {
-      "path": "{card}/roms/{folder}/manuals/{stem}-manual.pdf",
+      "path": "{card}/roms/{folder}/manuals/{group}/{stem}-manual.pdf",
       "tag": "manual"
     }
   },
@@ -66,7 +66,11 @@
     "max": 640,
     "as": "keep"
   },
-  "collection": null,
+  "collection": "es-cfg",
+  "collections": {
+    "path": "{card}/system/configs/emulationstation/collections",
+    "device": "/userdata"
+  },
   "bios": {
     "path": "{card}/bios/{bios_file}"
   }

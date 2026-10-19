@@ -407,8 +407,12 @@ take games from it, without copying an SD card by hand.
   profiles.
 - **Safety on the network**: off until switched on, listening on the home network only,
   paired with a code shown in the app, and never exposed to the internet by the app.
-- A dedicated client app on the device is not planned; existing frontends and file
-  managers are the clients unless a device needs one (decision D18).
+- **A device client (D84)** for Windows and Android, then the Steam Deck: a small app
+  that browses the library, adds a handful of games where ES-DE finds them (with the
+  media the user picks) and removes them to make room. It talks to **Game Repo
+  Server** (D85), a small app of its own that Game Repo starts and stops. muOS, Knulli
+  and ROCKNIX handhelds come later with a design of their own; until then D18 holds
+  for them. Requirements: "Device client requirements" below.
 
 ---
 
@@ -626,7 +630,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets, add-ons, magazines | RetroArch playlists, Pegasus, Playnite and LaunchBox exports (8a); updates, DLC and patches with their base game (D56) and a collection's history (D52) (8b); magazines (3.8, D31) (8c). MobyGames dropped (Jerred, 2026-10-18). |
-| **9** | Serve to devices | The app as a server on the home network (3.10): browse and download from a browser, a read-only WebDAV view, device profiles for Android, Linux and handheld firmwares, and sync of a collection to a device with verification. Needs Phase 3's collections and export; can move ahead of 4–8. |
+| **9** | Device client | 9a Game Repo Server on Windows, started from Game Repo (D85). 9b the client for Windows and Android, ES-DE first (D84, D86–D88). 9c the Steam Deck: the client built for Linux, usable with the Deck's controls in Game Mode. 9d later: the server on a NAS (Unraid, Synology), access from outside the home network (parked), other frontends, the read-only WebDAV view, muOS/Knulli/ROCKNIX handhelds. Needs Phase 5b's layouts. |
 | **Later** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). It reads every format Magazines imports: a PDF's pages and a CBZ's or CBR's images alike. |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
@@ -3323,7 +3327,29 @@ Order (Jerred agreed the order, and asked for the docs batch to go with the firs
      bundle; a pull request's reports go to `desktop-ci-<os>-pr`; only a push to `main`
      publishes; and the release job gives the published Unreleased section its version's
      heading on `main`.
-8. **Groups on devices** (D81).
+8. **Groups on devices** (D81). **Status: done (PR #38).** As built, after checking each
+   firmware's documentation (2026-10-19):
+   - Knulli: custom collections are Batocera's (knulli.org/configure/collections,
+     wiki.batocera.org/game_collection_settings): `custom-<name>.cfg` in
+     `/userdata/system/configs/emulationstation/collections/`, a game a line by its full
+     path (`/userdata/roms/nes/Game.zip`). The SHARE partition is `/userdata`, so the
+     layout's new `collection: "es-cfg"` writes one for each group under
+     `{card}/system/configs/emulationstation/collections`, naming the games from
+     `collections.device` (`/userdata`). Its games' path has `{group}`, so Subfolders is
+     offered too; the pictures (written into the gamelist) get `{group}` as well, nothing
+     for a first group. Separate systems isn't: Batocera's systems are defined in its
+     read-only system image, so there's nothing to copy one from.
+   - ROCKNIX: its EmulationStation has custom collections (rocknix.org/configure/collections),
+     but keeps them in `~/.config/emulationstation` on its ext4 storage partition, which
+     Windows can't write (rocknix.org/faqs), and the layout writes the games card. So it
+     gets Subfolders only; "Collections only" is *Together* in the Export dialog for a
+     layout with no collections, and the preview says so when the groups aren't kept apart.
+   - muOS: it has collections (muos.dev/tour/modules/muxcollect, `MUOS/info/collection/`),
+     but their `.cfg` format isn't documented, the 2508 Goose release changed it and broke
+     older files, and its developers don't plan PC tools for it. Nothing is written for
+     them; the preview says the groups are with the rest.
+   - LaunchBox and Playnite (no group lists) get the same note. The layout editor's
+     collection inspector chooses none, ES-DE's or the device's, and *Add to it* adds one.
 
 **D78 One Import page** (Jerred, 2026-10-18). Every import goes through the Import page:
 the buttons on Home, Audit, BIOS files, PC games, Documents and Magazines open its
@@ -3355,6 +3381,90 @@ it all again (about 20 minutes) before publishing. Now a push whose git tree and
 a run of this repository's own already passed publishes that run's installer, so what
 ships is the build that passed; anything else, such as another merge in between, builds
 and tests as before (CHANGELOG.md, "For agents").
+
+### Device client requirements (D84–D88)
+
+Jerred asked (2026-10-19) for a download client for space-constrained devices: browse a
+library far larger than the device holds, pick a few games, put them where the frontend
+finds them, and take them off again. Full requirements, with numbered items C1–C23 and
+S1–S7, are in the Claude Doc "Game Repo device client: requirements"
+(https://claude.ai/code/artifact/884dfbd9-515b-49d1-9918-41cac8f888ba).
+
+**Targets**: Windows PC or handheld and Android (ES-DE) first; the Steam Deck (ES-DE as
+EmuDeck installs it) and Linux PCs next; muOS, Knulli, ROCKNIX later.
+
+**Game Repo Server (S1–S7)**
+- A small app built from the same core, reading the library folder Game Repo made, with
+  its own index (built from the folder the first time, as on a new computer, D15, and
+  kept up to date as Game Repo changes the library). It never writes to the library.
+- Game Repo starts and stops it from Settings › *Serve to devices*; it also runs alone
+  with a tray icon; `gamerepo-cli serve-devices` is the same server with no window.
+- Announces itself on the home network; pairs a device with a six-digit code; a
+  *Devices* list shows each paired device, when it was last seen and what it holds.
+- JSON API: systems, collections, games with details and picture links, searchable and
+  paged, with a change marker.
+- A **plan** per set of games on a device: every file to write (games, discs, arcade
+  dependencies, the chosen media kinds, pictures at the device's size), with place, path,
+  size and hash, from the same layout engine as exports (D36, D38). The client never
+  works out paths itself.
+- Resumable downloads (HTTP ranges), several at once; pictures resized and cached.
+- Later (9d) the same server as a NAS container, beside the library.
+
+**The client (C1–C23)**
+- Pages: Library, Queue, On this device, Settings. Finds the server on the home network
+  or by address; pairs once; finds ES-DE's ES-DE folder and ROMs folder
+  (`ES-DE/settings/es_settings.xml`); one library and one device.
+- Browse by system and collection with box front, title, year, size; search; only
+  systems ES-DE has a folder for; the last catalogue is kept for browsing away from home.
+- A selection shows its total size against free space. Before downloading the user picks
+  which media kinds come with the games, each with its size; remembered per device.
+- Downloads run in the background, resume, pause and cancel; each file is written under
+  a temporary name, checked against the library's hash, then renamed into place.
+- A game brings what it needs: all discs and its `.m3u`, an arcade game's BIOS, device
+  and parent sets. Formats are the library's own (D12); pictures sized for the screen.
+- Placed by the built-in ES-DE layout: `<ROMs>/<system>/`, `ES-DE/downloaded_media/`,
+  `ES-DE/gamelists/`; gamelists merged, keeping ES-DE's own entries (D35); optional ES-DE
+  custom collection (D75, D81); says when ES-DE needs restarting.
+- *On this device* lists every game ES-DE has there, with size, last played and whether
+  it came from the library (by hash). Removing a game removes its files, media and
+  gamelist entry after a confirmation; shared BIOS/parent sets stay while needed; saves
+  never touched. Media can be removed or added on their own. *Make room* offers the
+  least recently played games. A record of what it added: `ES-DE/gamerepo/device.json`.
+- Rust + Tauri 2 + Preact (D1), one codebase for Windows and Android; released by CI on
+  the same GitHub release as the desktop app (an `.apk` and the client's and server's
+  Windows installers).
+
+**Not in the first version**: frontends other than ES-DE; the Linux build; PC games;
+BIOS outside the ROMs folder; converting to formats the library doesn't keep; save
+files; changing the library from the client; more than one library per client; access
+from outside the home network.
+
+**Parked: reaching the library away from home.** Options besides a VPN such as
+Tailscale: download before leaving (C8 already keeps the catalogue); the NAS's own
+reverse proxy (likeliest once the server is on a NAS); a tunnel the user runs
+(Cloudflare Tunnel, ngrok); port forwarding with HTTPS; a relay run for Game Repo (not
+suited to private use). All but the first need HTTPS only, per-device tokens that
+expire and can be revoked, and a limit on failed pairing attempts.
+
+**D84 Device client** (Jerred, 2026-10-19). A small client app for Windows and Android
+browses the library and adds and removes games, with the media chosen, for ES-DE.
+Replaces D18's "no client app" for those; the Steam Deck is next; muOS, Knulli and
+ROCKNIX come later with a design of their own.
+
+**D85 Game Repo Server** (Jerred, 2026-10-19, on Claude's recommendation). A separate
+small app reads the library folder and serves it read-only; Game Repo starts and stops
+it; Windows first, a NAS container (Unraid, Synology) later.
+
+**D86 Home network only** (Jerred, 2026-10-19). Paired devices on the home network;
+access from outside is parked ("Device client requirements").
+
+**D87 Android install** (Jerred, 2026-10-19). An APK on the GitHub release, with *All
+files access*; the app is for private use.
+
+**D88 What a client installs and removes** (Jerred, 2026-10-19). Scraped media is chosen
+per kind when installing and removed with the game (or on its own); the client may
+remove any game ES-DE lists on the device, with its media and gamelist entry, and
+nothing outside ES-DE's folders.
 
 ## 8. Working in a cloud session
 
@@ -3448,7 +3558,7 @@ and tests as before (CHANGELOG.md, "For agents").
 - **D18 Devices (taken 2026-10-17):** the devices are muOS, Knulli and ROCKNIX
   handhelds, and Android or Linux running ES-DE. Their device profiles come first
   (3.10); none of them needs a client app of its own (browser, WebDAV and sync cover
-  them).
+  them). For Windows, Android and the Steam Deck, replaced by D84 (2026-10-19).
 - **D29 When device profiles come (taken 2026-10-17):** right after Phase 5, as export
   targets for SD cards (Phase 5b), since what they carry is Phase 5's metadata and
   media; serving and syncing over the network stay in Phase 9.
@@ -3499,7 +3609,7 @@ and tests as before (CHANGELOG.md, "For agents").
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D84). D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D89). D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -3534,7 +3644,9 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     order, each a pull request merged on Jerred's word. Batches 1 and 2 are released
     (v0.5.19), batch 3, exports and collections, is v0.5.20; batch 4, the interface, is
     v0.5.21; batches 5 (metadata, PC games and magazines) and 6 (one Import page) are
-    v0.5.22; batch 7, the rest of CI and the tests, is done; batch 8, groups on devices
-    (D81), is next.
-14. Then Phase 9, serving games to devices on the home network (3.10). Later: reading
-    magazines' text (PDF, CBZ and CBR) and tagging each issue with the games it covers.
+    v0.5.22; batch 7, the rest of CI and the tests, is v0.5.23; batch 8, groups on devices
+    (D81), is done, which finishes the review's batches.
+14. Then Phase 9, the device client ("Device client requirements", D84–D88): 9a Game Repo
+    Server on Windows, 9b the client for Windows and Android with ES-DE, 9c the Steam
+    Deck, 9d later. Later: reading magazines' text (PDF, CBZ and CBR) and tagging each
+    issue with the games it covers.

@@ -935,6 +935,36 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             }
         }
     }
+    // the collection as EmulationStation's custom collections on the device (Knulli's, as
+    // Batocera's), one for each group, each game by its path there (D81)
+    if let Some(cs) = l.collections.as_ref().filter(|_| l.collection.as_deref() == Some("es-cfg")) {
+        let at_dir = layout::expand(&cs.path, &places, &layout::Vars::new())?;
+        let top = layout::games_place(&l).and_then(|p| places.get(&p).cloned());
+        if let (Some(at_dir), Some(top)) = (at_dir, top) {
+            let device = cs.device.trim().trim_end_matches('/');
+            for (g, us) in &by_group {
+                let lines: Vec<String> = us
+                    .iter()
+                    .flat_map(|u| entries[u].iter().filter_map(|(entry, _, _)| rel_to(&top, &units[*u].folder.join(entry)).map(|r| format!("{device}/{r}"))))
+                    .collect();
+                let at = at_dir.join(format!("custom-{}.cfg", safe_name(&title_of(*g))));
+                let text = lines.iter().map(|l| format!("{l}\n")).collect::<String>();
+                let note = if w.groups.len() > 1 { "The collection's group, as the device's custom collection." } else { "The collection, as the device's custom collection." };
+                if !lines.is_empty() && std::fs::read_to_string(&at).ok().as_deref() != Some(text.as_str()) {
+                    plan.ops.push(text_op("", &at, &top_of(&at), text, note));
+                }
+            }
+        }
+    }
+    // a device that can't hold the groups as collections: they're only apart in folders
+    let as_lists = l.collection.is_some() || l.gamelist.as_ref().is_some_and(|g| ["pegasus", "retroarch"].contains(&g.kind.as_str()));
+    if placing == "collections" && matches!(o.groups.as_str(), "" | "collections") && !as_lists && by_group.len() > 1 {
+        notes.push(if l.placements().contains(&"subfolders") {
+            format!("The layout {} has no collections, so each group's games are in their systems' folders with the rest; choose Subfolders to keep each group in a folder of its own.", l.name)
+        } else {
+            format!("The layout {} has no collections or folders for groups, so each group's games are in their systems' folders with the rest.", l.name)
+        });
+    }
     // a group as a system of its own: ES-DE is told of it in its custom es_systems.xml
     if placing == "systems" {
         let own: Vec<&Unit> = entries.keys().map(|u| &units[*u]).filter(|u| u.group > 0).collect();
@@ -1657,6 +1687,10 @@ pub fn preview(l: &layout::Layout, sample: &Value) -> Value {
     if l.collection.as_deref() == Some("esde-cfg") {
         push(&mut items, layout::es_de_dir(l, &places).map(|e| e.join("collections").join("custom-<collection>.cfg")), "collection", "collection", "The collection (each of its groups), as ES-DE's custom collection", "", "", false);
     }
+    if let Some(cs) = l.collections.as_ref().filter(|_| l.collection.as_deref() == Some("es-cfg")) {
+        let at = layout::expand(&cs.path, &places, &layout::Vars::new()).ok().flatten().map(|d| d.join("custom-<collection>.cfg"));
+        push(&mut items, at, "collection", "collections.path", "The collection (each of its groups), as the device's custom collection", "", "", false);
+    }
     // a group after the first, in a folder of its own in its system's, or as a system of its own (D75)
     if let Some(s) = sample["systems"].as_array().and_then(|a| a.first()) {
         let system = s["system"].as_str().unwrap_or("");
@@ -2069,9 +2103,66 @@ mod tests {
         assert!(p.ops.iter().any(|o| o.op == "aside" && o.to.ends_with("My Delta.gb")) && p.ops.iter().any(|o| o.to.replace('\\', "/").ends_with("gb/My Delta.gb") && o.op != "aside"), "{:?}", p.ops.iter().map(|o| (&o.op, &o.to)).collect::<Vec<_>>());
         // a layout without {group} in its games' path can't: the groups stay in their systems' folders, and it says so
         let card = dir.join("Card");
-        let p = plan(&ix, &lib, &Options { collection: c.id.clone(), layout: "knulli".into(), places: on("card", &card), groups: "subfolders".into(), ..Default::default() }).unwrap();
+        let p = plan(&ix, &lib, &Options { collection: c.id.clone(), layout: "muos".into(), places: on("card", &card), groups: "subfolders".into(), ..Default::default() }).unwrap();
+        assert_eq!(p.export.as_ref().unwrap()["notes"].as_array().unwrap().len(), 1, "{:?}", p.export);
         assert!(p.export.as_ref().unwrap()["notes"][0].as_str().unwrap().contains("can't place groups in folders of their own"), "{:?}", p.export);
         assert!(p.ops.iter().any(|o| o.to.replace('\\', "/").ends_with("gb/My Delta.gb")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn knulli_has_each_group_as_a_custom_collection_naming_the_games_where_it_sees_them() {
+        // review: groups never reached Knulli, ROCKNIX and muOS (D81)
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-groups-knulli");
+        let (c, _, _) = grouped(&dir, &lib);
+        alpha_with_media(&ix, &lib);
+        let carry = Carry { media: vec!["cover".into()], ..Default::default() };
+        let card = dir.join("Card");
+        let o = Options { collection: c.id.clone(), layout: "knulli".into(), places: on("card", &card), carry, ..Default::default() };
+        let p = run(&ix, &lib, &o);
+        assert_eq!(p.export.as_ref().unwrap()["notes"], json!([]));
+        // Batocera's folder of custom collections, on the SHARE partition (/userdata there)
+        let cols = card.join("system/configs/emulationstation/collections");
+        let first = std::fs::read_to_string(cols.join("custom-Best Of.cfg")).unwrap();
+        assert_eq!(first.lines().count(), 4);
+        assert!(first.lines().all(|l| l.starts_with("/userdata/roms/gb/")) && first.contains("/userdata/roms/gb/Alpha (Europe).gb\n"), "{first}");
+        assert_eq!(std::fs::read_to_string(cols.join("custom-Best Of - Favs.cfg")).unwrap(), "/userdata/roms/gb/My Delta.gb\n");
+        let t = tree(&card);
+        assert!(t.contains(&"roms/gb/My Delta.gb".to_string()) && t.contains(&"roms/gb/images/Alpha (Europe)-thumb.png".to_string()), "{t:?}");
+        // a group in a folder of its own: its collection and its gamelist entry name it there,
+        // and the first group's pictures are where they've always been
+        let card = dir.join("Card 2");
+        run(&ix, &lib, &Options { places: on("card", &card), groups: "subfolders".into(), ..o.clone() });
+        let t = tree(&card);
+        assert!(t.contains(&"roms/gb/Favs/My Delta.gb".to_string()) && !t.contains(&"roms/gb/My Delta.gb".to_string()) && t.contains(&"roms/gb/images/Alpha (Europe)-thumb.png".to_string()), "{t:?}");
+        let gl = std::fs::read_to_string(card.join("roms/gb/gamelist.xml")).unwrap();
+        assert!(gl.contains("<path>./Favs/My Delta.gb</path>") && gl.contains("<thumbnail>./images/Alpha (Europe)-thumb.png</thumbnail>"), "{gl}");
+        let cols = card.join("system/configs/emulationstation/collections");
+        assert_eq!(std::fs::read_to_string(cols.join("custom-Best Of - Favs.cfg")).unwrap(), "/userdata/roms/gb/Favs/My Delta.gb\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rocknix_keeps_groups_apart_in_folders_and_muos_says_it_cant() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-groups-devices");
+        let (c, _, _) = grouped(&dir, &lib);
+        let card = dir.join("Card");
+        // ROCKNIX's collections are on its storage partition, not the games card: the
+        // preview says the groups are together unless Subfolders is chosen
+        let o = Options { collection: c.id.clone(), layout: "rocknix".into(), places: on("card", &card), ..Default::default() };
+        let p = plan(&ix, &lib, &o).unwrap();
+        let notes = p.export.as_ref().unwrap()["notes"].clone();
+        assert!(notes[0].as_str().unwrap().contains("has no collections") && notes[0].as_str().unwrap().contains("choose Subfolders"), "{notes}");
+        assert!(!p.ops.iter().any(|o| o.to.ends_with(".cfg")));
+        let p = run(&ix, &lib, &Options { groups: "subfolders".into(), ..o.clone() });
+        assert_eq!(p.export.as_ref().unwrap()["notes"], json!([]));
+        assert!(tree(&card).contains(&"roms/gb/Favs/My Delta.gb".to_string()), "{:?}", tree(&card));
+        assert!(std::fs::read_to_string(card.join("roms/gb/gamelist.xml")).unwrap().contains("<path>./Favs/My Delta.gb</path>"));
+        // muOS's collections aren't documented (and changed their files in 2508): neither
+        let p = plan(&ix, &lib, &Options { collection: c.id.clone(), layout: "muos".into(), places: on("card", &dir.join("Card 2")), ..Default::default() }).unwrap();
+        assert!(p.export.as_ref().unwrap()["notes"][0].as_str().unwrap().contains("no collections or folders for groups"), "{:?}", p.export);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2551,7 +2642,7 @@ mod tests {
         let paths: Vec<&str> = pv["items"].as_array().unwrap().iter().map(|i| i["path"].as_str().unwrap()).collect();
         assert!(pv["stand_in"] == true && paths.contains(&"card/MUOS/info/catalogue/Nintendo Game Boy/box/Example Game (World).png") && paths.contains(&"card/MUOS/bios/scph5501.bin"), "{paths:?}");
         let mut l = lib_less("knulli");
-        l.media.get_mut("screenshot").unwrap().path = "{card}/roms/{folder}/images/{stem}-thumb.{ext}".into();
+        l.media.get_mut("screenshot").unwrap().path = l.media["cover"].path.clone();
         let pv = preview(&l, &s);
         assert!(pv["items"].as_array().unwrap().iter().any(|i| i["clash"] == true));
         assert!(pv["problems"].as_array().unwrap().iter().any(|p| p["message"].as_str().unwrap().contains("same path")));

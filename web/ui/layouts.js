@@ -37,10 +37,14 @@ function tokensFor(at) {
   const what = at.split(".")[0];
   if (what === "games") return [...SYSTEM_TOKENS, "file"];
   if (what === "gamelist" || what === "groups") return SYSTEM_TOKENS;
+  if (what === "collections") return [];
   if (what === "bios") return [...SYSTEM_TOKENS, "bios_file"];
   if (what === "documents") return [...SYSTEM_TOKENS, ...GAME_TOKENS, "ext", "doc_file"];
   return [...SYSTEM_TOKENS, ...GAME_TOKENS, "ext", "kind", ...(at === "media.manual" ? ["doc_file"] : [])];
 }
+
+/** The place the games' path starts from (`{card}`). */
+const gamesPlace = (l) => (l.games?.path || "{card}").match(/^\{[^}]+\}/)?.[0] || "{card}";
 
 /** The part of a layout `at` names (games.path, media.cover, systems.gb, gamelist.path…). */
 function partOf(l, at) {
@@ -65,7 +69,7 @@ function partName(at) {
   if (a === "documents") return "Every document";
   if (a === "bios") return "BIOS files";
   if (a === "systems") return "A system's folder";
-  if (a === "collection") return "The collection file";
+  if (a === "collection" || a === "collections") return "The collection file";
   if (a === "groups") return "A group as a system of its own";
   return at;
 }
@@ -172,9 +176,28 @@ function Inspector({ draft, at, preview, setDraft, choose }) {
       <${PathField} id="lt-groups-system" at=${at} value=${v} example=${example} onChange=${(x) => set((l) => { if (x.trim()) l.groups = { ...(l.groups || {}), system: x }; else delete l.groups; })} />
       ${showProblems}</div>`;
   }
-  if (at === "collection") {
+  if (at === "collection" || at === "collections.path") {
+    const kind = draft.collection || "";
+    const cs = draft.collections || {};
+    const place = gamesPlace(draft);
+    const setKind = (k) => set((l) => {
+      l.collection = k || null;
+      if (k === "es-cfg" && !l.collections) l.collections = { path: `${place}/system/configs/emulationstation/collections`, device: "/userdata" };
+    });
+    const put = (patch) => set((l) => { l.collections = { ...(l.collections || {}), ...patch }; });
     return html`<div class="lt-inspect" id="lt-inspect" data-at=${at}><h3>The collection file</h3>
-      <label class="check-row"><input type="checkbox" id="lt-collection" checked=${draft.collection === "esde-cfg"} onChange=${(e) => set((l) => { l.collection = e.target.checked ? "esde-cfg" : null; })} /> Write the collection as an ES-DE custom collection, one for each of its groups (in <code>${draft.es_de || "{esde}"}/collections/</code>)</label></div>`;
+      <label class="field-block"><span class="field-label">Each of a collection's groups, as</span>
+        <select id="lt-collection" class="compact" value=${kind} onChange=${(e) => setKind(e.target.value)}>
+          <option value="">No collection file</option>
+          <option value="esde-cfg">An ES-DE custom collection (in ${draft.es_de || "{esde}"}/collections/)</option>
+          <option value="es-cfg">The device's custom collection (Batocera's, Knulli's)</option>
+        </select></label>
+      ${kind === "es-cfg" ? html`
+        <${PathField} id="lt-collections-path" at="collections.path" value=${cs.path || ""} example=${example} onChange=${(x) => put({ path: x })} />
+        <label class="field-block"><span class="field-label">Where ${place} is on the device</span>
+          <input type="text" id="lt-collections-device" spellcheck="false" placeholder="/userdata" value=${cs.device || ""} onInput=${(e) => put({ device: e.target.value })} /></label>
+        <small class="muted">A <code>${"custom-<name>.cfg"}</code> in that folder for each group, naming each game by its path on the device.</small>` : null}
+      ${showProblems}</div>`;
   }
   const part = at ? partOf(draft, at) : null;
   if (part) {
@@ -235,6 +258,7 @@ function Overview({ draft, set, choose }) {
         ${draft.gamelist ? null : html`<button type="button" class="ghost compact" data-add="gamelist" onClick=${() => { set((l) => { l.gamelist = { kind: "es-xml", path: `${gamesDir}/gamelist.xml`, fields: { description: "desc", developer: "developer", publisher: "publisher", released: "releasedate", genres: "genre", players: "players", rating: "rating" } }; }); choose({ at: "gamelist.path" }); }}>${Icon.plus(13)} A gamelist</button>`}
         ${draft.text?.description ? null : html`<button type="button" class="ghost compact" data-add="text" onClick=${() => { set((l) => { l.text = { ...(l.text || {}), description: { path: `${gamesDir}/text/{stem}.txt` } }; }); choose({ at: "text.description" }); }}>${Icon.plus(13)} The description as text</button>`}
         ${draft.documents ? null : html`<button type="button" class="ghost compact" data-add="documents" onClick=${() => { set((l) => { l.documents = { path: `${gamesDir}/docs/{stem}/{doc_file}` }; }); choose({ at: "documents" }); }}>${Icon.plus(13)} Every document</button>`}
+        ${draft.collection ? null : html`<button type="button" class="ghost compact" data-add="collection" onClick=${() => { const esde = (draft.places || []).some((p) => p.id === "esde"); set((l) => { l.collection = esde ? "esde-cfg" : "es-cfg"; if (!esde && !l.collections) l.collections = { path: `${gamesPlace(draft)}/system/configs/emulationstation/collections`, device: "/userdata" }; }); choose({ at: esde ? "collection" : "collections.path" }); }}>${Icon.plus(13)} A collection file</button>`}
         ${draft.bios ? null : html`<button type="button" class="ghost compact" data-add="bios" onClick=${() => { const place = (draft.games?.path || "{card}").match(/^\{[^}]+\}/)?.[0] || "{card}"; set((l) => { l.bios = { path: `${place}/bios/{bios_file}` }; }); choose({ at: "bios" }); }}>${Icon.plus(13)} BIOS files</button>`}
       </div></details>
     <p class="muted">Choose a file or folder in the tree to change where it goes. The places a layout asks for (${(draft.places || []).filter((p) => !p.from).map((p) => `{${p.id}}`).join(", ")}) can be changed in its JSON.</p>
