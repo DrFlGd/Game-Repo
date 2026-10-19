@@ -103,6 +103,11 @@ impl AppConfig {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        if path.is_file() && try_read_json_object(path).is_err() {
+            // a hand edit gone wrong is kept beside it, not written over
+            let keep = path.with_extension("unreadable.json");
+            std::fs::rename(path, &keep).with_context(|| format!("{} can't be read, and couldn't be kept as {}", path.display(), keep.display()))?;
+        }
         write_atomic(path, &serde_json::to_vec_pretty(self)?)
     }
 
@@ -148,7 +153,24 @@ impl Prefs {
     }
 }
 
-/// A JSON object from a file, or {} if it's missing or unreadable.
+/// A JSON object from a file: {} if it's missing, an error naming what's wrong (with
+/// its line) if it can't be read. Anything that writes the file back reads it this way,
+/// so a typo in a hand edit is never written over with only the new settings.
+pub fn try_read_json_object(path: &Path) -> Result<Value> {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Value::Object(Default::default())),
+        Err(e) => bail!("{} can't be read: {e}", path.display()),
+    };
+    match serde_json::from_slice::<Value>(&bytes) {
+        Ok(v) if v.is_object() => Ok(v),
+        Ok(_) => bail!("{} isn't a JSON object", path.display()),
+        Err(e) => bail!("{} isn't valid JSON ({e})", path.display()),
+    }
+}
+
+/// A JSON object from a file, or {} if it's missing or unreadable (for reading only:
+/// see `try_read_json_object` before writing it back).
 pub fn read_json_object(path: &Path) -> Value {
     std::fs::read(path)
         .ok()

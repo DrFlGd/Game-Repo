@@ -274,7 +274,7 @@ impl App {
     /// A connection of a job's own to the library's index, so a long scan or import
     /// doesn't hold up the page's reads (SQLite's WAL lets them run side by side).
     fn job_index(data_dir: &Path, lib: &Library) -> Result<Index> {
-        let id = lib.id().ok_or_else(|| anyhow!("This library has no id in _library/library.json, so its index can't be found."))?;
+        let id = lib.id().ok_or_else(|| anyhow!("{}", lib.read_only().unwrap_or("This library has no id in _library/library.json, so its index can't be found.")))?;
         Index::open(&index::path_for(data_dir, &id), &id)
     }
 
@@ -503,7 +503,11 @@ impl App {
                 let path = args["path"].as_str().map(PathBuf::from);
                 // "platform": null clears it; leaving it out keeps it
                 let platform = args.get("platform").map(|p| p.as_str());
-                j(roots::update(&lib, id, path.as_deref(), platform).map_err(e2s)?.to_json())
+                let root = roots::update(&lib, id, path.as_deref(), platform).map_err(e2s)?;
+                // what's already scanned there takes the new system hint now (review M10)
+                let id = root.id.clone();
+                self.with_index(move |ix| scan::reguess_root(ix, &lib, &id)).await?;
+                j(root.to_json())
             }
             "roots_remove" => {
                 let lib = self.library()?;
@@ -1688,7 +1692,20 @@ impl App {
                 let lib = self.library()?;
                 let s = crate::systems::System::from_json(&args["system"]).map_err(e2s)?;
                 let old = args["old"].as_str().filter(|o| !o.is_empty()).map(String::from);
-                j(blocking(Box::new(move || crate::systems::set(&lib, &s, old.as_deref()))).await?)
+                let saved = blocking(Box::new({
+                    let lib = lib.clone();
+                    move || crate::systems::set(&lib, &s, old.as_deref())
+                }))
+                .await?;
+                // a system made arcade (or not) is audited as one from now on (review M11)
+                self.with_index(move |ix| {
+                    if crate::arcade::refresh_places(ix.conn(), &lib)? {
+                        audit::changed(ix.conn())?;
+                    }
+                    Ok(())
+                })
+                .await?;
+                j(saved)
             }
             "systems_remove" => {
                 let lib = self.library()?;

@@ -160,11 +160,14 @@ pub fn plan(lib: &Library, files: &[PathBuf], platform: &str, into: &Path, mode:
             if into.starts_with(lib.root().join(APP_DIR)) {
                 bail!("Games can't go in the library's own _library folder.");
             }
+            // checked now, so the change can't stop part way when it adds the folder
+            roots::check_new(lib, into).map_err(|e| anyhow!("The games can't go to {}: {e:#}", into.display()))?;
             Some(into.display().to_string())
         }
     };
     let mut ops = vec![];
     let mut seen = HashSet::new();
+    let mut targets = HashSet::new();
     let mut games = 0;
     for f in files {
         if !f.is_file() {
@@ -183,6 +186,9 @@ pub fn plan(lib: &Library, files: &[PathBuf], platform: &str, into: &Path, mode:
             }
             if to.exists() {
                 bail!("There's a file called {name} in {} already.", into.display());
+            }
+            if !targets.insert(key(&to)) {
+                bail!("Two of the files are called {name}, and only one can go in {}.", into.display());
             }
             let mut r = std::fs::File::open(&p).with_context(|| format!("couldn't read {}", p.display()))?;
             let size = r.metadata()?.len();
@@ -335,6 +341,27 @@ mod tests {
         let dirs = |p: &str| places(Some(ix.conn()), &lib, p).iter().map(|x| PathBuf::from(x["dir"].as_str().unwrap())).collect::<Vec<_>>();
         assert_eq!(dirs("gamegear"), [roms.join("Sega Game Gear")]);
         assert_eq!(dirs("snes"), [roms.join("SNES")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // review M1 and M5: two files of one name, and a new folder that holds a folder with games, are refused when planning
+    #[test]
+    fn files_of_one_name_and_a_folder_holding_a_folder_with_games_are_refused_when_planning() {
+        let dir = temp_dir("add-game-refused");
+        let lib = Library::open(dir.join("lib")).unwrap();
+        let roms = dir.join("Drive/Roms/GB");
+        std::fs::create_dir_all(&roms).unwrap();
+        roots::add(&lib, &roms, Some("gb")).unwrap();
+        let (a, b) = (dir.join("Downloads/a/Game.gb"), dir.join("Downloads/b/Game.gb"));
+        for (p, seed) in [(&a, 1), (&b, 2)] {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, crate::audit::tests::rom(seed, 1024)).unwrap();
+        }
+        let cancel = AtomicBool::new(false);
+        let e = plan(&lib, &[a.clone(), b], "gb", &roms, "move", false, &cancel).unwrap_err();
+        assert!(format!("{e:#}").contains("Two of the files are called Game.gb"), "{e:#}");
+        let e = plan(&lib, &[a], "gb", &dir.join("Drive"), "copy", false, &cancel).unwrap_err();
+        assert!(format!("{e:#}").contains("can't go to"), "{e:#}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

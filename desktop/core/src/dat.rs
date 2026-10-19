@@ -659,11 +659,12 @@ fn load(conn: &Connection, rel: &str, platform: &str, dat: &Dat) -> Result<i64> 
 /// Make each DAT's newest version current, unless another was chosen (library.json `dat_current`).
 pub fn update_current(conn: &Connection, lib: &Library) -> Result<()> {
     let chosen = lib.meta()["dat_current"].as_object().cloned().unwrap_or_default();
-    let mut q = conn.prepare("SELECT id, platform, name, version, imported, source_path FROM dats ORDER BY platform, name, version, imported")?;
+    let mut q = conn.prepare("SELECT id, platform, name, version, imported, source_path FROM dats ORDER BY platform, name, version != 'undated', version, imported")?;
     let rows: Vec<(i64, String, String, String)> = q
         .query_map([], |r| Ok((r.get(0)?, format!("{}/{}", r.get::<_, String>(1)?, r.get::<_, String>(2)?), r.get(5)?, r.get(3)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    // rows are in version order, so the newest is last; a chosen version wins while it's there
+    // rows are in version order, so the newest is last (an undated DAT counts as the oldest,
+    // review M14); a chosen version wins while it's there
     let mut current: HashMap<&str, (i64, bool)> = HashMap::new();
     for (id, lineage, src, _) in &rows {
         let pinned = chosen.get(lineage).and_then(Value::as_str) == Some(src.as_str());
@@ -752,6 +753,8 @@ pub fn sync_library(ix: &Index, lib: &Library) -> Result<()> {
         crate::audit::match_dat(conn, id)?;
         changed = true;
     }
+    // a system made arcade (or not) since, or a set type changed on another computer (M11)
+    changed |= crate::arcade::refresh_places(conn, lib)?;
     if changed {
         update_current(conn, lib)?;
         crate::audit::changed(conn)?;
@@ -762,7 +765,7 @@ pub fn sync_library(ix: &Index, lib: &Library) -> Result<()> {
 /// The imported DATs, grouped as the page lists them.
 pub fn list(ix: &Index) -> Result<Value> {
     let mut q = ix.conn().prepare(
-        "SELECT id, platform, name, version, description, author, source_path, imported, current, games, roms FROM dats ORDER BY platform, name, version DESC",
+        "SELECT id, platform, name, version, description, author, source_path, imported, current, games, roms FROM dats ORDER BY platform, name, version != 'undated' DESC, version DESC",
     )?;
     let rows: Vec<Value> = q
         .query_map([], |r| {

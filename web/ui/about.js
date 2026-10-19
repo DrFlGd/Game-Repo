@@ -13,26 +13,34 @@ const RELEASES = "https://github.com/DrFlGd/Game-Repo/releases";
 
 export const TREE = `_library/                       the app's own files
   library.json                  the library's name and settings
-  games/<platform>/<Game>/      one folder per game with more than its ROM
-  games/<platform>/<SHA1>/      what Identify found for a file no DAT knows
+  games/<system>/<Game>/        one folder per game with more than its ROM
+  games/<system>/<SHA1>/        what Identify found for a file no DAT knows
   games/pc/<id>/                a PC game's details, pictures and documents
     game.json                   its id, DAT match, ROM hashes and details
-    media/                      scraped pictures and video: cover.png, screenshot.jpg…
+    sources/<source>.json       what each source said about it, kept apart
+    media/                      the chosen pictures and video: cover.png, screenshot.jpg…
+      <kind>/<source>.<ext>     the other sources' pictures of each kind
     docs/                       its guides, manuals, maps and scans (docs.json: their
                                 kinds and titles), scraped manuals among them
-  docs/<platform>/  docs/General/
+  docs/<system>/  docs/General/
                                 documents that go with no one game
-  dats/<platform>/              the DAT files you imported, every version
+  dats/<system>/                the DAT files you imported, every version
+  dats/magazines/               lists of magazine issues, to check against
+  collections/<id>.json         your collections, their rules and history
+  collections/<id>/             a collection's own DATs, when it was made from folders or a DAT
+  exports/<id>.json             what each export wrote, for Update and Check
   fixdats/  reports/            what's missing as DATs, and saved audit reports
   made-dats/                    DATs you made from your own sets
   layouts/                      export layouts of your own (JSON), for Export…
-  journal/                      moves and renames, for Undo
-BIOS/<system>/                  BIOS files, gathered from the BIOS files page
-Nintendo - SNES/                platform folders, when you move ROMs in
+  journal/                      every change to your files, for Undo
+BIOS/<system>/                  BIOS files, imported from the BIOS files page
+Nintendo - SNES/                system folders, when you import or move games in
   Chrono Trigger (USA).zip
 Sony - PlayStation/
   Final Fantasy VII (USA)/      a folder for a game of several files
     … (Disc 1).chd
+Magazines/
+  <Title>/                      a magazine's issues, with magazine.json
 PC/
   <Title> (<Year>)/             imported PC games
     install/  extracted/  patches/  extras/  dlc/  game.json`;
@@ -45,10 +53,12 @@ const DONE = [
   ["Phase 3", "Collections from rules with one game per title, saved as DATs and exported to ES-DE or a folder and kept in step, and systems of your own"],
   ["Phase 4", "PC games and installers imported into one layout, identified from Steam, GOG and LaunchBox, unpacked and added to Steam; Add a game… for any system"],
   ["Phase 5", "Details, pictures, video and manuals scraped from ScreenScraper, IGDB, TheGamesDB and LaunchBox for a system's games or its whole DAT; your documents imported, paired with their games and searched by their words; exports that carry what you choose"],
-  ["Phase 5b", "Exports to your handhelds' SD cards (muOS, Knulli, ROCKNIX, ES-DE on Android or Linux) in layouts you can copy and change in a visual editor, and BIOS files audited, gathered and exported with the games"],
+  ["Phase 5b", "Exports to your handhelds' SD cards (muOS, Knulli, ROCKNIX, ES-DE on Android or Linux) in layouts you can copy and change in a visual editor, and BIOS files audited, imported and exported with the games"],
   ["Phase 6", "The Library: every game across the systems by its covers, in a grid, list or table, searched and filtered by its details and saved as a collection; a page for each game where its details are changed by hand and kept over scrapes"],
   ["Phase 7", "Arcade sets from MAME and FinalBurn Neo: BIOS sets, devices, disks and samples audited, what's playable, sets kept non-merged, split or merged, and exports that carry what each game needs"],
   ["Phase 8", "Exports to RetroArch, Pegasus, LaunchBox and Playnite; updates, DLC and patches kept with their game; a collection's history with Undo; and a collection of magazines, read here and checked against lists of issues"],
+  ["UI passes", "The pages laid out again: the Library and Audit with their pages under them, one Import page, History, Help, collection groups, and imported games sorted into each system's own folder"],
+  ["Hardening, part 1", "After a review of the whole app, changes to your files made safer: a file that turns up where a game goes is never written over, and Undo never removes what it can't put back"],
 ];
 export const NEXT = [
   ["Phase 9", "Serving games to your other devices: Android, Linux and handhelds on your home network"],

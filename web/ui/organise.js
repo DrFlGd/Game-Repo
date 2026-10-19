@@ -72,7 +72,13 @@ export async function undoChange(id) {
   ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
   if (done.error) throw new Error(done.error);
   const r = done.result || {};
-  return r.problems?.length ? `Put back ${plural(r.undone, "step", "steps")}; ${r.problems.length} couldn't be: ${r.problems[0]}` : `Undone: ${r.label}.`;
+  const problems = r.problems || [];
+  const kept = problems.filter((p) => p.kept);
+  if (r.finished === false) {
+    const first = problems.find((p) => !p.kept);
+    return `Put back ${plural(r.undone, "step", "steps")}; ${problems.length - kept.length} couldn't be: ${first?.error}. Nothing else was removed; undo it again from History once that's put right.`;
+  }
+  return kept.length ? `Undone: ${r.label}. ${plural(kept.length, "file was", "files were")} changed after it ran, so ${kept.length === 1 ? "it stays" : "they stay"}: ${kept[0].to}` : `Undone: ${r.label}.`;
 }
 
 /** Finish a change that was interrupted. */
@@ -110,8 +116,9 @@ export async function runPlan(plan) {
     if (done.error) throw new Error(done.error);
     const r = done.result || {};
     const failed = r.failed?.length ? ` ${plural(r.failed.length, "step", "steps")} failed: ${r.failed[0].error}` : "";
+    const warned = r.warnings?.length ? ` ${plural(r.warnings.length, "file", "files")} will show once the folder is scanned again.` : "";
     const art = r.art?.length ? ` Artwork for ${plural(r.art.length, "game", "games")}.` : "";
-    const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}${art}`;
+    const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}${warned}${art}`;
     undoable(text, () => undoChange(r.id), 8000, [{ label: "History", run: () => { location.hash = "#/history"; } }]);
     return r;
   } catch (e) {
@@ -128,6 +135,7 @@ function Totals({ plan }) {
     ${plan.set_aside ? html`<p class="muted">${plural(plan.set_aside, "file is", "files are")} set aside in <code>.gamerepo-set-aside</code> at the top of ${plan.set_aside === 1 ? "its" : "their"} folder, until you empty it (History).</p>` : null}
     ${plan.out ? html`<p class="muted">Into <span class="op-to" title=${plan.out}>${shortPath(plan.out, 3)}</span>${plan.new_root ? ", which becomes a folder with games" : ""}.</p>` : null}
     ${plan.space.filter((s) => s.short).map((s) => html`<p class="warn-note" role="alert" key=${s.drive}>Not enough space on ${s.drive}: ${size(s.needed)} needed, ${size(s.free)} free.</p>`)}
+    ${plan.space.filter((s) => s.copied > 0).map((s) => html`<p class="muted" key=${"copied-" + s.drive}>${s.drive} can't hold hardlinks, so ${size(s.copied)} is copied instead.</p>`)}
   </div>`;
 }
 

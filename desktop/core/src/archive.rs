@@ -101,10 +101,14 @@ fn read_zip(path: &Path, full: bool, cancel: &AtomicBool) -> io::Result<Listing>
         }
         let (size, crc) = (raw.size(), raw.crc32());
         drop(raw);
-        if full {
+        if full || hash::may_have_header(&name) {
             let mut m = zip.by_index(i).map_err(other)?;
-            let hashes = hash::hash_reader(&mut m, size, &name, cancel)?;
-            out.members.push(Member { name, hashes, full: true });
+            match hash::hash_reader(&mut m, size, &name, cancel) {
+                Ok(hashes) => out.members.push(Member { name, hashes, full: true }),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => return Err(e),
+                // a member that doesn't read back (a bad CRC): the others are still there
+                Err(_) => continue,
+            }
         } else {
             out.members.push(Member { hashes: Hashes::quick(size, crc), name, full: false });
         }
@@ -163,6 +167,10 @@ fn read_7z(path: &Path, full: bool, cancel: &AtomicBool) -> io::Result<Listing> 
                 out.locked = true;
                 continue;
             }
+            if hash::may_have_header(&name) && e.size() > 0 {
+                // its headerless hashes need it read: the whole archive is (7z is solid)
+                return read_7z(path, true, cancel);
+            }
             if e.has_crc || e.size() == 0 {
                 out.members.push(Member { hashes: Hashes::quick(e.size(), e.crc as u32), name, full: false });
             } else {
@@ -218,8 +226,11 @@ fn rar_name(p: &Path) -> String {
 }
 
 /// A scratch folder for RAR members (unrar writes files, so each goes through one).
+/// A scratch folder of its own for each RAR read (scans read several at once).
 fn scratch() -> PathBuf {
-    std::env::temp_dir().join(format!("gamerepo-rar-{}", std::process::id()))
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("gamerepo-rar-{}-{n}", std::process::id()))
 }
 
 fn read_rar(path: &Path, full: bool, cancel: &AtomicBool) -> io::Result<Listing> {
@@ -238,6 +249,9 @@ fn read_rar(path: &Path, full: bool, cancel: &AtomicBool) -> io::Result<Listing>
             if e.is_encrypted() {
                 out.locked = true;
                 continue;
+            }
+            if hash::may_have_header(&name) && e.unpacked_size > 0 {
+                return read_rar(path, true, cancel);
             }
             out.members.push(Member { hashes: Hashes::quick(e.unpacked_size, e.file_crc), name, full: false });
         }

@@ -9,7 +9,7 @@ use crate::roots;
 use anyhow::{anyhow, bail, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 /// A file matches a ROM by the strongest hash both have: SHA1, else MD5, else CRC32
@@ -61,12 +61,25 @@ pub fn match_files(conn: &Connection) -> Result<usize> {
     tx.execute("DELETE FROM matches WHERE file_id IN (SELECT id FROM files WHERE matched = 0)", [])?;
     let scope = "f.matched = 0";
     let n = tx.execute(&match_sql("", scope), [])? + tx.execute(&match_sql("hl_", &format!("{scope} AND b.hl_crc32 IS NOT NULL")), [])?;
-    let sheets = unmatched_sheets(&tx, "f.matched = 0")?;
+    let mut sheets = unmatched_sheets(&tx, "f.matched = 0")?;
+    // a sheet scanned before its tracks is looked at again once files beside it are (review M12)
+    let dirs: HashSet<(String, String)> = tx
+        .prepare("SELECT DISTINCT root_id, rel_path FROM files WHERE matched = 0 AND parent_id IS NULL")?
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .map(|r| r.map(|(root, rel)| (root, folder_of(&rel).to_string())))
+        .collect::<rusqlite::Result<_>>()?;
+    if !dirs.is_empty() {
+        sheets.extend(
+            unmatched_sheets(&tx, "f.matched != 0")?
+                .into_iter()
+                .filter(|(_, root, rel, _)| dirs.contains(&(root.clone(), folder_of(rel).to_string()))),
+        );
+    }
     let touched = tx.execute("UPDATE files SET matched = 1 WHERE matched = 0 AND (blob_id IS NOT NULL OR kind IN ('zip', '7z', 'rar', 'chd', 'cso', 'zso', 'rvz'))", [])?;
     let n = n + match_sheets(&tx, &sheets, None)?;
     let disks = tx.execute(&disk_sql("1"), [])?;
     let n = n + disks;
-    if touched > 0 || disks > 0 {
+    if touched > 0 || n > 0 {
         changed(&tx)?;
     }
     tx.commit()?;
@@ -83,6 +96,11 @@ pub fn match_dat(conn: &Connection, dat_id: i64) -> Result<usize> {
     changed(&tx)?;
     tx.commit()?;
     Ok(n)
+}
+
+/// The folder a file is in, relative to its root ("" at the top).
+fn folder_of(rel: &str) -> &str {
+    rel.rsplit_once('/').map_or("", |(d, _)| d)
 }
 
 /// A cue sheet or GDI with no match: (file id, root id, its path relative to the root, the root's path).
@@ -180,16 +198,22 @@ const MATCHED: &str = "
 /// The same for an arcade DAT: named when it's where its system's set type puts it
 /// (`dat_places`): in the ZIP (or 7z) of the machine it belongs in, under its name there, or
 /// a disk (or loose file) in a folder named for that machine.
-const MATCHED_ARCADE: &str = "
-  fm AS (SELECT f.id AS file_id,
-                MAX(CASE WHEN EXISTS (SELECT 1 FROM dat_places pl WHERE pl.rom_id = r.id AND (
+macro_rules! placed {
+    // file f (in archive p, if any) is where its system's set type puts ROM r
+    () => {
+        "EXISTS (SELECT 1 FROM dat_places pl WHERE pl.rom_id = r.id AND (
                       (p.id IS NOT NULL AND p.kind IN ('zip', '7z') AND p.name = pl.container || '.' || p.kind AND f.rel_path = p.rel_path || '/' || pl.member)
                       OR (p.id IS NULL AND (f.rel_path = pl.container || '/' || pl.member
-                          OR substr(f.rel_path, -length(pl.container) - length(pl.member) - 2) = '/' || pl.container || '/' || pl.member)))) THEN 1 ELSE 0 END) AS named,
+                          OR substr(f.rel_path, -length(pl.container) - length(pl.member) - 2) = '/' || pl.container || '/' || pl.member))))"
+    };
+}
+const MATCHED_ARCADE: &str = concat!("
+  fm AS (SELECT f.id AS file_id,
+                MAX(CASE WHEN ", placed!(), " THEN 1 ELSE 0 END) AS named,
                 MIN(r.id) AS rom_id
          FROM matches m JOIN dat_roms r ON r.id = m.rom_id AND r.dat_id = ?1
          JOIN files f ON f.id = m.file_id LEFT JOIN files p ON p.id = f.parent_id
-         GROUP BY f.id)";
+         GROUP BY f.id)");
 
 fn matched_sql(platform: &str) -> &'static str {
     if platforms::is_arcade(platform) {
@@ -210,9 +234,30 @@ const UNMATCHED: &str = "
            -- (the tracks of a CHD that is an arcade machine's disk)
            AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.file_id = f.parent_id))";
 
-/// ROMs of the DAT matched by more than one file.
+/// The files of ROMs of the DAT matched by more than one file (`dm`: rom_id, file_id).
 const DUPLICATES: &str = "
-  dr AS (SELECT m.rom_id FROM matches m JOIN dat_roms r ON r.id = m.rom_id AND r.dat_id = ?1 GROUP BY m.rom_id HAVING COUNT(*) > 1)";
+  dr AS (SELECT m.rom_id FROM matches m JOIN dat_roms r ON r.id = m.rom_id AND r.dat_id = ?1 GROUP BY m.rom_id HAVING COUNT(*) > 1),
+  dm AS (SELECT m.rom_id, m.file_id FROM matches m WHERE m.rom_id IN (SELECT rom_id FROM dr))";
+
+/// The same for an arcade DAT, where a ROM a clone shares with its parent is in both
+/// machines' ZIPs of a non-merged set: a file is a duplicate when it's at none of its
+/// ROMs' places while another file is at one, or when two files are at the same place.
+const DUPLICATES_ARCADE: &str = concat!("
+  pr AS (SELECT m.rom_id, m.file_id FROM matches m JOIN dat_roms r ON r.id = m.rom_id AND r.dat_id = ?1
+         JOIN files f ON f.id = m.file_id LEFT JOIN files p ON p.id = f.parent_id WHERE ", placed!(), "),
+  twice AS (SELECT rom_id FROM pr GROUP BY rom_id HAVING COUNT(*) > 1),
+  dm AS (SELECT MIN(m.rom_id) AS rom_id, m.file_id FROM matches m JOIN dat_roms r ON r.id = m.rom_id AND r.dat_id = ?1
+         WHERE (m.file_id NOT IN (SELECT file_id FROM pr) AND m.rom_id IN (SELECT rom_id FROM pr))
+            OR (m.rom_id IN (SELECT rom_id FROM twice) AND EXISTS (SELECT 1 FROM pr WHERE pr.rom_id = m.rom_id AND pr.file_id = m.file_id))
+         GROUP BY m.file_id)");
+
+fn duplicates_sql(platform: &str) -> &'static str {
+    if platforms::is_arcade(platform) {
+        DUPLICATES_ARCADE
+    } else {
+        DUPLICATES
+    }
+}
 
 pub struct DatRef {
     pub id: i64,
@@ -286,7 +331,7 @@ pub fn summary(conn: &Connection, dat_id: i64) -> Result<Value> {
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     let duplicates: i64 = conn.query_row(
-        &format!("WITH {DUPLICATES} SELECT COUNT(*) FROM matches m WHERE m.rom_id IN (SELECT rom_id FROM dr)"),
+        &format!("WITH {} SELECT COUNT(*) FROM dm", duplicates_sql(&d.platform)),
         [dat_id],
         |r| r.get(0),
     )?;
@@ -431,7 +476,7 @@ pub fn list_by(ix: &Index, lib: &Library, dat_id: i64, tab: &str, search: &str, 
             let (with, filter, from) = match tab {
                 "matched" => (matched_sql(&d.platform), "fm.named = 1", "fm JOIN files f ON f.id = fm.file_id JOIN dat_roms r ON r.id = fm.rom_id"),
                 "misnamed" => (matched_sql(&d.platform), "fm.named = 0", "fm JOIN files f ON f.id = fm.file_id JOIN dat_roms r ON r.id = fm.rom_id"),
-                _ => (DUPLICATES, "1", "dr JOIN matches mm ON mm.rom_id = dr.rom_id JOIN files f ON f.id = mm.file_id JOIN dat_roms r ON r.id = dr.rom_id"),
+                _ => (duplicates_sql(&d.platform), "1", "dm JOIN files f ON f.id = dm.file_id JOIN dat_roms r ON r.id = dm.rom_id"),
             };
             let search_sql = "(f.rel_path LIKE ?2 ESCAPE '\\' OR r.name LIKE ?2 ESCAPE '\\')";
             let total: i64 = conn.query_row(
@@ -852,6 +897,42 @@ pub mod tests {
         v
     }
 
+    // review H7 and H8: a headered ROM in a ZIP matches with a quick scan, and a member
+    // that doesn't read back leaves the archive's others in the audit
+    #[test]
+    fn zipped_headered_roms_match_and_a_bad_member_hides_no_others() {
+        let f = fixture("audit-headered-zip");
+        let nes = f.dir.join("Roms/NES");
+        let echo = std::fs::read(nes.join("Echo (USA).nes")).unwrap();
+        std::fs::remove_file(nes.join("Echo (USA).nes")).unwrap();
+        zip(&nes.join("Echo (USA).zip"), &[("Echo (USA).nes", &echo)]);
+        run_scan(&f, false);
+        let id = import(&f, "nes.zip")[0]["id"].as_i64().unwrap();
+        assert_eq!(names(&f, id, "have"), ["Echo (USA)"]);
+
+        // a ZIP of two stored members, the first damaged (its bytes no longer match its CRC)
+        let gb_dat = import(&f, "gb.dat")[0]["id"].as_i64().unwrap();
+        let both = f.gb.join("Both.zip");
+        {
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&both).unwrap());
+            let stored = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            z.start_file("Gamma (Japan).gb", stored).unwrap();
+            z.write_all(&rom(3, 32768)).unwrap();
+            z.start_file("Delta (World).gb", stored).unwrap();
+            z.write_all(&rom(4, 65536)).unwrap();
+            z.finish().unwrap();
+        }
+        let mut bytes = std::fs::read(&both).unwrap();
+        bytes[200] ^= 0xff;
+        std::fs::write(&both, &bytes).unwrap();
+        std::fs::remove_file(f.gb.join("Delta (World).zip")).unwrap();
+        run_scan(&f, true);
+        let kind: String = f.ix.conn().query_row("SELECT kind FROM files WHERE name = 'Both.zip'", [], |r| r.get(0)).unwrap();
+        assert_eq!(kind, "zip", "still read as a ZIP");
+        assert!(names(&f, gb_dat, "have").contains(&"Delta (World)".to_string()));
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
     #[test]
     fn scan_import_and_audit() {
         let f = fixture("audit");
@@ -966,6 +1047,11 @@ pub mod tests {
         assert_eq!(n, 1, "the chosen version is kept in the library");
         crate::dat::remove(&f.ix, &f.lib, v1).unwrap();
         assert_eq!(current(v2), 1);
+        // review M14: an undated copy is older than any dated one
+        let undated = dat_xml("Nintendo - Game Boy (Parent-Clone)", "", &[("Alpha (USA)", None, rom_xml("Alpha (USA).gb", &rom(1, 32768)))]);
+        write(&f.dir.join("dats/gb0.dat"), undated.as_bytes());
+        let v0 = import(&f, "gb0.dat")[0]["id"].as_i64().unwrap();
+        assert_eq!((current(v0), current(v2)), (0, 1), "the dated one stays current");
         // a DAT whose platform isn't known is asked about, and the answer remembered
         let odd = dat_xml("Nintendo - Satellaview", "1", &[("BS X (Japan)", None, rom_xml("BS X (Japan).bs", &rom(7, 64)))]);
         write(&f.dir.join("dats/bs.dat"), odd.as_bytes());
@@ -992,6 +1078,66 @@ pub mod tests {
         let cut: (String, i64) = f.ix.conn().query_row(
             "SELECT m.name, m.hashed FROM files z JOIN files m ON m.parent_id = z.id WHERE z.name = 'Cut.zip'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert_eq!(cut, ("Delta (World).gb".to_string(), 2));
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    // review M10 and M13: a folder's new system hint reaches what's scanned there, and a
+    // scan that finds nothing new keeps the audit's summaries
+    #[test]
+    fn a_new_system_hint_reaches_scanned_files_and_a_quiet_scan_keeps_summaries() {
+        let f = fixture("hint-quiet");
+        run_scan(&f, false);
+        let gb_id = import(&f, "gb.dat")[0]["id"].as_i64().unwrap();
+        let platform = |name: &str| -> Option<String> {
+            f.ix.conn().query_row("SELECT platform FROM files WHERE name = ?1", [name], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(platform("beta.gb").as_deref(), Some("gb"));
+        summary(f.ix.conn(), gb_id).unwrap();
+        let cached = || f.ix.conn().query_row("SELECT COUNT(*) FROM index_meta WHERE key LIKE 'summary:%'", [], |r| r.get::<_, i64>(0)).unwrap();
+        let (gen, kept) = (generation(f.ix.conn()).unwrap(), cached());
+        assert!(kept > 0);
+        run_scan(&f, false);
+        assert_eq!((generation(f.ix.conn()).unwrap(), cached()), (gen.clone(), kept), "nothing changed");
+        // the hint, as the page sets it: the index follows at once
+        let id = crate::roots::list(&f.lib)[0].id.clone();
+        crate::roots::update(&f.lib, &id, None, Some(Some("nes"))).unwrap();
+        assert!(scan::reguess_root(&f.ix, &f.lib, &id).unwrap() > 0);
+        assert_eq!(platform("beta.gb").as_deref(), Some("nes"));
+        assert_eq!(platform("Delta (World).gb").as_deref(), Some("nes"), "a ZIP's member too");
+        assert_ne!(generation(f.ix.conn()).unwrap(), gen);
+        // and as another computer would (only library.json changed): the next scan follows
+        crate::roots::update(&f.lib, &id, None, Some(None)).unwrap();
+        run_scan(&f, false);
+        assert_eq!(platform("beta.gb").as_deref(), Some("gb"));
+        assert_eq!(platform("Echo (USA).nes").as_deref(), Some("nes"));
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    // review M12: a cue sheet scanned before its tracks is matched once they're there
+    #[test]
+    fn a_cue_scanned_before_its_tracks_is_matched_with_them() {
+        let f = fixture("cue-first");
+        let src = crate::image::tests::sources("cue-first-src");
+        let read = |n: &str| std::fs::read(src.join(n)).unwrap();
+        let (cue, t1, t2) = (read("Disc Game (USA).cue"), read("Disc Game (USA) (Track 1).bin"), read("Disc Game (USA) (Track 2).bin"));
+        let mine = f.dir.join("Roms/PSX/Mine");
+        write(&mine.join("mine.cue"), b"FILE \"t1.bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\nFILE \"t2.bin\" BINARY\n  TRACK 02 AUDIO\n    INDEX 00 00:00:00\n    INDEX 01 00:00:10\n");
+        let psx_dat = dat_xml("Sony - PlayStation", "2026.10.07", &[(
+            "Disc Game (USA)", None,
+            rom_xml("Disc Game (USA).cue", &cue) + &rom_xml("Disc Game (USA) (Track 1).bin", &t1) + &rom_xml("Disc Game (USA) (Track 2).bin", &t2),
+        )]);
+        write(&f.dir.join("dats/psx.dat"), psx_dat.as_bytes());
+        let psx_id = import(&f, "psx.dat")[0]["id"].as_i64().unwrap();
+        run_scan(&f, false);
+        let method = || -> Option<String> {
+            f.ix.conn().query_row("SELECT m.method FROM matches m JOIN files f ON f.id = m.file_id WHERE f.name = 'mine.cue'", [], |r| r.get(0)).optional().unwrap()
+        };
+        assert_eq!(method(), None, "its tracks aren't there yet");
+        write(&mine.join("t1.bin"), &t1);
+        write(&mine.join("t2.bin"), &t2);
+        run_scan(&f, false);
+        assert_eq!(method().as_deref(), Some("cue"));
+        assert_eq!(summary(f.ix.conn(), psx_id).unwrap()["have"], 1);
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 

@@ -203,6 +203,56 @@ fn guess_platform(root: &Root, rel: &str, member: Option<&str>) -> Option<String
     crate::platforms::guess(root.platform.as_deref(), &dirs, name)
 }
 
+/// The system of a file in an archive or disc image (`kind` the container's): a disc
+/// image's tracks have the image's.
+fn member_platform(root: &Root, container_rel: &str, kind: &str, name: &str) -> Option<String> {
+    guess_platform(root, container_rel, (!crate::image::KINDS.contains(&kind)).then_some(name))
+}
+
+/// Guess again the system of every file of a folder with games (its hint or its place
+/// changed). Returns how many files' systems changed.
+fn reguess(conn: &Connection, root: &Root) -> Result<usize> {
+    type Row = (i64, String, String, Option<String>, Option<(String, String)>);
+    let rows: Vec<Row> = conn
+        .prepare(
+            "SELECT f.id, f.rel_path, f.name, f.platform, p.rel_path, p.kind
+             FROM files f LEFT JOIN files p ON p.id = f.parent_id WHERE f.root_id = ?1",
+        )?
+        .query_map([&root.id], |r| {
+            let parent: Option<String> = r.get(4)?;
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, parent.map(|p| (p, r.get::<_, String>(5).unwrap_or_default()))))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut set = conn.prepare_cached("UPDATE files SET platform = ?2 WHERE id = ?1")?;
+    let mut n = 0;
+    for (id, rel, name, old, parent) in rows {
+        let new = match &parent {
+            None => guess_platform(root, &rel, None),
+            Some((prel, kind)) => member_platform(root, prel, kind, &name),
+        };
+        if new != old {
+            set.execute(params![id, new])?;
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
+/// After a folder's system hint or place is changed: what's already scanned in it takes
+/// the new guess (review M10), without waiting for its files to change.
+pub fn reguess_root(ix: &Index, lib: &Library, id: &str) -> Result<usize> {
+    let Some(root) = roots::list(lib).into_iter().find(|r| r.id == id) else { return Ok(0) };
+    let conn = ix.conn();
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("UPDATE roots SET path = ?2, platform = ?3 WHERE id = ?1", params![root.id, root.path, root.platform])?;
+    let n = reguess(&tx, &root)?;
+    if n > 0 {
+        crate::audit::changed(&tx)?;
+    }
+    tx.commit()?;
+    Ok(n)
+}
+
 /// A file to hash.
 struct Work {
     file_id: i64,
@@ -237,9 +287,13 @@ fn work_on(w: &Work, full: bool, cancel: &AtomicBool) -> Outcome {
                 Err(e)
             } else if kind == "rvz" && e.kind() == std::io::ErrorKind::NotFound {
                 Ok(Outcome::NeedsTool(kind))
-            } else {
-                // not an archive after all: an ordinary file
+            } else if matches!(e.kind(), std::io::ErrorKind::Other | std::io::ErrorKind::InvalidData | std::io::ErrorKind::UnexpectedEof) {
+                // not an archive after all (it can't be opened as one): an ordinary file
                 hash_file(w, cancel).map(Outcome::File)
+            } else {
+                // the file couldn't be read just now (held by another program, a drive
+                // that went away): it isn't hashed, so the next scan tries again
+                Err(e)
             }
         })
     } else {
@@ -326,14 +380,26 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
     let roots = roots::list(lib);
     crate::dat::sync_library(ix, lib)?;
 
-    // the roots table follows library.json; files of removed roots go
+    // the roots table follows library.json; files of removed roots go, and those of a
+    // root whose hint or place changed take the new guess (review M10)
+    // (what changed decides whether the audit's summaries are worked out again: M13)
+    let mut altered = 0usize;
     {
         let tx = conn.unchecked_transaction()?;
+        let before: HashMap<String, (String, Option<String>)> = tx
+            .prepare("SELECT id, path, platform FROM roots")?
+            .query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?
+            .collect::<rusqlite::Result<_>>()?;
         tx.execute("DELETE FROM roots", [])?;
         for r in &roots {
             tx.execute("INSERT INTO roots (id, path, platform) VALUES (?1, ?2, ?3)", params![r.id, r.path, r.platform])?;
         }
-        tx.execute("DELETE FROM files WHERE root_id NOT IN (SELECT id FROM roots)", [])?;
+        altered += tx.execute("DELETE FROM files WHERE root_id NOT IN (SELECT id FROM roots)", [])?;
+        for r in &roots {
+            if before.get(&r.id).is_some_and(|(path, platform)| *path != r.path || *platform != r.platform) {
+                altered += reguess(&tx, r)?;
+            }
+        }
         tx.commit()?;
     }
     conn.execute("INSERT INTO scans (started, full) VALUES (?1, ?2)", params![now(), opts.full as i64])?;
@@ -356,14 +422,17 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
                 }
                 None => walk(lib, &r.dir, i, cancel, &mut walked, &mut errors),
             }
-            conn.execute("UPDATE files SET missing_since = NULL WHERE root_id = ?1 AND missing_since IS NOT NULL", [&r.id])?;
+            altered += conn.execute("UPDATE files SET missing_since = NULL WHERE root_id = ?1 AND missing_since IS NOT NULL", [&r.id])?;
         } else {
             missing_roots.push(r.id.clone());
-            conn.execute("UPDATE files SET missing_since = COALESCE(missing_since, ?2) WHERE root_id = ?1", params![r.id, now()])?;
+            altered += conn.execute("UPDATE files SET missing_since = ?2 WHERE root_id = ?1 AND missing_since IS NULL", params![r.id, now()])?;
         }
     }
     let found_ids: Vec<&str> = roots.iter().filter(|r| r.found()).map(|r| r.id.as_str()).collect();
     if cancel.load(Ordering::Relaxed) {
+        if altered > 0 {
+            crate::audit::changed(conn)?;
+        }
         return finish(conn, scan_id, &json!({ "stopped": true }), 0, 0, walked.len());
     }
 
@@ -378,23 +447,40 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
     }
     let mut known: HashMap<(String, String), Row> = HashMap::new();
     {
-        let mut q = conn.prepare("SELECT id, root_id, rel_path, name, size, mtime, kind, hashed FROM files WHERE parent_id IS NULL")?;
-        let rows = q.query_map([], |r| {
+        let read = |r: &rusqlite::Row| {
             Ok(((r.get::<_, String>(1)?, r.get::<_, String>(2)?), Row {
                 id: r.get(0)?, name: r.get(3)?, size: r.get::<_, i64>(4)? as u64, mtime: r.get(5)?, kind: r.get(6)?, hashed: r.get(7)?,
             }))
-        })?;
-        for row in rows {
-            let (k, v) = row?;
-            if !found_ids.contains(&k.0.as_str()) {
-                continue;
-            }
-            if let Some(places) = &places {
-                if !places.iter().any(|(ri, place)| roots[*ri].id == k.0 && within(&k.1, place)) {
-                    continue;
+        };
+        const COLUMNS: &str = "SELECT id, root_id, rel_path, name, size, mtime, kind, hashed FROM files";
+        match &places {
+            // only the rows under each place, by the (root_id, rel_path) index (review M13)
+            Some(places) => {
+                let mut q = conn.prepare(&format!(
+                    "{COLUMNS} WHERE parent_id IS NULL AND root_id = ?1
+                       AND (?2 = '' OR rel_path = ?2 OR (rel_path >= ?2 || '/' AND rel_path < ?2 || '0'))"
+                ))?;
+                for (ri, place) in places {
+                    if !roots[*ri].found() {
+                        continue;
+                    }
+                    for row in q.query_map(params![roots[*ri].id, place], read)? {
+                        let (k, v) = row?;
+                        if within(&k.1, place) {
+                            known.insert(k, v);
+                        }
+                    }
                 }
             }
-            known.insert(k, v);
+            None => {
+                let mut q = conn.prepare(&format!("{COLUMNS} WHERE parent_id IS NULL"))?;
+                for row in q.query_map([], read)? {
+                    let (k, v) = row?;
+                    if found_ids.contains(&k.0.as_str()) {
+                        known.insert(k, v);
+                    }
+                }
+            }
         }
     }
     let needs_hash = |row: &Row| row.hashed == 0 || (opts.full && archive::KINDS.contains(&row.kind.as_str()) && row.hashed < 2);
@@ -446,7 +532,7 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
                 let mut q = tx.prepare("SELECT id, name FROM files WHERE parent_id = ?1")?;
                 let members: Vec<(i64, String)> = q.query_map([row.id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
                 for (id, name) in members {
-                    tx.execute("UPDATE files SET platform = ?2 WHERE id = ?1", params![id, guess_platform(root, &w.rel, Some(&name))])?;
+                    tx.execute("UPDATE files SET platform = ?2 WHERE id = ?1", params![id, member_platform(root, &w.rel, &row.kind, &name)])?;
                 }
             }
             tx.execute(
@@ -485,11 +571,13 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
         let next = AtomicUsize::new(0);
         let (send, recv) = mpsc::channel::<(usize, Outcome)>();
         let readers = opts.readers.clamp(1, 16).min(queue.len());
+        // set when the results can't be recorded: the readers stop rather than hash on
+        let halt = AtomicBool::new(false);
         std::thread::scope(|s| -> Result<()> {
             for _ in 0..readers {
-                let (send, next, queue) = (send.clone(), &next, &queue);
+                let (send, next, queue, halt) = (send.clone(), &next, &queue, &halt);
                 s.spawn(move || loop {
-                    if cancel.load(Ordering::Relaxed) {
+                    if cancel.load(Ordering::Relaxed) || halt.load(Ordering::Relaxed) {
                         break;
                     }
                     let i = next.fetch_add(1, Ordering::Relaxed);
@@ -500,10 +588,28 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
                 });
             }
             drop(send);
-            let mut tx = Some(conn.unchecked_transaction()?);
-            let (mut in_batch, mut last) = (0usize, Instant::now());
+            let mut tx: Option<rusqlite::Transaction> = None;
+            // committed every BATCH files, every second, and whenever no result comes for
+            // half a second, so other writers (the audit's cache, edits, DAT imports)
+            // aren't kept waiting behind large files
+            let (mut in_batch, mut last, mut opened) = (0usize, Instant::now(), Instant::now());
             // record every result, even after Stop: what was hashed is kept
-            for (i, outcome) in recv.iter() {
+            loop {
+                let (i, outcome) = match recv.recv_timeout(Duration::from_millis(500)) {
+                    Ok(r) => r,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        // nothing new for a while (a large file being read): what's recorded is committed
+                        if let Some(t) = tx.take() {
+                            if let Err(e) = t.commit() {
+                                halt.store(true, Ordering::Relaxed);
+                                return Err(e.into());
+                            }
+                            in_batch = 0;
+                        }
+                        continue;
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                };
                 let w = &queue[i];
                 match &outcome {
                     Outcome::Failed(e) => {
@@ -518,14 +624,22 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
                         bytes += w.size;
                     }
                 }
-                if tx.is_none() {
-                    tx = Some(conn.unchecked_transaction()?);
-                }
-                record(tx.as_ref().unwrap(), w, &roots[w.root], scan_id, outcome)?;
-                in_batch += 1;
-                if in_batch >= BATCH {
-                    tx.take().unwrap().commit()?;
-                    in_batch = 0;
+                let recorded = (|| -> Result<()> {
+                    if tx.is_none() {
+                        tx = Some(conn.unchecked_transaction()?);
+                        opened = Instant::now();
+                    }
+                    record(tx.as_ref().unwrap(), w, &roots[w.root], scan_id, outcome)?;
+                    in_batch += 1;
+                    if in_batch >= BATCH || opened.elapsed() > Duration::from_secs(1) {
+                        tx.take().unwrap().commit()?;
+                        in_batch = 0;
+                    }
+                    Ok(())
+                })();
+                if let Err(e) = recorded {
+                    halt.store(true, Ordering::Relaxed);
+                    return Err(e);
                 }
                 if last.elapsed() > Duration::from_millis(100) {
                     last = Instant::now();
@@ -541,12 +655,16 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
     stopped |= cancel.load(Ordering::Relaxed);
 
     // 4. each CHD's own SHA1, from its header, for arcade disks (D58)
-    chd_headers(conn, &roots)?;
+    let chd = chd_headers(conn, &roots)?;
 
     // 5. match what changed against the DATs; drop hashes no file has any more
     progress(json!({ "text": "Matching" }));
     let matched = crate::audit::match_files(conn)?;
-    crate::audit::changed(conn)?;
+    // match_files marks a change itself when it matched anything again; a scan that found
+    // nothing new (most of the watcher's) leaves the audit's summaries as they are (M13)
+    if altered + added + changed + moved + removed + chd > 0 {
+        crate::audit::changed(conn)?;
+    }
     conn.execute("DELETE FROM blobs WHERE id NOT IN (SELECT blob_id FROM files WHERE blob_id IS NOT NULL)", [])?;
 
     let summary = json!({
@@ -559,14 +677,15 @@ pub fn scan(ix: &Index, lib: &Library, opts: &Options, cancel: &AtomicBool, prog
 }
 
 /// Read the header of each CHD whose own SHA1 isn't known yet ("" for one that can't be read).
-fn chd_headers(conn: &Connection, roots: &[Root]) -> Result<()> {
+fn chd_headers(conn: &Connection, roots: &[Root]) -> Result<usize> {
     let rows: Vec<(i64, String, String)> = conn
         .prepare("SELECT id, root_id, rel_path FROM files WHERE kind = 'chd' AND parent_id IS NULL AND chd_sha1 IS NULL AND missing_since IS NULL")?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
         .collect::<rusqlite::Result<_>>()?;
     if rows.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
+    let n = rows.len();
     let tx = conn.unchecked_transaction()?;
     for (id, root, rel) in rows {
         let Some(r) = roots.iter().find(|r| r.id == root) else { continue };
@@ -575,7 +694,7 @@ fn chd_headers(conn: &Connection, roots: &[Root]) -> Result<()> {
         tx.execute("UPDATE files SET chd_sha1 = ?2 WHERE id = ?1", params![id, sha1])?;
     }
     tx.commit()?;
-    Ok(())
+    Ok(n)
 }
 
 fn finish(conn: &Connection, scan_id: i64, summary: &Value, hashed: usize, bytes: u64, seen: usize) -> Result<Value> {

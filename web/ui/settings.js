@@ -282,7 +282,7 @@ export function HistorySection({ lib }) {
       <span class="change-label"><span>${c.label}</span><span class="muted">${c.created?.replace("T", " ").slice(0, 16)} · ${plural(c.ops, "step", "steps")}${c.held ? ` · ${size(c.held)} set aside` : ""}</span></span>
       <span class=${c.state === "interrupted" ? "badge review" : "badge"}>${state[c.state] || c.state}</span>
       ${c.state === "interrupted" ? html`<button type="button" class="ghost" data-action="finish" disabled=${busy || off} onClick=${() => act(() => finishChange(c.id).then(() => "Finished it."))}>Finish</button>` : null}
-      ${c.can_undo ? html`<button type="button" class="ghost" data-action="undo" disabled=${busy || off} onClick=${() => act(() => undoChange(c.id))}>"Undo"</button>` : null}
+      ${c.can_undo ? html`<button type="button" class="ghost" data-action="undo" disabled=${busy || off} onClick=${() => act(() => undoChange(c.id))}>Undo</button>` : null}
       ${c.held && c.state !== "running" ? html`<button type="button" class="ghost" data-action="empty" disabled=${busy || off} onClick=${() => empty(c)}>Empty…</button>` : null}
     </li>`)}</ul>` : null}
     ${held ? html`<div class="home-actions"><button type="button" class="ghost" id="history-empty" disabled=${busy || off} onClick=${() => empty(null)}>Empty everything set aside (${size(held)})…</button></div>` : null}

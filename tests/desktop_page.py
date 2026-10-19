@@ -652,10 +652,19 @@ async def main():
             await pg.click('.sidebar a[href="#/audit"]')
             await pg.wait_for_selector("#audit-page")
             await pg.click('#audit-panel-list a[data-id="psp"]')
+            # PlayStation, shown before, has one game too: wait for the PSP's own audit
+            await pg.wait_for_selector('#audit-pick[data-platform="psp"]', state="attached")
             await pg.wait_for_function("() => document.querySelector('#audit-have')?.textContent === '1'")
             await pg.click("#audit-convert")
             await pg.wait_for_selector("#convert-dialog")
-            await pg.wait_for_function("() => document.querySelector('#convert-to')?.value === 'zso'", timeout=5000)
+            try:
+                await pg.wait_for_function("() => document.querySelector('#convert-to')?.value === 'zso'", timeout=5000)
+            except Exception:
+                # what the dialog and the backend said, to see why (a FAIL below, not a crash)
+                seen = await pg.evaluate("""async () => ({ value: document.querySelector('#convert-to')?.value,
+                  formats: await window.__TAURI__.core.invoke('api', { cmd: 'formats', args: {} }).then((all) => all.find((x) => x.platform === 'psp')).catch((e) => String(e?.message || e)),
+                  library: await window.__TAURI__.core.invoke('api', { cmd: 'app_info', args: {} }).then((i) => i.library).catch((e) => String(e?.message || e)) })""")
+                print("convert dialog:", seen, "library.json formats:", json.loads((library / "_library/library.json").read_text()).get("formats"))
             offered = await pg.eval_on_selector_all("#convert-to option", "els => els.map(e => e.value)")
             await pg.keyboard.press("Escape")
             check("Settings › Preferred formats keeps the platform's choice in the library, and Convert… offers it first",

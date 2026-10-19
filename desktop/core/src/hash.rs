@@ -60,6 +60,14 @@ impl Header {
 const SNES_EXTS: &[&str] = &["sfc", "smc", "swc", "fig"];
 
 /// The header the start of a file shows, given its size and extension.
+/// Whether a file of this name can carry a header (or a byte order) `detect` finds:
+/// a quick scan reads such a member of an archive in full, as its CRC32 alone can't
+/// give the headerless hashes the DATs list.
+pub fn may_have_header(name: &str) -> bool {
+    let ext = crate::platforms::ext_of(name);
+    ["nes", "fds", "a78", "lnx", "v64", "n64", "z64"].contains(&ext.as_str()) || SNES_EXTS.contains(&ext.as_str())
+}
+
 pub fn detect(first: &[u8], size: u64, ext: &str) -> Option<Header> {
     let at = |off: usize, magic: &[u8]| first.len() >= off + magic.len() && &first[off..off + magic.len()] == magic;
     let bigger = |n: u64| size > n;

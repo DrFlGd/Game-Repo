@@ -2393,15 +2393,13 @@ full set, so only the full set needs keeping.
 - A file whose ROM two games of the DAT share counts as the game it makes whole (a game
   and a set that also holds it: the game).
 - Duplicating a collection from folders or a DAT copies its DATs, so each has its own.
-- **D51 isn't built yet.** The subset folders are outside the folders with games, and
-  setting aside, Undo and the journal work on the index's files; it needs them to take
-  files the index doesn't hold. Until then the old folders can be deleted by hand once the
-  collection is made (nothing in it depends on them).
+- **D51 was dropped** (Jerred, 2026-10-18) and isn't built. The old folders can be
+  deleted by hand once the collection is made (nothing in it depends on them).
 
 - **D52 (asked by Jerred 2026-10-18, for a later phase).** A collection keeps a history:
   every game added or left out (by hand, by a rules change, or by *Read them again…*) is
   recorded with when and how, shown in a history view on the collection, and each step
-  can be undone there.
+  can be undone there. Built in Phase 8b as D67 ("Phase 8b notes").
 - **D53 (agreed 2026-10-18).** *Bring these into the library*: in the review of a
   collection from folders, the games the full set doesn't have at all can be brought in:
   each one's files copied (hardlinked on the same drive) into the first folder with games
@@ -2410,6 +2408,8 @@ full set, so only the full set needs keeping.
   for Organise to put right), byte-identical copies once, as a change of kind `bring` with
   the preview and Undo, scanned after it runs. The folders read are never changed (D5).
   Games the full set has in part aren't brought in (Organise or Add a game… does that).
+  Built (v0.5.8); UI pass 3 moved it to the Import page (D71, D73), and since D77 each
+  system's games go to that system's own folder ("Import by system").
 - **D54 (agreed 2026-10-18).** A **Help** page in the menu: the words the app uses, each
   defined once (`TERMS` in `web/ui/help.js`), and what each page in the menu is for with
   its main actions (`PAGES`), with a search; the page test checks every page in the menu
@@ -2464,7 +2464,8 @@ PC games get the same.
   already knows them by hash. What's missing is a "belongs to" link in the library: the
   update's or DLC's own entry pointing at its base game, kept beside the game's metadata
   (as a PC game's `patches/` already are, D6), so the game's page lists them, the Library
-  shows the base game once, and exports and collections carry them with it.
+  shows the base game once, and exports and collections carry them with it. Scheduled in
+  Phase 8 and built in Phase 8b as D66 ("Phase 8b notes").
 
 **As built (2026-10-18).** D55 as written, with these choices:
 - `pcmeta.rs` holds the layout; sources.rs, meta.rs, browse.rs and docs.rs treat a folder
@@ -3097,6 +3098,117 @@ background*. The status bar's entry for that job reopens the window, and a messa
 *Show* says when the result is ready. The page behind the window doesn't close it
 (`Dialog`'s `sticky`).
 
+### Hardening after the v0.5.18 review (D78–D82)
+
+Jerred, 2026-10-18: before any new features, make the last build air tight. The review of
+v0.5.18 is in [review-2026-10-18.md](review-2026-10-18.md): how it was done, every finding
+with its ID (C1–C5 Critical, H1–H24 High, M1–M47 Medium, then Low), where it is, how it
+was checked and the fix. Work from that file; this section says what goes in which pull
+request, in what order, and what has been done. Each pull request adds a test that
+reproduces each finding it fixes (failing before the fix), a CHANGELOG line, and the
+review file's ID in the commit body. Mark a batch done here, with its PR, when it merges.
+
+Order (Jerred agreed the order, and asked for the docs batch to go with the first):
+
+1. **Safe changes, Undo, and the docs** (C1–C4, H1, H2, H4, M1–M5, M7, the reserved names;
+   the plan, CHANGELOG, About and Help text in "Docs (batch 1)"). Undo checks before it
+   deletes and sets aside instead of removing; copy, link and extract refuse a target
+   that appeared after the preview; a failed game keeps its archive; Undo never removes a
+   folder with games or the folders above it, and re-indexes what it put back; an
+   unreadable library.json or config.json is refused, never rewritten.
+   **Status: done, merged with batch 2 (PR #32) and released in v0.5.19.** Fixed: C1–C4, H1, H2, H4, M1–M5,
+   M7 and History's Undo label (from M43), and the "Docs (batch 1)" items. The Rust tests
+   in `organise.rs`, `library.rs` and `addgame.rs` reproduce the findings and name them in
+   a comment (M3's checks are in `names_are_safe_and_follow_the_template`); every finding
+   has a test but M2 (an index error is hard to cause on purpose). As built:
+   - Undo doesn't set a written file aside: it removes it only after checking every
+     original it replaced can come back (C1), and only when its size and modified time
+     are still what the journal recorded (`wrote`; a changed file is kept and reported
+     with `kept`, C2). While a step can't be undone the change isn't logged as undone,
+     so Undo can be tried again (`finished: false` in its answer).
+   - The journal records each step's `wrote` stamp and the folders it `made`; Undo
+     removes only those folders, never a folder with games or one above it (H1). Older
+     journals keep the climb, with the same guard.
+   - Undo stops before changing anything when a step's drive or folder with games isn't
+     there, and removes a folder it added only when it's there and empty (M4). It scans
+     the folders it touched when it's done (M7).
+   - Each step is journalled before the index is updated; an index error becomes a
+     warning (`warnings` in the run's answer) and those folders are scanned (M2). The
+     steps of a failed game that are passed over are listed in `failed` with `skipped`.
+   - library.json that can't be read opens the library read-only and `update_meta`
+     refuses to write it; config.json that can't be read is kept as
+     `config.unreadable.json` before a new one is written (H2,
+     `config::try_read_json_object`).
+   - Left for later batches as planned: C5 (batch 3), H3 (batch 6). M6, the space check
+     counting hardlinks as free, was in no batch and goes in batch 2.
+2. **CI permissions** (H24) on their own, then **scanning and audit** (H7–H11, M10–M14,
+   the cue byte-order mark), and M6 (try one hardlink when planning).
+   **Status: done, merged with batch 1 (PR #32) and released in v0.5.19.** The tests name
+   the finding in a comment. As built:
+   - H24: the workflow's token reads only (`permissions: contents: read`); checkouts keep
+     no credentials; every action is pinned to a commit and every tool to a version
+     (Tauri CLI, selenium, playwright, tauri-driver, msedgedriver-tool). The test jobs
+     upload their reports as artifacts and a `reports` job (the only one that writes,
+     with `release`) pushes the `desktop-ci-<os>` branches.
+   - H7: a ZIP, 7z or RAR member that can have a copier header (`hash::may_have_header`)
+     is read in full even in a quick scan, so its headerless hashes match. H8: a member
+     that can't be read is passed over, not the whole archive; an archive that can't be
+     opened for a reason other than its format (locked, unplugged) fails and is tried
+     again on the next scan. The `zip` crate is built without AES or zstd but with
+     deflate64, bzip2 and lzma. RAR scratch folders are one per call.
+   - H9: hashing results are committed every 250 files, every second, and after half a
+     second with none; an error recording one stops the readers and fails the scan.
+   - H10: a CHD with a hunk size of 0 or over 64 MiB, and a CSO whose block index runs
+     past the file, are refused; a GDI sector size of 0 counts as 2352. The cue byte-order
+     mark is dropped when reading and rewriting a sheet.
+   - H11: arcade duplicates are the files matched to one ROM more than once where
+     neither is in its own place (`DUPLICATES_ARCADE`), so a non-merged set's clones
+     aren't duplicates; the count and the list come from one query (`dm`).
+   - M10: a folder's files are guessed again when its system hint or place changes, at
+     once (`scan::reguess_root`, from `roots_update`) and at the next scan when
+     library.json changed elsewhere. M11: `arcade::refresh_places` writes an arcade DAT's
+     places when it has none or another set type's (`index_meta` `places:<dat id>`), and
+     drops them from a DAT whose system isn't arcade any more; it runs at every scan and
+     when a system is saved. M12: unmatched cue sheets beside newly hashed files are
+     looked at again. M13: a scan that changed nothing keeps the audit's summaries and the
+     collections' generation, and a watcher scan reads only the index rows under its
+     places. M14: an undated DAT is older than any dated one. M6: planning tries one
+     hardlink per drive; where it can't be made, links count as copies (`copied` in the
+     plan's `space`) and the preview says so.
+3. **Exports and collections** (C5, H12–H16, M17–M19, M21, M22, M24).
+4. **Interface fixes** (H22, H23, M33, M34, M36–M39, M43, the Low wording and layout
+   items).
+5. **Metadata, PC games and magazines** (H17–H21, M25–M32).
+6. **One Import page** (D78–D80, which take in H5, H6, M8, M35, M40–M42 and H3).
+7. **The rest of CI and tests** (M44–M46): chdman fetched, a dolphin-tool stand-in on
+   Windows, the page test split, page tests for D77's move and new-folder paths and the
+   four frontend exports, and why Windows' first scan is 25 times slower than Linux's.
+8. **Groups on devices** (D81).
+
+**D78 One Import page** (Jerred, 2026-10-18). Every import goes through the Import page:
+the buttons on Home, Audit, BIOS files, PC games, Documents and Magazines open its
+matching section, files dropped anywhere go there, and empty pages point to it (finishes
+D71 and D73). The Import page gains *Recent imports*. In Recent imports, History and a
+collection's history, actions are grouped and expandable: "if I imported 5 games today
+and 500 yesterday, those should by default be grouped and I can expand them to view all
+changes in a group."
+
+**D79 One copy or move control** (Jerred). Every import uses the Import page's three
+choices (copy, hardlinked on the same drive; always copy; move) and one button word.
+D78 resolves it.
+
+**D80 A shorter Scrape window** (Jerred). The details and pictures to fetch go behind
+*Change what's fetched…*; the window shows the sources and the systems or games.
+
+**D81 Groups on devices** (Jerred). Collection groups go to the device layouts whose
+firmware is confirmed to support custom collections, with the same choices ES-DE has.
+muOS's collections are to be checked against its documentation first ("if muOS can show
+custom collections, that's a good addition"); Knulli and ROCKNIX follow Batocera's.
+
+**D82 Later** (Jerred). A lock so two computers can't run a change on one library at once
+(M9) and streaming DAT import (M15) go in a later phase. Re-applying a new picture size to
+pictures already exported (M20) is device-specific and goes in whichever phase suits.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -3127,8 +3239,12 @@ background*. The status bar's entry for that job reopens the window, and a messa
   against the DAT or by round trip before an original is journalled, and refusing lossy
   conversions unless asked.
 - **External tools** (`chdman`, `dolphin-tool`, `maxcso`) change their command lines
-  between versions. Mitigated by probing the version at startup and pinning the known
-  syntax per version, with fixtures that exercise each tool in CI.
+  between versions. Mitigated by doing what the app can itself (it writes CHD, CSO and
+  ZSO, so only dolphin-tool and innoextract are used) and finding tools without
+  downloading them (D14). CI doesn't run the real tools: the CHD tests compare with
+  chdman's own CHDs committed in `tests/fixtures/discs/`, and RVZ is tested with a Python
+  stand-in for dolphin-tool (`tests/fixtures/fake_dolphin_tool.py`), on Linux only for
+  the Rust tests (review M46, batch 7).
 - **Format edge cases**: headered dumps, multi-track discs, nested archives, MAME merge
   modes. Mitigated by fixtures per edge case and by leaning on how Igir/RomVault handle
   them.
@@ -3153,13 +3269,18 @@ background*. The status bar's entry for that job reopens the window, and a messa
   RVZ…), section 3.9.
 - **D12 Preferred storage formats:** cartridges → zip, CD/DVD systems → CHD,
   GameCube/Wii → RVZ, PSP → CSO, PC → 7z; each changeable per platform in Settings.
+  As built, Convert writes ZIP (TorrentZip), CHD, CSO, ZSO and RVZ (`platforms::formats`);
+  7z and RAR are read, not written, so PC games keep the format they came in.
 - **D13 Where documents live:** with the scraped media in the library's own folder,
   `_library/games/<platform>/<Game Name>/docs/`. Scraped content is tied to the ROM's
   hash, and to the game id for PC games (section 4, "Game identity").
 - **D14 External tools:** dropped into the app's `tools/` folder, or pointed at in
   Settings; not downloaded by the app.
 - **D15 Folders with games:** kept in the library (`library.json`), re-pointed on a
-  computer where a folder's path differs (for now; per-computer lists may follow).
+  computer where a folder's path differs (for now; per-computer lists may follow). As
+  built, a folder inside the library is stored relative to it, so it follows the library
+  anywhere; re-pointing any other folder (`roots::update`) changes its path in
+  library.json, so it changes for every computer that opens the library.
 - **D16 Scanning ZIPs:** trusted by default (matched by the CRC32 and size they record);
   a Settings option unpacks and hashes every file in them.
 - **D4 Arcade scope:** MAME/FBNeo in Phase 7.
@@ -3231,7 +3352,7 @@ background*. The status bar's entry for that job reopens the window, and a messa
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D78). D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 not yet scheduled. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D83). D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review". D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -3256,4 +3377,14 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
    files (D40), and built ("Phase 5b notes"). Merged on Jerred's go-ahead.
 10. Phase 6: design written ("Phase 6 design", D42–D45) and built ("Phase 6 notes"); released as v0.5.2.
 11. Phase 6b: metadata by source, variants, delete and scrape again (Jerred,
-    2026-10-17); built ("Phase 6b notes", D46–D48), to be merged on Jerred's word.
+    2026-10-17); built ("Phase 6b notes", D46–D48), released as v0.5.3.
+12. The UI pass (v0.5.4), the Collections rework with bringing games in and Help (D49–D54,
+    v0.5.7 and v0.5.8), PC games on the shared game page (D55, v0.5.9), Phase 7 (arcade,
+    v0.5.10), Phase 8 (8a v0.5.11, 8b v0.5.12, 8c v0.5.13), UI pass 2 (D69, v0.5.14),
+    UI pass 3 with collection groups (D71–D76, v0.5.16), import by system (D77, v0.5.17)
+    and a new system's own folder (v0.5.18): all released.
+13. Hardening after the v0.5.18 review (D78–D82): the eight batches in that section, in
+    order, each a pull request merged on Jerred's word. Batches 1 and 2 are released
+    (v0.5.19); batch 3, exports and collections, is next.
+14. Then Phase 9, serving games to devices on the home network (3.10). Later: reading
+    magazines' text (PDF, CBZ and CBR) and tagging each issue with the games it covers.
