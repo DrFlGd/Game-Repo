@@ -172,6 +172,23 @@ impl Library {
         Ok(lib)
     }
 
+    /// Open a library Game Repo made, for reading only (Game Repo Server's, D90): nothing
+    /// is created in it (no `_library/`, README or `library.json`), and every write is
+    /// refused ([`Library::writable`]). One from a newer Game Repo can't be read.
+    pub fn open_read_only(root: impl Into<PathBuf>) -> Result<Self> {
+        let root = root.into();
+        let meta_path = root.join(APP_DIR).join("library.json");
+        if !meta_path.is_file() {
+            bail!("{} isn't a Game Repo library: it has no {APP_DIR}/library.json.", root.display());
+        }
+        let meta = try_read_json_object(&meta_path).with_context(|| format!("{} can't be read", meta_path.display()))?;
+        let format = meta["format"].as_u64().unwrap_or(0);
+        if format > FORMAT {
+            bail!("This library was made by a newer version of Game Repo (library format {format}; this version reads up to {FORMAT}): update the server.");
+        }
+        Ok(Self { root, read_only: Some("The library is open for reading only here: nothing is changed in it.".into()) })
+    }
+
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -256,6 +273,28 @@ pub mod tests {
         let d = std::env::temp_dir().join(format!("gamerepo-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    #[test]
+    fn a_library_opened_read_only_has_nothing_made_in_it_and_refuses_writes() {
+        let dir = temp_dir("lib-read-only");
+        // a folder that isn't a library: refused, and still not one
+        std::fs::create_dir_all(dir.join("plain")).unwrap();
+        assert!(Library::open_read_only(dir.join("plain")).is_err());
+        assert!(!dir.join("plain").join(APP_DIR).exists());
+        assert!(Library::open_read_only(dir.join("nothing")).is_err());
+        assert!(!dir.join("nothing").exists());
+        // a library: read, never written
+        let lib = Library::open(dir.join("lib")).unwrap();
+        std::fs::remove_file(dir.join("lib").join(APP_DIR).join("README.txt")).unwrap();
+        let ro = Library::open_read_only(dir.join("lib")).unwrap();
+        assert_eq!(ro.id(), lib.id());
+        assert!(ro.writable().is_err());
+        assert!(!dir.join("lib").join(APP_DIR).join("README.txt").exists(), "not even its README");
+        // one from a newer Game Repo
+        std::fs::write(dir.join("lib").join(APP_DIR).join("library.json"), format!("{{\"format\": {}, \"id\": \"lib-x\"}}", FORMAT + 1)).unwrap();
+        assert!(Library::open_read_only(dir.join("lib")).unwrap_err().to_string().contains("update the server"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // review H2: a library.json that can't be read is never written over

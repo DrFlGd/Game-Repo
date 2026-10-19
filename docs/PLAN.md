@@ -3705,6 +3705,58 @@ the core: `open_read_only`, `export::lay_out`, the discs rule and `gamerepo-wire
 exports unchanged; (2) the server crate and the stand-in, from the CLI; (3) Game Repo
 Server's tray app, Settings › *Serve to devices*, the installers and the firewall rule.
 
+### Phase 9a notes, part 1: the groundwork (built 2026-10-19)
+
+The first of 9a's three pull requests: the core's side of the server, with exports giving
+the same plans as before except for games on several discs (D94).
+
+- **`desktop/wire` (`gamerepo-wire`)**: a crate of its own in the workspace, with only
+  `serde` and `serde_json`. It holds the plan (`Plan`, `File`, `List`, `Entry`, `Lines`,
+  `Left`), the gamelist merge moved out of `export.rs` (`gamelist::merge`, the old
+  `merge_gamelist`, with `next_game`, `set_tag`, `set_tag_in` and the escapes, plus
+  `merge_entries` for a plan's entries) and `merge_lines` for custom collections. The
+  export uses it, so an export and a device merge a gamelist the same way. The API's
+  types and the device's record (`device.json`) join it in part 2, with the server.
+- **`Library::open_read_only`** (D90): refuses a folder without `_library/library.json`
+  (and creates nothing in it, not even the README `open` writes) and a library from a newer
+  Game Repo ("update the server"); every write goes through `writable()`, which refuses.
+  The design's build check that no write goes round `writable()` is a test instead:
+  `a_server_reading_the_library_leaves_it_as_it_was` takes the library folder and the
+  folder with games byte for byte and time for time, runs what the server will (rebuilding
+  an index of its own with `dat::sync_library`, `scan::scan`, `meta::sync` and
+  `browse::refresh`, then a device plan with media, details and a manual) and finds both
+  unchanged.
+- **`export::lay_out`** (D93): the design split `export::plan` in two. Built instead with
+  less risk to exports: `lay_out` runs the export's own plan (`plan_with`) for the asked
+  games, as a collection made on the spot (`include: none` with the games added by hand),
+  with the layout's places in a scratch folder that doesn't exist, so nothing at a
+  destination is read and every file is a step. Each step then becomes a plan file: its
+  place (the longest place folder it's under) and path, size, role (the media kind the
+  export carried, playlist, manual, BIOS set or device from the DAT, else game),
+  `needed_by` for a BIOS set or device (`arcade::containers_for`), `made` for anything but
+  a plain copy, and a SHA-1 only for a loose file the index has whole. The gamelists and
+  custom collection lines come back as data (`Lists`) rather than as text steps.
+  `DeviceAsk` and `Laid` (the plan with each file's step, which part 2 runs to make a
+  file). Media sizes for the kinds not asked for, the device's record and made files in
+  the server's folder come with the server in part 2. A test checks the device plan's
+  files, by place, against the tree an ES-DE export of the same games writes, its
+  gamelist merge against the export's gamelist, and its custom collection lines.
+- **Discs** (D94): `platforms::disc_of` reads Redump's `(Disc 1)`, `(Disc 2 of 3)` and
+  `(Disc A)`; `platforms::m3u_folders` is the nine systems whose ES-DE entry takes `.m3u`
+  (psx, ps2, saturn, segacd, dreamcast, pcenginecd, pcfx, gc, wii). For the ES-DE layout
+  (not a `naming` style), `disc_sets` groups a system's discs of one game (two or more,
+  in disc order), organise's `Options.disc_dirs` puts them in `<name>.m3u/`, `disc_start`
+  picks each disc's file for the playlist (its cue, gdi, cdi, ccd or mds, else its only
+  file), and the playlist `<name>.m3u` is written as a text step recorded as
+  `carried: playlist`. The game is listed once, by the first disc's game with the name
+  without the disc, with one set of media. A game with one disc of a set keeps its own
+  file. Updating an export from before sets the loose discs aside, as for any file it no
+  longer wants; their old gamelist entries stay, and ES-DE doesn't show entries whose
+  file is gone.
+- **CI**: the core tests run with `-p gamerepo-core -p gamerepo-wire`; `vendor.yml`
+  copies `desktop/wire` into the vendoring workspace and runs when its `Cargo.toml`
+  changes.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -3888,5 +3940,6 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
 14. Then Phase 9, the device client ("Device client requirements", D84–D88): 9a Game Repo
     Server on Windows, 9b the client for Windows and Android with ES-DE, 9c the Steam
     Deck, 9d later. 9a's design ("Phase 9a design", D89–D95) is agreed (Jerred,
-    2026-10-19) and is built in three pull requests. Later: reading magazines' text
+    2026-10-19) and is built in three pull requests; the first, the groundwork in the core,
+    is built ("Phase 9a notes, part 1"). Later: reading magazines' text
     (PDF, CBZ and CBR) and tagging each issue with the games it covers.

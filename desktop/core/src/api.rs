@@ -2015,6 +2015,7 @@ impl App {
                         carry: Default::default(),
                         only: args["only"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect()).unwrap_or_default(),
                         groups: args["groups"].as_str().unwrap_or("").to_string(),
+                        rom_dir: None,
                     },
                 };
                 if args["carry"].is_object() {

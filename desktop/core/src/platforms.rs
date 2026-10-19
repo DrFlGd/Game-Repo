@@ -140,6 +140,27 @@ pub fn is_disc(id: &str) -> bool {
     !matches!(media(id), Media::Cartridge | Media::Arcade)
 }
 
+/// A system whose games on several discs ES-DE shows as one, from a folder `<name>.m3u`
+/// holding the discs and an `.m3u` playlist of them (D94): those whose ES-DE system
+/// takes `.m3u` files, on Windows and Android alike (ES-DE's es_systems.xml).
+pub fn m3u_folders(id: &str) -> bool {
+    matches!(id, "psx" | "ps2" | "saturn" | "segacd" | "dreamcast" | "pcenginecd" | "pcfx" | "gc" | "wii")
+}
+
+/// A disc of a game on several, by its DAT name (Redump's `(Disc 1)`, `(Disc 2 of 3)`,
+/// `(Disc A)`): the name without that tag, and which disc it is ("1", "A"). None: a game
+/// on one disc.
+pub fn disc_of(name: &str) -> Option<(String, String)> {
+    let at = name.find(" (Disc ")?;
+    let rest = &name[at + " (Disc ".len()..];
+    let end = rest.find(')')?;
+    let which = rest[..end].split(" of ").next().unwrap_or("").trim();
+    if which.is_empty() || !which.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    Some((format!("{}{}", &name[..at], &rest[end + 1..]), which.to_string()))
+}
+
 /// An arcade system (Phase 7): machines, BIOS sets, devices, disks and set types.
 pub fn is_arcade(id: &str) -> bool {
     media(id) == Media::Arcade

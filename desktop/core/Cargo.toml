@@ -13,6 +13,7 @@ path = "src/bin/gamerepo-cli.rs"
 
 [dependencies]
 anyhow = "1"
+gamerepo-wire = { path = "../wire" }
 chd = { version = "0.4", features = ["encode"] }
 crc32fast = "1"
 flate2 = { version = "1", default-features = false, features = ["zlib"] }

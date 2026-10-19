@@ -1,0 +1,12 @@
+[package]
+name = "gamerepo-wire"
+description = "What Game Repo Server and a device client say to each other: a plan, a device's record, and the list merges both sides use"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "gamerepo_wire"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
