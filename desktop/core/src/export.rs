@@ -395,6 +395,12 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         .iter()
         .filter_map(|f| Some((key(Path::new(f["path"].as_str()?)), (f["size"].as_u64()?, f["mtime"].as_i64()?))))
         .collect();
+    // the files recorded, by path and by game (a large export looks them up per file: review M19)
+    let recorded_at: HashMap<String, &Value> = recorded.iter().filter_map(|f| Some((key(Path::new(f["path"].as_str()?)), f))).collect();
+    let mut recorded_of: HashMap<(&str, &str), Vec<&Value>> = HashMap::new();
+    for f in &recorded {
+        recorded_of.entry((f["game"].as_str().unwrap_or(""), f["system"].as_str().unwrap_or(""))).or_default().push(f);
+    }
     let c = collection::load(lib, &o.collection)?;
     let w = collection::work_out(ix, lib, &c)?;
     let systems = only_these(&w.systems, &o.only);
@@ -457,6 +463,9 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     // each unit's entries in its folder: (the file or folder there, game, title)
     let mut entries: BTreeMap<usize, Vec<(String, String, String)>> = BTreeMap::new();
     let mut seen_entry: HashSet<(usize, String)> = HashSet::new();
+    // entries that are a folder of the game's files (ES-DE's way with a game of several
+    // files, named as the file it starts from, which is inside it)
+    let mut entry_dirs: HashSet<(usize, String)> = HashSet::new();
     // its games' DAT ids by name
     let mut ids: HashMap<(String, String), i64> = HashMap::new();
     let mut left_out: HashSet<String> = HashSet::new();
@@ -491,6 +500,9 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             let listed = titles.contains_key(game);
             if let Some(rel) = rel_to(&folder, Path::new(to)).filter(|_| listed) {
                 let entry = rel.split('/').next().unwrap_or(&rel).to_string();
+                if rel.contains('/') {
+                    entry_dirs.insert((u, entry.clone()));
+                }
                 if seen_entry.insert((u, entry.clone())) {
                     let title = if o.short_names { titles.get(game).copied().unwrap_or(game) } else { game };
                     entries.entry(u).or_default().push((entry, game.to_string(), title.to_string()));
@@ -506,12 +518,34 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         for cf in &sub.conflicts {
             placed.insert(cf["game"].as_str().unwrap_or("").to_string());
         }
+        let mut carried_kept = vec![];
         for g in &s.games {
             if !placed.contains(&g.name) {
-                let why = if g.status == "have" { "Some of its files aren't in the library." } else { "It isn't in the library." };
+                // still in the collection, but the library can't place it now (its file gone, its
+                // drive unplugged): what the export put there before stays (review C5), as it may
+                // be the only copy left
+                let mut kept = 0usize;
+                for f in recorded_of.get(&(g.name.as_str(), s.platform.as_str())).into_iter().flatten() {
+                    let Some(p) = f["path"].as_str() else { continue };
+                    if !Path::new(p).is_file() {
+                        continue;
+                    }
+                    kept += 1;
+                    if f.get("carried").is_some_and(|c| !c.is_null()) {
+                        carried_kept.push((*f).clone());
+                    } else {
+                        want(&g.name, p, &mut placed);
+                    }
+                }
+                let why = match (kept, g.status == "have") {
+                    (1.., _) => "It isn't in the library now, so what was exported before is kept as it is.",
+                    (0, true) => "Some of its files aren't in the library.",
+                    (0, false) => "It isn't in the library.",
+                };
                 plan.left.push(json!({ "path": format!("{} › {}", platforms::name_of(&s.platform), g.name), "why": why }));
             }
         }
+        wanted.extend(carried_kept);
         plan.ops.extend(sub.ops);
         plan.games += sub.games;
         plan.in_place += sub.in_place;
@@ -551,11 +585,31 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     for p in &w.no_dat {
         plan.left.push(json!({ "path": platforms::name_of(p), "why": "This system has no DAT, so its games aren't known." }));
     }
+    // two games of a system with the same short title keep their full names, so neither's
+    // pictures (named for the title in LaunchBox and RetroArch) take the other's place (review M22)
+    if o.short_names {
+        let mut count: HashMap<(String, String), usize> = HashMap::new();
+        for (u, list) in &entries {
+            for (_, _, title) in list {
+                *count.entry((units[*u].platform.clone(), title.to_lowercase())).or_default() += 1;
+            }
+        }
+        for (u, list) in entries.iter_mut() {
+            for (_, game, title) in list.iter_mut() {
+                if count[&(units[*u].platform.clone(), title.to_lowercase())] > 1 {
+                    *title = game.clone();
+                }
+            }
+        }
+    }
     // what it carries: each game's pictures, manual, documents and text, its details and
     // tagged pictures for the gamelist, and the systems' BIOS files
     let gamelist = l.gamelist.as_ref();
     let mut details: HashMap<(usize, String), Vec<(String, String)>> = HashMap::new();
     let mut files: Vec<(PathBuf, PathBuf, &str, String, String)> = vec![];
+    // where they go, and each game's files from the library (so each is carried once)
+    let mut files_at: HashSet<String> = HashSet::new();
+    let mut files_from: HashSet<(String, String)> = HashSet::new();
     let mut texts: Vec<(PathBuf, String, String, String)> = vec![];
     let pic_as = l.pictures.as_.as_str();
     if o.carry.wants_game_files() {
@@ -566,7 +620,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                 let Some(id) = ids.get(&(system.clone(), game.clone())) else { continue };
                 let g = crate::meta::dat_game(conn, *id)?;
                 let Some(dir) = crate::meta::folder_of(conn, &g)?.and_then(|f| lib.resolve(&f).ok()) else { continue };
-                let is_dir = folder.join(entry).is_dir() || plan.ops.iter().any(|op| rel_to(folder, Path::new(&op.to)).is_some_and(|r| r.starts_with(&format!("{entry}/"))));
+                let is_dir = entry_dirs.contains(&(*u, entry.clone())) || folder.join(entry).is_dir();
                 // pictures are named after the game's file without the extension (a folder keeps its whole name)
                 let stem = if is_dir { entry.clone() } else { Path::new(entry).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| entry.clone()) };
                 let gj = crate::meta::read_game(&dir);
@@ -603,6 +657,8 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                     if let Some(t) = out_of.tag.as_ref().and_then(|tag| tagged(list_kind, tag, &unit.base, &top_of(&to), &to)) {
                         tags.push(t);
                     }
+                    files_at.insert(key(&to));
+                    files_from.insert((game.clone(), key(&src)));
                     files.push((src, to, "media", game.clone(), system.clone()));
                 }
                 if o.carry.manuals {
@@ -615,6 +671,8 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                             if let Some(t) = out_of.tag.as_ref().and_then(|tag| tagged(list_kind, tag, &unit.base, &top_of(&to), &to)) {
                                 tags.push(t);
                             }
+                            files_at.insert(key(&to));
+                            files_from.insert((game.clone(), key(&src)));
                             files.push((src, to, "manual", game.clone(), system.clone()));
                         }
                     }
@@ -628,7 +686,8 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                             v.insert("doc_file", src.file_name().unwrap_or_default().to_string_lossy().into_owned());
                             v.insert("ext", platforms::ext_of(&src.to_string_lossy()));
                             let Some(to) = layout::expand(&out_of.path, &places, &v)? else { continue };
-                            if !files.iter().any(|f| key(&f.1) == key(&to)) && !files.iter().any(|f| f.3 == *game && key(&f.0) == key(&src)) {
+                            if !files_at.contains(&key(&to)) && files_from.insert((game.clone(), key(&src))) {
+                                files_at.insert(key(&to));
                                 files.push((src, to, "doc", game.clone(), system.clone()));
                             }
                         }
@@ -662,7 +721,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                     let mut v = svars.clone();
                     v.insert("bios_file", name.clone());
                     let Some(to) = layout::expand(&out_of.path, &places, &v)? else { continue };
-                    if !files.iter().any(|f| key(&f.1) == key(&to)) {
+                    if files_at.insert(key(&to)) {
                         files.push((src, to, "bios", format!("BIOS › {name}"), system.clone()));
                     }
                 }
@@ -672,7 +731,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     // the magazines, each in a folder of its own with its issues and covers
     if o.carry.magazines {
         for (src, to, title) in crate::magazines::export_files(lib, &out) {
-            if !files.iter().any(|f| key(&f.1) == key(&to)) {
+            if files_at.insert(key(&to)) {
                 files.push((src, to, "magazine", title, String::new()));
             }
         }
@@ -686,7 +745,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                             "from": src.display().to_string(), "from_mtime": src_stamp.map(|s| s.1) }));
         if to.exists() {
             // there already: the same unless the library's copy changed since it was placed
-            let was = recorded.iter().find(|f| f["path"].as_str().is_some_and(|p| key(Path::new(p)) == key(&to)));
+            let was = recorded_at.get(&key(&to));
             let same = match was {
                 Some(f) => f["from_mtime"].as_i64() == src_stamp.map(|s| s.1) && known.get(&key(&to)) == organise::file_stamp(&to).as_ref(),
                 None => true,
@@ -749,6 +808,12 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         by_group.entry(units[*u].group).or_default().push(*u);
     }
     let title_of = |g: usize| group_title(&c.name, &w.groups.get(g).map(|x| x.name.clone()).unwrap_or_default());
+    // the file a frontend starts a game from: in a game's folder, the file it's named for
+    // (RetroArch, LaunchBox and Pegasus can't start a folder: review H14)
+    let launch = |u: usize, entry: &str| -> PathBuf {
+        let at = units[u].folder.join(entry);
+        if entry_dirs.contains(&(u, entry.to_string())) { at.join(entry) } else { at }
+    };
     if let Some(gl) = gamelist {
         let mut platforms_added: Vec<String> = vec![];
         // the units each gamelist lists (a group in a folder of its system's is in its list)
@@ -771,7 +836,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             for u in us {
                 let unit = &units[*u];
                 for (entry, game, title) in &entries[u] {
-                    let e = unit.listed(entry);
+                    let e = if gl.kind == "pegasus" && entry_dirs.contains(&(*u, entry.clone())) { format!("{}/{entry}", unit.listed(entry)) } else { unit.listed(entry) };
                     if let Some(d) = details.get(&(*u, entry.to_lowercase())) {
                         mine.insert(e.to_lowercase(), d.clone());
                     }
@@ -780,7 +845,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                         Some((_, v)) => v.push(e.clone()),
                         None => groups_here.push((t, vec![e.clone()])),
                     }
-                    files_of.push(unit.folder.join(entry));
+                    files_of.push(launch(*u, entry));
                     list.push((e, game.clone(), title.clone()));
                 }
             }
@@ -819,7 +884,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                     let paths: Vec<(String, String, String)> = us
                         .iter()
                         .flat_map(|u| entries[u].iter().map(move |(entry, _, title)| (*u, entry, title)))
-                        .map(|(u, entry, title)| (seen_as(&units[u].folder.join(entry)), title.clone(), units[u].vars["playlist"].clone()))
+                        .map(|(u, entry, title)| (seen_as(&launch(u, entry)), title.clone(), units[u].vars["playlist"].clone()))
                         .collect();
                     let at = dir.join(format!("{}.lpl", safe_name(&title_of(*g))));
                     let old = std::fs::read_to_string(&at).ok();
@@ -922,6 +987,13 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     Ok(plan)
 }
 
+/// Where the next `<game>` entry of a gamelist starts: a plain `<game>` or one with
+/// attributes (Knulli's and Batocera's `<game id=… source=…>`), whichever is first (review
+/// H15), never `<gameList>`.
+fn next_game(s: &str) -> Option<usize> {
+    s.match_indices("<game").map(|(at, _)| at).find(|&at| s[at + 5..].chars().next().is_some_and(|c| c == '>' || c.is_whitespace()))
+}
+
 /// A gamelist with an entry for each game exported that has none, and the details
 /// chosen set in each exported game's entry (its other fields, and other games' entries,
 /// are kept). None: nothing changes.
@@ -932,7 +1004,7 @@ fn merge_gamelist(old: Option<&str>, list: &[(String, String, String)], details:
     let mut have: HashSet<String> = HashSet::new();
     let mut out = String::new();
     let mut rest = text.as_str();
-    while let Some(at) = rest.find("<game>").or_else(|| rest.find("<game ")) {
+    while let Some(at) = next_game(rest) {
         let Some(end) = rest[at..].find("</game>").map(|e| at + e + "</game>".len()) else { break };
         out.push_str(&rest[..at]);
         let mut block = rest[at..end].to_string();
@@ -1125,6 +1197,10 @@ fn merge_pegasus(old: Option<&str>, vars: &layout::Vars, l: &layout::Layout, sys
     if head.iter().all(|l| l.trim().is_empty()) {
         // the platform's own extensions, and those of the files exported (zip, chd…)
         let mut exts: Vec<String> = platforms::by_id(system).map(|p| p.exts.iter().map(|e| e.to_string()).collect()).unwrap_or_default();
+        // a disc's tracks aren't games of their own: Pegasus would list every .bin (review H14)
+        if platforms::is_disc(system) {
+            exts.retain(|e| !["bin", "img", "raw", "wav", "sub", "ccd"].contains(&e.as_str()));
+        }
         for (entry, _, _) in list {
             let e = platforms::ext_of(entry);
             if !e.is_empty() && !exts.contains(&e) && !entry.ends_with('/') {
@@ -1149,22 +1225,60 @@ fn merge_pegasus(old: Option<&str>, vars: &layout::Vars, l: &layout::Layout, sys
         }
         out.push('\n');
     }
+    // an entry of the user's for a game exported keeps what they wrote but the details
+    // chosen (review M21), as a gamelist's does
+    let mut theirs: HashMap<String, Vec<String>> = HashMap::new();
     for b in &blocks {
-        if file_of(b).is_some_and(|f| ours.contains(&f)) || collection_of(b).is_some_and(|t| titles.contains(&t)) {
+        if let Some(f) = file_of(b).filter(|f| ours.contains(f)) {
+            theirs.entry(f).or_insert_with(|| b.iter().map(|l| l.to_string()).collect());
+            continue;
+        }
+        if collection_of(b).is_some_and(|t| titles.contains(&t)) {
             continue;
         }
         out.push_str(b.join("\n").trim_end());
         out.push_str("\n\n");
     }
     for (entry, _, title) in list {
-        out.push_str(&format!("game: {}\nfile: {entry}\n", pegasus_value(title)));
+        let mut lines = theirs.remove(&entry.to_lowercase()).unwrap_or_else(|| vec![format!("game: {}", pegasus_value(title)), format!("file: {entry}")]);
         for (k, v) in details.get(&entry.to_lowercase()).into_iter().flatten() {
-            out.push_str(&format!("{k}: {}\n", pegasus_value(v)));
+            lines = pegasus_set(lines, k, &pegasus_value(v));
         }
-        out.push('\n');
+        out.push_str(lines.join("\n").trim_end());
+        out.push_str("\n\n");
     }
     let out = format!("{}\n", out.trim_end());
     (old.map(|o| o.replace("\r\n", "\n")).as_deref() != Some(out.as_str())).then_some(out)
+}
+
+/// A Pegasus entry's lines with `key: value` set: the key's line (and the lines that
+/// carry it on) replaced, or added at the end.
+fn pegasus_set(lines: Vec<String>, key: &str, value: &str) -> Vec<String> {
+    let is_key = |l: &str| !l.starts_with([' ', '\t']) && l.split_once(':').is_some_and(|(k, _)| k.trim().eq_ignore_ascii_case(key));
+    let mut out = vec![];
+    let (mut set, mut skipping) = (false, false);
+    for l in lines {
+        if skipping && (l.starts_with([' ', '\t']) && !l.trim().is_empty()) {
+            continue;
+        }
+        skipping = false;
+        if is_key(&l) {
+            if !set {
+                out.push(format!("{key}: {value}"));
+                set = true;
+            }
+            skipping = true;
+            continue;
+        }
+        out.push(l);
+    }
+    if !set {
+        while out.last().is_some_and(|l| l.trim().is_empty()) {
+            out.pop();
+        }
+        out.push(format!("{key}: {value}"));
+    }
+    out
 }
 
 /// A RetroArch playlist (its JSON form: a system's, or a collection's group's) with an
@@ -1178,9 +1292,15 @@ fn merge_playlist(old: Option<&str>, paths: &[(String, String, String)]) -> Opti
     });
     let norm = |p: &str| p.replace('\\', "/").to_lowercase();
     let mut items: Vec<Value> = v["items"].as_array().cloned().unwrap_or_default();
+    let mut at: HashMap<String, usize> = HashMap::new();
+    for (n, i) in items.iter().enumerate() {
+        if let Some(p) = i["path"].as_str() {
+            at.entry(norm(p)).or_insert(n);
+        }
+    }
     for (path, title, playlist) in paths {
         let item = json!({ "path": path, "label": title, "core_path": "DETECT", "core_name": "DETECT", "crc32": "DETECT", "db_name": format!("{playlist}.lpl") });
-        match items.iter_mut().find(|i| i["path"].as_str().is_some_and(|p| norm(p) == norm(path))) {
+        match at.get(&norm(path)).map(|n| &mut items[*n]) {
             Some(i) => {
                 if let (Some(o), Some(n)) = (i.as_object_mut(), item.as_object()) {
                     // what RetroArch learnt of it (its core, once run) is kept
@@ -1188,7 +1308,10 @@ fn merge_playlist(old: Option<&str>, paths: &[(String, String, String)]) -> Opti
                     o.insert("db_name".into(), n["db_name"].clone());
                 }
             }
-            None => items.push(item),
+            None => {
+                at.insert(norm(path), items.len());
+                items.push(item);
+            }
         }
     }
     v["items"] = Value::Array(items);
@@ -1203,6 +1326,7 @@ fn merge_playlist(old: Option<&str>, paths: &[(String, String, String)]) -> Opti
 fn merge_launchbox(old: Option<&str>, platform: &str, rows: &[(String, String, Vec<(String, String)>)]) -> Option<String> {
     let norm = |p: &str| xml_unescape(p.trim()).replace('/', "\\").to_lowercase();
     let text = old.unwrap_or("").to_string();
+    let by_path: HashMap<String, &(String, String, Vec<(String, String)>)> = rows.iter().rev().map(|r| (norm(&r.0), r)).collect();
     let mut have: HashSet<String> = HashSet::new();
     let mut out = String::new();
     let mut rest = text.as_str();
@@ -1211,7 +1335,7 @@ fn merge_launchbox(old: Option<&str>, platform: &str, rows: &[(String, String, V
         out.push_str(&rest[..at]);
         let mut block = rest[at..end].to_string();
         let path = block.split("<ApplicationPath>").nth(1).and_then(|s| s.split("</ApplicationPath>").next()).map(norm).unwrap_or_default();
-        if let Some((_, title, fields)) = rows.iter().find(|r| norm(&r.0) == path) {
+        if let Some((_, title, fields)) = by_path.get(&path) {
             block = set_tag_in(&block, "Game", "Title", title);
             for (tag, value) in fields {
                 block = set_tag_in(&block, "Game", tag, value);
@@ -1320,7 +1444,8 @@ pub fn record(lib: &Library, plan: &Plan, undone: bool) -> Result<()> {
     }
     let old = config::read_json_object(&path);
     let old_files: HashMap<String, Value> = old["files"].as_array().into_iter().flatten().filter_map(|f| Some((key(Path::new(f["path"].as_str()?)), f.clone()))).collect();
-    let written: HashSet<String> = plan.ops.iter().filter(|o| o.op != "aside" && o.op != "text").map(|o| key(Path::new(&o.to))).collect();
+    // (a description written as a text file is the export's too, so an Update can set it aside: review M24)
+    let written: HashSet<String> = plan.ops.iter().filter(|o| o.op != "aside").map(|o| key(Path::new(&o.to))).collect();
     let mut files: BTreeMap<String, Value> = BTreeMap::new();
     for f in e["files"].as_array().into_iter().flatten() {
         let Some(p) = f["path"].as_str() else { continue };
@@ -1585,6 +1710,7 @@ fn contents(path: &Path, cancel: &AtomicBool) -> Result<Vec<(String, Hashes)>> {
 }
 
 struct DatRom {
+    id: i64,
     name: String,
     size: Option<u64>,
     crc32: Option<String>,
@@ -1602,7 +1728,7 @@ impl DatRom {
 }
 
 /// A game's ROMs: in the DAT the export used, else the system's current DAT of that name.
-fn game_roms(conn: &Connection, dat: Option<i64>, system: &str, game: &str) -> Result<Vec<DatRom>> {
+fn game_roms(conn: &Connection, dat: Option<i64>, system: &str, game: &str) -> Result<(Option<i64>, Vec<DatRom>)> {
     let mut gid: Option<i64> = None;
     if let Some(d) = dat {
         gid = conn.query_row("SELECT id FROM dat_games WHERE dat_id = ?1 AND name = ?2", params![d, game], |r| r.get(0)).optional()?;
@@ -1616,12 +1742,13 @@ fn game_roms(conn: &Connection, dat: Option<i64>, system: &str, game: &str) -> R
             )
             .optional()?;
     }
-    let Some(gid) = gid else { return Ok(vec![]) };
-    let mut q = conn.prepare("SELECT name, size, crc32, sha1 FROM dat_roms WHERE game_id = ?1")?;
+    let Some(gid) = gid else { return Ok((None, vec![])) };
+    let dat_id: i64 = conn.query_row("SELECT dat_id FROM dat_games WHERE id = ?1", [gid], |r| r.get(0))?;
+    let mut q = conn.prepare("SELECT id, name, size, crc32, sha1 FROM dat_roms WHERE game_id = ?1")?;
     let v = q
-        .query_map([gid], |r| Ok(DatRom { name: r.get(0)?, size: r.get::<_, Option<i64>>(1)?.map(|s| s as u64), crc32: r.get(2)?, sha1: r.get(3)? }))?
+        .query_map([gid], |r| Ok(DatRom { id: r.get(0)?, name: r.get(1)?, size: r.get::<_, Option<i64>>(2)?.map(|s| s as u64), crc32: r.get(3)?, sha1: r.get(4)? }))?
         .collect::<rusqlite::Result<_>>()?;
-    Ok(v)
+    Ok((Some(dat_id), v))
 }
 
 /// Read every file an export placed back: missing, changed (no longer what its game's
@@ -1631,7 +1758,11 @@ pub fn check(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress:
     let conn = ix.conn();
     let files: Vec<Value> = e["files"].as_array().cloned().unwrap_or_default();
     let (mut ok, mut missing, mut changed) = (0usize, vec![], vec![]);
+    // (by system, and game and whether it's the game's archive)
     let mut roms_of: HashMap<(String, String), Vec<DatRom>> = HashMap::new();
+    // an arcade DAT's ROMs by the ZIP a non-merged set (what exports write, D61) puts them in:
+    // a BIOS set's ROMs are in its own ZIP, not in each game's (review M17)
+    let mut in_zip: HashMap<i64, HashMap<String, HashSet<i64>>> = HashMap::new();
     for (i, f) in files.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
             break;
@@ -1655,12 +1786,34 @@ pub fn check(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress:
             ok += 1;
             continue;
         }
-        let k = (system.to_string(), game.to_string());
+        let k = (system.to_string(), format!("{game}\u{0}{}", archive::kind_of(&name).is_some()));
         if !roms_of.contains_key(&k) {
-            roms_of.insert(k.clone(), game_roms(conn, f["dat"].as_i64(), system, game)?);
+            let (dat, mut roms) = game_roms(conn, f["dat"].as_i64(), system, game)?;
+            // (a machine's disk is its CHD, checked as it is)
+            if let Some(d) = dat.filter(|_| platforms::is_arcade(system) && archive::kind_of(&name).is_some()) {
+                if !in_zip.contains_key(&d) {
+                    let ms = crate::arcade::Machines::load(conn, d)?;
+                    let mut by: HashMap<String, HashSet<i64>> = HashMap::new();
+                    for pl in crate::arcade::places(&ms, "non-merged").into_iter().filter(|p| !p.disk) {
+                        by.entry(pl.container).or_default().insert(pl.rom_id);
+                    }
+                    in_zip.insert(d, by);
+                }
+                let here = in_zip[&d].get(game);
+                roms.retain(|r| here.is_some_and(|h| h.contains(&r.id)));
+            }
+            roms_of.insert(k.clone(), roms);
         }
         let roms = &roms_of[&k];
-        let verdict = match contents(&p, cancel) {
+        let verdict = if platforms::is_arcade(system) && platforms::ext_of(&name) == "chd" {
+            // a machine's disk is matched by the CHD's own SHA1 (D58)
+            match crate::image::chd_sha1(&p) {
+                Some(h) if roms.iter().any(|r| r.sha1.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(&h))) => None,
+                Some(_) => Some("Its contents don't match its game in the DAT.".to_string()),
+                None => Some("It couldn't be read as a CHD.".to_string()),
+            }
+        } else {
+            match contents(&p, cancel) {
             Err(e) if cancel.load(Ordering::Relaxed) => {
                 let _ = e;
                 break;
@@ -1677,6 +1830,7 @@ pub fn check(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress:
                     matched.iter().any(|m| *m)
                 };
                 if good { None } else { Some("Its contents don't match its game in the DAT.".to_string()) }
+            }
             }
         };
         match verdict {
@@ -1808,6 +1962,43 @@ mod tests {
         let gl = std::fs::read_to_string(es.join("gamelists/gb/gamelist.xml")).unwrap();
         assert!(!gl.contains("Alpha"), "the gamelist is as it was");
         assert!(!es.join("collections/custom-Best Of.cfg").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // review H15: entries a device wrote (with attributes) are found after plain ones too
+    #[test]
+    fn a_gamelists_entries_with_attributes_are_kept_and_not_added_again() {
+        let old = "<?xml version=\"1.0\"?>\n<gameList>\n\t<game>\n\t\t<path>./A.gb</path>\n\t\t<name>A</name>\n\t</game>\n\t<game id=\"7\" source=\"ScreenScraper.fr\">\n\t\t<path>./B.gb</path>\n\t\t<name>B</name>\n\t</game>\n</gameList>\n";
+        let list = vec![("A.gb".to_string(), "A".to_string(), "A".to_string()), ("B.gb".to_string(), "B".to_string(), "B".to_string())];
+        let details: HashMap<String, Vec<(String, String)>> = [("b.gb".to_string(), vec![("desc".to_string(), "Bee".to_string())])].into();
+        let out = merge_gamelist(Some(old), &list, &details).unwrap();
+        assert_eq!(out.matches("<path>./B.gb</path>").count(), 1, "{out}");
+        assert!(out.contains("<game id=\"7\" source=\"ScreenScraper.fr\">") && out.contains("<desc>Bee</desc>"), "{out}");
+        assert_eq!(next_game("<gameList><game>"), Some(10));
+    }
+
+    // review C5: Update keeps the card's copy of a game still in the collection that the
+    // library can't place now (its file moved away, its drive unplugged)
+    #[test]
+    fn update_keeps_a_card_copy_the_library_cant_place_now() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-keep");
+        let c = collection(&lib, |r| r.include = "all".into());
+        let out = dir.join("Card");
+        let o = Options { collection: c.id.clone(), target: "folder".into(), out: out.clone(), ..Default::default() };
+        run(&ix, &lib, &o);
+        let card = |n: &str| tree(&out).iter().any(|p| p.ends_with(n));
+        assert!(card("Delta (World).gb"));
+        let eid = list(&lib)[0]["id"].as_str().unwrap().to_string();
+        std::fs::rename(dir.join("Roms/Delta (World).gb"), dir.join("Delta (World).gb")).unwrap();
+        crate::scan::scan(&ix, &lib, &crate::scan::Options { full: false, readers: 2, only: None }, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        let p = plan(&ix, &lib, &options_of(&lib, &eid).unwrap()).unwrap();
+        assert!(!p.ops.iter().any(|op| op.op == "aside" && op.to.ends_with("Delta (World).gb")), "{:?}", p.ops);
+        assert!(p.left.iter().any(|l| l["path"].as_str().unwrap().ends_with("Delta (World)") && l["why"].as_str().unwrap().contains("kept")), "{:?}", p.left);
+        organise::run(&ix, &lib, &p, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        assert!(card("Delta (World).gb"));
+        let rec = load(&lib, &eid).unwrap();
+        assert!(rec["files"].as_array().unwrap().iter().any(|f| f["path"].as_str().unwrap().ends_with("Delta (World).gb")), "still recorded, so a later Update knows it");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1993,6 +2184,21 @@ mod tests {
         let e = list(&lib).into_iter().find(|e| e["target"] == "esde").unwrap();
         let r = check(&ix, &lib, e["id"].as_str().unwrap(), &AtomicBool::new(false), &mut |_| {}).unwrap();
         assert_eq!(r["ok"], 3, "{r}");
+        // review H14: RetroArch and Pegasus start the game from its cue, inside its folder
+        let (ra_roms, ra) = (dir.join("RA-ROMs"), dir.join("RetroArch"));
+        let places: BTreeMap<String, PathBuf> = [("roms".into(), ra_roms.clone()), ("retroarch".into(), ra.clone())].into();
+        run(&ix, &lib, &Options { collection: c.id.clone(), layout: "retroarch".into(), places, ..Default::default() });
+        let lpls: Vec<String> = tree(&ra).into_iter().filter(|p| p.ends_with(".lpl")).collect();
+        let lpl: Value = serde_json::from_str(&std::fs::read_to_string(ra.join(&lpls[0])).unwrap()).unwrap();
+        let path = lpl["items"][0]["path"].as_str().unwrap().replace('\\', "/");
+        assert!(path.ends_with("Disc (USA).cue/Disc (USA).cue"), "{path}");
+        let peg = dir.join("Pegasus");
+        run(&ix, &lib, &Options { collection: c.id.clone(), layout: "pegasus".into(), places: on("roms", &peg), ..Default::default() });
+        let meta_at = tree(&peg).into_iter().find(|p| p.ends_with("metadata.pegasus.txt")).unwrap();
+        let meta = std::fs::read_to_string(peg.join(meta_at)).unwrap();
+        assert!(meta.contains("file: Disc (USA).cue/Disc (USA).cue"), "{meta}");
+        let exts = meta.lines().find(|l| l.starts_with("extensions:")).unwrap_or("");
+        assert!(!exts.split([',', ' ']).any(|e| e == "bin"), "a track isn't a game: {exts}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2187,11 +2393,13 @@ mod tests {
         // Pegasus: the collection's file beside the games, an entry of another game's kept
         let peg = dir.join("Pegasus");
         std::fs::create_dir_all(peg.join("gb")).unwrap();
-        std::fs::write(peg.join("gb/metadata.pegasus.txt"), "collection: My Game Boy\nshortname: gb\n\ngame: Mine\nfile: Mine.gb\ndeveloper: Me\n").unwrap();
+        // (and one of the user's own for Alpha: what they wrote stays but the details chosen, review M21)
+        std::fs::write(peg.join("gb/metadata.pegasus.txt"), "collection: My Game Boy\nshortname: gb\n\ngame: Mine\nfile: Mine.gb\ndeveloper: Me\n\ngame: My Alpha\nfile: Alpha (Europe).gb\nrating: 90%\ndeveloper: Old\n  and more\n").unwrap();
         run(&ix, &lib, &Options { collection: c.id.clone(), layout: "pegasus".into(), places: on("roms", &peg), carry: carry.clone(), short_names: true, ..Default::default() });
         let meta = std::fs::read_to_string(peg.join("gb/metadata.pegasus.txt")).unwrap();
         assert!(meta.starts_with("collection: My Game Boy\n") && meta.contains("game: Mine\nfile: Mine.gb\ndeveloper: Me"), "{meta}");
-        assert!(meta.contains("game: Alpha\nfile: Alpha (Europe).gb\n") && meta.contains("description: A & B\n") && meta.contains("developer: Dev Co\n") && meta.contains("assets.manual: media/Alpha (Europe)/manual.pdf"), "{meta}");
+        assert!(meta.contains("game: My Alpha\nfile: Alpha (Europe).gb\nrating: 90%\ndeveloper: Dev Co\n") && meta.matches("file: Alpha (Europe).gb").count() == 1 && !meta.contains("and more"), "{meta}");
+        assert!(meta.contains("description: A & B\n") && meta.contains("developer: Dev Co\n") && meta.contains("assets.manual: media/Alpha (Europe)/manual.pdf"), "{meta}");
         let t = kept(&peg);
         assert!(t.contains(&"gb/media/Alpha (Europe)/boxFront.png".to_string()) && t.contains(&"gb/media/Alpha (Europe)/screenshot.jpg".to_string()), "{t:?}");
         // run again: the same file, not a second entry
@@ -2227,6 +2435,103 @@ mod tests {
         run(&ix, &lib, &Options { collection: c.id.clone(), layout: "playnite".into(), places: on("roms", &pn), carry, ..Default::default() });
         let t = kept(&pn);
         assert!(t.contains(&"Nintendo Game Boy/Alpha (Europe).gb".to_string()) && t.iter().all(|f| f.starts_with("Nintendo Game Boy/") && f.ends_with(".gb")), "{t:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn games_of_the_same_short_title_keep_their_own_launchbox_pictures() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-same-title");
+        let c = collection(&lib, |r| r.one_per_title = false);
+        for (name, w) in [("Alpha (Europe)", 300), ("Alpha (Japan)", 200)] {
+            let g = crate::meta::dat_game_named(ix.conn(), &lib, "gb", name).unwrap().unwrap();
+            let gdir = crate::meta::ensure_folder(&ix, &lib, &g).unwrap();
+            std::fs::create_dir_all(gdir.join("media")).unwrap();
+            std::fs::write(gdir.join("media").join("cover.png"), crate::scrape::tests::png(w, 100)).unwrap();
+        }
+        crate::meta::sync(&ix, &lib).unwrap();
+        let lb = dir.join("LaunchBox");
+        let carry = Carry { media: vec!["cover".into()], ..Default::default() };
+        run(&ix, &lib, &Options { collection: c.id.clone(), layout: "launchbox".into(), places: on("launchbox", &lb), carry, short_names: true, ..Default::default() });
+        let x = std::fs::read_to_string(lb.join("Data/Platforms/Nintendo Game Boy.xml")).unwrap();
+        assert!(x.contains("<Title>Alpha (Europe)</Title>") && x.contains("<Title>Alpha (Japan)</Title>") && x.contains("<Title>Delta</Title>"), "{x}");
+        let boxes = lb.join("Images/Nintendo Game Boy/Box - Front");
+        assert_eq!(::image::open(boxes.join("Alpha (Europe)-01.png")).unwrap().width(), 300);
+        assert_eq!(::image::open(boxes.join("Alpha (Japan)-01.png")).unwrap().width(), 200);
+        assert!(!boxes.join("Alpha-01.png").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_muos_description_is_set_aside_when_its_game_leaves_the_collection() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-muos-text");
+        let c = collection(&lib, |_| {});
+        alpha_with_media(&ix, &lib);
+        let card = dir.join("Card");
+        let carry = Carry { fields: vec!["description".into()], ..Default::default() };
+        run(&ix, &lib, &Options { collection: c.id.clone(), layout: "muos".into(), places: on("card", &card), carry, ..Default::default() });
+        let text = "MUOS/info/catalogue/Nintendo Game Boy/text/Alpha (Europe).txt";
+        assert!(kept(&card).contains(&text.to_string()), "{:?}", kept(&card));
+        let eid = list(&lib)[0]["id"].as_str().unwrap().to_string();
+        assert!(load(&lib, &eid).unwrap()["files"].as_array().unwrap().iter().any(|f| f["carried"] == "text"), "recorded as the export's");
+        let mut c = collection::load(&lib, &c.id).unwrap();
+        c.rules.search = "Delta".into();
+        collection::save(&lib, c).unwrap();
+        run(&ix, &lib, &options_of(&lib, &eid).unwrap());
+        let t = kept(&card);
+        assert!(!t.contains(&text.to_string()) && t.contains(&"ROMS/gb/Delta (World).gb".to_string()), "{t:?}");
+        assert!(tree(&card).iter().any(|p| p.starts_with(organise::SET_ASIDE) && p.ends_with("Alpha (Europe).txt")), "{:?}", tree(&card));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // review M19: an export carrying pictures, and its Update when nothing changed, took
+    // time with the square of the games. Run with `cargo test --release -- --ignored timing`
+    // (CI does, on Windows).
+    #[test]
+    #[ignore]
+    fn timing_export_of_8k_games_with_pictures_and_its_update() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = crate::library::tests::temp_dir("timing-export");
+        let lib = Library::open(dir.join("Lib")).unwrap();
+        let ix = Index::open(&dir.join("index.sqlite"), &lib.id().unwrap()).unwrap();
+        let roms = dir.join("Roms");
+        std::fs::create_dir_all(&roms).unwrap();
+        let mut dat = String::from("<?xml version=\"1.0\"?>\n<datafile><header><name>Nintendo - Game Boy</name><version>1</version></header>\n");
+        for n in 0..8_000u32 {
+            let bytes = (n + 1_000_000).to_le_bytes();
+            std::fs::write(roms.join(format!("Game {n} (USA).gb")), bytes).unwrap();
+            dat.push_str(&format!("<game name=\"Game {n} (USA)\"><description>Game {n}</description>{}</game>\n", crate::audit::tests::rom_xml(&format!("Game {n} (USA).gb"), &bytes)));
+        }
+        dat.push_str("</datafile>\n");
+        std::fs::write(dir.join("gb.dat"), &dat).unwrap();
+        crate::roots::add(&lib, &roms, Some("gb")).unwrap();
+        crate::scan::scan(&ix, &lib, &crate::scan::Options::default(), &AtomicBool::new(false), &mut |_| {}).unwrap();
+        crate::dat::import(&ix, &lib, &dir.join("gb.dat"), &serde_json::Map::new()).unwrap();
+        let cover = crate::scrape::tests::png(4, 4);
+        for n in 0..8_000u32 {
+            let g = crate::meta::dat_game_named(ix.conn(), &lib, "gb", &format!("Game {n} (USA)")).unwrap().unwrap();
+            let gdir = crate::meta::ensure_folder(&ix, &lib, &g).unwrap();
+            std::fs::create_dir_all(gdir.join("media")).unwrap();
+            std::fs::write(gdir.join("media").join("cover.png"), &cover).unwrap();
+        }
+        crate::meta::sync(&ix, &lib).unwrap();
+        let c = collection(&lib, |_| {});
+        let carry = Carry { media: vec!["cover".into()], ..Default::default() };
+        let o = Options { collection: c.id.clone(), layout: "knulli".into(), places: on("card", &dir.join("Card")), carry, ..Default::default() };
+        let t = std::time::Instant::now();
+        let p = plan(&ix, &lib, &o).unwrap();
+        let planned = t.elapsed();
+        assert_eq!(p.games, 8_000);
+        organise::run(&ix, &lib, &p, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        let eid = list(&lib)[0]["id"].as_str().unwrap().to_string();
+        let t = std::time::Instant::now();
+        let again = plan(&ix, &lib, &options_of(&lib, &eid).unwrap()).unwrap();
+        let updated = t.elapsed();
+        eprintln!("export of 8,000 games with pictures planned in {planned:?}; its Update in {updated:?}");
+        assert!(again.ops.is_empty(), "{:?}", again.ops.iter().take(5).map(|o| (&o.op, &o.to)).collect::<Vec<_>>());
+        assert!(planned.as_secs_f64() < 10.0, "planning took {planned:?}");
+        assert!(updated.as_secs_f64() < 10.0, "the Update took {updated:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

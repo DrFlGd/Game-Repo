@@ -644,5 +644,18 @@ pub mod tests {
         let mut to: Vec<String> = only.ops.iter().map(|o| o.to.rsplit(['/', '\\']).next().unwrap().to_string()).collect();
         to.sort();
         assert_eq!(to, ["alphaj.zip", "beta.zip", "bios1.zip"]);
+
+        // review M17: Check finds a game that needs a BIOS set as it should be (the BIOS
+        // set's ROMs are in its own ZIP, not the game's)
+        let mut c = crate::collection::Collection { name: "Arcade".into(), ..Default::default() };
+        c.rules.platforms = vec!["mame".into()];
+        let c = crate::collection::save(&lib, c).unwrap();
+        let o = crate::export::Options { collection: c.id.clone(), target: "folder".into(), out: dir.join("Export"), always_copy: true, ..Default::default() };
+        let plan = crate::export::plan(&ix, &lib, &o).unwrap();
+        crate::organise::run(&ix, &lib, &plan, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        let eid = crate::export::list(&lib)[0]["id"].as_str().unwrap().to_string();
+        let r = crate::export::check(&ix, &lib, &eid, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        assert_eq!(r["changed"], json!([]), "{r}");
+        assert!(r["ok"].as_u64().unwrap() >= 4, "{r}");
     }
 }

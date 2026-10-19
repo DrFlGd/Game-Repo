@@ -1009,6 +1009,28 @@ async def main():
             check("Export these… exports only the games picked, from the full set, and the export remembers them",
                   picked_n == "1 selected" and len(got) == 1 and got[0].startswith(first) and rec.get("only") == [f"gb/{first}"], (picked_n, got, rec.get("only")))
             await pg.keyboard.press("Escape")
+            # review H16: after a search, Ctrl+A and Export these… take only the games it found
+            second = found[1][0]
+            await pg.fill("#collection-search", second)
+            await pg.wait_for_function("(k) => [...document.querySelectorAll('#lib-games [data-key]')].map(e => e.dataset.key).join() === k", arg=f"gb/{second}")
+            await pg.click(f'#lib-games [data-key="gb/{second}"]')
+            await pg.keyboard.press("Control+a")
+            await pg.wait_for_selector("#bar-count")
+            await pg.click("#bar-export-these")
+            await pg.wait_for_selector("#export-part")
+            await pg.select_option("#export-layout", "folder")
+            part2 = home / "Part2"
+            await pg.fill("#export-place-out", str(part2))
+            await pg.click("#export-dialog button[type=submit]")
+            await pg.wait_for_selector("#organise-totals")
+            totals2 = await pg.inner_text("#organise-totals")
+            await pg.click("#export-dialog button[type=submit]")
+            await toast_text(pg, "Exported Handheld picks")
+            got2 = sorted(x.name for x in part2.rglob("*") if x.is_file()) if part2.is_dir() else []
+            check("Export these… after a search and Ctrl+A exports only the games the search found",
+                  len(got2) == 1 and got2[0].startswith(second) and "1 game" in totals2, (got2, totals2))
+            await pg.keyboard.press("Escape")
+            await pg.fill("#collection-search", "")
             # from a DAT another tool made, with names of its own
             gb2 = hashlib.sha1(picks_[1].read_bytes()).hexdigest()
             crc2 = f"{zlib.crc32(picks_[1].read_bytes()):08x}"

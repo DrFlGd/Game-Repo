@@ -823,8 +823,12 @@ export function Collections() {
   /** The games picked, every one (asked of the core when it's all of them). */
   const chosen = async () => (picked.all ? await api("browse_keys", { query: lq }) : [...picked.sel.values()]);
   const exportThese = async () => {
-    const only = picked.all ? (platform ? [`${platform}/*`] : sum.systems.map((x) => `${x.platform}/*`)) : [...picked.sel.keys()];
-    ui.set({ dialog: { type: "export", c, sum, only, count: picked.count } });
+    // every game of a system as the system (its update takes in games added to it later); after
+    // a search, only the games it found (review H16)
+    const only = !picked.all ? [...picked.sel.keys()]
+      : q.trim() ? (await chosen()).map((g) => g.key)
+      : platform ? [`${platform}/*`] : sum.systems.map((x) => `${x.platform}/*`);
+    ui.set({ dialog: { type: "export", c, sum, only, count: picked.all && q.trim() ? only.length : picked.count } });
   };
   const openGame = (g, i) => {
     Object.assign(opened, { query: { ...lq }, index: i, total: games.total });
