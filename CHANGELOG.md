@@ -76,7 +76,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
-- **A first scan of many small files is much quicker** (the seventh part of the review of v0.5.18): what the scan learns is written to the index in larger batches, and each file's system is looked up once per folder name. A first scan of 100,000 small files took over three minutes on Windows; on Linux it went from 18 seconds to 5.
+- **A first scan of many small files is much quicker** (the seventh part of the review of v0.5.18): what the scan learns is written to the index in larger batches, the index keeps more of itself in memory, and each file's system is looked up once per folder name. A first scan of 100,000 small files took over three minutes on Windows; on Linux it went from 18 seconds to under 4.
 - **The tests check more**, so less can slip through: exports to RetroArch, Pegasus, LaunchBox and Playnite, moving games in by system to a new folder and Undo, the Players filter, RVZ conversion and CHD checks with chdman on Windows; and a check that gets stuck no longer hides the ones after it.
 
 ## 0.5.22 (2026-10-19)

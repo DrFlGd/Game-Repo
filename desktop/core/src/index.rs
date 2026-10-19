@@ -234,6 +234,10 @@ impl Index {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        // review M45: each read and write of the index costs far more on Windows, so keep up to
+        // 64 MiB of it in memory (used only as it fills) and checkpoint every 10,000 pages
+        conn.pragma_update(None, "cache_size", -65536)?;
+        conn.pragma_update(None, "wal_autocheckpoint", 10000)?;
         let mut ix = Self {
             conn,
             path: path.to_path_buf(),

@@ -3303,8 +3303,13 @@ Order (Jerred agreed the order, and asked for the docs batch to go with the firs
      each new file's system guessed by squashing every system's names
      (`platforms::from_folder` now keeps a map, made again by `configure`), and 8.8 s
      recording, a commit (and a WAL checkpoint) every 250 files. `scan::BATCH` is 5,000,
-     still at most a second apart, and the insert is a cached statement: 5 s. The target:
-     a first scan of 100,000 files under 30 s on CI's runner (the timing test).
+     still at most a second apart, and the insert is a cached statement: 5 s. Windows was
+     then 30.7 s, 25.5 s of it recording: each SQLite read and write costs far more there
+     (under strace on Linux, recording took 49 s). `Index::open` sets `cache_size` to
+     64 MiB (filled only as used) and `wal_autocheckpoint` to 10,000 pages: 7 times fewer
+     reads and a third of the writes, recording 15 s under strace and 3.5 s for the whole
+     scan on Linux. The target: a first scan of 100,000 files under 30 s on CI's runner
+     (the timing test).
    - M44: `desktop_page.py`'s parts are `Section`s: a timeout or error is a FAIL with its
      line and `failed-<part>.png`, the page goes back to Home and the next part runs.
      Phase 7's arcade set, the magazines and a new D77 part (games of two systems moved
