@@ -1,6 +1,6 @@
 // On this device (D100–D102): every game ES-DE has on the device, with its size (its media
 // and manual too), when it was last played and where it came from (the library, another
-// computer the library recognises, or elsewhere), the free space at the top, ticks,
+// computer the library recognises, or elsewhere), the free space at the top, checks to select games,
 // Remove… and Make room…. A game's media can be removed or added on their own. Removing
 // shows what goes and the room it frees first, and sets files aside before deleting them.
 import { html, useState, useEffect } from "../lib/html.js";
@@ -35,7 +35,7 @@ export function DevicePage() {
   const [room, setRoom] = useState("");
   const load = () => call("on_device").then((r) => { setD(r); setError(""); return r; }).catch((e) => { setError(message(e)); return null; });
   useEffect(() => { load(); }, [s.rev]);
-  // Make room, from the Library's ticks: the games to offer, ticked here to change and confirm
+  // Make room, from what's selected in the Library: the games to offer, selected here to change and confirm
   useEffect(() => {
     if (!s.roomFor || !d) return;
     const need = s.roomFor;
@@ -45,7 +45,7 @@ export function DevicePage() {
   const makeRoom = (need) => call("make_room", { need }).then((ids) => {
     setTicked(new Set(ids));
     const frees = (d?.games || []).filter((g) => ids.includes(g.id)).reduce((a, g) => a + g.size, 0);
-    setRoom(ids.length ? `Ticked ${plural(ids.length, "game")} played longest ago, freeing ${bytes(frees)} of the ${bytes(need)} needed. Change the ticks if you like, then choose Remove….`
+    setRoom(ids.length ? `Selected the ${plural(ids.length, "game")} played longest ago, freeing ${bytes(frees)} of the ${bytes(need)} needed. Change what's selected if you like, then choose Remove….`
       : "There's nothing on this device to remove.");
   }).catch((e) => say(message(e)));
   const name = (id) => s.systems.find((x) => x.id === id)?.name || id;
@@ -76,7 +76,7 @@ export function DevicePage() {
         const [from, why] = FROM[r.from] || [r.from, ""];
         const open_ = shown === r.id;
         return html`<li class=${`go-row${ticked.has(r.id) ? " is-ticked" : ""}`} key=${r.id} data-id=${r.id}>
-          <input type="checkbox" class="go-row-tick" aria-label=${`Tick ${r.name}`} checked=${ticked.has(r.id)} onChange=${() => flip(r.id)} />
+          <input type="checkbox" class="go-row-tick" aria-label=${`Select ${r.name}`} checked=${ticked.has(r.id)} onChange=${() => flip(r.id)} />
           <button type="button" class="go-row-open" aria-expanded=${open_ ? "true" : "false"} onClick=${() => setShown(open_ ? null : r.id)}>
             <strong>${r.name}</strong>
             <span class="muted">${name(r.system)} · ${bytes(r.size)} · ${r.last_played ? `played ${ago(played(r.last_played))}` : "never played"}</span>
@@ -96,7 +96,7 @@ export function DevicePage() {
         </li>`;
       })}
     </ul>
-    ${pick.length ? html`<div class="go-picked" id="device-picked" role="region" aria-label="Ticked games">
+    ${pick.length ? html`<div class="go-picked" id="device-picked" role="region" aria-label="Selected games">
       <span class="go-picked-what"><strong>${plural(pick.length, "game")}</strong> · frees ${bytes(frees)}</span>
       <span class="go-picked-do">
         <button type="button" class="ghost" onClick=${removed}>Clear</button>
@@ -106,14 +106,14 @@ export function DevicePage() {
   </section>`;
 }
 
-/** Make room…: how much, then the games played longest ago are ticked (C20). */
+/** Make room…: how much, then the games played longest ago are selected (C20). */
 export function RoomDialog({ run }) {
   const [gb, setGb] = useState("4");
   const need = Math.round(parseFloat(gb) * 1024 ** 3) || 0;
-  return html`<${Dialog} title="Make room" id="room-dialog" onSubmit=${() => { closeDialog(); run(need); }} disabled=${need <= 0} submitLabel="Tick games to remove">
+  return html`<${Dialog} title="Make room" id="room-dialog" onSubmit=${() => { closeDialog(); run(need); }} disabled=${need <= 0} submitLabel="Select games to remove">
     <label class="field-block"><span>Room needed, in GB</span>
       <input id="room-gb" type="number" min="0" step="any" value=${gb} onInput=${(e) => setGb(e.currentTarget.value)} />
-      <small class="muted">Games played longest ago are ticked first, then those never played, the oldest first. Nothing is removed until you choose Remove….</small>
+      <small class="muted">Games played longest ago are selected first, then those never played, the oldest first. Nothing is removed until you choose Remove….</small>
     </label>
   <//>`;
 }

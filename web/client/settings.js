@@ -1,8 +1,9 @@
 // Settings (D103): the library paired with, ES-DE's folders found (each can be changed, C3),
 // the media ticked by default, downloads at once, the ES-DE custom collection games go in
 // (C16), what the Library shows, the device's name and screen, the picture cache, the look
-// (Game Repo's skins and themes) and the version. Each change is kept as it's made.
-import { html, useState } from "../lib/html.js";
+// (Game Repo's skins and themes) and the version; on Linux, Steam (D107, D109). Each change
+// is kept as it's made.
+import { html, useEffect, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { SKINS, THEMES } from "../ui/state.js";
 import { call, info, pickFolder } from "./backend.js";
@@ -38,6 +39,56 @@ function Folder({ id, label, value, fallback, setting, error }) {
     </div>
     ${error ? html`<small class="danger-text">${error}</small>` : null}
   </div>`;
+}
+
+/** Steam on Linux (D107, D109): Game Repo Go in Steam's library, so Game Mode can start
+ *  it, and Steam's files written only while Steam's closed, with Restart Steam to do it. */
+function SteamSettings({ rev }) {
+  const [st, setSt] = useState(null);
+  const [sure, setSure] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const read = () => call("steam").then(setSt).catch(() => setSt({ found: false }));
+  useEffect(() => { read(); }, [rev]);
+  // while something waits, Steam may close (or come back) at any time
+  useEffect(() => {
+    if (!st?.waiting) return undefined;
+    const t = setInterval(read, 3000);
+    return () => clearInterval(t);
+  }, [st?.waiting]);
+  const run = async (cmd, args = {}) => {
+    setBusy(true);
+    try {
+      const r = await call(cmd, args);
+      if (cmd === "steam_restart") say("Restarting Steam: Game Repo Go's shortcuts are written while it's closed.");
+      else if (r && "found" in r) setSt(r);
+      await read();
+    } catch (e) {
+      say(message(e));
+    } finally {
+      setBusy(false);
+      setSure(false);
+    }
+  };
+  if (!st) return html`<section class="go-set" id="set-steam"><h2>Steam</h2><p class="muted">Looking for Steam…</p></section>`;
+  return html`<section class="go-set" id="set-steam">
+    <h2>Steam</h2>
+    ${!st.found ? html`<p class="muted" id="set-steam-none">Steam isn't on this device, or isn't where it usually is.</p>
+      <${Folder} id="set-steam-folder" label="Steam's folder" value="" setting="steam" fallback="The folder with Steam's userdata folder in it" />` : html`
+      ${st.users?.length > 1 ? html`<label class="field-block"><span>Shortcuts for</span>
+        <select id="set-steam-user" class="compact" value=${st.user} onChange=${(e) => call("set_settings", { steam_user: e.currentTarget.value }).then(read).catch((e2) => say(message(e2)))}>
+          ${st.users.map((u) => html`<option value=${u.id}>${u.name || u.account || u.id}</option>`)}</select></label>` : null}
+      <label class="check-row"><input type="checkbox" id="set-steam-self" checked=${st.own} disabled=${busy} onChange=${() => run("steam_add_self", { on: !st.own })} />
+        <span>Game Repo Go in Steam's library, so Game Mode can start it</span></label>
+      ${st.waiting ? html`<div class="warn-note" id="set-steam-waiting">
+          <p>${st.running ? "Steam is running, so Game Repo Go's shortcuts wait until it's closed." : "Game Repo Go's shortcuts aren't in Steam yet."}</p>
+          ${st.running && !sure ? html`<button type="button" class="ghost" id="set-steam-restart" disabled=${busy} onClick=${() => setSure(true)}>Restart Steam…</button>` : null}
+          ${st.running && sure ? html`<p id="set-steam-sure">Steam closes, with any game it's running${st.game_mode ? " and Game Repo Go" : ""}, the shortcuts are written, and Steam starts again.</p>
+            <div class="go-set-do"><button type="button" id="set-steam-restart-now" disabled=${busy} onClick=${() => run("steam_restart")}>Restart Steam now</button>
+            <button type="button" class="ghost" onClick=${() => setSure(false)}>Not now</button></div>` : null}
+          ${!st.running ? html`<button type="button" class="ghost" id="set-steam-write" disabled=${busy} onClick=${() => run("steam_apply")}>Write them now</button>` : null}
+        </div>` : st.wanted?.length ? html`<p class="muted" id="set-steam-done">${st.wanted.length === 1 ? "Its shortcut is" : `Its ${st.wanted.length} shortcuts are`} in Steam${st.users?.length ? ` for ${(st.users.find((u) => u.id === st.user) || {}).name || st.user}` : ""}.</p>` : null}
+    `}
+  </section>`;
 }
 
 export function SettingsPage() {
@@ -89,12 +140,12 @@ export function SettingsPage() {
 
     <section class="go-set" id="set-downloads">
       <h2>Downloads</h2>
-      <div class="field-block" id="set-kinds"><span>Pictures and manuals ticked when adding games</span>
+      <div class="field-block" id="set-kinds"><span>Pictures and manuals chosen when adding games</span>
         <div class="go-kinds">${KINDS.filter(([k]) => k !== "manual").map(([k, name]) => html`<label class="check-row" key=${k}>
           <input type="checkbox" name=${k} checked=${kinds.has(k)} onChange=${() => flip(k)} /><span>${name}</span></label>`)}
           <label class="check-row"><input type="checkbox" name="manual" checked=${v.manuals} onChange=${() => set({ manuals: !v.manuals })} /><span>Manual</span></label>
         </div>
-        <small class="muted">Add to device… starts with these ticked, and remembers what you chose last time.</small>
+        <small class="muted">Add to queue… starts with these chosen, and remembers what you chose last time.</small>
       </div>
       <label class="field-block"><span>Files downloaded at once</span>
         <select id="set-at-once" class="compact" value=${String(v.at_once)} onChange=${(e) => set({ at_once: +e.currentTarget.value })}>
@@ -135,6 +186,8 @@ export function SettingsPage() {
         </select>
         <small class="muted" id="set-pictures-kept">${count(st.pictures?.kept)} kept, ${bytes(st.pictures?.size)}. The least recently shown go first.</small></label>
     </section>
+
+    ${info.kind === "linux" ? html`<${SteamSettings} rev=${v} />` : null}
 
     <section class="go-set" id="set-look">
       <h2>Look</h2>

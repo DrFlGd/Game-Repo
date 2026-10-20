@@ -14,7 +14,7 @@ the library has, renamed, and one it doesn't).
 Checks: Game Repo Go asks to be paired, finds nothing wrong with an address typed in, and
 a wrong code is refused; the code from Game Repo pairs it and the library is read onto
 the device; a system browsed from the picker; a search across every system; three games
-ticked, their size against the free space; Add to device… with the media kinds and their
+ticked, their size against the free space; Add to queue… with the media kinds and their
 sizes, one unticked; the queue watched to the end and "Restart ES-DE"; the games in ES-DE's
 folders and gamelists with the kinds chosen and not the other; On this device with the
 games from the library, the copy recognised and the game from elsewhere; Make room ticking
@@ -165,8 +165,22 @@ port = int(wait_for("at ").split()[1].split(",")[0].rsplit(":", 1)[1])
 wait_for("ready")
 address = f"127.0.0.1:{port}"
 ui_port = free_port()
+# Steam on this "device" (D109): a user's folder, and on Linux a `steam` that closes a
+# stand-in Steam (a program named steam) when told -shutdown, and notes when it's started
+steam_dir, steam_bin = home / "steam" / "Steam", home / "steam" / "bin"
+(steam_dir / "userdata" / "22202" / "config").mkdir(parents=True)
+(steam_dir / "config").mkdir(parents=True)
+(steam_dir / "config" / "loginusers.vdf").write_text('"users"\n{\n\t"76561197960287930"\n\t{\n\t\t"AccountName"\t\t"deck"\n\t\t"PersonaName"\t\t"Deck"\n\t\t"MostRecent"\t\t"1"\n\t}\n}\n')
+steam_bin.mkdir(parents=True)
+(steam_bin / "steam").write_text(f"""#!/bin/sh
+if [ "$1" = "-shutdown" ]; then kill "$(cat '{steam_bin}/running.pid')"; else date > '{steam_bin}/started'; fi
+""")
+(steam_bin / "steam").chmod(0o755)
+go_env = {**os.environ, "PATH": f"{steam_bin}{os.pathsep}{os.environ.get('PATH', '')}"}
+for k in ("SteamGamepadUI", "GAMESCOPE_WAYLAND_DISPLAY"):
+    go_env.pop(k, None)
 go = subprocess.Popen([cli, "client-ui", "--ui", str(ui), "--home", str(phone), "--data", str(go_data), "--port", str(ui_port), "--kind", "windows"],
-                      stdout=subprocess.DEVNULL, stderr=open(out / "client-ui.log", "w", encoding="utf-8"))
+                      stdout=subprocess.DEVNULL, stderr=open(out / "client-ui.log", "w", encoding="utf-8"), env=go_env)
 B = f"http://127.0.0.1:{ui_port}/"
 for _ in range(100):
     try:
@@ -272,12 +286,12 @@ async def main():
             check("three games ticked show their size against the free space", "3 games" in bar and "free" in bar, bar)
             await shot(pg, "03-phone-ticked")
 
-            # 4. Add to device…: the kinds with their sizes, Screenshot unticked
+            # 4. Add to queue…: the kinds with their sizes, Screenshot unticked
             await pg.click("#go-add")
             await pg.wait_for_selector("#add-kinds input[name=cover]")
             kinds = await pg.inner_text("#add-kinds")
             ticked = await pg.eval_on_selector_all("#add-kinds input", "els => els.filter(e => e.checked).map(e => e.name)")
-            check("Add to device… shows the media kinds the library has, with sizes, ticked as Settings says", "Box front" in kinds and "Screenshot" in kinds and "KB" in kinds and "cover" in ticked and "screenshot" in ticked, (kinds, ticked))
+            check("Add to queue… shows the media kinds the library has, with sizes, ticked as Settings says", "Box front" in kinds and "Screenshot" in kinds and "KB" in kinds and "cover" in ticked and "screenshot" in ticked, (kinds, ticked))
             await pg.uncheck("#add-kinds input[name=screenshot]")
             await shot(pg, "04-phone-add")
             label = await pg.inner_text("#add-dialog button[type=submit]")
@@ -451,6 +465,75 @@ async def main():
             check("on Android, Back goes back a page, and from the Library leaves the app", from_game == "#settings" and shell()["left"] == left_before + 1
                   and await pg.evaluate("() => location.hash") == "#library", (from_game, shell()))
             shell(kind="windows")
+
+            # 13b. on Linux and the Steam Deck (D107, D109): Settings › Steam adds Game Repo Go
+            # to Steam's library, written at once while Steam's closed; while it runs the change
+            # waits, and Restart Steam closes it, writes it and starts it again; in Game Mode A
+            # on a text box brings up Steam's keyboard
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#set-version")
+            not_on_windows = await pg.query_selector("#set-steam") is None
+            shell(kind="linux", game_mode=True)
+            await pg.set_viewport_size({"width": 1280, "height": 800})
+            await pg.reload()
+            await pg.wait_for_selector("#set-steam-none")
+            await pg.fill("#set-steam-folder input", str(steam_dir))
+            await pg.click("#set-steam-folder button:has-text('Save')")
+            await pg.wait_for_selector("#set-steam-self")
+            await pg.click("#set-steam-self")
+            await pg.wait_for_selector("#set-steam-done")
+            vdf = (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+            mine = b"Game Repo Go" in vdf and Path(cli).name.encode() in vdf
+            await shot(pg, "16-pc-linux-steam")
+            check("on Linux, Settings adds Game Repo Go to Steam's library, written while Steam's closed",
+                  not_on_windows and mine, (not_on_windows, vdf[:200]))
+            # A on a text box, from a controller, in Game Mode: Steam's keyboard
+            before_kb = shell()["keyboard"]
+            await pg.evaluate("""() => {
+                const pad = { id: "Steam Virtual Gamepad", connected: true, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+                window.__pad = pad;
+                Object.defineProperty(navigator, "getGamepads", { value: () => [pad], configurable: true });
+                document.querySelector("#set-name").focus();
+                dispatchEvent(new Event("gamepadconnected"));
+            }""")
+            await asyncio.sleep(0.3)
+            await pg.evaluate("() => { window.__pad.buttons[0].pressed = true; }")
+            await asyncio.sleep(0.3)
+            await pg.evaluate("() => { window.__pad.buttons[0].pressed = false; }")
+            for _ in range(30):
+                if shell()["keyboard"] > before_kb:
+                    break
+                await asyncio.sleep(0.1)
+            check("in Game Mode, A on a text box brings up Steam's on-screen keyboard", shell()["keyboard"] == before_kb + 1, shell())
+            if sys.platform.startswith("linux"):
+                # Steam running: a program named steam
+                (steam_bin / "run").mkdir(exist_ok=True)
+                shutil.copy("/bin/sleep", steam_bin / "run" / "steam")
+                fake = subprocess.Popen([str(steam_bin / "run" / "steam"), "600"])
+                (steam_bin / "running.pid").write_text(str(fake.pid))
+                await pg.reload()
+                await pg.wait_for_selector("#set-steam-self")
+                await pg.click("#set-steam-self")
+                await pg.wait_for_selector("#set-steam-waiting")
+                waiting = await pg.inner_text("#set-steam-waiting")
+                still = b"Game Repo Go" in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+                await pg.click("#set-steam-restart")
+                await pg.wait_for_selector("#set-steam-sure")
+                await shot(pg, "17-pc-linux-steam-restart")
+                await pg.click("#set-steam-restart-now")
+                log = go_data / "steam-restart.log"
+                for _ in range(300):
+                    if log.exists() and "written" in log.read_text() and (steam_bin / "started").exists():
+                        break
+                    await asyncio.sleep(0.1)
+                fake.wait(timeout=10)
+                gone = b"Game Repo Go" not in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+                await pg.wait_for_selector("#set-steam-waiting", state="detached", timeout=10000)
+                check("while Steam runs a change waits, and Restart Steam closes it, writes the change and starts it again",
+                      "Steam is running" in waiting and still and gone and (steam_bin / "started").exists(),
+                      (waiting, still, gone, log.read_text() if log.exists() else "no log"))
+            shell(kind="windows", game_mode=False)
+            await pg.set_viewport_size(PHONE)
 
             # 14. away from home: the library's list and a game's details are kept on the device
             server.terminate()

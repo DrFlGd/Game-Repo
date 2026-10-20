@@ -4,9 +4,10 @@
 // `gamerepo-cli device app` and `client-ui`): the window is web/client.html, pictures come
 // through `picture://` (from the device's cache or the library; a web view won't trust the
 // server's own certificate), and the backend's changes reach the page as "go-changed"
-// events. On Windows, closing the window while games are downloading leaves an icon by the
-// clock with their progress, and it quits when they're done (D99); on Android the
-// downloads' notification does that, and android.rs has the rest of Android's side (D97).
+// events. On Windows and Linux, closing the window while games are downloading leaves an
+// icon by the clock with their progress, and it quits when they're done (D99); on Android
+// the downloads' notification does that, and android.rs has the rest of Android's side
+// (D97). On Linux it can add itself to Steam and open Steam's keyboard (D107).
 
 #[cfg(not(target_os = "android"))]
 mod secrets;
@@ -54,7 +55,35 @@ fn app_info() -> Value {
         "version": env!("CARGO_PKG_VERSION"),
         // Windows' and Android's web views reach a protocol at http://<name>.localhost/
         "picture_url": if cfg!(any(windows, target_os = "android")) { "http://picture.localhost/" } else { "picture://localhost/" },
+        "game_mode": cfg!(target_os = "linux") && gamerepo_device::steam::game_mode(),
     })
+}
+
+/// Steam's on-screen keyboard, for a text box in the Steam Deck's Game Mode (D107): Steam
+/// opens it when it's handed `steam://open/keyboard`.
+#[tauri::command]
+fn keyboard() {
+    #[cfg(target_os = "linux")]
+    std::thread::spawn(|| {
+        for (program, args) in [("steam", vec!["steam://open/keyboard"]), ("xdg-open", vec!["steam://open/keyboard"])] {
+            if std::process::Command::new(program).args(&args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok() {
+                return;
+            }
+        }
+    });
+}
+
+/// Game Repo Go itself on Linux (D107): its program (the AppImage it runs from), its icon
+/// (written beside its data, as Steam needs a file) and its Steam helper (main.rs).
+#[cfg(target_os = "linux")]
+fn own(data: &std::path::Path) -> gamerepo_device::app::Own {
+    let program = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from).or_else(|| std::env::current_exe().ok()).unwrap_or_default();
+    let icon = data.join("game-repo-go.png");
+    if !icon.is_file() {
+        let _ = std::fs::write(&icon, include_bytes!("../../src-tauri/icons/128x128@2x.png"));
+    }
+    let helper = vec![program.display().to_string(), "--steam-apply".into(), data.display().to_string()];
+    gamerepo_device::app::Own { program, icon, helper }
 }
 
 /// A folder chosen (ES-DE's folder or the ROMs folder in Settings). None if cancelled.
@@ -242,6 +271,8 @@ pub fn run() {
             #[cfg(not(target_os = "android"))]
             let kept = secrets::store(&data);
             let go = App::open(&data, homes, KIND, kept, events)?;
+            #[cfg(target_os = "linux")]
+            go.set_own(own(&data));
             app.manage(Go { app: go, hidden: AtomicBool::new(false) });
             #[cfg(desktop)]
             {
@@ -252,13 +283,15 @@ pub fn run() {
             android::start(app.handle().clone());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![api, app_info, pick_folder, storage, leave]);
+        .invoke_handler(tauri::generate_handler![api, app_info, pick_folder, storage, leave, keyboard]);
     // closing the window while games download keeps them going, with the icon by the clock
     #[cfg(desktop)]
     let app = app.on_window_event(|w, e| {
         if let WindowEvent::CloseRequested { api, .. } = e {
             let go = w.state::<Go>();
-            if go.app.queue.busy() {
+            // (Game Mode has no icon by the clock to come back from: closed is closed there,
+            // and the queue goes on next time)
+            if go.app.queue.busy() && !(cfg!(target_os = "linux") && gamerepo_device::steam::game_mode()) {
                 api.prevent_close();
                 let _ = w.hide();
                 go.hidden.store(true, Ordering::SeqCst);

@@ -45,7 +45,7 @@ export function QueuePage() {
       </div>` : null}
     ${q.offline ? html`<p class="warn-note" id="queue-offline" role="status">Waiting for the library: it can't be reached from here. The queue goes on by itself once it can.</p>` : null}
     ${going.length ? html`<p class="muted" id="queue-sum">${plural(q.left, "game")} to come · ${bytes(q.done)} of ${bytes(q.size)}${q.speed ? ` · ${bytes(q.speed)}/s` : ""}</p>` : null}
-    ${!q.items.length ? html`<p class="empty" id="queue-empty">Nothing in the queue. Tick games in the Library and choose Add to device….</p>` : null}
+    ${!q.items.length ? html`<p class="empty" id="queue-empty">Nothing in the queue. Choose Add to queue… on a game, or select several in the Library and choose Add to queue….</p>` : null}
     <ul class="go-queue-list" id="queue-list">
       ${going.map((i) => html`<li class=${`go-q go-q-${i.state}`} key=${i.id} data-key=${i.key}>
         <div class="go-q-what"><strong>${i.title}</strong><span class="muted">${i.media_only ? "Media only · " : ""}${STATE[i.state] || i.state}${i.state === "downloading" && i.speed ? ` · ${bytes(i.speed)}/s` : ""}</span></div>

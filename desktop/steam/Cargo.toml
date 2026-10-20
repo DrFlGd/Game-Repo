@@ -1,0 +1,13 @@
+[package]
+name = "gamerepo-steam"
+description = "Steam's own files on a computer: non-Steam shortcuts (binary VDF), the Proton chosen for each (config.vdf), its users, and whether it's running"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "gamerepo_steam"
+
+[dependencies]
+anyhow = "1"
+crc32fast = "1"
+serde_json = { version = "1", features = ["preserve_order"] }

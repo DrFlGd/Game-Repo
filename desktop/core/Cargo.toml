@@ -9,6 +9,7 @@ name = "gamerepo_core"
 
 [dependencies]
 anyhow = "1"
+gamerepo-steam = { path = "../steam" }
 gamerepo-wire = { path = "../wire" }
 chd = { version = "0.4", features = ["encode"] }
 crc32fast = "1"

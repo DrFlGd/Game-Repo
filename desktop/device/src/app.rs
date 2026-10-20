@@ -9,6 +9,7 @@ use crate::catalogue::{self, Catalogue};
 use crate::queue::{self, Ctx, Queue};
 use crate::removing::{self, Ask as RemoveAsk};
 use crate::scan::{self, Found};
+use crate::steam;
 use crate::{client, AddOptions, Device, Server};
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
@@ -29,7 +30,8 @@ pub trait Secrets: Send + Sync {
     fn delete(&self, name: &str) -> Result<()>;
 }
 
-/// Secrets in a file (the stand-in's and the tests'; never a real client's).
+/// Secrets in a file only its user can read: the stand-in's and the tests', and Game Repo
+/// Go's on Linux (D108).
 pub struct FileSecrets(pub PathBuf);
 
 impl FileSecrets {
@@ -46,13 +48,13 @@ impl Secrets for FileSecrets {
     fn set(&self, name: &str, value: &str) -> Result<()> {
         let mut m = self.all();
         m.insert(name.into(), value.into());
-        crate::write_whole(&self.0, &serde_json::to_vec_pretty(&m)?)
+        crate::write_private(&self.0, &serde_json::to_vec_pretty(&m)?)
     }
 
     fn delete(&self, name: &str) -> Result<()> {
         let mut m = self.all();
         if m.remove(name).is_some() {
-            crate::write_whole(&self.0, &serde_json::to_vec_pretty(&m)?)?;
+            crate::write_private(&self.0, &serde_json::to_vec_pretty(&m)?)?;
         }
         Ok(())
     }
@@ -86,6 +88,12 @@ pub struct Settings {
     pub screen: u32,
     /// The library paired with (its name)
     pub library: String,
+    /// Steam's folder, when it isn't where it's found, and the Steam user Game Repo Go's
+    /// shortcuts are for (none: the one signed in most recently) (D109)
+    pub steam: String,
+    pub steam_user: String,
+    /// The Proton a Windows program runs through (Steam's name for it, D112)
+    pub proton: String,
 }
 
 impl Default for Settings {
@@ -104,6 +112,9 @@ impl Default for Settings {
             name: String::new(),
             screen: 1280,
             library: String::new(),
+            steam: String::new(),
+            steam_user: String::new(),
+            proton: "proton_experimental".into(),
         }
     }
 }
@@ -164,6 +175,17 @@ pub struct App {
     me: Weak<App>,
     /// When the library was last looked for at another address
     looked: Mutex<Option<std::time::Instant>>,
+    /// Game Repo Go itself, for its own Steam shortcut (D107)
+    own: Mutex<Own>,
+}
+
+/// Game Repo Go's own program and icon, and the command line of its Steam helper
+/// ([`crate::steam::helper`]), as the app (or the stand-in) gives them.
+#[derive(Clone, Debug, Default)]
+pub struct Own {
+    pub program: PathBuf,
+    pub icon: PathBuf,
+    pub helper: Vec<String>,
 }
 
 /// How often the library is looked for at another address while it can't be reached,
@@ -202,7 +224,7 @@ impl App {
                     }
                 }),
             );
-            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default() }
+            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default() }
         });
         let me = Arc::downgrade(&app);
         app.queue.on_away(Box::new(move || me.upgrade().is_some_and(|a| a.find_again())));
@@ -215,6 +237,15 @@ impl App {
     pub fn set_homes(&self, homes: Vec<PathBuf>) {
         *self.homes.lock().unwrap_or_else(|e| e.into_inner()) = homes;
         self.changed("device");
+    }
+
+    /// What Game Repo Go is (its program, icon and Steam helper).
+    pub fn set_own(&self, own: Own) {
+        *self.own.lock().unwrap_or_else(|e| e.into_inner()) = own;
+    }
+
+    fn own(&self) -> Own {
+        self.own.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn settings(&self) -> Settings {
@@ -383,6 +414,42 @@ impl App {
                 json!(r)
             }
             "add_media" => self.add_media(&arg_or::<String>(args, "id"), &arg_or::<String>(args, "key"), &arg::<Vec<String>>(args, "kinds")?)?,
+            "steam" => steam::status(&self.data),
+            "steam_add_self" => {
+                let own = self.own();
+                let w = if arg_or::<bool>(args, "on") {
+                    if own.program.as_os_str().is_empty() {
+                        bail!("Game Repo Go can't add itself to Steam from here.");
+                    }
+                    let icon = own.icon.display().to_string();
+                    Some(steam::Wanted {
+                        name: "Game Repo Go".into(),
+                        program: own.program.display().to_string(),
+                        start_dir: own.program.parent().map(|p| p.display().to_string()).unwrap_or_default(),
+                        icon: icon.clone(),
+                        art: if icon.is_empty() { BTreeMap::new() } else { BTreeMap::from([("icon".to_string(), icon)]) },
+                        ..Default::default()
+                    })
+                } else {
+                    None
+                };
+                steam::want(&self.data, steam::OWN, w)?;
+                self.changed("settings");
+                steam::status(&self.data)
+            }
+            "steam_apply" => {
+                let r = steam::apply(&self.data)?;
+                self.changed("settings");
+                r
+            }
+            "steam_restart" => {
+                let mut helper = self.own().helper;
+                if steam::game_mode() {
+                    helper.push("--game-mode".into());
+                }
+                steam::restart(&helper)?;
+                json!({})
+            }
             "settings" => json!(self.settings()),
             "set_settings" => {
                 let mut v = serde_json::to_value(self.settings())?;
@@ -398,6 +465,9 @@ impl App {
                 }
                 if !new.roms.is_empty() && !Path::new(&new.roms).is_dir() {
                     bail!("{} isn't a folder.", new.roms);
+                }
+                if !new.steam.is_empty() && !Path::new(&new.steam).join("userdata").is_dir() {
+                    bail!("{} isn't Steam's folder (it has no userdata folder).", new.steam);
                 }
                 self.update_settings(|s| *s = new.clone())?;
                 self.catalogue.set_picture_limit(new.pictures_mb << 20);
@@ -728,7 +798,7 @@ impl App {
         });
     }
 
-    /// Before *Add to device* (D99, C9, C22): the games' size, each media kind the library
+    /// Before *Add to queue…* (D99, C9, C22): the games' size, each media kind the library
     /// has for them with its size (those ticked as last time), and the free space.
     fn prepare(&self, keys: &[String], args: &Value) -> Result<Value> {
         let s = self.server().ok_or_else(|| anyhow!("This device isn't paired with a library: pair it in Settings."))?;

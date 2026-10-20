@@ -1,8 +1,8 @@
 // The Library (D98, D103): the library's games from the device's own copy, so browsing and
 // search are instant and work away from home. Systems and collections down the side on a
 // PC, a list at the top on a phone; the games as box fronts in a list that only puts what's
-// in view in the page (100,000 games scroll as a hundred); a tick on each, and a bar with
-// what's ticked, its size against the free space and Add to device….
+// in view in the page (100,000 games scroll as a hundred); a check on each to select it, and
+// a bar with what's selected, its size against the free space and Add to queue….
 import { html, useState, useEffect, useRef, useLayoutEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
@@ -14,8 +14,8 @@ const PAGE = 200;   // games read at a time from the device's copy
 const GAP = 12;
 const PAD = 16;
 
-/** Tick or untick games (`games` from a page of the list). */
-export function tick(games, on) {
+/** Select games, or take them off what's selected (`games` from a page of the list). */
+export function pick(games, on) {
   go.set((s) => {
     const picked = { ...s.picked };
     for (const g of games) {
@@ -73,14 +73,14 @@ function Places({ systems, collections, where }) {
 }
 
 /** One game's card: its box front (its title when there's no picture, or none kept away
- *  from home), title, year and size, a tick, and whether it's on the device. */
+ *  from home), title, year and size, its check to select it, and whether it's on the device. */
 function Card({ g, i, current, style, ticked, size, onKey }) {
   const [bad, setBad] = useState(false);
   useEffect(() => setBad(false), [g?.key]);
   if (!g) return html`<div class="card go-card is-loading" style=${style} aria-hidden="true"><span class="go-cover"></span></div>`;
   const sub = [g.year, bytes(g.size), g.discs > 1 ? `${g.discs} discs` : null].filter(Boolean).join(" · ");
   return html`<div class=${`card go-card${ticked ? " is-ticked" : ""}`} style=${style} data-key=${g.key}>
-    <button type="button" class="go-card-open" data-index=${i} tabindex=${current ? 0 : -1} aria-label=${`${g.title}, ${sub}${g.on_device ? ", on this device" : ""}${ticked ? ", ticked" : ""}`}
+    <button type="button" class="go-card-open" data-index=${i} tabindex=${current ? 0 : -1} aria-label=${`${g.title}, ${sub}${g.on_device ? ", on this device" : ""}${ticked ? ", selected" : ""}`}
       onClick=${() => open({ page: "game", key: g.key })} onKeyDown=${(e) => onKey(e, i, g)}>
       <span class="go-cover">
         <span class="go-cover-title">${g.title}</span>
@@ -89,13 +89,13 @@ function Card({ g, i, current, style, ticked, size, onKey }) {
       <span class="go-card-title">${g.title}</span>
       <span class="go-card-sub">${sub}</span>
     </button>
-    <button type="button" class="go-tick" tabindex="-1" aria-pressed=${ticked ? "true" : "false"} aria-label=${`Tick ${g.title}`} title=${ticked ? "Untick" : "Tick"} onClick=${() => tick([g])}>${Icon.check(16)}</button>
+    <button type="button" class="go-tick" tabindex="-1" aria-pressed=${ticked ? "true" : "false"} aria-label=${`Select ${g.title}`} title=${ticked ? "Deselect" : "Select"} onClick=${() => pick([g])}>${Icon.check(16)}</button>
     ${g.on_device ? html`<span class="go-on-device" title="On this device">On this device</span>` : null}
   </div>`;
 }
 
 /** The games, read a page at a time and only those in view drawn. Arrows move by card and
- *  row, Page Up and Down by a screen, X or Space ticks. */
+ *  row, Page Up and Down by a screen, X or Space selects. */
 function Games({ ask, rev, picked }) {
   const scroller = useRef(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -212,7 +212,7 @@ function Games({ ask, rev, picked }) {
       goTo(to);
     } else if (e.key === " " || e.key === "x" || e.key === "X") {
       e.preventDefault();
-      tick([g]);
+      pick([g]);
     }
   };
 
@@ -230,19 +230,19 @@ function Games({ ask, rev, picked }) {
   </div>`;
 }
 
-/** What's ticked: how many, their size against the free space, Add to device…, and Make
+/** What's selected: how many, their size against the free space, Add to queue…, and Make
  *  room… when there isn't room (C9, C20). */
 function Picked({ picked, free }) {
   const keys = Object.keys(picked);
   if (!keys.length) return null;
   const size = keys.reduce((a, k) => a + (picked[k].size || 0), 0);
   const short = free != null && size > free;
-  return html`<div class="go-picked" id="go-picked" role="region" aria-label="Ticked games">
-    <span class="go-picked-what"><strong>${plural(keys.length, "game")}</strong> · ${bytes(size)}${free != null ? html` · <span class=${short ? "danger-text" : "muted"}>${bytes(free)} free</span>` : null}</span>
+  return html`<div class="go-picked" id="go-picked" role="region" aria-label="Selected games">
+    <span class="go-picked-what"><strong>${plural(keys.length, "game")}</strong> selected · ${bytes(size)}${free != null ? html` · <span class=${short ? "danger-text" : "muted"}>${bytes(free)} free</span>` : null}</span>
     <span class="go-picked-do">
       <button type="button" class="ghost" id="go-picked-clear" onClick=${() => go.set({ picked: {} })}>Clear</button>
       ${short ? html`<button type="button" class="ghost" id="go-make-room" onClick=${() => { go.set({ roomFor: size - free + (64 << 20) }); open({ page: "device" }); }}>Make room…</button>` : null}
-      <button type="button" class="primary" id="go-add" onClick=${() => showDialog({ type: "add", keys })}>Add to device…</button>
+      <button type="button" class="primary" id="go-add" onClick=${() => showDialog({ type: "add", keys })}>Add to queue…</button>
     </span>
   </div>`;
 }

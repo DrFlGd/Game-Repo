@@ -15,6 +15,7 @@ pub mod client;
 pub mod queue;
 pub mod removing;
 pub mod scan;
+pub mod steam;
 
 pub use client::{Server, Stopped, Watch};
 
@@ -154,6 +155,22 @@ fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
     }
     let tmp = path.with_file_name(format!("{}{PART}", path.file_name().unwrap_or_default().to_string_lossy()));
     std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// A file written whole that only its user can read (mode 600 on Linux).
+fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    let tmp = path.with_file_name(format!("{}{PART}", path.file_name().unwrap_or_default().to_string_lossy()));
+    let _ = std::fs::remove_file(&tmp);
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+    std::io::Write::write_all(&mut o.open(&tmp)?, bytes)?;
     std::fs::rename(&tmp, path)?;
     Ok(())
 }

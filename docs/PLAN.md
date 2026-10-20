@@ -4396,7 +4396,7 @@ to be built, they're followed unless he says otherwise. Two pull requests, as 9b
 **D107 Game Mode.**
 - Controllers: Steam Input gives a non-Steam app a standard controller, which WebKitGTK
   hands to the page's Gamepad API, so the Windows code (D103) works as it is: the D-pad
-  and left stick move, A presses, B goes back, X ticks a game, the shoulder buttons page.
+  and left stick move, A presses, B goes back, X selects a game, the shoulder buttons page.
 - Typing: a text box reached with a controller in Game Mode opens Steam's on-screen
   keyboard (`steam://open/keyboard`), since nothing else would.
 - Settings › *Steam* › *Add Game Repo Go to Steam* adds the app itself as a non-Steam game
@@ -4455,6 +4455,65 @@ KWallet: Game Mode can't unlock a keyring, and an unanswered prompt would stop p
 - *On this device* lists PC games with the others. Removing one takes the files Game Repo
   Go wrote and its shortcut; files the game made itself in its folder (saves, settings) are
   kept with the folder, and Game Repo Go says how many (saves are never touched, D88).
+
+### Phase 9c notes, part 1: Game Repo Go for the Steam Deck and Linux (built 2026-10-20)
+
+The first of 9c's pull requests: the AppImage, Game Mode, Settings › *Steam* and the
+Steam helper. Built as D106–D109 say, except where noted.
+
+- **Steam's files** (D109): `desktop/steam/` (`gamerepo-steam`) holds the binary VDF code
+  that was in the core, now with Steam's text VDF (`text.rs`, written back as Steam writes
+  it), the Proton chosen per shortcut in `config.vdf`'s `CompatToolMapping` (name,
+  `config` empty, priority 250, as Steam writes it), Steam's users from `loginusers.vdf`,
+  backups beside each file, and `running()`. Game Repo's Add to Steam uses it unchanged in
+  what it writes; its shortcuts are tagged *Game Repo* and backed up as `.gamerepo-*`, Game
+  Repo Go's tagged *Game Repo Go* and backed up as `.gamerepogo-*` (the last five of each),
+  so neither touches the other's. Steam is found at `~/.steam/steam`,
+  `~/.local/share/Steam` or Flathub's folder, or where Settings says.
+- **Is Steam running**: on Linux, any process named `steam` that isn't a zombie (read from
+  `/proc`; `pgrep` counts zombies, which kept the helper waiting in the test).
+- **What Game Repo Go wants in Steam** is kept in `steam.json` in its data folder
+  (`desktop/device/src/steam.rs`): each shortcut it wants (its key, name, program, folder,
+  icon, Proton or not and pictures) and what it last wrote (Steam's folder and user, the
+  shortcuts' ids, the Protons, the grid files). `apply` writes it only when Steam is
+  closed, and takes out what's no longer wanted, from the previous user's file too when the
+  user changes. Part 2's PC games use the same `want`.
+- **Restart Steam**: Settings asks first (Steam closes with any game it's running, and in
+  Game Mode Game Repo Go too), then starts the helper, the app itself with `--steam-apply
+  <data folder>` (`gamerepo-cli device steam-apply --data` for the tests' stand-in), as a
+  unit of the user's systemd (`systemd-run --user`, `KillMode=process`, with the session's
+  `PATH`, display and bus passed on, since a unit gets the user manager's), else in a
+  session of its own (`setsid`). It runs `steam -shutdown`, waits up to 90 s for Steam to
+  close, writes, and starts Steam again outside Game Mode. What it did goes in
+  `steam-restart.log` in the data folder; Settings looks again every 3 s while something
+  waits.
+- **Settings › Steam** (Linux only): Steam's folder when it isn't found, the user when
+  there are several, *Game Repo Go in Steam's library* (the AppImage, `$APPIMAGE`, with the
+  app's icon written to the data folder as its icon and grid icon), and what waits with
+  *Restart Steam…*, or *Write them now* when Steam is closed.
+- **Game Mode** (D107) is told by `SteamGamepadUI=1`, `XDG_CURRENT_DESKTOP=gamescope` or
+  `GAMESCOPE_WAYLAND_DISPLAY`. There, Enter or A on a text box opens Steam's keyboard
+  (`steam steam://open/keyboard`, the app's `keyboard` command), the DMA-BUF renderer is
+  off, and closing the window quits rather than hiding to the tray, which Game Mode
+  doesn't have.
+- **The pairing** (D108): `secrets.json`, written as a new file with mode 600 and renamed
+  into place; an older one is set to 600 when read.
+- **Words** (Jerred, 2026-10-20: "tick" to change to "queue" or "add to queue", whichever
+  makes more sense): Game Repo Go's ticks pick games to add together, which isn't the
+  queue itself, so the buttons that put games in the queue say *Add to queue…* (they said
+  *Add to device…*) and picking several says *Select* (*Selected*, *Selected games*), on
+  every platform, as does Make room on *On this device*.
+- **CI**: the *Steam Deck app* job (Ubuntu 22.04) runs `gamerepo-steam`'s, the device's and
+  the client's Rust tests and the core's Steam tests, `client_page.py` (Settings › Steam
+  against a stand-in Steam folder and a stand-in `steam` command, Restart Steam closing a
+  running one, A on a text box in Game Mode), builds the AppImage, starts it, runs
+  `tests/steam_helper.py` with it against a stand-in Steam, and drives the built app with
+  `client_ui.py --gamepad`: a virtual Xbox 360 pad made with uinput (as Steam Input gives
+  one) moves between games, opens one with A and comes back with B through WebKitGTK's
+  Gamepad API, and the pairing's file is mode 600. *What passed* and the release wait for
+  it, and *Already tested* needs its AppImage.
+- **Not tried**: a real Steam Deck, Game Mode itself (gamescope, Steam Input, the
+  on-screen keyboard), the Flatpak Steam, and an SD card's ROMs folder.
 
 ## 8. Working in a cloud session
 
