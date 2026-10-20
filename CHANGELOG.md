@@ -86,6 +86,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.31 (2026-10-20)
+
 - **Game Repo Go** for Windows, the device app, with its own installer: pair it with the code Game Repo shows, browse the library's games with their box fronts by system or collection or search them all, tick games and add them to ES-DE with the pictures and manuals you choose, watch the downloads, see everything on the device (and make room by ticking the games played longest ago), and remove games or just their pictures. It works with a mouse, the keyboard or a controller, takes Game Repo's skins and themes, and closing it while games download leaves an icon by the clock until they're done. The pairing is kept in Windows Credential Manager, and if the library's computer is given another address on your network, Game Repo Go finds it again without pairing again.
 - **Plans**: videos (walkthroughs, reviews, retrospectives) are on the roadmap as a section of their own, like magazines, each linked to the games it covers.
 - **Plans**: PC games on your devices are on the roadmap: Game Repo Go will unpack a zipped or 7z game into a games folder that suits Windows or the Steam Deck, and add it to Steam on the Deck.
