@@ -3,8 +3,9 @@
 PC (docs/PLAN.md, "Phase 9b design", D104), on Windows only.
 
 Each of its two ways (.NET's CertificateRequest, and Windows' New-SelfSignedCertificate) is
-run in a scratch folder: the key it makes is read by Java's keytool with its password under
-the name game-repo-go, as an RSA 2048 key with a certificate good for 50 years; it signs a
+run in a scratch folder: the key it makes is read by Java's keytool with its password, one
+key under whatever name Windows gave it (CI asks keytool for the name too), as an RSA 2048
+key with a certificate good for 50 years; it signs a
 jar that jarsigner then verifies; the SHA-256 the helper prints is the certificate's; and
 run again, it keeps the key it made rather than making another.
 
@@ -77,7 +78,9 @@ for method in ("", "store"):
     listed = subprocess.run([keytool, "-list", "-v", "-keystore", str(key), "-storetype", "PKCS12", "-storepass", password], capture_output=True, text=True)
     text = listed.stdout + listed.stderr
     check(f"{way}: Java reads it with its password", listed.returncode == 0 and "PrivateKeyEntry" in text, text)
-    check(f"{way}: Java knows the key as game-repo-go", re.search(r"Alias name: game-repo-go\b", text, re.I) is not None, text)
+    aliases = re.findall(r"^Alias name: (.+?)\s*$", text, re.M)
+    check(f"{way}: one key in it", len(aliases) == 1 and text.count("PrivateKeyEntry") == 1, text)
+    alias = aliases[0] if aliases else ""
     check(f"{way}: an RSA 2048 key, SHA-256 signed", "2048-bit RSA" in text and "SHA256withRSA" in text, text)
     until = re.search(r"until: .*?(\d{4})\s*$", text, re.M)
     check(f"{way}: its certificate is good for 50 years", until is not None and int(until.group(1)) >= 2070, until.group(0) if until else text)
@@ -89,7 +92,7 @@ for method in ("", "store"):
     with zipfile.ZipFile(jar, "w") as z:
         z.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\r\n\r\n")
         z.writestr("hello.txt", "Game Repo Go")
-    signed = subprocess.run([jarsigner, "-keystore", str(key), "-storetype", "PKCS12", "-storepass", password, str(jar), "game-repo-go"], capture_output=True, text=True)
+    signed = subprocess.run([jarsigner, "-keystore", str(key), "-storetype", "PKCS12", "-storepass", password, str(jar), alias], capture_output=True, text=True)
     verified = subprocess.run([jarsigner, "-verify", str(jar)], capture_output=True, text=True)
     check(f"{way}: it signs, and the signature verifies", signed.returncode == 0 and "jar verified" in verified.stdout, signed.stdout + signed.stderr + verified.stdout + verified.stderr)
 

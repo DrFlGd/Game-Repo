@@ -48,15 +48,13 @@ function New-Key([string]$file, [string]$password) {
             $rsa = [Security.Cryptography.RSA]::Create(2048)
             $request = New-Object Security.Cryptography.X509Certificates.CertificateRequest -ArgumentList $subject, $rsa, ([Security.Cryptography.HashAlgorithmName]::SHA256), ([Security.Cryptography.RSASignaturePadding]::Pkcs1)
             $made = $request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddDays(-1), [DateTimeOffset]::UtcNow.AddYears(50))
-            # the name Java (and so Android's signing tools) knows the key by
-            try { $made.FriendlyName = 'game-repo-go' } catch { }
             [IO.File]::WriteAllBytes($file, $made.Export([Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $password))
             return
         } catch {
             Say "(.NET couldn't make it: $($_.Exception.Message); trying Windows' own way)"
         }
     }
-    $made = New-SelfSignedCertificate -Subject $subject -FriendlyName 'game-repo-go' -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -KeyUsage DigitalSignature -NotBefore (Get-Date).AddDays(-1) -NotAfter (Get-Date).AddYears(50) -CertStoreLocation 'Cert:\CurrentUser\My'
+    $made = New-SelfSignedCertificate -Subject $subject -FriendlyName 'Game Repo Go (Android signing key)' -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -KeyUsage DigitalSignature -NotBefore (Get-Date).AddDays(-1) -NotAfter (Get-Date).AddYears(50) -CertStoreLocation 'Cert:\CurrentUser\My'
     try {
         Export-PfxCertificate -Cert $made -FilePath $file -Password (ConvertTo-SecureString $password -AsPlainText -Force) | Out-Null
     } finally {
