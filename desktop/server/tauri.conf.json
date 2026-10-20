@@ -30,11 +30,11 @@
     "shortDescription": "Serve a Game Repo library to devices on your home network",
     "longDescription": "Lets phones and handhelds on your home network browse a Game Repo library and download games into ES-DE's folders, with Game Repo's app on the device. It reads the library and never changes it.",
     "icon": [
-      "../src-tauri/icons/32x32.png",
-      "../src-tauri/icons/128x128.png",
-      "../src-tauri/icons/128x128@2x.png",
-      "../src-tauri/icons/icon.png",
-      "../src-tauri/icons/icon.ico"
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico"
     ],
     "windows": {
       "nsis": {

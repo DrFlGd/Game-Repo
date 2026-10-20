@@ -79,8 +79,10 @@ fn keyboard() {
 fn own(data: &std::path::Path) -> gamerepo_device::app::Own {
     let program = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from).or_else(|| std::env::current_exe().ok()).unwrap_or_default();
     let icon = data.join("game-repo-go.png");
-    if !icon.is_file() {
-        let _ = std::fs::write(&icon, include_bytes!("../../src-tauri/icons/128x128@2x.png"));
+    // rewritten when it differs, so a new icon reaches Steam's library after an update
+    const ICON: &[u8] = include_bytes!("../icons/128x128@2x.png");
+    if std::fs::read(&icon).ok().as_deref() != Some(ICON) {
+        let _ = std::fs::write(&icon, ICON);
     }
     let helper = vec![program.display().to_string(), "--steam-apply".into(), data.display().to_string()];
     gamerepo_device::app::Own { program, icon, helper }
