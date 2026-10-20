@@ -1,8 +1,8 @@
 // Settings (D103): the library paired with, ES-DE's folders found (each can be changed, C3),
 // the media ticked by default, downloads at once, the ES-DE custom collection games go in
 // (C16), what the Library shows, the device's name and screen, the picture cache, the look
-// (Game Repo's skins and themes) and the version; on Linux, Steam (D107, D109). Each change
-// is kept as it's made.
+// (Game Repo's skins and themes) and the version; on Windows and Linux, the PC games folder
+// (D111); on Linux, Steam (D107, D109). Each change is kept as it's made.
 import { html, useEffect, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { SKINS, THEMES } from "../ui/state.js";
@@ -137,6 +137,13 @@ export function SettingsPage() {
       ${dev.media ? html`<p class="muted">Pictures and manuals go in ${dev.media}, where ES-DE looks for them.</p>` : null}
       ${v.esde || v.roms ? html`<div><button type="button" class="ghost" id="set-folders-found" onClick=${() => set({ esde: "", roms: "" }).then(refreshStatus)}>Use the folders ES-DE says</button></div>` : null}
     </section>
+
+    ${st.pc ? html`<section class="go-set" id="set-pc">
+      <h2>PC games</h2>
+      <${Folder} id="set-pc-folder" label="PC games folder" value=${st.pc.folder} setting="pc_games" fallback=${info.kind === "windows" ? "C:\\Games" : "Games in your home folder"} />
+      <p class="muted" id="set-pc-shortcuts">Each game goes in a folder of its own there, with a shortcut ${info.kind === "windows" ? "in the Start menu's Game Repo Go folder" : "in Steam, through Proton for a Windows game"}. Removing a game keeps the files it made itself, such as saves.</p>
+      ${!st.pc.default ? html`<div><button type="button" class="ghost" id="set-pc-usual" onClick=${() => set({ pc_games: "" }).then(refreshStatus)}>Use the usual folder</button></div>` : null}
+    </section>` : null}
 
     <section class="go-set" id="set-downloads">
       <h2>Downloads</h2>

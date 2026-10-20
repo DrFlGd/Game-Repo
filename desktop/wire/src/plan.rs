@@ -22,6 +22,37 @@ pub struct Plan {
     pub ready: bool,
     /// Each media kind's size for these games, asked for or not (C13)
     pub kinds: Vec<crate::api::KindSize>,
+    /// The PC games' programs, for their shortcuts (D112)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub programs: Vec<Program>,
+    /// PC games whose files the server is still unpacking (D111), so the plan doesn't list
+    /// them yet: asking for it again gives them once they're unpacked
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub waiting: Vec<String>,
+}
+
+/// A PC game's program (D112), for its Start menu or Steam shortcut.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Program {
+    /// The catalogue's key of the game
+    pub key: String,
+    /// What the shortcut's called (the game's title)
+    pub name: String,
+    /// Its place (`pc`) and the game's folder there
+    pub place: String,
+    pub folder: String,
+    /// The program in the game's folder, with `/`; empty: the game has none to start, so it
+    /// gets no shortcut
+    pub path: String,
+    pub args: String,
+    /// The folder it starts in, in the game's folder (empty: the program's own)
+    pub dir: String,
+    /// A Windows program (`.exe`, `.bat`, `.cmd`), which runs through Proton on Linux
+    pub windows: bool,
+    /// Its pictures for Steam's grid: (media kind, the plan file's place and path)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub art: Vec<(String, String, String)>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]

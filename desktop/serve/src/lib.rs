@@ -18,6 +18,7 @@ pub mod http;
 pub mod made;
 pub mod plans;
 pub mod tls;
+pub mod unpacked;
 
 use anyhow::{anyhow, bail, Context, Result};
 use devices::{Device, Devices};
@@ -121,6 +122,7 @@ struct Shared {
     port: u16,
     devices: Mutex<Devices>,
     maker: Arc<Maker>,
+    unpacker: Arc<unpacked::Unpacker>,
     hashes: Arc<Hashes>,
     stop: Arc<AtomicBool>,
     ready: AtomicBool,
@@ -238,7 +240,7 @@ impl Shared {
         self.set_doing("Reading the games' details");
         meta::sync(&ix, &self.lib)?;
         browse::refresh(&ix, &self.lib)?;
-        catalogue::refresh(&ix)?;
+        catalogue::refresh_with(&ix, Some(&self.lib))?;
         Ok(())
     }
 
@@ -349,6 +351,7 @@ impl Server {
             port,
             devices: Mutex::new(Devices::load(&o.data)),
             maker: Maker::new(o.data.join("made"), o.made_limit, stop.clone()),
+            unpacker: unpacked::Unpacker::new(o.data.join("unpacked"), o.made_limit, stop.clone()),
             hashes: Hashes::new(index_path.clone(), stop.clone()),
             lib,
             lib_id,
@@ -634,7 +637,8 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
     let ix = ix.as_ref().unwrap();
     let lib = &sh.lib;
     match (m, path) {
-        ("GET", "/v1/systems") => ok(Response::json(200, &catalogue::systems(ix, lib, req.param("all").is_some_and(|v| v == "1" || v == "true"))?)),
+        // PC games only for devices that ask for them (D110)
+        ("GET", "/v1/systems") => ok(Response::json(200, &catalogue::systems(ix, lib, flag(req, "all"), flag(req, "pc"))?)),
         ("GET", "/v1/collections") => ok(Response::json(200, &catalogue::collections(ix, lib)?)),
         ("GET", "/v1/games") => {
             let a = catalogue::Ask {
@@ -643,7 +647,8 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
                 group: req.param("group").map(String::from),
                 search: req.param("q").unwrap_or("").into(),
                 sort: req.param("sort").unwrap_or("title").into(),
-                desc: req.param("desc").is_some_and(|d| d == "1" || d == "true"),
+                desc: flag(req, "desc"),
+                pc: flag(req, "pc"),
                 offset: req.param("offset").and_then(|o| o.parse().ok()).unwrap_or(0),
                 limit: req.param("limit").and_then(|o| o.parse().ok()).unwrap_or(catalogue::PAGE),
             };
@@ -656,7 +661,7 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
         ("GET", "/v1/changes") => {
             let since: i64 = req.param("since").and_then(|s| s.parse().ok()).unwrap_or(0);
             let offset = req.param("offset").and_then(|o| o.parse().ok()).unwrap_or(0);
-            ok(match catalogue::changes(ix, since, offset)? {
+            ok(match catalogue::changes(ix, since, offset, flag(req, "pc"))? {
                 Ok(c) => Response::json(200, &c),
                 Err(catalogue::TooOld) => Response::problem(410, "The list has changed too much since then: fetch it again."),
             })
@@ -675,13 +680,17 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
                 Ok(a) => a,
                 Err(r) => return ok(r),
             };
-            ok(match plans::plan(ix, lib, &sh.data, &sh.maker, &sh.hashes, &ask)? {
+            ok(match plans::plan(ix, lib, &sh.data, &sh.maker, &sh.unpacker, &sh.hashes, &ask)? {
                 Ok(p) => Response::json(200, &p),
                 Err(why) => Response::problem(404, why),
             })
         }
         _ => ok(Response::problem(404, "There's nothing here.")),
     }
+}
+
+fn flag(req: &Request, name: &str) -> bool {
+    req.param(name).is_some_and(|v| v == "1" || v == "true")
 }
 
 /// A plan's file, or its SHA-1 (`?sha1`, waited for while it's read or made).
@@ -697,6 +706,17 @@ fn files_route(sh: &Arc<Shared>, req: &Request, device: &Device) -> Result<(Resp
             Made::Failed(e) => return Ok((Response::problem(500, format!("That file couldn't be made: {e}")), None)),
             Made::Unknown => return Ok((Response::problem(404, "That file isn't being made now: ask for the plan again."), None)),
         }
+    } else if let Some(rest) = rest.strip_prefix("unpacked/") {
+        // a PC game's file, from its archive unpacked (D111)
+        let (id, file) = rest.split_once('/').unwrap_or((rest, ""));
+        let Some(p) = sh.unpacker.file(id, file) else {
+            return Ok((Response::problem(404, "That file isn't unpacked now: ask for the plan again."), None));
+        };
+        let sha1 = match sh.unpacker.status(id) {
+            unpacked::Unpacked::Ready(list) => list.into_iter().find(|f| f.path == file).map(|f| f.sha1),
+            _ => None,
+        };
+        (p, sha1)
     } else {
         let roots = roots::list(&sh.lib);
         match files::resolve(&sh.lib, &roots, rest) {

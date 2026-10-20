@@ -1,6 +1,8 @@
 // The queue (D99): each game with its progress, Pause, Cancel and Pause all; waiting for
 // the library while it can't be reached, going on by itself; and, once games are in,
-// "Restart ES-DE to see the new games" (C17), as ES-DE reads its gamelists when it starts.
+// "Restart ES-DE to see the new games" (C17), as ES-DE reads its gamelists when it starts
+// (not for PC games, which ES-DE doesn't list); a PC game waits while the library unpacks
+// it (D111).
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { call } from "./backend.js";
@@ -48,7 +50,7 @@ export function QueuePage() {
     ${!q.items.length ? html`<p class="empty" id="queue-empty">Nothing in the queue. Choose Add to queue… on a game, or select several in the Library and choose Add to queue….</p>` : null}
     <ul class="go-queue-list" id="queue-list">
       ${going.map((i) => html`<li class=${`go-q go-q-${i.state}`} key=${i.id} data-key=${i.key}>
-        <div class="go-q-what"><strong>${i.title}</strong><span class="muted">${i.media_only ? "Media only · " : ""}${STATE[i.state] || i.state}${i.state === "downloading" && i.speed ? ` · ${bytes(i.speed)}/s` : ""}</span></div>
+        <div class="go-q-what"><strong>${i.title}</strong><span class="muted">${i.media_only ? "Media only · " : ""}${i.unpacking ? "Being unpacked on the library first" : STATE[i.state] || i.state}${i.state === "downloading" && i.speed ? ` · ${bytes(i.speed)}/s` : ""}</span></div>
         ${i.size ? html`<progress max=${i.size} value=${i.done} aria-label=${`${i.title}: ${bytes(i.done)} of ${bytes(i.size)}`}></progress>` : html`<progress aria-label=${i.title}></progress>`}
         <span class="muted go-q-size">${i.size ? `${bytes(i.done)} of ${bytes(i.size)}` : ""}</span>
         ${i.error ? html`<p class="form-error go-q-error">${i.error}</p>` : null}

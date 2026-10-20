@@ -177,6 +177,8 @@ if [ "$1" = "-shutdown" ]; then kill "$(cat '{steam_bin}/running.pid')"; else da
 """)
 (steam_bin / "steam").chmod(0o755)
 go_env = {**os.environ, "PATH": f"{steam_bin}{os.pathsep}{os.environ.get('PATH', '')}"}
+if sys.platform == "win32":  # PC games' Start menu shortcuts (D112) go in the test's own
+    go_env["APPDATA"] = str(home / "appdata")
 for k in ("SteamGamepadUI", "GAMESCOPE_WAYLAND_DISPLAY"):
     go_env.pop(k, None)
 go = subprocess.Popen([cli, "client-ui", "--ui", str(ui), "--home", str(phone), "--data", str(go_data), "--port", str(ui_port), "--kind", "windows"],
@@ -235,7 +237,23 @@ async def focus_order(pg, presses, key="ArrowDown"):
     return seen
 
 
+def add_pc_game():
+    """A PC game added to the library (D110): Zeta, only its install archive, which the server
+    unpacks for a device (D111)."""
+    import zipfile
+    game = lib / "PC" / "Zeta (1999)"
+    (game / "install").mkdir(parents=True)
+    with zipfile.ZipFile(game / "install" / "Zeta.zip", "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("Zeta/zeta.exe", b"MZ zeta")
+        z.writestr("Zeta/data/level1.dat", bytes(range(256)) * 256)
+    size = (game / "install" / "Zeta.zip").stat().st_size
+    (game / "game.json").write_text(json.dumps({"id": "zeta", "title": "Zeta", "year": 1999, "source": "other",
+                                                "files": [{"path": "install/Zeta.zip", "kind": "install", "size": size, "crc32": "", "added": ""}]}), encoding="utf-8")
+    run("serve-devices", "changed", "--data", data)
+
+
 async def main():
+    global before
     async with async_playwright() as p:
         b = await p.chromium.launch(executable_path=a.chromium)
         ctx = await b.new_context(viewport=PHONE, device_scale_factor=2, has_touch=True)
@@ -535,11 +553,76 @@ async def main():
             shell(kind="windows", game_mode=False)
             await pg.set_viewport_size(PHONE)
 
+            # 13c. PC games (D110-D112), on Windows and Linux: a system of their own, put in the
+            # PC games folder Settings names, each game in its folder with a shortcut (in the
+            # Start menu on Windows, in Steam on Linux); removed, a save it made stays
+            add_pc_game()
+            before = snapshot(lib, fixtures, phone / "Saves", phone / "ES-DE" / "settings")
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#set-pc-folder")
+            usual = await pg.input_value("#set-pc-folder input")
+            pc_games = home / "pc-games"
+            await pg.fill("#set-pc-folder input", str(pc_games))
+            await pg.click("#set-pc-folder button:has-text('Save')")
+            await pg.wait_for_selector("#set-pc-usual")
+            check("Settings shows the PC games folder, the usual one until another is chosen", usual.endswith("Games"), usual)
+            # the library read again once the server has the game
+            listed = False
+            for _ in range(60):
+                listed = await pg.evaluate("""async () => { const b = await import('./client/backend.js'); await b.call('sync');
+                    for (let i = 0; i < 20 && (await b.call('status')).sync.running; i++) await new Promise((r) => setTimeout(r, 100));
+                    return (await b.call('systems')).some((x) => x.id === 'pcgames'); }""")
+                if listed:
+                    break
+                await asyncio.sleep(0.5)
+            await pg.goto(B + "#library")
+            await pg.reload()
+            await pg.wait_for_selector("#go-place-pick option[value='s:pcgames']", state="attached", timeout=20000)
+            await pg.select_option("#go-place-pick", "s:pcgames")
+            await pg.wait_for_selector('.go-card[data-key="pcgames/zeta"]')
+            check("PC games are a system of their own in the Library", listed and await cards(pg) == ["pcgames/zeta"], await cards(pg))
+            await pg.click('.go-card[data-key="pcgames/zeta"] .go-tick')
+            await pg.click("#go-add")
+            await pg.wait_for_selector("#add-pc")
+            said = await pg.inner_text("#add-dialog")
+            await shot(pg, "18-phone-add-pc-game")
+            check("Add to queue… says where a PC game goes, and that the library unpacks it first", str(pc_games) in said and "being unpacked on the library first" in said, said)
+            await pg.click("#add-dialog button[type=submit]")
+            await toast(pg, "added to the queue")
+            await pg.click("#go-nav-queue")
+            await pg.wait_for_selector('#queue-done li[data-key="pcgames/zeta"]', timeout=120000)
+            restart = await pg.query_selector("#queue-restart")
+            folder = pc_games / "Zeta (1999)"
+            files = sorted(str(x.relative_to(folder)).replace("\\", "/") for x in folder.rglob("*") if x.is_file()) if folder.is_dir() else []
+            if sys.platform == "win32":
+                shortcut = (home / "appdata" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Game Repo Go" / "Zeta.lnk").is_file()
+            else:
+                shortcut = b"Zeta" in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+            check("a PC game is unpacked into its own folder of the PC games folder, with a shortcut, and no ES-DE restart asked for",
+                  files == ["Zeta/data/level1.dat", "Zeta/zeta.exe"] and shortcut and restart is None, (files, shortcut, restart is None))
+            (folder / "Zeta" / "save1.sav").write_bytes(b"a save")
+            await pg.click("#go-nav-device")
+            await pg.wait_for_selector('[data-id="pc:Zeta (1999)"]')
+            await pg.check('[data-id="pc:Zeta (1999)"] .go-row-tick')
+            await pg.click("#device-remove")
+            await pg.wait_for_selector("#remove-pc")
+            listed = await pg.inner_text("#remove-dialog")
+            await pg.click("#remove-dialog button[type=submit]")
+            said = await toast(pg, "Removed 1 game")
+            if sys.platform == "win32":
+                shortcut = (home / "appdata" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Game Repo Go" / "Zeta.lnk").exists()
+            else:
+                shortcut = b"Zeta" in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+            left = sorted(str(x.relative_to(folder)).replace("\\", "/") for x in folder.rglob("*") if x.is_file()) if folder.is_dir() else []
+            check("removing a PC game takes its files and shortcut, and keeps a save it made, said so",
+                  "Files it made itself" in listed and "stay in Zeta (1999)" in said and left == ["Zeta/save1.sav"] and not shortcut, (listed[-300:], said, left, shortcut))
+
             # 14. away from home: the library's list and a game's details are kept on the device
             server.terminate()
             server.wait(timeout=30)
             await pg.goto(B + "#library")
-            await pg.wait_for_function("() => document.querySelectorAll('#go-games .go-card[data-key]').length === 4", timeout=20000)
+            await pg.select_option("#go-place-pick", "")
+            await pg.wait_for_function("() => document.querySelectorAll('#go-games .go-card[data-key]').length === 5", timeout=20000)
             await pg.goto(B + "#game/" + "gb%2FAlpha%20(USA)")
             await pg.wait_for_selector("#go-game-title")
             check("with the library away the list and a game's details are still here", "Alpha is a game made for this test." in await pg.inner_text("#go-game"))

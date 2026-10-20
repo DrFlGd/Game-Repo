@@ -4515,6 +4515,44 @@ Steam helper. Built as D106–D109 say, except where noted.
 - **Not tried**: a real Steam Deck, Game Mode itself (gamescope, Steam Input, the
   on-screen keyboard), the Flatpak Steam, and an SD card's ROMs folder.
 
+### Phase 9c notes, part 2: PC games on devices (built 2026-10-20)
+
+The second of 9c's pull requests: D110–D112, built as they say, except where noted.
+
+- **Catalogue (D110).** `catalogue.rs` adds the library's PC games (the `library` rows of
+  kind `pc`) as system `pcgames`, named *PC games*, each keyed `pcgames/<id>` (its Library
+  key `pc/<id>` in `serve_keys`). Its size is its unpacked files': the `extracted/` folder's,
+  else the install archives' members (read from their directories, kept in `serve_sizes`).
+  Only a device that asks (`pc=1` on `/v1/systems`, `/v1/games` and `/v1/changes`) gets
+  them; Game Repo Go asks on Windows and Linux, and reads its list whole again when what it
+  asks for changes. **Changed:** a game with only an installer isn't listed at all, since no
+  size can be known for it; asked for by key, its plan says why it can't go.
+- **Plan (D111).** `plans.rs` splits a plan's PC games from the rest. Each file goes in place
+  `pc` at `<Title> (<Year>)/<path>`, from `extracted/` (`/v1/files/pc/…`) or from the
+  install archives unpacked by `unpacked.rs` (`/v1/files/unpacked/<id>/<path>`, its SHA-1
+  from `files.json`). An archive is known by its paths, sizes and modified times, so a new
+  copy is unpacked again; a game being unpacked is in the plan's `waiting`, and Game Repo Go
+  asks for the plan every 2 seconds until it's empty (its queue item says *Being unpacked on
+  the library first*). Patches, DLC and extras are listed in `left`.
+- **Shortcuts (D112).** The plan's `programs` give each game's program: `game.json`'s launch
+  when it's in `extracted/`, else the likeliest `.exe`, `.bat`, `.cmd` or `.sh` (not a
+  setup or redistributable). On Windows `device/src/pcgames.rs` makes a `.lnk` in the Start
+  menu's *Game Repo Go* folder with WScript.Shell (through PowerShell, paths in the
+  environment, no window); it's one of the game's files in the record, so removing the game
+  takes it. On Linux it's a Steam shortcut through D109's waiting shortcuts, with Proton for
+  a Windows program; the game's cover, banner, hero, logo and icon come with the plan into
+  the app's `pc-media/` for Steam's grid. A Linux program is made executable.
+- **Removing.** Removing takes the record's files as for any game; `after_removal` takes the
+  Steam shortcut out and counts what's left in each game folder (the files the game made),
+  returned as `kept_made` and said in the toast. ES-DE isn't restarted for PC games: they
+  don't count toward *Restart ES-DE*.
+- **Settings.** *PC games* (Windows and Linux): the folder, with *Use the usual folder*; a
+  path that isn't whole is refused.
+- **Tests.** `serve/tests/client.rs` (a PC game unpacked by the server, another sent from
+  `extracted/`, one with only an installer, a patch left; files, the Steam shortcut on Linux
+  and the `.lnk` on Windows, removal keeping a save); `unpacked.rs`'s own test; step 13c of
+  `tests/client_page.py` (the pages on Windows, Linux and the Steam Deck job).
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been

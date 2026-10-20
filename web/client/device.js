@@ -5,7 +5,7 @@
 // shows what goes and the room it frees first, and sets files aside before deleting them.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
-import { call } from "./backend.js";
+import { call, info } from "./backend.js";
 import { closeDialog, go, open, say, showDialog } from "./state.js";
 import { ago, bytes, count, kindName, message, played, plural } from "./format.js";
 import { Dialog } from "./dialog.js";
@@ -132,7 +132,9 @@ export function RemoveDialog({ asks, media = false, title, done }) {
       const out = await call(media ? "remove_media" : "remove", { asks });
       closeDialog();
       done?.();
-      say(media ? `Removed, freeing ${bytes(out.frees)}.` : `Removed ${plural(out.games.length, "game")}, freeing ${bytes(out.frees)}.`);
+      const made = out.kept_made || [];
+      say((media ? `Removed, freeing ${bytes(out.frees)}.` : `Removed ${plural(out.games.length, "game")}, freeing ${bytes(out.frees)}.`)
+        + (made.length ? ` Files ${made.length === 1 ? "the game" : "the games"} made ${made.length === 1 ? "itself" : "themselves"}, such as saves, stay in ${made.map(([f]) => f).join(", ")}.` : ""));
     } catch (e) {
       setError(message(e));
       setBusy(false);
@@ -152,6 +154,7 @@ export function RemoveDialog({ asks, media = false, title, done }) {
         <p class="muted">Another game on this device needs ${r.kept.length === 1 ? "this" : "these"}, so ${r.kept.length === 1 ? "it stays" : "they stay"}:</p>
         <ul class="go-files">${r.kept.map((f) => html`<li><span class="go-file">${f.path}</span><span class="muted">${bytes(f.size)}</span></li>`)}</ul></div>` : null}
       ${r.entries.length ? html`<p class="muted">${plural(r.entries.length, "entry", "entries")} in ES-DE's game lists go too${r.lines.length ? `, and ${plural(r.lines.length, "line")} in its custom collections` : ""}.</p>` : null}
+      ${going.some((f) => f.place === "pc") ? html`<p class="muted" id="remove-pc">A PC game's files from the library go${info.kind === "windows" ? ", with its Start menu shortcut" : ", with its Steam shortcut"}. Files it made itself, such as saves and settings, stay in its folder.</p>` : null}
       <p class="muted">Saves are never touched. Files are set aside first, so a removal cut short (the battery, say) can be finished or put back.</p>
     ` : null}
   <//>`;

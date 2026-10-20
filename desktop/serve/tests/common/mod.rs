@@ -4,7 +4,7 @@
 
 use gamerepo_core::index::Index;
 use gamerepo_core::library::Library;
-use gamerepo_core::{dat, hash, meta, roots, scan, torrentzip};
+use gamerepo_core::{dat, hash, meta, pcgames, roots, scan, torrentzip};
 use gamerepo_device::{self as device, Device};
 use gamerepo_serve::{Options, Server};
 use serde_json::json;
@@ -136,6 +136,42 @@ pub fn library(dir: &Path) -> PathBuf {
     std::fs::write(gdir.join("docs").join("Alpha Manual.pdf"), b"%PDF-1.4\n%%EOF\n").unwrap();
     meta::sync(&ix, &lib).unwrap();
     lib_dir
+}
+
+/// PC games (D110–D112), added to a library: Zeta with only its install archive (the server
+/// unpacks it), Omega unpacked in the library with its program, a cover and a patch, and
+/// Lambda with only its installer, which Game Repo Go can't run.
+pub fn pc_games(lib_dir: &Path) {
+    let lib = Library::open(lib_dir).unwrap();
+    let pc = pcgames::folder(&lib);
+    let game = |folder: &str, id: &str, title: &str, year: i32, files: &[(&str, Vec<u8>)], launch: serde_json::Value| {
+        let dir = pc.join(folder);
+        let mut listed = vec![];
+        for (path, bytes) in files {
+            let p = path.split('/').fold(dir.clone(), |p, part| p.join(part));
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, bytes).unwrap();
+            if let Some(kind) = [("install/", "install"), ("patches/", "patch")].iter().find(|(d, _)| path.starts_with(d)).map(|(_, k)| *k) {
+                listed.push(json!({ "path": path, "kind": kind, "size": bytes.len(), "crc32": "", "added": "" }));
+            }
+        }
+        let g = json!({ "id": id, "title": title, "year": year, "source": "other", "files": listed, "launch": launch });
+        std::fs::write(dir.join(pcgames::MANIFEST), serde_json::to_vec_pretty(&g).unwrap()).unwrap();
+    };
+    let zeta = pc.join("Zeta (1999)").join("install").join("Zeta.zip");
+    zip(&zeta, &[("Zeta/zeta.exe", b"MZ zeta".to_vec()), ("Zeta/data/level1.dat", bytes(200, 64 * 1024))]);
+    let archive = std::fs::read(&zeta).unwrap();
+    game("Zeta (1999)", "zeta", "Zeta", 1999, &[("install/Zeta.zip", archive)], json!(null));
+    game(
+        "Omega (2001)",
+        "omega",
+        "Omega",
+        2001,
+        &[("install/setup_omega.exe", b"MZ setup".to_vec()), ("patches/omega_patch_1.1.exe", b"MZ patch".to_vec()), ("extracted/Omega/omega.exe", b"MZ omega".to_vec()), ("extracted/Omega/omega.dat", bytes(201, 16 * 1024))],
+        json!({ "program": "extracted/Omega/omega.exe", "args": "-windowed", "dir": "extracted/Omega" }),
+    );
+    pcgames::save_media(&lib, "omega", "cover", "png", &png(60, 90)).unwrap();
+    game("Lambda (2003)", "lambda", "Lambda", 2003, &[("install/setup_lambda.exe", b"MZ setup".to_vec())], json!(null));
 }
 
 /// A device: ES-DE's folder with its settings, and a gamelist with an entry of its own.
