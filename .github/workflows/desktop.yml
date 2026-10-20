@@ -400,7 +400,11 @@ jobs:
           (yes || true) | "$sdk/sdkmanager" --licenses > /dev/null
           "$sdk/sdkmanager" emulator platform-tools "$SYSTEM_IMAGE" > ci-out/sdkmanager.log
           device=$("$sdk/avdmanager" list device -c | grep -m1 -xE 'pixel_(7|6|5)' || echo pixel)
-          echo no | "$sdk/avdmanager" create avd -n go -k "$SYSTEM_IMAGE" -d "$device" --force > /dev/null
+          # where avdmanager writes the emulator and the emulator reads it, said once for both
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | "$sdk/avdmanager" create avd -n go -k "$SYSTEM_IMAGE" -d "$device" --force > ci-out/avdmanager.log 2>&1
+          [ -f "$ANDROID_AVD_HOME/go.ini" ] || { cat ci-out/avdmanager.log; echo "::error title=Emulator::avdmanager didn't make the emulator"; exit 1; }
           nohup "$ANDROID_HOME/emulator/emulator" -avd go -no-window -no-audio -no-boot-anim -no-snapshot -memory 3072 \
             -gpu swiftshader_indirect -camera-back none -camera-front none > ci-out/emulator.log 2>&1 &
       - name: Version ${{ needs.version.outputs.version }}
@@ -431,6 +435,7 @@ jobs:
           find gen/android/app/build/outputs/apk -name '*.apk' -exec ls -la {} \; | tee ../../ci-out/apks.txt
       - name: Game Repo Go on the emulator, against Game Repo Server
         run: |
+          pgrep -f qemu-system > /dev/null || { cat ci-out/emulator.log; echo "::error title=Emulator::the emulator isn't running"; exit 1; }
           timeout 600 adb wait-for-device
           timeout 600 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 3; done'
           for s in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global $s 0; done
