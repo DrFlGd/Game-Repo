@@ -240,7 +240,9 @@ class Page:
                     raise RuntimeError(f"{js[:80]}: {r['exceptionDetails'].get('exception', {}).get('description', r['exceptionDetails'])}")
                 return r.get("result", {}).get("value")
 
-    def wait(self, js, timeout=60, what=""):
+    def wait(self, js, timeout=60, what="", soft=False):
+        """Until `js` is true; with `soft`, False when it never is (a check of its own, and
+        the steps after it go on), else a TimeoutError that ends the test."""
         end = time.time() + timeout
         while time.time() < end:
             try:
@@ -250,6 +252,8 @@ class Page:
                 pass
             time.sleep(0.3)
         shot(f"timeout-{len(results):02d}")
+        if soft:
+            return False
         raise TimeoutError(f"timed out waiting for {what or js}; the page says: " + str(self.eval("document.body.innerText.slice(0, 600)")))
 
     def click(self, sel):
@@ -275,6 +279,13 @@ def key(name):
 
 def notification():
     return sh("dumpsys notification --noredact", ok=False)
+
+
+def app_log(lines=60):
+    """What Game Repo Go's process wrote to the log lately: its Rust, Tauri's and the web view's."""
+    pid = sh(f"pidof {PKG}", ok=False).strip().split()
+    log = adb("logcat", "-d", *(["--pid", pid[0]] if pid else []), ok=False, timeout=60).splitlines()
+    return "\n".join(log[-lines:])
 
 
 pg = Page()
@@ -310,9 +321,20 @@ try:
     pg.wait("(document.querySelector('#go-games-total')?.dataset.total | 0) >= 3", 90, "the library's games")
     keys = pg.eval("[...document.querySelectorAll('#go-games .go-card[data-key]')].map(e => e.dataset.key)")
     check("the code from Game Repo pairs it by address, and the library's games are shown", sorted(keys) == ["gb/Alpha (USA)", "gb/Beta (Europe)", "gb/Delta (World)"], keys)
-    pg.wait("document.querySelector('.go-card[data-key=\"gb/Alpha (USA)\"] img')?.naturalWidth > 0", 30, "Alpha's box front")
-    src = pg.eval("document.querySelector('.go-card[data-key=\"gb/Alpha (USA)\"] img').src")
-    check("a box front comes through the app's picture protocol", src.startswith(info.get("picture_url", "?")), (src, info))
+    shown = pg.wait("document.querySelector('.go-card[data-key=\"gb/Alpha (USA)\"] img')?.naturalWidth > 0", 30, "Alpha's box front", soft=True)
+    src = pg.eval("document.querySelector('.go-card[data-key=\"gb/Alpha (USA)\"] img')?.src || ''")
+    why = (src, info)
+    if not shown:
+        # the protocol asked straight, the backend's own picture, and the app's log
+        url = info.get("picture_url", "") + "gb/Alpha%20(USA)/cover?size=256"
+        asked = pg.eval(f"fetch({json.dumps(url)}).then(async r => r.status + ' ' + r.headers.get('content-type') + ' ' + (await r.arrayBuffer()).byteLength, e => 'failed: ' + e)")
+        try:
+            own = str(pg.api("picture", {"key": "gb/Alpha (USA)", "kind": "cover"}))[:60]
+        except Exception as e:
+            own = repr(e)
+        card = pg.eval("document.querySelector('.go-card[data-key=\"gb/Alpha (USA)\"]')?.outerHTML.slice(0, 500)")
+        why = f"{url} -> {asked}; the picture command: {own}; the card: {card}\n{app_log()}"
+    check("a box front comes through the app's picture protocol", shown and src.startswith(info.get("picture_url", "?")), why)
     shot("03-library")
 
     # 4. the pairing kept encrypted with a key the Android Keystore holds
