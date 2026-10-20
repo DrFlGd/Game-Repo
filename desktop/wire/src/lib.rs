@@ -11,6 +11,23 @@ pub mod plan;
 
 pub use plan::{Entry, File, Left, Lines, List, Plan};
 
+/// The kinds of scraped media a game can have (the library's own, `gamerepo-core`'s
+/// `meta::MEDIA`): (kind, what it's called, ES-DE's folder for it in `downloaded_media`).
+pub const MEDIA: &[(&str, &str, &str)] = &[
+    ("cover", "Box front", "covers"),
+    ("back", "Box back", "backcovers"),
+    ("box3d", "3D box", "3dboxes"),
+    ("screenshot", "Screenshot", "screenshots"),
+    ("titlescreen", "Title screen", "titlescreens"),
+    ("marquee", "Marquee (logo)", "marquees"),
+    ("fanart", "Fan art", "fanart"),
+    ("physical", "Cartridge or disc", "physicalmedia"),
+    ("video", "Video", "videos"),
+];
+
+/// A game's manual: its kind and ES-DE's folder for it, beside [`MEDIA`]'s.
+pub const MANUAL: (&str, &str, &str) = ("manual", "Manual", "manuals");
+
 /// A text file of lines (an ES-DE custom collection, say) with `lines` added after those
 /// there already; lines there stay as they are and none is added twice. None: nothing
 /// changes.

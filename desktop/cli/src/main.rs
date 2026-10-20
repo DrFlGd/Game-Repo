@@ -262,6 +262,11 @@ ES-DE/ (with its settings) and ROMs/, as ES-DE has them.
                              remove games with their files and entries (files another
                              game it holds needs stay)
   device holdings --to <dir> what the device holds from the server
+  device app <command> [<args as JSON>] --to <dir> --data <dir> [--wait]
+                             Game Repo Go's backend, as its pages call it (status,
+                             pair, sync, systems, games, prepare, add, queue,
+                             on_device, removal, remove, add_media, settings…), with
+                             --data as its own folder; --wait waits for the queue
 ";
 
 struct Args {

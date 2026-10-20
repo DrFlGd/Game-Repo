@@ -203,8 +203,11 @@ pub struct Ask {
     pub limit: u64,
 }
 
-/// Most games a page gives.
+/// The games a page gives unless asked for more.
 pub const PAGE: u64 = 500;
+
+/// Most games a page gives, for a client reading the whole list (D98).
+pub const MOST: u64 = 5000;
 
 /// A collection's games (of one group, or all), as the catalogue's keys.
 pub fn collection_keys(ix: &Index, lib: &Library, id: &str, group: Option<&str>) -> Result<Vec<String>> {
@@ -247,7 +250,7 @@ pub fn games(ix: &Index, lib: &Library, a: &Ask) -> Result<api::Page> {
         _ => format!("g.sort {d}, g.key {d}"),
     };
     let mut pp = p.clone();
-    pp.push(Sql::Integer(a.limit.clamp(1, PAGE) as i64));
+    pp.push(Sql::Integer(a.limit.clamp(1, MOST) as i64));
     pp.push(Sql::Integer(a.offset as i64));
     let items = conn
         .prepare(&format!("SELECT {COLS} FROM serve_games g WHERE {w} ORDER BY {order} LIMIT ? OFFSET ?"))?
@@ -282,22 +285,55 @@ pub fn changes(ix: &Index, since: i64, offset: u64) -> Result<std::result::Resul
     Ok(Ok(c))
 }
 
-/// Each system with games, with its ES-DE folder.
-pub fn systems(ix: &Index, lib: &Library) -> Result<Vec<api::System>> {
+/// The extensions of the files ES-DE lists as a system's games: those the library knows
+/// for it, ZIP and 7-Zip archives for cartridge and arcade systems, CHD for disc systems,
+/// and `.m3u` playlists where a game on several discs is one game (D94).
+pub fn extensions(id: &str) -> Vec<String> {
+    let mut v: Vec<String> = platforms::by_id(id).map(|p| p.exts.iter().map(|e| e.to_string()).collect()).unwrap_or_default();
+    let more: &[&str] = match platforms::media(id) {
+        platforms::Media::Cartridge | platforms::Media::Arcade => &["zip", "7z"],
+        platforms::Media::Cd => &["chd"],
+        _ => &[],
+    };
+    v.extend(more.iter().map(|e| e.to_string()));
+    if platforms::m3u_folders(id) {
+        v.push("m3u".into());
+    }
+    let mut seen = std::collections::HashSet::new();
+    v.retain(|e| seen.insert(e.clone()));
+    v
+}
+
+/// Each system with games, with its ES-DE folder; with `all`, every system Game Repo knows
+/// besides (none of whose games are in the catalogue), each with the extensions ES-DE lists
+/// as its games, so a device can tell what ES-DE has in a folder the library has nothing
+/// for (D100).
+pub fn systems(ix: &Index, lib: &Library, all: bool) -> Result<Vec<api::System>> {
     let esde = layout::get(Some(lib), "esde").ok();
+    let folder = |id: &str| esde.as_ref().and_then(|l| l.folder(id)).unwrap_or_else(|| id.to_string());
     let mut q = ix.conn().prepare("SELECT system, COUNT(*), SUM(size) FROM serve_games WHERE gone = 0 GROUP BY system ORDER BY system")?;
-    let v = q
+    let mut v: Vec<api::System> = q
         .query_map([], |r| {
             let id: String = r.get(0)?;
             Ok(api::System {
                 name: platforms::name_of(&id),
-                folder: esde.as_ref().and_then(|l| l.folder(&id)).unwrap_or_else(|| id.clone()),
-                id,
+                folder: folder(&id),
                 games: r.get::<_, i64>(1)? as u64,
                 size: r.get::<_, i64>(2)? as u64,
+                extensions: if all { extensions(&id) } else { vec![] },
+                id,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
+    if all {
+        for p in platforms::all() {
+            if p.id == "bios" || v.iter().any(|s| s.id == p.id) {
+                continue;
+            }
+            v.push(api::System { id: p.id.to_string(), name: platforms::name_of(p.id), folder: folder(p.id), extensions: extensions(p.id), ..Default::default() });
+        }
+        v.sort_by(|a, b| a.id.cmp(&b.id));
+    }
     Ok(v)
 }
 

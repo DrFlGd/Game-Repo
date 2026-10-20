@@ -84,6 +84,10 @@ pub struct System {
     pub folder: String,
     pub games: u64,
     pub size: u64,
+    /// The extensions of the files ES-DE lists as its games (`GET /v1/systems?all=1`), so
+    /// a device tells its games from what's beside them (D100)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<String>,
 }
 
 /// `GET /v1/collections`: a collection, with its groups (D75).
@@ -174,6 +178,14 @@ pub struct PlanAsk {
     pub collection: String,
     /// The BIOS files their systems need, those the library has (D40)
     pub bios: bool,
+    /// Only the games' media and manuals, for games the device has already (D102)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub media_only: bool,
+    /// Games the device has under names of its own (a game from elsewhere the library knows,
+    /// D102): each game's key and its path in the device's ROMs folder, so its media and
+    /// entry are named for the device's file
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub named: Vec<(String, String)>,
 }
 
 /// A media kind's size for the games asked for, asked for or not (C13, D88), so a device

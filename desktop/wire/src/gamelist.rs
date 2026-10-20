@@ -108,6 +108,55 @@ pub fn remove(old: &str, paths: &[String]) -> Option<String> {
     removed.then_some(out)
 }
 
+/// An entry's path as the lists compare them: from the gamelist's folder, with `/`, in
+/// lower case and without `./`.
+pub fn norm_path(p: &str) -> String {
+    xml_unescape(p.trim()).replace('\\', "/").trim_start_matches("./").to_lowercase()
+}
+
+/// Each `<game>` entry of a gamelist: its path (as [`norm_path`] gives it) and the block
+/// as it's written.
+pub fn blocks(text: &str) -> Vec<(String, String)> {
+    let mut out = vec![];
+    let mut rest = text;
+    while let Some(at) = next_game(rest) {
+        let Some(end) = rest[at..].find("</game>").map(|e| at + e + "</game>".len()) else { break };
+        let block = &rest[at..end];
+        out.push((block.split("<path>").nth(1).and_then(|s| s.split("</path>").next()).map(norm_path).unwrap_or_default(), block.to_string()));
+        rest = &rest[end..];
+    }
+    out
+}
+
+/// A tag's value in an entry (`lastplayed`, `name`…), unescaped. None: not there or empty.
+pub fn tag(block: &str, tag: &str) -> Option<String> {
+    let v = block.split(&format!("<{tag}>")).nth(1)?.split(&format!("</{tag}>")).next()?;
+    let v = xml_unescape(v.trim());
+    (!v.is_empty()).then_some(v)
+}
+
+/// A gamelist with these entries (blocks as [`blocks`] gives them, taken out earlier) put
+/// back, those whose path has no entry now. None: nothing changes.
+pub fn restore(old: Option<&str>, entries: &[String]) -> Option<String> {
+    let text = old.unwrap_or("");
+    let have: HashSet<String> = blocks(text).into_iter().map(|(p, _)| p).collect();
+    let add: String = entries
+        .iter()
+        .filter(|b| b.split("<path>").nth(1).and_then(|s| s.split("</path>").next()).map(norm_path).is_some_and(|p| !have.contains(&p)))
+        .map(|b| format!("\t{}\n", b.trim()))
+        .collect();
+    if add.is_empty() {
+        return None;
+    }
+    Some(if let Some(at) = text.rfind("</gameList>") {
+        format!("{}{add}{}", &text[..at], &text[at..])
+    } else if text.contains("<gameList/>") {
+        text.replacen("<gameList/>", &format!("<gameList>\n{add}</gameList>"), 1)
+    } else {
+        format!("<?xml version=\"1.0\"?>\n<gameList>\n{add}</gameList>\n")
+    })
+}
+
 /// A `<game>` block with `<tag>` set to `value` (replaced if it's there, else added before `</game>`).
 pub fn set_tag(block: &str, tag: &str, value: &str) -> String {
     set_tag_in(block, "game", tag, value)
@@ -153,5 +202,21 @@ mod tests {
         assert!(back.contains("<playcount>4</playcount>") && back.contains("<developer>Me &amp; Co</developer>"), "{back}");
         assert_eq!(remove(&back, &["Nothing.zip".to_string()]), None);
         assert_eq!(remove(old, &["./mine.zip".to_string()]).unwrap(), "<?xml version=\"1.0\"?>\n<gameList>\n</gameList>\n");
+    }
+
+    #[test]
+    fn entries_taken_out_are_put_back_as_they_were() {
+        let old = "<?xml version=\"1.0\"?>\n<gameList>\n\t<game>\n\t\t<path>./Mine.zip</path>\n\t\t<name>Mine &amp; Yours</name>\n\t\t<lastplayed>20250102T030405</lastplayed>\n\t</game>\n\t<game id=\"7\">\n\t\t<path>./Other.zip</path>\n\t</game>\n</gameList>\n";
+        let b = blocks(old);
+        assert_eq!(b.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(), ["mine.zip", "other.zip"]);
+        assert_eq!(tag(&b[0].1, "lastplayed").as_deref(), Some("20250102T030405"));
+        assert_eq!(tag(&b[0].1, "name").as_deref(), Some("Mine & Yours"));
+        assert_eq!(tag(&b[1].1, "name"), None);
+        let gone = remove(old, &["Mine.zip".to_string()]).unwrap();
+        let back = restore(Some(&gone), &[b[0].1.clone()]).unwrap();
+        assert_eq!(blocks(&back).iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(), ["other.zip", "mine.zip"]);
+        assert!(back.contains("<lastplayed>20250102T030405</lastplayed>"), "{back}");
+        assert_eq!(restore(Some(&back), &[b[0].1.clone()]), None, "there already");
+        assert!(restore(None, &[b[1].1.clone()]).unwrap().contains("<gameList>\n\t<game id=\"7\">"));
     }
 }
