@@ -5,7 +5,8 @@
 // each list pages through the index with its search, so a list of 40,000 missing games
 // loads a page at a time. A games list can be narrowed to a region and sorted by name,
 // region or year. Every list is a table (D74), whose rows open the game's page; Convert…
-// and Show in folder are in a row's right-click menu.
+// and Show in folder are in a row's right-click menu. Unknown suggests the game each file
+// is likely a variant of, and Variants lists the system's custom DAT (variants.js, D119–D123).
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -20,6 +21,7 @@ import { addGameDialog } from "./pcgames.js";
 import { gameHash } from "./browse.js";
 import { openMenu } from "./actions.js";
 import { importFrom } from "./importpage.js";
+import { UnknownTable, VariantsList } from "./variants.js";
 
 const PAGE = 200;
 
@@ -40,6 +42,9 @@ export const TABS = [
 /** An arcade system's BIOS sets and devices (Phase 7, D58), a tab of their own. */
 const SETS_TAB = ["sets", "BIOS and devices", "sets"];
 
+/** A system's variants, its custom DAT's games (D119); arcade systems have none. */
+const VARIANTS_TAB = ["variants", "Variants", "variants"];
+
 /** How an arcade set's ZIPs are made up (D60). */
 export const SET_TYPES = [
   ["non-merged", "Non-merged", "Every game's ZIP holds all the ROMs it needs (but its BIOS's), so any ZIP can be copied on its own."],
@@ -54,7 +59,9 @@ const HELP = {
   matched: "Files that match the DAT and are named as it names them.",
   misnamed: "Files that match the DAT under another name.",
   baddump: "Files named as one of the DAT's ROMs that don't match it: likely corrupt, trimmed or patched copies.",
-  unknown: "Files of this system that no DAT for it knows: hacks, translations, homebrew or files for another system.",
+  unknown: "Files of this system that no DAT for it knows, each with the game it's likely a variant of. They stay out of the Library until they're added as variants or games of their own.",
+  unknown_arcade: "Files of this system that no DAT for it knows: hacks, bootlegs or files for another system.",
+  variants: "Translations, hacks, prototypes and games no DAT lists, kept in the system's custom DAT. Each shows under its own name, with its tags, and the details and pictures of the game it's a variant of.",
   duplicates: "Files that match the same ROM as another file. Setting them aside keeps the copy that's named right (or the first).",
   sets: "The BIOS sets and devices the games lean on. They're kept as ZIPs of their own and copied with the games that need them.",
 };
@@ -184,11 +191,13 @@ export function Audit() {
 
   const sum = data?.summary;
   const dat = sum?.dat?.id;
+  // an arcade system has no Variants tab
+  useEffect(() => { if (sum?.arcade && tab === "variants") setTab("missing"); }, [sum]);
   const games = GAME_TABS.includes(tab);
   useEffect(() => { setRegion(""); setRegions([]); }, [dat, tab]);
   const by = games ? { region, sort } : {};
   useEffect(() => {
-    if (!dat || all) return;
+    if (!dat || all || tab === "variants") return;
     let gone = false;
     setList((l) => ({ ...l, loading: true }));
     const t = setTimeout(() => {
@@ -276,9 +285,11 @@ export function Audit() {
   if (all) return html`${head}<div class="pages audit-page" id="audit-page"><${Overview} systems=${systems} onOpen=${openSystem} /></div>`;
 
   const arc = sum.arcade;
-  const n = (k) => (k === "sets" ? arc?.sets : sum[k]) || 0;
+  const n = (k) => (k === "sets" ? arc?.sets : k === "variants" ? data.variants?.games : sum[k]) || 0;
   const platformName = data.platforms.find((p) => p.id === sum.dat.platform)?.name;
-  const tabs = arc ? [...TABS, SETS_TAB] : TABS;
+  const tabs = arc ? [...TABS, SETS_TAB] : [...TABS.slice(0, 3), VARIANTS_TAB, ...TABS.slice(3)];
+  const shelf = (k) => GAME_TABS.includes(k) || k === "variants";
+  const variants = tab === "variants" && !arc;
   const setType = sets?.systems?.[sum.dat.platform];
   const chooseSetType = async (t) => {
     try {
@@ -309,7 +320,7 @@ export function Audit() {
         ${n("by_crc") ? html` · <span class="muted" title="Files inside ZIPs matched by the checksum the ZIP records. Settings › Scanning › Scan ZIPs › Unpack and hash every file checks them in full.">${plural(n("by_crc"), "file", "files")} matched by the ZIP's checksum</span>` : null}</p>
       ${n("needs_tool") ? html`<p class="warn-note" id="audit-needs-tool">${plural(n("needs_tool"), "RVZ file waits", "RVZ files wait")} for dolphin-tool before ${n("needs_tool") === 1 ? "it" : "they"} can be checked. Set where it is in <a href=${routeHash("settings")}>Settings › Tools</a>, then scan.</p>` : null}
     </div>
-    <div class="audit-tab-groups" id="audit-tabs" role="tablist">${[["Games", tabs.filter(([k]) => GAME_TABS.includes(k))], ["Files", tabs.filter(([k]) => !GAME_TABS.includes(k))]].map(([group, list]) => html`<div class="audit-tab-group" key=${group}>
+    <div class="audit-tab-groups" id="audit-tabs" role="tablist">${[["Games", tabs.filter(([k]) => shelf(k))], ["Files", tabs.filter(([k]) => !shelf(k))]].map(([group, list]) => html`<div class="audit-tab-group" key=${group}>
       <span class="audit-tab-label">${group}</span><div class="seg audit-tabs">${list.map(([k, label, key]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${tab === k ? "true" : "false"} onClick=${() => chooseTab(k)}>
       ${label} <span class="tab-count">${n(key)}</span></button>`)}</div></div>`)}</div>
     <div class="audit-tools">
@@ -318,16 +329,18 @@ export function Audit() {
         <option value="">Every region</option>
         ${regions.map((r) => html`<option key=${r.region} value=${r.region}>${r.region} (${r.count.toLocaleString()})</option>`)}</select>` : null}
       ${games ? html`<${SortMenu} id="audit-sort" options=${SORTS} value=${sort} onChange=${setSort} />` : null}
-      <span class="muted audit-help">${HELP[tab]}</span>
+      <span class="muted audit-help">${HELP[tab === "unknown" && arc ? "unknown_arcade" : tab]}</span>
       ${tab === "misnamed" && n("misnamed") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-rename" onClick=${() => renameMisnamed(dat, platformName)}>Rename to the DAT's names…</button>` : null}
       ${tab === "duplicates" && n("duplicates") && !s.library?.read_only ? html`<button type="button" class="ghost compact" id="audit-aside" onClick=${() => setAsideDuplicates(dat, platformName)}>Set aside duplicates…</button>` : null}
     </div>
+    ${variants ? html`<div class="audit-list-wrap" id="audit-list" data-tab="variants"><${VariantsList} platform=${sum.dat.platform} platformName=${platformName} q=${q} off=${!!s.library?.read_only} /></div>` : html`
     <${SearchNote} q=${q} found=${list.loading ? null : plural(list.total, "match", "matches")} onClear=${() => setQ("")} />
     ${list.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
     ${!list.loading && !list.items.length ? html`<p class="muted" id="audit-none">${q ? "Nothing here matches the search." : "Nothing in this list."}</p>` : null}
     <div class="audit-list-wrap" id="audit-list" data-tab=${list.tab} data-by=${list.by || null} data-total=${list.total} aria-busy=${list.loading ? "true" : "false"}>
-      ${list.items.length ? html`<${Table} items=${list.items} tab=${list.tab} arcade=${!!arc} platform=${sum.dat.platform} onConvert=${canConvert ? (g) => convert([g]) : null} />` : null}
+      ${!list.items.length ? null : list.tab === "unknown" && !arc ? html`<${UnknownTable} items=${list.items} platform=${sum.dat.platform} off=${!!s.library?.read_only} />`
+        : html`<${Table} items=${list.items} tab=${list.tab} arcade=${!!arc} platform=${sum.dat.platform} onConvert=${canConvert ? (g) => convert([g]) : null} />`}
     </div>
-    ${list.items.length < list.total ? html`<div class="home-actions"><button type="button" class="ghost" id="audit-more" onClick=${more}>Show ${Math.min(PAGE, list.total - list.items.length)} more (${list.total - list.items.length} left)</button></div>` : null}
+    ${list.items.length < list.total ? html`<div class="home-actions"><button type="button" class="ghost" id="audit-more" onClick=${more}>Show ${Math.min(PAGE, list.total - list.items.length)} more (${list.total - list.items.length} left)</button></div>` : null}`}
   </div>`;
 }

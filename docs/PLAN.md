@@ -4901,6 +4901,41 @@ DAT knows need review" and *Review them…*. *Add a game…*, for a ROM no DAT k
 to the custom DAT the same way (games added before, kept in folders named by their SHA1,
 show as they do now).
 
+### Phase 10 notes, part 1 (built 2026-10-20)
+
+D119–D123, in `desktop/core/src/variants.rs` and `web/ui/variants.js`; D118 (several DATs
+per system) is part 2. Where it differs from the design:
+
+- **The custom DAT's file** is `_library/dats/<system>/<name> (custom).dat` (name *Custom -
+  <System>*, version *custom*), so a DAT of the same name imported by hand doesn't take its
+  place. Its kept versions are `custom-versions/<time>-NNN.dat`, newest last. A DAT changed
+  in its place (by hand, or by clrmamepro) is loaded again at the next scan or start, by its
+  size and time (`dat::keep_stamp`, kept in `index_meta` as `dat_file:<path>`).
+- **Suggestions (D120)**: the same title scores 1; a DAT title that's the first two or more
+  words of the file's 0.8; otherwise the larger of the words' and the letter pairs'
+  likeness, 0.6 or more to be offered. Arcade systems get none (Unknown is as it was).
+- **Tags (D121)**: Settings › Library › *Variant tags* isn't built yet; the list grows with
+  *New tag…* in the dialog. The Library's filter is *Tag*.
+- **A variant's details (D122)** aren't read through from the original: its own game
+  folder gets a copy of the original's sources' answers (their titles with the variant's
+  tags) and links to its pictures, when it's added and whenever the original is scraped.
+  Scraping a variant scrapes its original (the sources rarely know a translation or a hack
+  by its hash); a game of its own is scraped as any game. What's changed by hand on a
+  variant stays its own. Exports and devices get variants as any Library game.
+- **Unknown (D123)**: *Leave it* is doing nothing (the file stays on Unknown). Each row has
+  *Add* (with a suggestion) or *Choose…*, and *Edit…*; its right-click menu has *Add as a
+  variant of* each suggestion, *Choose the game…*, *Add as a game of its own* and *Edit
+  its name and tags…*. Ticked files are added with their suggestions, or as one game of
+  several files (*Add as one game…*). *Remove from the custom DAT* is on the Variants tab
+  and in a variant's page's menu, with *Edit the variant…*. Home's *Next* has "N files in
+  <System> no DAT knows need review" (kind `unknown`), and an import that brings files no
+  DAT knows ends with "N files no DAT knows need review." and *Review them…*. *Add a
+  game…* writing to the custom DAT isn't built yet.
+- **Collections**: `Rules.variants` ("" with the other games, `without`, `only`) and
+  `Rules.tags` (variants with one of them); variants aren't left out by the flags, the
+  regions or *One per title*. The Library's *Save as a collection…* with a tag chosen takes
+  only variants with it.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been

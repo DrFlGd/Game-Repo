@@ -229,8 +229,9 @@ const UNMATCHED: &str = "
   um AS (SELECT f.id AS file_id, EXISTS (SELECT 1 FROM dat_roms r WHERE r.dat_id = ?1 AND r.name = f.name) AS bad
          FROM files f
          WHERE f.platform = ?2 AND f.kind NOT IN ('zip', '7z', 'rar', 'chd', 'cso', 'zso', 'rvz') AND f.hashed > 0
+           -- (nor in the system's custom DAT, D119)
            AND NOT EXISTS (SELECT 1 FROM matches m JOIN dat_roms r ON r.id = m.rom_id
-                           WHERE m.file_id = f.id AND (r.dat_id = ?1 OR r.dat_id IN (SELECT id FROM dats WHERE platform != ?2)))
+                           WHERE m.file_id = f.id AND (r.dat_id = ?1 OR r.dat_id IN (SELECT id FROM dats WHERE platform != ?2 OR version = 'custom')))
            -- (the tracks of a CHD that is an arcade machine's disk)
            AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.file_id = f.parent_id))";
 
@@ -276,10 +277,11 @@ pub fn dat_ref(conn: &Connection, id: i64) -> Result<DatRef> {
 /// The DAT a platform is audited against: the one chosen for it on the Audit page
 /// (kept in library.json as `audit_dats: {platform: DAT name}`), else its current
 /// No-Intro DAT, else its first current DAT by name that isn't a DAT of updates and DLC.
+/// Never its custom DAT, which is audited beside it (D119).
 pub fn primary_dat(conn: &Connection, lib: &Library, platform: &str) -> Result<Option<i64>> {
     let chosen = lib.meta()["audit_dats"][platform].as_str().map(String::from);
     let preferred = platforms::by_id(platform).and_then(|p| p.dat_names.first()).map(|n| n.to_ascii_lowercase()).unwrap_or_default();
-    let mut q = conn.prepare("SELECT id, name FROM dats WHERE platform = ?1 AND current = 1 ORDER BY name")?;
+    let mut q = conn.prepare("SELECT id, name FROM dats WHERE platform = ?1 AND current = 1 AND version != 'custom' ORDER BY name")?;
     let rows: Vec<(i64, String)> = q.query_map([platform], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
     Ok(rows
         .iter()
@@ -293,6 +295,9 @@ pub fn primary_dat(conn: &Connection, lib: &Library, platform: &str) -> Result<O
 /// Audit `platform` against DAT `dat_id` from now on (Home and Audit use it).
 pub fn choose_dat(conn: &Connection, lib: &Library, dat_id: i64) -> Result<()> {
     let d = dat_ref(conn, dat_id)?;
+    if d.version == crate::variants::VERSION {
+        return Ok(());
+    }
     let mut chosen = lib.meta()["audit_dats"].as_object().cloned().unwrap_or_default();
     if chosen.get(&d.platform).and_then(Value::as_str) != Some(d.name.as_str()) {
         chosen.insert(d.platform, json!(d.name));
@@ -527,7 +532,7 @@ pub fn list_by(ix: &Index, lib: &Library, dat_id: i64, tab: &str, search: &str, 
                  FROM um JOIN files f ON f.id = um.file_id LEFT JOIN files p ON p.id = f.parent_id LEFT JOIN blobs b ON b.id = f.blob_id
                  WHERE um.bad = ?3 AND f.rel_path LIKE ?4 ESCAPE '\\' ORDER BY f.rel_path LIMIT ?5 OFFSET ?6"
             ))?;
-            let items: Vec<Value> = q
+            let mut items: Vec<Value> = q
                 .query_map(params![dat_id, d.platform, bad, pat, limit, offset], |r| {
                     let (root, rel, name, member): (String, String, String, bool) = (r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?);
                     let (path, shown) = locate(&dirs, &root, &rel, member.then_some(name.as_str()));
@@ -538,6 +543,10 @@ pub fn list_by(ix: &Index, lib: &Library, dat_id: i64, tab: &str, search: &str, 
                     }))
                 })?
                 .collect::<rusqlite::Result<_>>()?;
+            // each unknown file's suggested original and tags (D120)
+            if tab == "unknown" && !platforms::is_arcade(&d.platform) {
+                crate::variants::annotate(conn, dat_id, &mut items)?;
+            }
             Ok(json!({ "total": total, "items": items }))
         }
         other => bail!("unknown list {other} (one of {})", TABS.join(", ")),
@@ -706,6 +715,7 @@ pub fn home(ix: &Index, lib: &Library) -> Result<Value> {
                 "platform": p, "platform_name": platforms::name_of(p), "dat": id, "dat_name": s["dat"]["name"],
                 "have": s["have"], "games": s["games"], "groups": s["groups"], "groups_have": s["groups_have"],
                 "partial": s["partial"], "attention": s["misnamed"].as_i64().unwrap_or(0) + s["baddump"].as_i64().unwrap_or(0),
+                "unknown": s["unknown"],
             }));
         }
     }
@@ -754,6 +764,12 @@ fn next(ix: &Index, lib: &Library, bars: &[Value]) -> Result<Vec<Value>> {
         if n > 0 {
             v.push(json!({ "kind": "misnamed", "system": b["platform"], "count": n, "page": "audit",
                            "text": format!("{} in {} {}", if n == 1 { "1 file".to_string() } else { format!("{n} files") }, b["platform_name"].as_str().unwrap_or(""), if n == 1 { "needs review" } else { "need review" }) }));
+        }
+        // files no DAT knows: variants to add, on the Unknown tab (D123)
+        let u = b["unknown"].as_i64().unwrap_or(0);
+        if u > 0 {
+            v.push(json!({ "kind": "unknown", "system": b["platform"], "count": u, "page": "audit", "tab": "unknown",
+                           "text": format!("{} in {} no DAT knows {}", if u == 1 { "1 file".to_string() } else { format!("{u} files") }, b["platform_name"].as_str().unwrap_or(""), if u == 1 { "needs review" } else { "need review" }) }));
         }
     }
     let look: i64 = conn.query_row("SELECT COUNT(*) FROM meta_games WHERE review = 1", [], |r| r.get(0))?;

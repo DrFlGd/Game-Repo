@@ -21,6 +21,7 @@ import { importMagazines } from "./magazines.js";
 import { importDats, starterDats, addRoot, refreshGames, scan } from "./games.js";
 import { Icon } from "./icons.js";
 import { argHash, useRouteArg } from "./panels.js";
+import { reviewUnknown } from "./variants.js";
 
 /** An import started from another page (D78): the Import page opens at its section
  *  (`card`, the section's id) and `run` starts it there. */
@@ -274,7 +275,15 @@ function ImportGamesDialog() {
 /** The preview of the import; Run starts it, Back goes back to the folders' games. */
 function ImportGamesPreview({ plan }) {
   const nothing = !plan.ops;
-  const run = () => { close(); imp.set(blank()); if (!nothing) runPlan(plan); };
+  const run = () => {
+    // files no DAT knows that come in wait on Audit's Unknown tab (D123)
+    const loose = looseFiles();
+    const n = loose.reduce((a, x) => a + x.files.length, 0);
+    const more = n ? { text: `${plural(n, "file", "files")} no DAT knows ${n === 1 ? "needs" : "need"} review.`, actions: [{ label: "Review them…", run: () => reviewUnknown(loose[0].platform) }] } : null;
+    close();
+    imp.set(blank());
+    if (!nothing) runPlan(plan, more);
+  };
   return html`<${Dialog} title=${plan.title || "Import the games"} id="bring-dialog" wide=${true} sticky=${true} onDismiss=${hide} onSubmit=${run} submitLabel=${nothing ? "OK" : "Import"} busy=${plan.short}
       cancelLabel="Back" onCancel=${() => imp.set({ plan: null })}>
     <${Preview} plan=${plan} />

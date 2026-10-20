@@ -9,7 +9,7 @@ use crate::library::{now, valid_id, Library, APP_DIR};
 use crate::platforms;
 use anyhow::{anyhow, bail, Context, Result};
 use quick_xml::events::{BytesStart, Event};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::path::Path;
@@ -472,7 +472,7 @@ pub fn parse_name(name: &str) -> NameFields {
 // ------------------------------------------------------------ importing
 
 /// File names the DATs are stored under: no characters Windows refuses.
-fn safe_name(s: &str) -> String {
+pub(crate) fn safe_name(s: &str) -> String {
     let s: String = s.chars().map(|c| if "<>:\"/\\|?*".contains(c) || c.is_control() { '_' } else { c }).collect();
     s.trim().trim_end_matches('.').chars().take(150).collect()
 }
@@ -587,6 +587,7 @@ pub fn import_bytes(ix: &Index, lib: &Library, bytes: &[u8], file: &str, answers
         _ => {
             let id = load(ix.conn(), &rel, &platform, &dat)?;
             crate::arcade::loaded(ix.conn(), lib, id, &platform)?;
+            keep_stamp(ix.conn(), &rel, &dest)?;
             id
         }
     };
@@ -600,7 +601,7 @@ pub fn import_bytes(ix: &Index, lib: &Library, bytes: &[u8], file: &str, answers
 }
 
 /// Load a parsed DAT into the index (one transaction).
-fn load(conn: &Connection, rel: &str, platform: &str, dat: &Dat) -> Result<i64> {
+pub(crate) fn load(conn: &Connection, rel: &str, platform: &str, dat: &Dat) -> Result<i64> {
     let tx = conn.unchecked_transaction()?;
     tx.execute("DELETE FROM dats WHERE source_path = ?1", [rel])?;
     let roms: usize = dat.games.iter().map(|g| g.roms.len()).sum();
@@ -614,19 +615,22 @@ fn load(conn: &Connection, rel: &str, platform: &str, dat: &Dat) -> Result<i64> 
     let mut ids = Vec::with_capacity(dat.games.len());
     {
         let mut g_ins = tx.prepare(
-            "INSERT INTO dat_games (dat_id, name, description, title, regions, languages, revision, version, flags, romof, sampleof, kind, year, manufacturer)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            "INSERT INTO dat_games (dat_id, name, description, title, regions, languages, revision, version, flags, romof, sampleof, kind, year, manufacturer, cloneof)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         )?;
         let mut r_ins = tx.prepare("INSERT INTO dat_roms (game_id, dat_id, name, size, crc32, md5, sha1, status, merge, disk) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")?;
         let mut l_ins = tx.prepare("INSERT INTO dat_links (game_id, kind, name) VALUES (?1, ?2, ?3)")?;
         let join = |v: &[String]| (!v.is_empty()).then(|| v.join(", "));
         // an arcade machine's name is a short name ("sf2"): its title is its description's
         let arcade = platforms::is_arcade(platform);
+        // a variant's title is its whole name: its tags are part of it (D121)
+        let custom = dat.version == crate::variants::VERSION;
         for g in &dat.games {
             let f = parse_name(if arcade && !g.description.is_empty() { &g.description } else { &g.name });
+            let title = if custom { g.name.clone() } else { f.title };
             g_ins.execute(params![
-                dat_id, g.name, g.description, f.title, join(&f.regions), join(&f.languages), f.revision, f.version, join(&f.flags),
-                g.romof, g.sampleof, g.kind, g.year, g.manufacturer
+                dat_id, g.name, g.description, title, join(&f.regions), join(&f.languages), f.revision, f.version, join(&f.flags),
+                g.romof, g.sampleof, g.kind, g.year, g.manufacturer, g.cloneof
             ])?;
             let gid = tx.last_insert_rowid();
             ids.push(gid);
@@ -711,8 +715,26 @@ pub fn remove(ix: &Index, lib: &Library, id: i64) -> Result<()> {
     crate::audit::changed(ix.conn())
 }
 
+/// A DAT file's size and modified time, which say when it changed in its place.
+fn file_stamp(p: &Path) -> Option<String> {
+    let m = std::fs::metadata(p).ok()?;
+    let t = m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
+    Some(format!("{}:{t}", m.len()))
+}
+
+/// Keep what a DAT file was when it was loaded (`sync_library` loads it again when it changes).
+pub(crate) fn keep_stamp(conn: &Connection, rel: &str, p: &Path) -> Result<()> {
+    if let Some(st) = file_stamp(p) {
+        conn.execute(
+            "INSERT INTO index_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![format!("dat_file:{rel}"), st],
+        )?;
+    }
+    Ok(())
+}
+
 /// Bring the index's DATs in line with `_library/dats/` (the library is the source of
-/// truth): load files the index doesn't have, drop those that are gone.
+/// truth): load files the index doesn't have or that changed, drop those that are gone.
 pub fn sync_library(ix: &Index, lib: &Library) -> Result<()> {
     let base = lib.root().join(APP_DIR).join("dats");
     let mut on_disk: Vec<(String, String)> = vec![];
@@ -738,19 +760,33 @@ pub fn sync_library(ix: &Index, lib: &Library) -> Result<()> {
     for k in &known {
         if !on_disk.iter().any(|(rel, _)| rel == k) {
             conn.execute("DELETE FROM dats WHERE source_path = ?1", [k])?;
+            conn.execute("DELETE FROM index_meta WHERE key = ?1", [format!("dat_file:{k}")])?;
             changed = true;
         }
     }
     for (rel, platform) in &on_disk {
+        let path = lib.resolve(rel)?;
+        let now_stamp = file_stamp(&path);
         if known.contains(rel) {
-            continue;
+            // a DAT changed in its place (a custom DAT, written on another computer or by
+            // Game Repo Server's library) is loaded again; one never stamped is stamped now
+            let kept: Option<String> = conn.query_row("SELECT value FROM index_meta WHERE key = ?1", [format!("dat_file:{rel}")], |r| r.get(0)).optional()?;
+            match kept {
+                Some(k) if Some(&k) != now_stamp.as_ref() => {}
+                Some(_) => continue,
+                None => {
+                    keep_stamp(conn, rel, &path)?;
+                    continue;
+                }
+            }
         }
-        let Ok(bytes) = std::fs::read(lib.resolve(rel)?) else { continue };
+        let Ok(bytes) = std::fs::read(&path) else { continue };
         let Ok(dat) = parse(&bytes) else { continue };
         let dat = if platform == crate::bios::ID { crate::bios::by_system(&String::from_utf8_lossy(&bytes), dat) } else { dat };
         let id = load(conn, rel, platform, &dat)?;
         crate::arcade::loaded(conn, lib, id, platform)?;
         crate::audit::match_dat(conn, id)?;
+        keep_stamp(conn, rel, &path)?;
         changed = true;
     }
     // a system made arcade (or not) since, or a set type changed on another computer (M11)

@@ -79,6 +79,8 @@ export const PAGES = [
     "A games list can be narrowed to a region and sorted by name, region or year; reports, and Save a list of what's missing.",
     "Organise… sorts, renames and packs a system's games; Rename to the DAT's names…, Set aside duplicates… and Convert… (to CHD, RVZ, CSO, ZIP, or unpacked) are changes too.",
     "For an arcade system (MAME, FinalBurn Neo): how many games are playable, what each needs, its BIOS sets and devices on a tab of their own, and its set type.",
+    "Unknown: each file no DAT knows with the game it's likely a variant of (a translation, a hack, a prototype) and its tags, the parentheticals at the end of its name. Add puts it in the system's custom DAT as that game's variant; Edit… names it, gives it tags from the drop-down (or New tag…) and chooses its original, or none for a game of its own. Until then it stays out of the Library.",
+    "Variants: the system's custom DAT, each variant with its tags and its original; Rename (its files to their names), Remove and Undo. In the Library a variant shows under its own name with its original's details and pictures, and the Tag filter finds them.",
   ]],
   ["bios", "BIOS files", "Each system's BIOS files: which you have, which are missing, and where they are (under the Audit).", [
     "Every system the BIOS DATs list, the ones you have games for first; search for a system or a file.",

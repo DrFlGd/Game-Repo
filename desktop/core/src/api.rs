@@ -889,11 +889,16 @@ impl App {
                     };
                     let summary = audit::summary(conn, dat_id)?;
                     let platform = summary["dat"]["platform"].as_str().unwrap_or("").to_string();
-                    let mut q = conn.prepare("SELECT id, name, version FROM dats WHERE platform = ?1 AND current = 1 ORDER BY name")?;
+                    let mut q = conn.prepare("SELECT id, name, version FROM dats WHERE platform = ?1 AND current = 1 AND version != 'custom' ORDER BY name")?;
                     let dats: Vec<Value> = q
                         .query_map([&platform], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "version": r.get::<_, String>(2)? })))?
                         .collect::<rusqlite::Result<_>>()?;
-                    Ok(json!({ "summary": summary, "platforms": plats, "dats": dats }))
+                    // its custom DAT's counts, for the Variants tab (D119)
+                    let variants = match crate::variants::custom_dat(conn, &platform)? {
+                        Some(c) => audit::summary(conn, c)?,
+                        None => Value::Null,
+                    };
+                    Ok(json!({ "summary": summary, "platforms": plats, "dats": dats, "variants": variants }))
                 })
                 .await?)
             }
@@ -906,6 +911,56 @@ impl App {
                 let sort = args["sort"].as_str().unwrap_or("name").to_string();
                 let (offset, limit) = (args["offset"].as_i64().unwrap_or(0).max(0), args["limit"].as_i64().unwrap_or(100));
                 j(self.with_index(move |ix| audit::list_by(ix, &lib, dat_id, &tab, &search, &region, &sort, offset, limit)).await?)
+            }
+            // variants: the custom DAT of each system (docs/PLAN.md, "Phase 10 design", D119–D123)
+            "variants_list" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                j(self.with_index(move |ix| crate::variants::list(ix, &lib, &platform)).await?)
+            }
+            "variants_add" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let adds: Vec<crate::variants::Add> = serde_json::from_value(args["adds"].clone()).map_err(|e| format!("adds: {e}"))?;
+                j(self.with_index(move |ix| crate::variants::add(ix, &lib, &platform, &adds)).await?)
+            }
+            "variants_edit" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let name = arg(&args, "name").map_err(e2s)?.to_string();
+                let new_name = args["new_name"].as_str().unwrap_or(&name).to_string();
+                let original = args["original"].as_str().filter(|o| !o.is_empty()).map(String::from);
+                j(self.with_index(move |ix| crate::variants::edit(ix, &lib, &platform, &name, &new_name, original)).await?)
+            }
+            "variants_remove" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let names: Vec<String> = serde_json::from_value(args["names"].clone()).map_err(|e| format!("names: {e}"))?;
+                j(self.with_index(move |ix| crate::variants::remove(ix, &lib, &platform, &names)).await?)
+            }
+            "variants_undo" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                j(self.with_index(move |ix| crate::variants::undo(ix, &lib, &platform)).await?)
+            }
+            "variants_search" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let text = args["text"].as_str().unwrap_or("").to_string();
+                j(self.with_index(move |ix| crate::variants::search(ix.conn(), &lib, &platform, &text, 50)).await?)
+            }
+            "variants_tags" => {
+                let lib = self.library()?;
+                j(self.with_index(move |ix| Ok(json!(crate::variants::tag_list(ix.conn(), &lib)?))).await?)
+            }
+            "variants_tags_set" => {
+                let lib = self.library()?;
+                let tags: Vec<String> = serde_json::from_value(args["tags"].clone()).map_err(|e| format!("tags: {e}"))?;
+                j(self.with_index(move |ix| {
+                    crate::variants::set_tags(&lib, &tags)?;
+                    Ok(json!(crate::variants::tag_list(ix.conn(), &lib)?))
+                })
+                .await?)
             }
             "audit_overview" => {
                 let lib = self.library()?;

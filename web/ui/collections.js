@@ -479,7 +479,7 @@ function RulesEditor({ rules: r, onSet, off, prefix = "rule", id = "collection-r
   const systems = [...new Map(dats.filter((d) => d.current && d.platform !== "bios").map((d) => [d.platform, d.platform_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
   const datNames = [...new Set(dats.map((d) => d.name))].sort().map((n) => [n, n]);
   const own = r.dats || [];
-  const more = [own.length ? `games of ${own.join(", ")}` : "", r.languages.length ? `languages ${r.languages.join(", ")}` : "", r.exclude.length ? `${r.exclude.length} left out` : "", r.search ? `names with "${r.search}"` : "", r.from_dats.length ? plural(r.from_dats.length, "DAT", "DATs") : ""].filter(Boolean).join(" · ");
+  const more = [own.length ? `games of ${own.join(", ")}` : "", r.languages.length ? `languages ${r.languages.join(", ")}` : "", r.exclude.length ? `${r.exclude.length} left out` : "", r.search ? `names with "${r.search}"` : "", r.tags?.length ? `tags ${r.tags.join(", ")}` : "", r.from_dats.length ? plural(r.from_dats.length, "DAT", "DATs") : ""].filter(Boolean).join(" · ");
   const text = (k, v) => html`<input type="text" id=${`${prefix}-${k}`} class="compact" disabled=${off} value=${v} onChange=${(e) => set({ [k]: k === "search" ? e.target.value : list(e.target.value) })} />`;
   return html`<fieldset class="rules" id=${id} disabled=${off}>
     <div class="field-block"><span class="field-label">Systems</span>
@@ -491,6 +491,12 @@ function RulesEditor({ rules: r, onSet, off, prefix = "rule", id = "collection-r
         <option value="all">Every game in the DAT (to see what to look for)</option>
         <option value="none">Only the games added by hand</option>
       </select></label>
+    <label class="field-block"><span class="field-label">Variants</span>
+      <select id=${`${prefix}-variants`} class="compact" value=${r.variants || ""} title="Translations, hacks and the like, kept in each system's custom DAT" onChange=${(e) => set({ variants: e.target.value })}>
+        <option value="">With the other games</option>
+        <option value="without">Leave them out</option>
+        <option value="only">Only variants</option>
+      </select></label>
     <label class="check-row"><input type="checkbox" id=${`${prefix}-1g1r`} checked=${r.one_per_title} onChange=${(e) => set({ one_per_title: e.target.checked })} /> One game per title (1G1R)</label>
     <label class="check-row"><input type="checkbox" id=${`${prefix}-addons`} checked=${r.with_addons !== false} onChange=${(e) => set({ with_addons: e.target.checked })} /> With their updates and DLC <span class="muted">(the ones you have, exported beside their game)</span></label>
     <div class="rule-pair">
@@ -498,7 +504,7 @@ function RulesEditor({ rules: r, onSet, off, prefix = "rule", id = "collection-r
       <label class="check-row"><input type="checkbox" id=${`${prefix}-only-regions`} checked=${r.only_regions} onChange=${(e) => set({ only_regions: e.target.checked })} /> Only these regions</label>
     </div>
     <details class="rules-more" id=${prefix === "rule" ? "rules-more" : `${prefix}-more`}>
-      <summary>More rules <span class="muted">${more || "another DAT, languages, leave out, names, DATs"}</span></summary>
+      <summary>More rules <span class="muted">${more || "another DAT, languages, leave out, names, tags, DATs"}</span></summary>
       <div class="rules-more-body">
       <div class="field-block"><span class="field-label">Its games from these DATs, not the systems' audit DATs (optional)</span>
         <${Ticks} id=${`${prefix}-dats`} items=${datNames} value=${own} onChange=${(v) => set({ dats: v })} />
@@ -508,6 +514,8 @@ function RulesEditor({ rules: r, onSet, off, prefix = "rule", id = "collection-r
       <div class="field-block"><span class="field-label">Leave out</span>
         <${Ticks} id=${`${prefix}-exclude`} items=${FLAGS} value=${r.exclude} onChange=${(v) => set({ exclude: v })} /></div>
       <label class="field-block"><span class="field-label">Names with (optional)</span>${text("search", r.search)}</label>
+      <label class="field-block"><span class="field-label">Only variants with these tags (optional)</span>${text("tags", (r.tags || []).join(", "))}
+        <small class="muted">e.g. English Translated, Hack: the variants with none of them are left out; the other games stay.</small></label>
       <div class="field-block"><span class="field-label">Only games in these DATs (optional)</span>
         <${Ticks} id=${`${prefix}-from-dats`} items=${datNames} value=${r.from_dats} onChange=${(v) => set({ from_dats: v })} />
         <small class="muted">A DAT of your own (a best-of list, a RetroAchievements list) picks the games, by name or by any ROM's hashes.</small></div>

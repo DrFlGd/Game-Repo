@@ -141,7 +141,13 @@ fn games_of(ix: &Index, lib: &Library, o: &Options) -> Result<Vec<i64>> {
             };
             let filter = if scope == "all" { "1" } else { "status != 'missing'" };
             let mut q = conn.prepare(&format!("WITH {} SELECT id FROM gs WHERE {filter} ORDER BY name", crate::audit::GAMES))?;
-            let v = q.query_map([dat], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+            let mut v: Vec<i64> = q.query_map([dat], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+            // and the originals of the variants you have, which they take theirs from (D122)
+            for o in crate::variants::originals_had(conn, lib, &o.platform)? {
+                if !v.contains(&o) {
+                    v.push(o);
+                }
+            }
             Ok(v)
         }
     }
@@ -384,7 +390,8 @@ pub fn run(ix: &Index, lib: &Library, cfg: &AppConfig, data_dir: &Path, o: &Opti
         save_defaults(lib, &o)?;
     }
     meta::sync(ix, lib)?;
-    let games = games_of(ix, lib, &o)?;
+    // a variant is scraped by its original, whose details and pictures it takes (D122)
+    let games = crate::variants::scrape_targets(ix.conn(), lib, games_of(ix, lib, &o)?)?;
     // asking again: the answers kept are passed over until the scrape ends
     struct Fresh;
     impl Drop for Fresh {
@@ -486,6 +493,8 @@ pub fn run(ix: &Index, lib: &Library, cfg: &AppConfig, data_dir: &Path, o: &Opti
             }
         }
     }
+    // the variants of the games scraped take what they have now
+    crate::variants::after_scrape(ix, lib, &games)?;
     // the manuals kept, listed with the documents
     docs::sync(ix, lib)?;
     let stopped_by_sources = !stopped && !games.is_empty() && o.sources.iter().all(|s| off.contains(s));

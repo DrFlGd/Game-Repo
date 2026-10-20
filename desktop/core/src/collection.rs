@@ -59,6 +59,13 @@ pub struct Rules {
     pub details: Details,
     /// Its games' updates, DLC and patches you have go with them (D66)
     pub with_addons: bool,
+    /// The systems' variants (their custom DATs' games, D122): "" with the other games,
+    /// "without" left out, "only" them alone
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub variants: String,
+    /// Only variants with one of these tags (D121)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 /// A collection's rules by the games' details, as the Library page filters them: values
@@ -104,6 +111,8 @@ impl Default for Rules {
             dats: vec![],
             details: Details::default(),
             with_addons: true,
+            variants: String::new(),
+            tags: vec![],
         }
     }
 }
@@ -589,7 +598,14 @@ fn dats_of(conn: &Connection, lib: &Library, r: &Rules, missing: &mut Vec<String
         let mut v = vec![];
         for p in systems_of(conn, r)? {
             let d = audit::primary_dat(conn, lib, &p)?;
-            v.push((p, d));
+            // its variants beside them (D122), from its custom DAT
+            let custom = if d.is_some() && r.variants != "without" { crate::variants::custom_dat(conn, &p)? } else { None };
+            if r.variants != "only" || d.is_none() {
+                v.push((p.clone(), d));
+            }
+            if let Some(c) = custom {
+                v.push((p, Some(c)));
+            }
         }
         return Ok(v);
     }
@@ -827,15 +843,18 @@ fn group_systems(conn: &Connection, lib: &Library, g: &Group, dats: &[(String, O
             None => HashSet::new(),
         };
         let with_details = if r.details.is_empty() { None } else { Some(crate::browse::matching(conn, platform, &r.details)?) };
+        // a variant is one you chose to keep: the flags and regions left out are the DATs' (D122)
+        let variants = crate::variants::is_custom(conn, dat_id)?;
         let passes = |g: &Row| -> bool {
             r.include != "none"
                 && (addon_dat || crate::addons::kind_of(&g.name, false).is_none())
                 && (r.include == "all" || g.status == "have")
                 && with_details.as_ref().is_none_or(|d| d.contains(&g.id))
-                && !split(&g.flags).any(|f| exclude.contains(f))
+                && (variants || !split(&g.flags).any(|f| exclude.contains(f)))
+                && (r.tags.is_empty() || !variants || crate::variants::tags_of(&g.name).iter().any(|t| r.tags.iter().any(|x| x.eq_ignore_ascii_case(t))))
                 && (langs.is_empty() || g.languages.is_empty() || split(&g.languages).any(|l| langs.contains(&l.to_ascii_lowercase())))
                 && (search.is_empty() || g.name.to_lowercase().contains(&search))
-                && (!r.only_regions || rank(&g.regions) < r.regions.len())
+                && (variants || !r.only_regions || rank(&g.regions) < r.regions.len())
                 && src.as_ref().is_none_or(|s| {
                     by_hash.contains(&g.id)
                         || s.names.contains(&(platform.clone(), g.name.clone()))
@@ -843,7 +862,7 @@ fn group_systems(conn: &Connection, lib: &Library, g: &Group, dats: &[(String, O
                 })
         };
         let mut picked: Vec<&Row> = rows.iter().filter(|g| passes(g)).collect();
-        if r.one_per_title {
+        if r.one_per_title && !variants {
             let mut best: HashMap<i64, &Row> = HashMap::new();
             for g in picked {
                 let group = g.parent.unwrap_or(g.id);

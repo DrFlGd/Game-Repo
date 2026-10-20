@@ -51,7 +51,7 @@ function NextStrip({ home }) {
   if (!items.length) return null;
   const go = (n) => () => {
     const p = ctx.platform.store.prefs;
-    if (n.page === "audit") p.set("gr-audit", { ...(p.get("gr-audit", {}) || {}), platform: n.system, tab: "misnamed" });
+    if (n.page === "audit") p.set("gr-audit", { ...(p.get("gr-audit", {}) || {}), platform: n.system, tab: n.tab || "misnamed" });
     if (n.page === "metadata") p.set("gr-meta", { ...(p.get("gr-meta", {}) || {}), platform: n.system });
   };
   return html`<section class="home-next" id="home-next" aria-label="Next">

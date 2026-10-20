@@ -147,7 +147,7 @@ export async function offerInterrupted() {
 
 /** Run a planned change, then say what it did, with Undo. Resolves with the job's result
  *  (null when it failed). */
-export async function runPlan(plan) {
+export async function runPlan(plan, more = null) {
   try {
     const { job } = await api("organise_run", { id: plan.id });
     const done = await followJob(job, verb(plan.kind));
@@ -158,8 +158,9 @@ export async function runPlan(plan) {
     const failed = r.failed?.length ? ` ${plural(r.failed.length, "step", "steps")} failed: ${r.failed[0].error}` : "";
     const warned = r.warnings?.length ? ` ${plural(r.warnings.length, "file", "files")} will show once the folder is scanned again.` : "";
     const art = r.art?.length ? ` Artwork for ${plural(r.art.length, "game", "games")}.` : "";
-    const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}${warned}${art}`;
-    undoable(text, () => undoChange(r.id), 8000, [{ label: "History", run: () => { location.hash = "#/history"; } }]);
+    // `more`: what's left to do afterwards, with its button (files no DAT knows to review)
+    const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}${warned}${art}${more ? ` ${more.text}` : ""}`;
+    undoable(text, () => undoChange(r.id), more ? 15000 : 8000, [...(more?.actions || []), { label: "History", run: () => { location.hash = "#/history"; } }]);
     return r;
   } catch (e) {
     toast(`Couldn't finish it: ${e.message || e}`, 10000);

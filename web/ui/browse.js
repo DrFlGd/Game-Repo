@@ -24,13 +24,13 @@ const err = (e) => e.message || String(e);
 const prefs = () => ctx.platform?.store?.prefs;
 
 /** The filters with several values, as the address and the query name them. */
-const LISTS = ["platform", "genre", "decade", "developer", "publisher", "region", "language", "has"];
+const LISTS = ["platform", "genre", "decade", "developer", "publisher", "region", "language", "tag", "has"];
 export const SORTS = [["title", "Title"], ["system", "System"], ["year", "Year"], ["rating", "Rating"], ["size", "Size on disk"], ["date", "File date"]];
 const GROUPS = [["", "None"], ["system", "System"], ["genre", "Genre"], ["decade", "Decade"], ["developer", "Developer"], ["publisher", "Publisher"]];
 export const VIEWS = [["grid", "Grid", "grid"], ["list", "List", "list"], ["table", "Table", "table"]];
 export const SIZES = { small: 120, medium: 160, large: 220 };
 const HAS = [["pictures", "Pictures"], ["description", "A description"], ["manual", "A manual"], ["documents", "Documents"], ["video", "A video"], ["addons", "Updates and DLC"]];
-const FILTER_NAMES = { platform: "System", genre: "Genre", decade: "Year", developer: "Developer", publisher: "Publisher", region: "Region", language: "Language", has: "Has" };
+const FILTER_NAMES = { platform: "System", genre: "Genre", decade: "Year", developer: "Developer", publisher: "Publisher", region: "Region", language: "Language", tag: "Tag", has: "Has" };
 const RATINGS = [[0.4, "★★ and up"], [0.6, "★★★ and up"], [0.8, "★★★★ and up"]];
 
 // ------------------------------------------------------------ the query, in the address
@@ -154,6 +154,7 @@ function Filters({ q, facets, set, collections }) {
     <${AtLeast} id="rating" name="Rating" values=${f.rating} value=${q.rating} onChange=${(rating) => set({ rating })} label=${(n) => RATINGS.find(([v]) => v === n)?.[1] || n} />
     <${Values} id="region" name="Region" values=${f.region} chosen=${q.region} onToggle=${toggle("region")} />
     <${Values} id="language" name="Language" values=${f.language} chosen=${q.language} onToggle=${toggle("language")} />
+    <${Values} id="tag" name="Tag" values=${f.tag} chosen=${q.tag} onToggle=${toggle("tag")} />
     <${Values} id="has" name="Has" values=${has.filter((v) => v.count || q.has.includes(v.value))} chosen=${q.has} onToggle=${toggle("has")} />
     ${collections?.length ? html`<details class="lib-filter" id="filter-collection" open><summary>In a collection${q.collection ? html` <span class="lib-filter-on">1</span>` : null}</summary>
       <select id="lib-collection" class="compact" value=${q.collection} onChange=${(e) => set({ collection: e.target.value })}>
@@ -559,6 +560,8 @@ function SaveAsCollection({ q }) {
         details: { search: q.search, genre: q.genre, decade: q.decade, developer: q.developer, publisher: q.publisher, players: q.players, rating: q.rating, has: q.has, look: q.look },
       };
       if (q.region.length) rules.regions = q.region;
+      // a tag is a variant's (D121): the collection takes the variants with it
+      if (q.tag.length) Object.assign(rules, { variants: "only", tags: q.tag });
       if (rules.exclude === undefined) delete rules.exclude;
       const r = await api("collection_save", { collection: { name: name.trim() || "From the Library", rules, added: [], removed: [] } });
       ui.set((s) => ({ changes: (s.changes || 0) + 1 }));

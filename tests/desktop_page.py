@@ -614,7 +614,106 @@ async def serve_to_devices(pg, base, home, library):
 
 
 # the parts with homes of their own, run after the rest
-OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("serve", serve_to_devices)]
+async def variants(pg, base, home, library):
+    """Phase 10 (D119–D123): files no DAT knows are on Audit's Unknown tab, which Home's Next
+    opens, each with the game it's likely a variant of and its tags; Add puts one in the
+    system's custom DAT as that game's variant, which the Library shows under its own name
+    and tags, its page linking its original; Edit… names one and gives it a new tag from the
+    drop-down, and its file is renamed to it as one change; Remove puts a file back on
+    Unknown, and Undo puts the custom DAT back."""
+    gba = home / "GBA"
+    gba.mkdir()
+    jp, tr, proto = make_fixtures.rom(41, 4096), make_fixtures.rom(42, 4096), make_fixtures.rom(43, 2048)
+    (gba / "Dragon Quest Monsters - Caravan Heart (Japan).gba").write_bytes(jp)
+    translated = "Dragon Quest Monsters - Caravan Heart (English Translated).gba"
+    (gba / translated).write_bytes(tr)
+    (gba / "Dark Eden (Prototype).gba").write_bytes(proto)
+    dat = home / "gba.dat"
+    dat.write_text(make_fixtures.logiqx("Nintendo - Game Boy Advance", "20261001", [
+        ("Dragon Quest Monsters - Caravan Heart (Japan)", None, [make_fixtures.rom_xml("Dragon Quest Monsters - Caravan Heart (Japan).gba", jp)]),
+        ("Golden Sun (USA)", None, [make_fixtures.rom_xml("Golden Sun (USA).gba", make_fixtures.rom(44, 1024))]),
+    ]))
+    pick(gba, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    pick(dat, base)
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await back_home(pg, base)
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    await pg.wait_for_selector('#home-next li[data-kind="unknown"]', timeout=15000)
+    nxt = await pg.inner_text('#home-next li[data-kind="unknown"]')
+    await pg.click('#home-next li[data-kind="unknown"] a')
+    row = f'#audit-list-table tr[data-name="{translated}"]'
+    await pg.wait_for_selector(row, timeout=15000)
+    dq = await pg.inner_text(row)
+    eden = await pg.inner_text('#audit-list-table tr[data-name="Dark Eden (Prototype).gba"]')
+    await pg.screenshot(path=str(out / "58-audit-unknown-variants.png"))
+    check("Home's Next opens Audit's Unknown tab, each file no DAT knows with the game it's likely a variant of and its tags (D120, D123)",
+          "2 files in Game Boy Advance no DAT knows need review" in nxt and "Dragon Quest Monsters - Caravan Heart (Japan)" in dq and "same title" in dq
+          and "English Translated" in dq and "No game found" in eden and "Prototype" in eden, (nxt, dq, eden))
+    await pg.click(f"{row} .unknown-add")
+    await toast_text(pg, "Added")
+    await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"variants\"] .tab-count')?.textContent === '1'", timeout=15000)
+    custom = list((library / "_library" / "dats" / "gba").glob("*(custom).dat"))
+    text = custom[0].read_text() if custom else ""
+    check("Add puts it in the system's custom DAT, a variant of the game suggested (D119)",
+          len(custom) == 1 and 'name="Dragon Quest Monsters - Caravan Heart (English Translated)"' in text
+          and 'cloneof="Dragon Quest Monsters - Caravan Heart (Japan)"' in text and await pg.inner_text('#audit-tabs [data-tab="unknown"] .tab-count') == "1", (custom, text[-600:]))
+    # a game of its own, named with a new tag from the drop-down
+    await pg.click('#audit-list-table tr[data-name="Dark Eden (Prototype).gba"] .unknown-edit')
+    await pg.wait_for_selector("#variant-dialog")
+    await pg.select_option("#variant-tag-add", "__new")
+    await pg.fill("#variant-new-tag", "Unreleased")
+    await pg.press("#variant-new-tag", "Enter")
+    await pg.wait_for_function("() => document.querySelector('#variant-name')?.textContent.includes('Dark Eden (Prototype) (Unreleased)')")
+    own = await pg.input_value("#variant-original")
+    await pg.click("#variant-dialog button[type=submit]")
+    await toast_text(pg, "Added Dark Eden")
+    tags = json.loads((library / "_library/library.json").read_text()).get("variant_tags", [])
+    await pg.click('#audit-tabs [data-tab="variants"]')
+    await pg.wait_for_selector('#variants-table tr[data-name="Dark Eden (Prototype) (Unreleased)"]', timeout=15000)
+    listed = await pg.inner_text("#variants-table")
+    await pg.screenshot(path=str(out / "58b-audit-variants.png"))
+    check("Edit… names it with a tag added from the drop-down (New tag… keeps it in the list), a game of its own; the Variants tab lists both (D121)",
+          own == "" and "Unreleased" in tags and "Prototype" in tags and "A game of its own" in listed and "Dragon Quest Monsters - Caravan Heart (Japan)" in listed
+          and "its file is named otherwise" in listed, (own, tags, listed))
+    await pg.click("#variants-rename")
+    await pg.wait_for_selector("#organise-dialog #organise-totals")
+    await pg.click("#organise-dialog button[type=submit]")
+    await toast_text(pg, "of")
+    await until(lambda: (gba / "Dark Eden (Prototype) (Unreleased).gba").is_file())
+    await pg.wait_for_function("() => !document.querySelector('#variants-table')?.textContent.includes('named otherwise')", timeout=15000)
+    check("Rename to their names renames its file to its name in the custom DAT", (gba / "Dark Eden (Prototype) (Unreleased).gba").is_file()
+          and not (gba / "Dark Eden (Prototype).gba").exists(), sorted(x.name for x in gba.iterdir()))
+    # in the Library under its own name, with its tag to filter by; its page links its original
+    await pg.click('.sidebar a[href="#/library"]')
+    await pg.wait_for_selector('#filter-tag label[data-value="English Translated"]', timeout=15000)
+    await pg.goto(base + "#/game/gba/" + urllib.parse.quote("Dragon Quest Monsters - Caravan Heart (English Translated)"))
+    await pg.wait_for_selector("#game-variant-of", timeout=15000)
+    of = await pg.inner_text("#game-variant-of")
+    head = await pg.inner_text("#game-head")
+    await pg.click("#game-variant-of a")
+    await pg.wait_for_selector("#game-variant-list", timeout=15000)
+    theirs = await pg.inner_text("#game-variant-list")
+    check("the Library shows the variant under its own name with its tags, and its page says what it's a variant of, whose page lists it (D122)",
+          "(English Translated)" in head and "A variant of Dragon Quest Monsters - Caravan Heart (Japan)" in of and "English Translated" in of
+          and "Caravan Heart (English Translated)" in theirs, (head, of, theirs))
+    # taken out, its file is on Unknown again; Undo puts the custom DAT back
+    await pg.goto(base + "#/audit/gba")
+    await pg.click('#audit-tabs [data-tab="variants"]')
+    await pg.click('#variants-table tr[data-name="Dragon Quest Monsters - Caravan Heart (English Translated)"] .variant-remove')
+    await toast_text(pg, "Took")
+    await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"unknown\"] .tab-count')?.textContent === '1'", timeout=15000)
+    await pg.click('#toast button:has-text("Undo")')
+    await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"variants\"] .tab-count')?.textContent === '2'", timeout=15000)
+    check("Remove puts its file back on Unknown, and Undo puts the custom DAT back as it was",
+          await pg.inner_text('#audit-tabs [data-tab="unknown"] .tab-count') == "0", await pg.inner_text("#audit-tabs"))
+
+
+OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices)]
 
 
 async def main():

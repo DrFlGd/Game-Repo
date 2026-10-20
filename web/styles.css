@@ -1398,6 +1398,15 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 .audit-table .audit-name .audit-needs { display: block; }
 .audit-table .audit-path { max-width: 380px; overflow-wrap: anywhere; }
 .audit-table .audit-acts { white-space: nowrap; text-align: right; }
+/* variants (Phase 10): the Unknown tab's ticks and suggestions, and the tags */
+.audit-table .tick { width: 28px; }
+.unknown-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 6px 0; font-size: 13px; }
+.unknown-original select { max-width: 360px; }
+.variant-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.variant-tag { padding: 1px 7px; border: 1px solid var(--steel-2); border-radius: 99px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.variant-new-tag { display: inline-flex; gap: 6px; }
+#variant-dialog #variant-original { width: 100%; margin-top: 6px; }
+#variant-dialog #variant-tags { align-items: center; }
 .audit-overview tbody tr:hover { background: var(--steel); }
 .audit-bar.small { display: inline-block; width: 70px; height: 6px; vertical-align: middle; }
 .audit-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
@@ -1913,3 +1922,4 @@ html.drop-over-import #main-root { outline: 2px dashed var(--accent-edge); outli
 .import-places li.import-place small { grid-column: 2; }
 .import-places li.import-place small.warn { color: var(--warn, #b45309); }
 .subset-unknown li.import-unknown { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: nowrap; }
+.game-variant-of { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 4px 0; font-weight: 600; }
