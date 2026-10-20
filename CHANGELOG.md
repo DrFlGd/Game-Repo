@@ -84,7 +84,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
-- **Plans**: the device app for Windows and Android is designed: browsing the library on the device, even away from home, picking games with the pictures and manuals you want, downloads that carry on in the background, and seeing and removing what's on the device safely, ready for review before it's built.
+- **Plans**: Game Repo Go, the device app for Windows and Android, is designed: browsing the library on the device, even away from home, picking games with the pictures and manuals you want, downloads that carry on in the background, and seeing and removing what's on the device safely, ready for review before it's built.
 
 ## 0.5.28 (2026-10-20)
 

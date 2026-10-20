@@ -3900,7 +3900,7 @@ stand-in already does the hard part of a device's side (`gamerepo-device`: pairi
 pinned certificate, plans, downloads that resume and are checked by SHA-1, the gamelist
 merge, the record, removing with shared sets kept); 9b puts screens on it, adds what a
 device needs that a folder standing in for one doesn't, and builds it for both systems.
-D96–D104 are proposed here; D96, the app's name, is Jerred's to choose.
+D97–D104 are proposed here; D96, the app's name, is Jerred's (*Game Repo Go*, 2026-10-20).
 
 **What's built**
 
@@ -3924,15 +3924,15 @@ D96–D104 are proposed here; D96, the app's name, is Jerred's to choose.
   client is tried in Chromium at a phone's size and a PC's, against a real server.
 - Game Repo Server: three small additions (below, "What the server adds").
 
-**D96 One client app for both systems, named "Game Repo Client"** (Jerred's choice)
+**D96 One client app for both systems, named "Game Repo Go"** (Jerred, 2026-10-20)
 
-- One app from one codebase: `Game Repo Client_<version>_x64-setup.exe` for Windows and
-  `Game Repo Client_<version>_arm64.apk` for Android, beside Game Repo's and Game Repo
-  Server's on the same release. Identifier `io.github.drflgd.gamerepo.client`.
-- The name sits beside *Game Repo Server* and can't be mistaken for Game Repo on a PC that
-  has both. Android shows about twelve letters under an icon, so it reads "Game Repo
-  Cli…" there unless it's shorter. Other names: *Game Repo Go* (fits under the icon) or
-  *Game Repo* on Android only (no desktop app there to mix it up with).
+- One app from one codebase: `Game Repo Go_<version>_x64-setup.exe` for Windows and
+  `Game Repo Go_<version>_arm64.apk` for Android, beside Game Repo's and Game Repo
+  Server's on the same release. Identifier `io.github.drflgd.gamerepo.go`.
+- Jerred chose it from *Game Repo Client* (Claude's suggestion, beside *Game Repo Server*)
+  and *Game Repo* on Android only: it fits under an Android icon and reads as the app for
+  on the go. In the code and these notes it's still "the client" (`desktop/client`,
+  `gamerepo-client`).
 
 **D97 The Android parts in a plugin of the client's own**
 
@@ -4262,7 +4262,7 @@ the Android build: the plugin, the APK, the emulator test and the signing key.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D105). D96–D104 are proposed in "Phase 9b design" (2026-10-20), D96 for Jerred to choose. D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D105). D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 are proposed. D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
