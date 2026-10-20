@@ -106,15 +106,14 @@ export async function load() {
   await Promise.all([refreshStorage(), refreshStatus(), refreshSettings(), refreshLists()]);
   // allowed in Android's Settings while Game Repo Go was in the background
   document.addEventListener("visibilitychange", () => { if (!document.hidden && !go.get().storage.granted) refreshStorage(); });
-  let syncing = !!go.get().status?.sync?.running;
   onChange(async (what) => {
     if (what === "sync") {
       const st = await refreshStatus();
-      const now = !!st?.sync?.running;
-      // the lists read again as the catalogue fills, and when it's done
-      if (syncing && !now) refreshLists();
-      else if (now) listsSoon();
-      syncing = now;
+      // the lists read again as the catalogue fills, and whenever it's not filling: the
+      // status may only be asked after a short read has finished (a slow phone), so every
+      // change then may be the last
+      if (st?.sync?.running) listsSoon();
+      else refreshLists();
     } else if (what === "queue") {
       statusSoon();
       go.set((s) => ({ queueRev: s.queueRev + 1 }));

@@ -89,6 +89,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 - **For the Android app's releases: a helper that makes its signing key on your PC.** Double-click `tools/android_signing_key.cmd`: it makes the key with Windows' own tools, keeps it in Documents › Game Repo Go signing key, and adds it to GitHub as the two secrets the release signs the APK with.
 - **Game Repo Go for Android.** `Game Repo Go_<version>_arm64.apk` is Game Repo Go for an Android phone or handheld (Android 10 or later) with ES-DE: the same pages as on Windows, with Android's Back, a controller's buttons, the folder picker, and a note asking for access to all files, which ES-DE's folders need. Downloads go on with the screen off or the app in the background, with Android's notification showing how far they are, and Pause, Resume and Cancel on it. The pairing is kept encrypted with a key the phone's Android Keystore holds. Each release's APK is signed with the same key, so a new one installs over the last.
+- **Game Repo Go: no more empty Library after pairing.** When the computer or phone was slow to answer, the Library could stay at "No games here" after pairing until Game Repo Go was opened again. It now reads the games again each time the library has been read.
 
 ## 0.5.31 (2026-10-20)
 
