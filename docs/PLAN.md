@@ -4937,6 +4937,28 @@ per system) is part 2. Where it differs from the design:
   regions or *One per title*. The Library's *Save as a collection…* with a tag chosen takes
   only variants with it.
 
+### Phase 10 notes, part 2 (built 2026-10-20)
+
+D118, in `audit.rs` (`also_dats`, `set_also`), `dat::update_current` and the Audit page:
+
+- **Kept** in library.json `also_dats: {system: [DAT name]}` as designed, and in the index
+  as `dats.also` (set by `update_current` from library.json, so a new version of a DAT
+  ticked is ticked too). The main DAT is never one of them, and the custom DAT always is.
+- **The picker**: the *DAT* drop-down stays for changing the main DAT quickly; *DATs…*
+  beside it (there with one DAT too) has the main DAT by a radio button, *Audit with it
+  too* ticks for the others, the custom DAT as a line of its own, and *Import a DAT…*
+  (`audit_dats_set`).
+- **The lists are the main DAT's**, not every ticked DAT's together: each DAT audited
+  with too has a line under the totals ("Audited with it too: Translations (2024-05) 3 of
+  120") with *Show its lists*, which shows that DAT's tabs without making it the main one
+  (`audit_summary`'s `view`), and *Back to* the main one. Unknown and Variants are the
+  system's, so they aren't there while another DAT's lists show. Merging several DATs'
+  lists into one table is left for later.
+- **Unknown** is the files none of the system's audited DATs knows (`UNMATCHED` leaves out
+  the matches of DATs with `also`). The Library and collections take a system's games from
+  its main DAT, its custom DAT, then the DATs ticked, a game once by name (`browse::
+  rebuild_system`, `collection::dats_of`; not for a collection of variants only).
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -5138,5 +5160,5 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     built ("Jerred's import notes"). Next is Phase 10, variants and custom DATs ("Phase 10
     design", D118–D123), in two pull requests: the custom DAT, the suggestions and the tags
     with variants everywhere games show (built, "Phase 10 notes, part 1"), then several
-    DATs per system on the Audit page. Later: Android games (APKs), added to the roadmap
+    DATs per system on the Audit page (built, "Phase 10 notes, part 2"). Later: Android games (APKs), added to the roadmap
     by Jerred, 2026-10-20.

@@ -209,6 +209,11 @@ const MIGRATIONS: &[(&str, &str)] = &[
          ALTER TABLE library ADD COLUMN tags TEXT NOT NULL DEFAULT '';
          DELETE FROM index_meta WHERE key LIKE 'library:%';",
     ),
+    (
+        "also_dats",
+        // D118: a system's DATs ticked *Audit with it too*, from library.json `also_dats`
+        "ALTER TABLE dats ADD COLUMN also INTEGER NOT NULL DEFAULT 0;",
+    ),
 ];
 
 /// How many schema steps this build knows.

@@ -864,6 +864,8 @@ impl App {
             "audit_summary" => {
                 let lib = self.library()?;
                 let (dat_arg, platform_arg) = (args["dat"].as_i64(), args["platform"].as_str().map(String::from));
+                // `view`: a DAT's lists looked at, not made the system's main DAT (D118)
+                let view = args["view"].as_bool().unwrap_or(false);
                 j(self.with_index(move |ix| {
                     dat::sync_library(ix, &lib)?;
                     let conn = ix.conn();
@@ -873,7 +875,7 @@ impl App {
                     let dat_id = match (dat_arg, platform_arg.as_deref().or(with_dats.first().map(String::as_str))) {
                         (Some(d), _) => {
                             // the DAT picked for a platform stays its DAT
-                            if lib.writable().is_ok() {
+                            if lib.writable().is_ok() && !view {
                                 audit::choose_dat(conn, &lib, d)?;
                             }
                             Some(d)
@@ -889,16 +891,19 @@ impl App {
                     };
                     let summary = audit::summary(conn, dat_id)?;
                     let platform = summary["dat"]["platform"].as_str().unwrap_or("").to_string();
-                    let mut q = conn.prepare("SELECT id, name, version FROM dats WHERE platform = ?1 AND current = 1 AND version != 'custom' ORDER BY name")?;
+                    let mut q = conn.prepare("SELECT id, name, version, also FROM dats WHERE platform = ?1 AND current = 1 AND version != 'custom' ORDER BY name")?;
                     let dats: Vec<Value> = q
-                        .query_map([&platform], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "version": r.get::<_, String>(2)? })))?
+                        .query_map([&platform], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "version": r.get::<_, String>(2)?, "also": r.get::<_, bool>(3)? })))?
                         .collect::<rusqlite::Result<_>>()?;
+                    // the main DAT, and the counts of each DAT it's audited with too (D118)
+                    let main = audit::primary_dat(conn, &lib, &platform)?;
+                    let also: Vec<Value> = audit::also_dats(conn, &lib, &platform)?.into_iter().map(|d| audit::summary(conn, d)).collect::<Result<_>>()?;
                     // its custom DAT's counts, for the Variants tab (D119)
                     let variants = match crate::variants::custom_dat(conn, &platform)? {
                         Some(c) => audit::summary(conn, c)?,
                         None => Value::Null,
                     };
-                    Ok(json!({ "summary": summary, "platforms": plats, "dats": dats, "variants": variants }))
+                    Ok(json!({ "summary": summary, "platforms": plats, "dats": dats, "variants": variants, "main": main, "also": also }))
                 })
                 .await?)
             }
@@ -913,6 +918,22 @@ impl App {
                 j(self.with_index(move |ix| audit::list_by(ix, &lib, dat_id, &tab, &search, &region, &sort, offset, limit)).await?)
             }
             // variants: the custom DAT of each system (docs/PLAN.md, "Phase 10 design", D119–D123)
+            "audit_dats_set" => {
+                // a system's main DAT and the DATs it's audited with too (D118)
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let main = args["main"].as_i64();
+                let also: Vec<String> = serde_json::from_value(args["also"].clone()).map_err(|e| format!("also: {e}"))?;
+                j(self.with_index(move |ix| {
+                    lib.writable()?;
+                    if let Some(m) = main {
+                        audit::choose_dat(ix.conn(), &lib, m)?;
+                    }
+                    audit::set_also(ix.conn(), &lib, &platform, &also)?;
+                    Ok(json!({ "main": audit::primary_dat(ix.conn(), &lib, &platform)?, "also": audit::also_dats(ix.conn(), &lib, &platform)? }))
+                })
+                .await?)
+            }
             "variants_list" => {
                 let lib = self.library()?;
                 let platform = arg(&args, "platform").map_err(e2s)?.to_string();

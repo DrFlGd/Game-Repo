@@ -604,7 +604,13 @@ fn dats_of(conn: &Connection, lib: &Library, r: &Rules, missing: &mut Vec<String
                 v.push((p.clone(), d));
             }
             if let Some(c) = custom {
-                v.push((p, Some(c)));
+                v.push((p.clone(), Some(c)));
+            }
+            // and the DATs it's audited with too (D118)
+            if r.variants != "only" && d.is_some() {
+                for a in audit::also_dats(conn, lib, &p)? {
+                    v.push((p.clone(), Some(a)));
+                }
             }
         }
         return Ok(v);

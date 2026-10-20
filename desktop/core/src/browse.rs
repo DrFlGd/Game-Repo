@@ -158,7 +158,7 @@ fn picture_path(folder: &Option<String>, picture: &Option<String>, stamp: i64) -
 
 /// Rebuild a system's rows: every game of the DAT it's audited against but its updates and
 /// DLC (they're counted with their game, D66), its variants (its custom DAT's games, D122),
-/// then those of the DATs a collection's group takes its games from in place of it
+/// the games of the DATs it's audited with too (D118), then those of the DATs a collection's group takes its games from in place of it
 /// (`others`, D75) that the first hasn't by name, and the games no DAT knows that Add a
 /// game… kept for it.
 fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<i64>, others: &[i64]) -> Result<()> {
@@ -167,7 +167,10 @@ fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<
     let addons = crate::addons::have_by_base(conn, lib, platform)?;
     let mut named: HashSet<String> = HashSet::new();
     let custom = if dat.is_some() { crate::variants::custom_dat(conn, platform)? } else { None };
-    for (nth, dat) in dat.into_iter().chain(custom).chain(others.iter().copied().filter(|d| Some(*d) != custom)).enumerate() {
+    // and the DATs it's audited with too (D118)
+    let also = if dat.is_some() { audit::also_dats(conn, lib, platform)? } else { vec![] };
+    let more = also.iter().copied().chain(others.iter().copied().filter(|d| Some(*d) != custom && !also.contains(d)));
+    for (nth, dat) in dat.into_iter().chain(custom).chain(more).enumerate() {
         let start = rows.len();
         let variants = Some(dat) == custom;
         let addon_dat = conn.query_row("SELECT name FROM dats WHERE id = ?1", [dat], |r| r.get::<_, String>(0)).map(|n| crate::addons::is_addon_dat(&n))?;
@@ -413,7 +416,8 @@ fn stamp(conn: &Connection, lib: &Library, platform: &str, named: &[String]) -> 
     let hand = lib.meta()["addons"][platform].to_string();
     // its custom DAT, loaded again (so a new id) whenever it changes
     let custom = crate::variants::custom_dat(conn, platform)?;
-    Ok((format!("{FORMAT}|{dat:?}|{matched:?}|{games:?}|{pics}|{docs:?}|{others:?}|{hand}|{groups:?}|{custom:?}"), dat, groups))
+    let also = audit::also_dats(conn, lib, platform)?;
+    Ok((format!("{FORMAT}|{dat:?}|{matched:?}|{games:?}|{pics}|{docs:?}|{others:?}|{hand}|{groups:?}|{custom:?}|{also:?}"), dat, groups))
 }
 
 /// Bring the library's rows up to date: each system whose games, files, game folders or

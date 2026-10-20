@@ -7,6 +7,8 @@
 // region or year. Every list is a table (D74), whose rows open the game's page; Convert…
 // and Show in folder are in a row's right-click menu. Unknown suggests the game each file
 // is likely a variant of, and Variants lists the system's custom DAT (variants.js, D119–D123).
+// DATs… sets the main DAT and the DATs the system is audited with too (D118), each with its
+// counts under the totals and Show its lists.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -22,6 +24,7 @@ import { gameHash } from "./browse.js";
 import { openMenu } from "./actions.js";
 import { importFrom } from "./importpage.js";
 import { UnknownTable, VariantsList } from "./variants.js";
+import { Dialog, close } from "./dialogs.js";
 
 const PAGE = 200;
 
@@ -118,6 +121,43 @@ function Table({ items, tab, arcade, platform, onConvert }) {
       <td class="audit-path muted" title=${it.shown || null}>${shortPath(it.shown, 3)}</td>`))}</tbody></table>`;
 }
 
+/** A system's DATs: the main one, whose counts are the totals, and those it's audited with
+ *  too (D118), which take the files they know off Unknown and their games into the Library. */
+function AuditDatsDialog({ platform, platformName, dats, main, custom, onDone }) {
+  const [m, setM] = useState(main);
+  const [also, setAlso] = useState(() => dats.filter((d) => d.also).map((d) => d.name));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const mainName = dats.find((d) => d.id === m)?.name;
+  const tick = (n, on) => setAlso(on ? [...also.filter((x) => x !== n), n] : also.filter((x) => x !== n));
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await api("audit_dats_set", { platform, main: m, also: also.filter((n) => n !== mainName) });
+      close();
+      ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
+      onDone?.(m);
+    } catch (e) {
+      setError(e.message || String(e));
+      setBusy(false);
+    }
+  };
+  return html`<${Dialog} title=${`${platformName}'s DATs`} id="audit-dats-dialog" onSubmit=${submit} busy=${busy} error=${error} submitLabel="Save">
+    <p class="muted">The main DAT's counts are the totals. A DAT it's audited with too (a translation group's, say) knows files the main one doesn't: they're off Unknown, and its games are in the Library and collections beside the main DAT's.</p>
+    <ul class="ls-list" id="audit-dats-list">${dats.map((d) => html`<li key=${d.id} data-dat=${d.name}>
+      <label class="check-row"><input type="radio" name="audit-main" checked=${m === d.id} onChange=${() => setM(d.id)} /> ${d.name} <span class="muted">${d.version}</span>${m === d.id ? html` <span class="muted">(main)</span>` : null}</label>
+      <label class="check-row"><input type="checkbox" class="audit-also" disabled=${m === d.id} checked=${m !== d.id && also.includes(d.name)} onChange=${(e) => tick(d.name, e.target.checked)} /> Audit with it too</label></li>`)}
+      ${custom ? html`<li class="muted" data-dat=${custom}>${custom}: the system's variants, always audited with it</li>` : null}</ul>
+    ${isDesktop() ? html`<button type="button" class="ghost compact" id="audit-dats-import" onClick=${() => { close(); importFrom("settings-dats", () => importDats()); }}>${Icon.plus(14)} Import a DAT…</button>` : null}
+  <//>`;
+}
+
+export function AuditDialogs({ dialog }) {
+  if (dialog.type === "audit-dats") return html`<${AuditDatsDialog} ...${dialog} />`;
+  return null;
+}
+
 /** Every system's counts, a row each. */
 function Overview({ systems, onOpen }) {
   if (!systems) return html`<p class="muted">Reading the systems…</p>`;
@@ -144,6 +184,8 @@ export function Audit() {
   // the system in the address, else the one last shown
   const platform = arg && !all ? arg : saved;
   const [datId, setDatId] = useState(null);
+  // a DAT it's audited with too, its lists looked at (D118)
+  const [viewing, setViewing] = useState(null);
   const [data, setData] = useState(null);
   const [tab, setTab] = useState(() => prefs()?.get("gr-audit", {})?.tab || "missing");
   const [q, setQ] = useState("");
@@ -158,6 +200,7 @@ export function Audit() {
     if (!arg || all || arg === saved) return;
     setSaved(arg);
     setDatId(null);
+    setViewing(null);
     prefs()?.set("gr-audit", { ...(prefs()?.get("gr-audit", {}) || {}), platform: arg });
   }, [arg]);
   useEffect(() => {
@@ -171,7 +214,7 @@ export function Audit() {
   useEffect(() => {
     if (!s.library) return;
     let gone = false;
-    api("audit_summary", { platform, dat: datId })
+    api("audit_summary", viewing ? { platform, dat: viewing, view: true } : { platform, dat: datId })
       .then((d) => {
         if (gone) return;
         // the system remembered has no DAT now: the first that has one (review H23)
@@ -184,7 +227,7 @@ export function Audit() {
       })
       .catch((e) => { if (!gone) setData({ error: e.message || String(e) }); });
     return () => { gone = true; };
-  }, [s.library?.path, platform, datId, s.home, s.changes, tick]);
+  }, [s.library?.path, platform, datId, viewing, s.home, s.changes, tick]);
   useEffect(() => {
     if (s.library) api("arcade_sets").then(setSets).catch(() => setSets(null));
   }, [s.library?.path, tick]);
@@ -192,7 +235,7 @@ export function Audit() {
   const sum = data?.summary;
   const dat = sum?.dat?.id;
   // an arcade system has no Variants tab
-  useEffect(() => { if (sum?.arcade && tab === "variants") setTab("missing"); }, [sum]);
+  useEffect(() => { if ((sum?.arcade || viewing) && tab === "variants") setTab("missing"); if (viewing && tab === "unknown") setTab("have"); }, [sum, viewing]);
   const games = GAME_TABS.includes(tab);
   useEffect(() => { setRegion(""); setRegions([]); }, [dat, tab]);
   const by = games ? { region, sort } : {};
@@ -287,7 +330,8 @@ export function Audit() {
   const arc = sum.arcade;
   const n = (k) => (k === "sets" ? arc?.sets : k === "variants" ? data.variants?.games : sum[k]) || 0;
   const platformName = data.platforms.find((p) => p.id === sum.dat.platform)?.name;
-  const tabs = arc ? [...TABS, SETS_TAB] : [...TABS.slice(0, 3), VARIANTS_TAB, ...TABS.slice(3)];
+  // (Unknown and Variants are the system's, not one DAT's: not there while another's lists are looked at)
+  const tabs = (arc ? [...TABS, SETS_TAB] : [...TABS.slice(0, 3), VARIANTS_TAB, ...TABS.slice(3)]).filter(([k]) => !viewing || (k !== "unknown" && k !== "variants"));
   const shelf = (k) => GAME_TABS.includes(k) || k === "variants";
   const variants = tab === "variants" && !arc;
   const setType = sets?.systems?.[sum.dat.platform];
@@ -301,10 +345,12 @@ export function Audit() {
   return html`${head}<div class="pages audit-page" id="audit-page">
     <div class="audit-pick" id="audit-pick" data-platform=${sum.dat.platform}>
       ${data.dats.length > 1 ? html`<label class="field-inline"><span>DAT</span>
-        <select id="audit-dat" class="compact" value=${String(sum.dat.id)} disabled=${data.dats.length < 2} title=${data.dats.length < 2 ? "Import another DAT for this system to choose between them" : "The DAT this system is audited against (kept for Home too)"}
-          onChange=${(e) => setDatId(Number(e.target.value))}>
+        <select id="audit-dat" class="compact" value=${String(data.main ?? sum.dat.id)} disabled=${data.dats.length < 2} title=${data.dats.length < 2 ? "Import another DAT for this system to choose between them" : "The DAT this system is audited against (kept for Home too)"}
+          onChange=${(e) => { setViewing(null); setDatId(Number(e.target.value)); }}>
           ${data.dats.map((d) => html`<option key=${d.id} value=${String(d.id)}>${d.name} (${d.version})</option>`)}
         </select></label>` : null}
+      <button type="button" class="ghost compact" id="audit-dats" title="The main DAT, the DATs it's audited with too, and Import a DAT…" disabled=${!!s.library?.read_only}
+        onClick=${() => ui.set({ dialog: { type: "audit-dats", platform: sum.dat.platform, platformName, dats: data.dats, main: data.main, custom: data.variants?.dat?.name, onDone: (m) => { setViewing(null); setDatId(m); } } })}>${Icon.stack(14)} DATs…</button>
       ${arc && setType ? html`<label class="field-inline"><span>Set type</span>
         <select id="audit-set-type" class="compact" value=${setType} disabled=${!!s.library?.read_only} title=${SET_TYPES.find((t) => t[0] === setType)?.[2]}
           onChange=${(e) => chooseSetType(e.target.value)}>
@@ -318,6 +364,10 @@ export function Audit() {
           · BIOS and devices <b id="audit-sets">${arc.sets_have} of ${arc.sets}</b>` : null}
         ${" · "}<span title="1G1R: titles (a game and its clones) you have at least one version of">One per title</span> <b id="audit-1g1r">${n("groups_have")} of ${n("groups")}</b>
         ${n("by_crc") ? html` · <span class="muted" title="Files inside ZIPs matched by the checksum the ZIP records. Settings › Scanning › Scan ZIPs › Unpack and hash every file checks them in full.">${plural(n("by_crc"), "file", "files")} matched by the ZIP's checksum</span>` : null}</p>
+      ${data.also?.length && !viewing ? html`<p class="muted" id="audit-also">Audited with it too: ${data.also.map((a, i) => html`<span key=${a.dat.id} data-dat=${a.dat.name}>${i ? " · " : ""}${a.dat.name} (${a.dat.version}) <b>${(a.have || 0).toLocaleString()}</b> of ${(a.games || 0).toLocaleString()}
+        <button type="button" class="linkish audit-also-view" onClick=${() => setViewing(a.dat.id)}>Show its lists</button></span>`)}</p>` : null}
+      ${viewing ? html`<p class="warn-note" id="audit-viewing">These are the lists of ${sum.dat.name}, which ${pName} is audited with too.
+        <button type="button" class="linkish" id="audit-viewing-back" onClick=${() => setViewing(null)}>Back to ${data.dats.find((d) => d.id === data.main)?.name || "the main DAT"}</button></p>` : null}
       ${n("needs_tool") ? html`<p class="warn-note" id="audit-needs-tool">${plural(n("needs_tool"), "RVZ file waits", "RVZ files wait")} for dolphin-tool before ${n("needs_tool") === 1 ? "it" : "they"} can be checked. Set where it is in <a href=${routeHash("settings")}>Settings › Tools</a>, then scan.</p>` : null}
     </div>
     <div class="audit-tab-groups" id="audit-tabs" role="tablist">${[["Games", tabs.filter(([k]) => shelf(k))], ["Files", tabs.filter(([k]) => !shelf(k))]].map(([group, list]) => html`<div class="audit-tab-group" key=${group}>

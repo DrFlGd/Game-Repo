@@ -711,6 +711,43 @@ async def variants(pg, base, home, library):
     await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"variants\"] .tab-count')?.textContent === '2'", timeout=15000)
     check("Remove puts its file back on Unknown, and Undo puts the custom DAT back as it was",
           await pg.inner_text('#audit-tabs [data-tab="unknown"] .tab-count') == "0", await pg.inner_text("#audit-tabs"))
+    # D118: a second DAT for the system, ticked Audit with it too in DATs…, knows a file the
+    # main one doesn't: it's off Unknown, its counts are under the totals with Show its lists
+    mother = make_fixtures.rom(45, 2048)
+    (gba / "Mother 3 (English Translated).gba").write_bytes(mother)
+    tr_dat = home / "translations.dat"
+    tr_dat.write_text(make_fixtures.logiqx("Translations", "2024-05", [("Mother 3 (English Translated)", None, [make_fixtures.rom_xml("Mother 3 (English Translated).gba", mother)])]))
+    await pg.click("#audit-scan")
+    await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"unknown\"] .tab-count')?.textContent === '1'", timeout=30000)
+    pick(tr_dat, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#import-dats")
+    await pg.wait_for_selector("#dat-platform-dialog")
+    await pg.select_option("#dat-platform-0", "gba")
+    await pg.click("#dat-platform-dialog button[type=submit]")
+    await toast_text(pg, "Imported Translations")
+    await pg.goto(base + "#/audit/gba")
+    await pg.click("#audit-dats")
+    await pg.wait_for_selector('#audit-dats-list li[data-dat="Translations"]')
+    listed = await pg.inner_text("#audit-dats-list")
+    await pg.check('#audit-dats-list li[data-dat="Translations"] .audit-also')
+    await pg.click("#audit-dats-dialog button[type=submit]")
+    await pg.wait_for_selector("#audit-also", timeout=15000)
+    also = await pg.inner_text("#audit-also")
+    unknown = await pg.inner_text('#audit-tabs [data-tab="unknown"] .tab-count')
+    kept = json.loads((library / "_library/library.json").read_text()).get("also_dats", {})
+    await pg.screenshot(path=str(out / "58c-audit-also.png"))
+    await pg.click("#audit-also .audit-also-view")
+    await pg.wait_for_selector("#audit-viewing")
+    viewing = await pg.inner_text("#audit-viewing")
+    have = await pg.inner_text("#audit-have")
+    tabs = await pg.eval_on_selector_all("#audit-tabs [data-tab]", "els => els.map(e => e.dataset.tab)")
+    await pg.click("#audit-viewing-back")
+    await pg.wait_for_selector("#audit-also")
+    check("DATs… ticks a second DAT to audit with too (kept by name): the file it knows is off Unknown, its counts are under the totals, and Show its lists shows its own (D118)",
+          "Custom - Game Boy Advance" in listed and "Nintendo - Game Boy Advance" in listed and kept == {"gba": ["Translations"]} and unknown == "0"
+          and "Translations (2024-05) 1 of 1" in also and "Translations" in viewing and have == "1" and "unknown" not in tabs and "variants" not in tabs,
+          (listed, kept, unknown, also, viewing, have, tabs))
 
 
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices)]

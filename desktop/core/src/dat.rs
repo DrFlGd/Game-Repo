@@ -682,6 +682,13 @@ pub fn update_current(conn: &Connection, lib: &Library) -> Result<()> {
     for (id, _) in current.values() {
         tx.execute("UPDATE dats SET current = 1 WHERE id = ?1", [id])?;
     }
+    // and the DATs each system is audited with too, by name (D118)
+    tx.execute("UPDATE dats SET also = 0", [])?;
+    for (platform, names) in lib.meta()["also_dats"].as_object().cloned().unwrap_or_default() {
+        for n in names.as_array().into_iter().flatten().filter_map(Value::as_str) {
+            tx.execute("UPDATE dats SET also = 1 WHERE platform = ?1 AND name = ?2 AND version != 'custom'", params![platform, n])?;
+        }
+    }
     tx.commit()?;
     Ok(())
 }
