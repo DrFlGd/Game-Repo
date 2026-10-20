@@ -579,8 +579,11 @@ async def main():
             await pg.reload()
             await pg.wait_for_selector("#go-place-pick option[value='s:pcgames']", state="attached", timeout=20000)
             await pg.select_option("#go-place-pick", "s:pcgames")
-            await pg.wait_for_selector('.go-card[data-key="pcgames/zeta"]')
-            check("PC games are a system of their own in the Library", listed and await cards(pg) == ["pcgames/zeta"], await cards(pg))
+            # Zeta is in every system's list too, so wait for the system's own to be shown
+            await settled(pg, "() => document.querySelector('#go-place-name')?.textContent.includes('PC games')"
+                              " && [...document.querySelectorAll('#go-games .go-card[data-key]')].map(e => e.dataset.key).join() === 'pcgames/zeta'", 20000)
+            shown = await cards(pg)
+            check("PC games are a system of their own in the Library", listed and shown == ["pcgames/zeta"], (listed, shown))
             await pg.click('.go-card[data-key="pcgames/zeta"] .go-tick')
             await pg.click("#go-add")
             await pg.wait_for_selector("#add-pc")
