@@ -365,6 +365,15 @@ try:
     shot("05-notification")
     dump = sh("uiautomator dump /sdcard/ui.xml >/dev/null && cat /sdcard/ui.xml", ok=False)
     pause = re.search(r'text="Pause"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', dump, re.I)
+    title = re.search(r'text="Waiting for the library"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', dump)
+    if not pause and title:
+        # a quiet notification can be shown folded, without its buttons: pulled down, it opens
+        x1, y1, x2, y2 = map(int, title.groups())
+        sh(f"input swipe {(x1 + x2) // 2} {y1} {(x1 + x2) // 2} {y1 + 500} 300")
+        time.sleep(1.5)
+        dump = sh("uiautomator dump /sdcard/ui.xml >/dev/null && cat /sdcard/ui.xml", ok=False)
+        pause = re.search(r'text="Pause"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', dump, re.I)
+    (out / "notification-shade.xml").write_text(dump, encoding="utf-8")
     if pause:
         x1, y1, x2, y2 = map(int, pause.groups())
         sh(f"input tap {(x1 + x2) // 2} {(y1 + y2) // 2}")
