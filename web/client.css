@@ -130,6 +130,7 @@ progress { accent-color: var(--tool); height: 8px; }
 .go-from-library { color: var(--ok); border-color: var(--ok); }
 .go-from-known { color: var(--ink); border-color: var(--tool); }
 .go-from-elsewhere, .go-from-unchecked { color: var(--graphite); border-color: var(--steel-2); }
+.go-from-missing { color: var(--warn-ink); border-color: var(--warn-border); background: var(--warn-bg); }
 
 /* ---- Settings and pairing --------------------------------------------------- */
 .go-set { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--steel-2); border-radius: var(--radius-m); background: var(--white); }

@@ -15,6 +15,7 @@ const FROM = {
   known: ["The library has it", "Came from elsewhere; the library has the same game"],
   elsewhere: ["From elsewhere", "The library doesn't have this game"],
   unchecked: ["Checking…", "Being checked against the library"],
+  missing: ["Files not found", "Game Repo Go added it, but its files aren't where it put them (was a folder changed in Settings?). Remove it to take it off this list, or add it again from the Library."],
 };
 
 /** Played longest ago first, then those never played by when they came (Make room's order). */
@@ -73,15 +74,15 @@ export function DevicePage() {
       </select></label>` : html`<p class="empty">ES-DE has no games on this device yet.</p>`}
     <ul class="go-rows" id="device-list">
       ${rows.map((r) => {
-        const [from, why] = FROM[r.from] || [r.from, ""];
+        const [from, why] = FROM[r.missing ? "missing" : r.from] || [r.from, ""];
         const open_ = shown === r.id;
         return html`<li class=${`go-row${ticked.has(r.id) ? " is-ticked" : ""}`} key=${r.id} data-id=${r.id}>
           <input type="checkbox" class="go-row-tick" aria-label=${`Select ${r.name}`} checked=${ticked.has(r.id)} onChange=${() => flip(r.id)} />
           <button type="button" class="go-row-open" aria-expanded=${open_ ? "true" : "false"} onClick=${() => setShown(open_ ? null : r.id)}>
             <strong>${r.name}</strong>
-            <span class="muted">${name(r.system)} · ${bytes(r.size)} · ${r.last_played ? `played ${ago(played(r.last_played))}` : "never played"}</span>
+            <span class="muted">${name(r.system)} · ${r.missing ? "its files aren't on this device" : bytes(r.size)} · ${r.last_played ? `played ${ago(played(r.last_played))}` : "never played"}</span>
           </button>
-          <span class=${`badge go-from go-from-${r.from}`} title=${why}>${from}</span>
+          <span class=${`badge go-from go-from-${r.missing ? "missing" : r.from}`} title=${why}>${from}</span>
           ${open_ ? html`<div class="go-row-more">
             ${r.media.length ? html`<ul class="go-sizes">${r.media.map(([k, size]) => html`<li key=${k}><span>${kindName(k)}</span><span class="muted">${bytes(size)}</span>
                 <button type="button" class="ghost" onClick=${() => showDialog({ type: "remove", asks: [{ id: r.id, key: r.key, kinds: [k] }], media: true, title: `Remove ${kindName(k).toLowerCase()} of ${r.name}` })}>Remove</button></li>`)}</ul>`
@@ -153,6 +154,7 @@ export function RemoveDialog({ asks, media = false, title, done }) {
       ${r.kept.length ? html`<div class="field-block" id="remove-kept"><span>Staying</span>
         <p class="muted">Another game on this device needs ${r.kept.length === 1 ? "this" : "these"}, so ${r.kept.length === 1 ? "it stays" : "they stay"}:</p>
         <ul class="go-files">${r.kept.map((f) => html`<li><span class="go-file">${f.path}</span><span class="muted">${bytes(f.size)}</span></li>`)}</ul></div>` : null}
+      ${r.gone?.length ? html`<p class="muted" id="remove-gone">${r.gone.length === 1 ? "1 file isn't" : `${count(r.gone.length)} files aren't`} on this device any more (was a folder changed in Settings?), so ${r.gone.length === 1 ? "it's" : "they're"} only taken off Game Repo Go's list.</p>` : null}
       ${r.entries.length ? html`<p class="muted">${plural(r.entries.length, "entry", "entries")} in ES-DE's game lists go too${r.lines.length ? `, and ${plural(r.lines.length, "line")} in its custom collections` : ""}.</p>` : null}
       ${going.some((f) => f.place === "pc") ? html`<p class="muted" id="remove-pc">A PC game's files from the library go${info.kind === "windows" ? ", with its Start menu shortcut" : ", with its Steam shortcut"}. Files it made itself, such as saves and settings, stay in its folder.</p>` : null}
       <p class="muted">Saves are never touched. Files are set aside first, so a removal cut short (the battery, say) can be finished or put back.</p>

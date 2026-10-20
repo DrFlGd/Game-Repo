@@ -391,6 +391,67 @@ fn on_this_device_every_game_is_listed_and_removed_safely() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// As on Jerred's Steam Deck (2026-10-20): ES-DE's gamelists folder a link to elsewhere, as
+/// RetroDECK makes it, and the ROMs folder changed in Settings after games were added. The
+/// games left in the old folder aren't on the device, so they can be added again or taken
+/// off the record, and removing follows ES-DE's own linked folders.
+#[test]
+fn games_left_in_an_old_roms_folder_can_be_added_again_and_removed_through_linked_folders() {
+    let dir = temp("go-moved");
+    let lib = library(&dir);
+    let s = start(&lib, &dir.join("server"));
+    let d = a_device(&dir);
+    let home = d.home.clone();
+    let gamelists = if cfg!(unix) { dir.join("retrodeck/gamelists") } else { home.join("ES-DE/gamelists") };
+    #[cfg(unix)]
+    {
+        std::fs::create_dir_all(dir.join("retrodeck")).unwrap();
+        std::fs::rename(home.join("ES-DE/gamelists"), &gamelists).unwrap();
+        std::os::unix::fs::symlink(&gamelists, home.join("ES-DE/gamelists")).unwrap();
+    }
+    let app = open_app(&dir, &home);
+    pair(&app, &s);
+    call(&app, "set_settings", json!({ "media": ["cover"] }));
+    call(&app, "add", json!({ "keys": [ALPHA, QUEST] }));
+    queue_done(&app);
+    let old_alpha = home.join("ROMs/gb/Alpha (Europe).gb");
+    assert!(old_alpha.is_file(), "{:?}", files_under(&home));
+    assert!(std::fs::read_to_string(gamelists.join("gb/gamelist.xml")).unwrap().contains("Alpha (Europe).gb"));
+
+    let roms = dir.join("new-roms");
+    std::fs::create_dir_all(&roms).unwrap();
+    call(&app, "set_settings", json!({ "roms": roms.to_string_lossy() }));
+    let v = call(&app, "on_device", json!({}));
+    let of = |v: &Value, key: &str| v["games"].as_array().unwrap().iter().find(|r| r["key"] == key).cloned().unwrap_or_else(|| panic!("{key} in {v}"));
+    assert_eq!((of(&v, ALPHA)["missing"].as_bool(), of(&v, ALPHA)["size"].as_u64()), (Some(true), Some(0)), "{v}");
+    assert!(call(&app, "make_room", json!({ "need": 1 })).as_array().unwrap().is_empty(), "nothing to free");
+    let page = call(&app, "games", json!({ "q": "alph", "system": "gb" }));
+    assert_eq!((keys(&page), page["items"][0]["on_device"].as_bool()), (vec![ALPHA.to_string()], Some(false)), "{page}");
+
+    // taken off the record with its cover and gamelist entry; the old folder's copy stays
+    let r = call(&app, "removal", json!({ "asks": [{ "key": ALPHA }] }));
+    let paths = |k: &str| r[k].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!((paths("files"), paths("gone")), (vec!["gb/covers/Alpha (Europe).png".to_string()], vec!["gb/Alpha (Europe).gb".to_string()]), "{r}");
+    assert_eq!(r["frees"].as_u64(), std::fs::metadata(home.join("ES-DE/downloaded_media/gb/covers/Alpha (Europe).png")).ok().map(|m| m.len()));
+    call(&app, "remove", json!({ "asks": [{ "key": ALPHA }] }));
+    assert!(d.record().games.iter().all(|g| g.key != ALPHA));
+    assert!(!std::fs::read_to_string(gamelists.join("gb/gamelist.xml")).unwrap().contains("Alpha (Europe).gb"));
+    assert!(old_alpha.is_file() && !home.join("ES-DE/downloaded_media/gb/covers/Alpha (Europe).png").exists());
+
+    // added again, into the new folder, and removed from it
+    call(&app, "add", json!({ "keys": [QUEST] }));
+    queue_done(&app);
+    assert!(roms.join("psx/Quest (USA).m3u").is_dir(), "{:?}", files_under(&roms));
+    assert_eq!(of(&call(&app, "on_device", json!({})), QUEST)["missing"], Value::Null);
+    call(&app, "remove", json!({ "asks": [{ "key": QUEST }] }));
+    assert!(!roms.join("psx/Quest (USA).m3u").exists() && home.join("ROMs/psx/Quest (USA).m3u").is_dir());
+    assert!(!std::fs::read_to_string(gamelists.join("psx/gamelist.xml")).unwrap().contains("Quest"));
+    assert!(d.record().games.is_empty(), "{:?}", d.record());
+    app.queue.quit();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 const ZETA: &str = "pcgames/zeta";
 const OMEGA: &str = "pcgames/omega";
 

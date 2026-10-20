@@ -56,6 +56,8 @@ pub struct Removal {
     pub files: Vec<Going>,
     /// Staying: another game on the device needs them
     pub kept: Vec<Going>,
+    /// The record's files that aren't on the device any more, only taken off the record
+    pub gone: Vec<Going>,
     /// The gamelist entries going (the list's place and path, and the entry's path)
     pub entries: Vec<(String, String, String)>,
     /// The collection lines going (the file's place and path, and the line)
@@ -100,13 +102,20 @@ fn media_kind(role: &str) -> bool {
 }
 
 /// A file of a place on the device, refused if it isn't inside that place once links are
-/// followed, or is in what's set aside.
+/// followed, or is in what's set aside. ES-DE's own folders in a place (its `gamelists` and
+/// `collections`, a system's folder) may be links to elsewhere, as RetroDECK and EmuDeck
+/// make them, and what's in one is inside the place; a link deeper down isn't followed out.
 pub fn inside(d: &Device, place: &str, path: &str) -> Result<PathBuf> {
     let p = d.at(place, path)?;
-    if path.split('/').next() == Some(ASIDE) {
+    let first = path.split('/').next().unwrap_or("");
+    if first == ASIDE {
         bail!("{path} is set aside already.");
     }
-    let root = std::fs::canonicalize(&d.places[place])?;
+    let mut roots = vec![std::fs::canonicalize(&d.places[place])?];
+    let top = d.places[place].join(first);
+    if path.contains('/') && std::fs::symlink_metadata(&top).is_ok_and(|m| m.file_type().is_symlink()) {
+        roots.extend(std::fs::canonicalize(&top));
+    }
     let mut parent = p.parent().unwrap_or(&p).to_path_buf();
     while !parent.exists() {
         match parent.parent() {
@@ -114,10 +123,23 @@ pub fn inside(d: &Device, place: &str, path: &str) -> Result<PathBuf> {
             None => break,
         }
     }
-    if !std::fs::canonicalize(&parent).is_ok_and(|c| c.starts_with(&root)) {
+    if !std::fs::canonicalize(&parent).is_ok_and(|c| roots.iter().any(|r| c.starts_with(r))) {
         bail!("{path} leads out of ES-DE's {place} folder, so it isn't removed.");
     }
     Ok(p)
+}
+
+/// Whether a file of a place is on the device.
+fn there(d: &Device, place: &str, path: &str) -> bool {
+    d.at(place, path).is_ok_and(|p| std::fs::symlink_metadata(p).is_ok())
+}
+
+/// Whether the record's game has none of its own files on the device any more (its ROMs or
+/// PC games folder changed since it was added, say): it isn't held then, and can be added
+/// again or taken off the record.
+pub fn missing(d: &Device, h: &Held) -> bool {
+    let own: Vec<_> = h.files.iter().filter(|f| f.needed_by.is_empty() && !media_kind(&f.role) && (f.place == "roms" || f.place == "pc")).collect();
+    !own.is_empty() && own.iter().all(|f| !there(d, &f.place, &f.path))
 }
 
 /// What a removal takes (shown before it's asked to go ahead): `found` is what the scan
@@ -175,6 +197,10 @@ pub fn work_out(d: &Device, found: &[Found], asks: &[Ask]) -> Result<Removal> {
                 return;
             }
             let going = Going { place: place.into(), path: path.into(), size, game: name.clone(), kind: kind.into() };
+            if !there(d, place, path) {
+                r.gone.push(going);
+                return;
+            }
             let shared = place == "media" && media_users.get(path).is_some_and(|ids| ids.iter().any(|id| *id != me));
             if needed.contains(&(place.to_string(), path.to_string())) || shared {
                 r.kept.push(going);

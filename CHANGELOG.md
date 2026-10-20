@@ -88,6 +88,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **Game Repo Go: removing games works when ES-DE's folders are links, and games left in an old folder can be dealt with.** RetroDECK and EmuDeck keep some of ES-DE's folders elsewhere and link them in (its gamelists, say); removing a game stopped there with "gamelists/… leads out of ES-DE's esde folder". A link to one of ES-DE's own folders (its gamelists, its collections, a system's folder) is now followed; a link deeper down still isn't. And when ES-DE's ROMs folder changes after games were added, the games left in the old folder no longer count as on the device: *On this device* marks them "Files not found", the Library lets you add them again, and removing one takes it off the list with its entries and the media still in ES-DE's folders, leaving the old folder as it is. Changing ES-DE's folders in Settings looks for the games again straight away.
 - **For working without crates.io: the vendored crates include the Steam crate again.** The *Vendor crates* workflow (the `crates-vendor` branch) failed after 0.5.33, as it didn't copy `gamerepo-steam`, which the device crate and the core now use.
 
 ## 0.5.33 (2026-10-20)

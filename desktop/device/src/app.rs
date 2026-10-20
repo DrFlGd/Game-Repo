@@ -159,6 +159,10 @@ pub struct OnDevice {
     /// Each media kind it has, and its size
     pub media: Vec<(String, u64)>,
     pub files: usize,
+    /// The record has it, but its files aren't on the device any more (its ROMs folder
+    /// changed since, say): it can be added again, or removed from the record
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub missing: bool,
 }
 
 pub struct App {
@@ -402,7 +406,7 @@ impl App {
             "make_room" => {
                 let need: u64 = arg(args, "need")?;
                 let rows = self.rows()?.0;
-                let v: Vec<(String, u64, String, i64)> = rows.into_iter().map(|r| (r.id, r.size, r.last_played, r.added)).collect();
+                let v: Vec<(String, u64, String, i64)> = rows.into_iter().filter(|r| !r.missing).map(|r| (r.id, r.size, r.last_played, r.added)).collect();
                 json!(scan::make_room(&v, need))
             }
             "removal" => {
@@ -497,9 +501,14 @@ impl App {
                 if !new.steam.is_empty() && !Path::new(&new.steam).join("userdata").is_dir() {
                     bail!("{} isn't Steam's folder (it has no userdata folder).", new.steam);
                 }
+                let old = self.settings();
                 self.update_settings(|s| *s = new.clone())?;
                 self.catalogue.set_picture_limit(new.pictures_mb << 20);
                 self.changed("settings");
+                // ES-DE's folders changed: what's on the device is looked for again
+                if (&old.esde, &old.roms, &old.pc_games) != (&new.esde, &new.roms, &new.pc_games) {
+                    self.changed("device");
+                }
                 json!(new)
             }
             _ => bail!("There's no command {cmd}."),
@@ -693,7 +702,7 @@ impl App {
                 return keys.clone();
             }
         }
-        let mut keys: HashSet<String> = d.record().games.into_iter().map(|h| h.key).collect();
+        let mut keys: HashSet<String> = d.record().games.into_iter().filter(|h| !removing::missing(&d, h)).map(|h| h.key).collect();
         if let Ok((rows, _)) = self.rows() {
             keys.extend(rows.into_iter().filter(|r| r.from == "known").map(|r| r.key));
         }
@@ -760,16 +769,18 @@ impl App {
             }
             // a PC game by its folder in the PC games folder
             let pc = h.files.iter().find(|f| f.place == "pc").and_then(|f| f.path.split('/').next()).map(|f| format!("pc:{f}"));
+            let missing = removing::missing(&d, h);
             rows.push(OnDevice {
                 id: pc.or_else(|| first.map(|f| f.path.clone())).unwrap_or_default(),
                 key: h.key.clone(),
                 from: "library".into(),
                 name: h.title.clone(),
                 system: h.system.clone(),
-                size: h.files.iter().filter(|f| f.needed_by.is_empty()).map(|f| f.size).sum(),
+                size: if missing { 0 } else { h.files.iter().filter(|f| f.needed_by.is_empty()).map(|f| f.size).sum() },
                 added: h.added as i64,
                 media: media.into_iter().collect(),
                 files: h.files.len(),
+                missing,
                 ..Default::default()
             });
         }

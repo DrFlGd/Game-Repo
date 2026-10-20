@@ -380,6 +380,17 @@ async def main():
             check("a game's box front is removed on its own, and the game stays",
                   not (media / "covers" / "Alpha (USA).png").exists() and (phone / "ROMs" / "gb" / "Alpha (USA).gb").exists() and (media / "covers" / "Beta (Europe).png").exists())
 
+            # 9b. a game whose files aren't where Game Repo Go put them (its folder changed, say)
+            alpha = phone / "ROMs" / "gb" / "Alpha (USA).gb"
+            alpha.rename(alpha.with_suffix(".moved"))
+            await pg.click("#go-nav-library")
+            await pg.click("#go-nav-device")
+            await pg.wait_for_selector('[data-id="gb/Alpha (USA).gb"] .go-from-missing')
+            row = await pg.inner_text('[data-id="gb/Alpha (USA).gb"]')
+            alpha.with_suffix(".moved").rename(alpha)
+            check("a game whose files aren't where Game Repo Go put them is marked, not counted as there",
+                  "Files not found" in row and "its files aren't on this device" in row, row)
+
             # 10. Settings: Show games on this device, and the look
             await pg.click("#go-nav-settings")
             await pg.wait_for_selector("#go-settings")
