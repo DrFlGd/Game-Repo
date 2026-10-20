@@ -347,10 +347,14 @@ try:
     readable = sealed and b"token" in base64.b64decode(sealed.group(1) + "==")
     check("the pairing is kept encrypted with a Keystore key, with no token in the app's files", sealed and not readable and "token" not in prefs and not files.strip(), (prefs[:300], files))
 
-    # 5. a controller: the D-pad moves between games, X ticks, A opens, B comes back
+    # 5. a controller: the D-pad moves between games, X ticks, A opens, B comes back (the
+    # web view having Android's focus, as a handheld's first press gives it, then the first
+    # game focused)
+    key("KEYCODE_SHIFT_LEFT")
     pg.eval("document.querySelector('#go-games .go-card-open[data-index=\"0\"]').focus()")
     key("KEYCODE_DPAD_RIGHT")
     moved = pg.eval("document.activeElement?.dataset.index")
+    focused = pg.eval("document.activeElement?.outerHTML.slice(0, 160)")
     key("KEYCODE_BUTTON_X")
     ticked = pg.eval("document.querySelectorAll('.go-card.is-ticked').length")
     key("KEYCODE_BUTTON_X")
@@ -359,7 +363,7 @@ try:
     key("KEYCODE_BUTTON_B")
     back_again = pg.wait("document.querySelector('#go-games')", 15, "the Library again", soft=True)
     check("a controller's D-pad moves between games, X ticks one, A opens it and B comes back", moved == "1" and ticked == 1 and opened and back_again,
-          (moved, ticked, opened, back_again, pg.eval("location.hash"), sh("dumpsys window | grep -E 'mCurrentFocus|mInTouchMode'", ok=False).strip()))
+          (moved, focused, ticked, opened, back_again, pg.eval("location.hash"), sh("dumpsys window | grep -E 'mCurrentFocus|mInTouchMode'", ok=False).strip()))
     if not back_again:
         pg.eval("location.hash = '#library'")
         pg.wait("document.querySelector('#go-games')", 15, "the Library")

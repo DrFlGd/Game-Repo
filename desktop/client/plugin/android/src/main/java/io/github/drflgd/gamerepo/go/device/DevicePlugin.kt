@@ -63,6 +63,8 @@ class DevicePlugin(private val activity: Activity) : Plugin(activity) {
 
     override fun load(webView: WebView) {
         Controllers.install(activity, webView)
+        // the page has the keys from the start, as on a handheld nothing may ever be touched
+        webView.post { if (!webView.hasFocus()) webView.requestFocus() }
     }
 
     private fun hasStorage(): Boolean =
