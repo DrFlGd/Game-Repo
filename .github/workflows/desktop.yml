@@ -610,7 +610,8 @@ jobs:
             echo "\`Game Repo Go_${V}_x64-setup.exe\` is Game Repo Go, for a Windows computer or handheld that downloads games from a library into ES-DE."
             apk="dist/Game Repo Go_${V}_arm64.apk"
             if [ -f "$apk" ]; then
-              cert=$("$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+              cert=$("$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner" verify --print-certs "$apk" | grep -m1 -oE 'certificate SHA-256 digest: [0-9a-f]{64}' | awk '{print $NF}')   # "Signer #1 certificate …" or "V3.0 Signer: certificate …"
+              [ -n "$cert" ] || { echo "::error title=Android::apksigner printed no certificate for the APK" >&2; exit 1; }
               echo
               echo "**Android:** \`Game Repo Go_${V}_arm64.apk\` is Game Repo Go for an Android phone or handheld (Android 10 or later) with ES-DE. The first time, Android asks you to allow installing apps from your browser or file manager. Every version is signed with the same certificate (SHA-256 \`${cert}\`), so a new one installs over the last."
             else
