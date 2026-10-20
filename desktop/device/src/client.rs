@@ -12,6 +12,7 @@ use sha2::Digest;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -179,6 +180,47 @@ pub fn pair(address: &str, code: &str, name: &str, kind: &str) -> Result<Server>
     Ok(Server { address: address.into(), fingerprint: seen, token: p.token, server: p.server, device: p.device })
 }
 
+/// What a download is told and tells (the queue's, D99): it stops when `stop` is set,
+/// and adds the bytes it fetches to `got` as they come.
+#[derive(Clone, Copy, Default)]
+pub struct Watch<'a> {
+    pub stop: Option<&'a AtomicBool>,
+    pub got: Option<&'a AtomicU64>,
+    /// It stops once `got` comes to this too (the tests' pause at a set point)
+    pub until: Option<u64>,
+}
+
+impl Watch<'_> {
+    fn stopped(&self) -> bool {
+        self.stop.is_some_and(|s| s.load(Ordering::SeqCst)) || self.until.is_some_and(|u| self.got.is_some_and(|g| g.load(Ordering::SeqCst) >= u))
+    }
+
+    fn add(&self, n: u64) {
+        if let Some(g) = self.got {
+            g.fetch_add(n, Ordering::SeqCst);
+        }
+    }
+
+    /// What was there of a file that starts again (it changed since) no longer counts.
+    pub(crate) fn take_back(&self, n: u64) {
+        if let Some(g) = self.got {
+            let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+        }
+    }
+}
+
+/// A download stopped because it was asked to (paused or cancelled); what came is kept.
+#[derive(Debug)]
+pub struct Stopped;
+
+impl std::fmt::Display for Stopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Stopped.")
+    }
+}
+
+impl std::error::Error for Stopped {}
+
 /// The answer to a request that wasn't a success.
 #[derive(Debug)]
 pub struct Refused {
@@ -253,6 +295,15 @@ impl Server {
     /// since (its ETag kept beside it); a file still being made is waited for. `stop_at`
     /// stops after that many bytes of the file (for the tests). Returns the bytes fetched now.
     pub fn fetch(&self, url: &str, part: &Path, stop_at: Option<u64>) -> Result<u64> {
+        self.fetch_watched(url, part, stop_at, Watch::default())
+    }
+
+    /// [`fetch`](Self::fetch), stopping with [`Stopped`] when `watch` says so and telling it
+    /// the bytes as they come.
+    pub fn fetch_watched(&self, url: &str, part: &Path, stop_at: Option<u64>, watch: Watch) -> Result<u64> {
+        if watch.stopped() {
+            return Err(Stopped.into());
+        }
         let tag_path = part.with_extension(format!("{}.etag", part.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()));
         let have = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
         let tag = std::fs::read_to_string(&tag_path).ok();
@@ -267,6 +318,9 @@ impl Server {
             match head.status {
                 200 | 206 => {
                     let from = if head.status == 206 { have } else { 0 };
+                    if from == 0 {
+                        watch.take_back(have);
+                    }
                     if let Some(d) = part.parent() {
                         std::fs::create_dir_all(d)?;
                     }
@@ -286,6 +340,10 @@ impl Server {
                         if want == 0 {
                             return Ok(got);
                         }
+                        if watch.stopped() {
+                            f.sync_all()?;
+                            return Err(Stopped.into());
+                        }
                         let n = r.read(&mut buf[..want as usize])?;
                         if n == 0 {
                             bail!("The server stopped sending {url}");
@@ -293,6 +351,7 @@ impl Server {
                         f.write_all(&buf[..n])?;
                         left -= n as u64;
                         got += n as u64;
+                        watch.add(n as u64);
                     }
                     f.sync_all()?;
                     return Ok(got);
@@ -300,11 +359,15 @@ impl Server {
                 202 | 429 => {
                     let _ = read_body(&mut r, &head);
                     std::thread::sleep(Duration::from_millis(head.header("retry-after").and_then(|s| s.parse::<u64>().ok()).map(|s| s.min(5) * 1000).unwrap_or(500)));
+                    if watch.stopped() {
+                        return Err(Stopped.into());
+                    }
                 }
                 416 if have > 0 => {
                     // longer than the file is now: start again
                     let _ = std::fs::remove_file(part);
-                    return self.fetch(url, part, stop_at);
+                    watch.take_back(have);
+                    return self.fetch_watched(url, part, stop_at, watch);
                 }
                 s => {
                     let body = read_body(&mut r, &head).unwrap_or_default();

@@ -18,17 +18,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// The pictures (and video) a game can have: (kind, what it's called, ES-DE's folder for it).
-pub const MEDIA: &[(&str, &str, &str)] = &[
-    ("cover", "Box front", "covers"),
-    ("back", "Box back", "backcovers"),
-    ("box3d", "3D box", "3dboxes"),
-    ("screenshot", "Screenshot", "screenshots"),
-    ("titlescreen", "Title screen", "titlescreens"),
-    ("marquee", "Marquee (logo)", "marquees"),
-    ("fanart", "Fan art", "fanart"),
-    ("physical", "Cartridge or disc", "physicalmedia"),
-    ("video", "Video", "videos"),
-];
+/// Kept in `gamerepo-wire`, so a device client has the same.
+pub const MEDIA: &[(&str, &str, &str)] = gamerepo_wire::MEDIA;
 
 /// A PC game's artwork beside its cover (Phase 4, kept as MEDIA is since D55): (kind, what
 /// it's called, ES-DE's folder for it, none).

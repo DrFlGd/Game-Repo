@@ -186,7 +186,7 @@ async fn run(mut a: Args, data: PathBuf) -> Result<()> {
 
 pub fn device_command(mut a: Args) -> Result<()> {
     if a.rest.is_empty() {
-        bail!("device find|pair|unpair|systems|collections|games|game|add|remove|holdings (gamerepo-cli --help says more)");
+        bail!("device find|pair|unpair|systems|collections|games|game|add|remove|holdings|app (gamerepo-cli --help says more)");
     }
     let sub = a.rest.remove(0);
     let json_out = switch(&mut a, "--json");
@@ -205,6 +205,9 @@ pub fn device_command(mut a: Args) -> Result<()> {
         return Ok(());
     }
     let to = PathBuf::from(a.need("--to").context("--to <folder>: the stand-in device's folder, holding ES-DE/ and ROMs/")?);
+    if sub == "app" {
+        return app_command(a, &to);
+    }
     let d = Device::open(&to)?;
     match sub.as_str() {
         "pair" => {
@@ -333,4 +336,42 @@ pub fn device_command(mut a: Args) -> Result<()> {
         }
         other => bail!("unknown device command {other} (gamerepo-cli --help lists them)"),
     }
+}
+
+/// Game Repo Go's backend run as its pages call it (`device app <command> [<args as JSON>]`),
+/// with the stand-in device's folder as the place ES-DE is found and `--data` as the
+/// client's own folder; `--wait` waits for the queue and the jobs in the background.
+fn app_command(mut a: Args, to: &std::path::Path) -> Result<()> {
+    let data = PathBuf::from(a.need("--data").context("--data <folder>: the client's own data folder")?);
+    let wait = switch(&mut a, "--wait");
+    let Some(cmd) = a.rest.first().cloned() else { bail!("device app <command> [<args as JSON>] --to <folder> --data <folder> [--wait]") };
+    let args: Value = match a.rest.get(1) {
+        Some(j) => serde_json::from_str(j).with_context(|| format!("{j} isn't JSON"))?,
+        None => json!({}),
+    };
+    let secrets = Box::new(device::app::FileSecrets(data.join("secrets.json")));
+    let app = device::app::App::open(&data, vec![to.to_path_buf()], "stand-in", secrets, Box::new(|_| {}))?;
+    let answer = app.call(&cmd, &args)?;
+    if !wait {
+        app.queue.quit();
+        return show(&answer);
+    }
+    let mut last = String::new();
+    loop {
+        let st = app.call("status", &json!({}))?;
+        let (sync, checking) = (st["sync"]["running"].as_bool().unwrap_or(false), st["checking"]["running"].as_bool().unwrap_or(false));
+        let q = &st["queue"];
+        let busy = app.queue.busy() && !q["offline"].as_bool().unwrap_or(false);
+        let line = format!("queue {} left, {} of {}; sync {}; checking {}", q["left"], bytes(q["done"].as_u64().unwrap_or(0)), bytes(q["size"].as_u64().unwrap_or(0)), if sync { "running" } else { "idle" }, if checking { "running" } else { "idle" });
+        if line != last {
+            eprintln!("{line}");
+            last = line;
+        }
+        if !sync && !checking && !busy {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    app.queue.quit();
+    show(&json!({ "answer": answer, "queue": app.call("queue", &json!({}))?, "status": app.call("status", &json!({}))? }))
 }
