@@ -2,7 +2,7 @@
 // (Preact + htm, no build step, with Game Repo's styles, skins and icons); the backend is
 // reached through client/backend.js.
 import { html, render } from "./lib/html.js";
-import { inApp, start } from "./client/backend.js";
+import { inApp, leave, onBack, start } from "./client/backend.js";
 import { applyLook, back, go, load, routeOf } from "./client/state.js";
 import { gamepads, keys } from "./client/keys.js";
 import { Shell } from "./client/shell.js";
@@ -26,6 +26,13 @@ async function main() {
   route();
   addEventListener("hashchange", () => { route(); document.getElementById("go-main")?.scrollTo?.(0, 0); });
   keys(() => (go.get().dialog ? go.set({ dialog: null }) : back()));
+  // Android's Back as Esc: a dialog closes, a page goes back, and on the Library with
+  // nothing to go back from Game Repo Go goes to the background
+  onBack(() => {
+    if (go.get().dialog) go.set({ dialog: null });
+    else if (go.get().route.page !== "library") back();
+    else leave().catch(() => {});
+  });
   gamepads();
   await load();
   go.set({ ready: true });

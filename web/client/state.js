@@ -4,12 +4,13 @@
 // bring the parts they touch up to date.
 import { createStore } from "../lib/store.js";
 import { SKINS, THEMES } from "../ui/state.js";
-import { call, onChange } from "./backend.js";
+import { call, onChange, storage } from "./backend.js";
 
 export const go = createStore({
   ready: false,
   route: { page: "library" },  // library | game (key) | queue | device | settings
   status: null,                // `status`: pairing, ES-DE's folders, the queue's and sync's progress
+  storage: { needed: false, granted: true },  // Android's All files access (D87)
   settings: null,
   systems: [],                 // the library's systems shown (with ES-DE's folder on the device unless Show every system)
   collections: [],
@@ -73,6 +74,16 @@ export async function refreshLists() {
   go.set((s) => ({ systems, collections, libraryRev: s.libraryRev + 1 }));
 }
 
+/** Android's All files access; with `ask`, its screen first (answered on coming back). */
+export async function refreshStorage(ask = false) {
+  const before = go.get().storage;
+  const s = await storage(ask).catch(() => null);
+  if (!s) return before;
+  go.set({ storage: s });
+  if (s.granted && !before.granted) refreshStatus();
+  return s;
+}
+
 export async function refreshSettings() {
   const settings = await call("settings").catch(() => null);
   if (settings) go.set({ settings });
@@ -92,16 +103,17 @@ const statusSoon = throttle(refreshStatus, 300);
 const listsSoon = throttle(refreshLists, 2000);
 
 export async function load() {
-  await Promise.all([refreshStatus(), refreshSettings(), refreshLists()]);
-  let syncing = !!go.get().status?.sync?.running;
+  await Promise.all([refreshStorage(), refreshStatus(), refreshSettings(), refreshLists()]);
+  // allowed in Android's Settings while Game Repo Go was in the background
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && !go.get().storage.granted) refreshStorage(); });
   onChange(async (what) => {
     if (what === "sync") {
       const st = await refreshStatus();
-      const now = !!st?.sync?.running;
-      // the lists read again as the catalogue fills, and when it's done
-      if (syncing && !now) refreshLists();
-      else if (now) listsSoon();
-      syncing = now;
+      // the lists read again as the catalogue fills, and whenever it's not filling: the
+      // status may only be asked after a short read has finished (a slow phone), so every
+      // change then may be the last
+      if (st?.sync?.running) listsSoon();
+      else refreshLists();
     } else if (what === "queue") {
       statusSoon();
       go.set((s) => ({ queueRev: s.queueRev + 1 }));

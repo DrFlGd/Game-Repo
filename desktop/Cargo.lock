@@ -1501,6 +1501,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tauri-plugin-gamerepo-device",
  "tauri-plugin-single-instance",
  "windows-sys 0.61.2",
 ]
@@ -4741,6 +4742,16 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 1.1.8+spec-1.1.0",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-gamerepo-device"
+version = "0.5.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

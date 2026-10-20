@@ -150,7 +150,7 @@ pub struct App {
     data: PathBuf,
     kind: String,
     /// Where ES-DE's folder may be (the user's folder; Android's storage volumes)
-    homes: Vec<PathBuf>,
+    homes: Mutex<Vec<PathBuf>>,
     secrets: Box<dyn Secrets>,
     settings: Mutex<Settings>,
     pub catalogue: Arc<Catalogue>,
@@ -202,12 +202,19 @@ impl App {
                     }
                 }),
             );
-            App { data: data.to_path_buf(), kind: kind.into(), homes, secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default() }
+            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default() }
         });
         let me = Arc::downgrade(&app);
         app.queue.on_away(Box::new(move || me.upgrade().is_some_and(|a| a.find_again())));
         app.queue.start();
         Ok(app)
+    }
+
+    /// Where ES-DE is looked for now (Android's storage volumes, known once the app's up and
+    /// again as they change).
+    pub fn set_homes(&self, homes: Vec<PathBuf>) {
+        *self.homes.lock().unwrap_or_else(|e| e.into_inner()) = homes;
+        self.changed("device");
     }
 
     pub fn settings(&self) -> Settings {
@@ -227,7 +234,7 @@ impl App {
             let home = esde.parent().map(Path::to_path_buf).unwrap_or_else(|| esde.clone());
             Device::open_esde(&esde, &home)?
         } else {
-            self.homes.iter().find_map(|h| Device::open(h).ok()).ok_or_else(|| anyhow!("ES-DE isn't installed on this device (no ES-DE folder with its settings was found). Install ES-DE and start it once, or choose its folder in Settings."))?
+            self.homes.lock().unwrap_or_else(|e| e.into_inner()).iter().find_map(|h| Device::open(h).ok()).ok_or_else(|| anyhow!("ES-DE isn't installed on this device (no ES-DE folder with its settings was found). Install ES-DE and start it once, or choose its folder in Settings."))?
         };
         if !s.roms.is_empty() {
             d.places.insert("roms".into(), PathBuf::from(&s.roms));

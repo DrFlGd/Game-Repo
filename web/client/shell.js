@@ -5,7 +5,7 @@ import { html, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
 import { call } from "./backend.js";
-import { closeDialog, go, open, refreshLists, refreshSettings, refreshStatus, say } from "./state.js";
+import { closeDialog, go, open, refreshLists, refreshSettings, refreshStatus, refreshStorage, say } from "./state.js";
 import { message } from "./format.js";
 import { Dialog } from "./dialog.js";
 import { PairDialog, PairPage } from "./pair.js";
@@ -92,8 +92,22 @@ function Page({ route, paired }) {
   }
 }
 
+/** Android: games can't be added until Game Repo Go may write ES-DE's folders (D87). */
+function StorageNote() {
+  const [busy, setBusy] = useState(false);
+  const allow = async () => {
+    setBusy(true);
+    const s = await refreshStorage(true);
+    setBusy(false);
+    if (!s.granted) say("Game Repo Go still can't reach ES-DE's folders: turn on Allow access to manage all files for it.");
+  };
+  return html`<div class="go-note warn-note" id="go-storage" role="alert">
+    <span>To put games in ES-DE's folders, Game Repo Go needs access to all files, as ES-DE has. You can browse without it.</span>
+    <button type="button" class="primary" id="go-storage-allow" disabled=${busy} onClick=${allow}>Allow access</button></div>`;
+}
+
 export function Shell() {
-  const s = useStore(go, (x) => ({ ready: x.ready, route: x.route, status: x.status, dialog: x.dialog, toast: x.toast }));
+  const s = useStore(go, (x) => ({ ready: x.ready, route: x.route, status: x.status, storage: x.storage, dialog: x.dialog, toast: x.toast }));
   if (!s.ready) return html`<p class="go-opening muted">Opening Game Repo Go…</p>`;
   const st = s.status;
   const noEsde = st?.device?.error;
@@ -103,7 +117,8 @@ export function Shell() {
       <${Nav} route=${s.route} status=${st} />
       <main class=${`go-main go-main-${s.route.page}`} id="go-main">
         ${st?.removal ? html`<${PendingRemoval} pending=${st.removal} />` : null}
-        ${noEsde && s.route.page !== "settings" ? html`<div class="go-note warn-note" id="go-no-esde" role="alert">
+        ${s.storage.needed && !s.storage.granted ? html`<${StorageNote} />` : null}
+        ${noEsde && s.storage.granted && s.route.page !== "settings" ? html`<div class="go-note warn-note" id="go-no-esde" role="alert">
             <span>${noEsde}</span><a class="button ghost" href="#settings">Settings</a></div>` : null}
         <${Page} route=${s.route} paired=${!!st?.paired} />
       </main>

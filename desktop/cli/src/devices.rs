@@ -378,10 +378,12 @@ fn app_command(mut a: Args, to: &std::path::Path) -> Result<()> {
 
 /// Game Repo Go's pages and backend over HTTP, for the page test (tests/client_page.py) and
 /// for trying the pages in a browser: POST /invoke/<command> as tests/tauri_shim.js sends
-/// them (`api`, `app_info`, `pick_folder`), GET /picture/<key>/<kind> as the app's
-/// `picture://`, GET /events the backend's changes (server-sent events, the app's
-/// "go-changed"), POST /test/pick the answer to the next folder dialog, and the pages from
-/// --ui (client.html at /).
+/// them (`api`, `app_info`, `pick_folder`, `storage`, `leave`), GET /picture/<key>/<kind> as
+/// the app's `picture://`, GET /events the backend's changes (server-sent events, the app's
+/// "go-changed"), POST /test/pick the answer to the next folder dialog, POST /test/shell
+/// what the shell says it is ({"kind": "android"}, whether All files access is allowed yet:
+/// {"granted": false}; asked for, it is) and GET /test/shell that and how often Back left
+/// the app ("left"), and the pages from --ui (client.html at /).
 pub fn client_ui(mut a: Args) -> Result<()> {
     use std::io::Write;
     use std::sync::mpsc::{channel, Sender};
@@ -397,11 +399,12 @@ pub fn client_ui(mut a: Args) -> Result<()> {
     let secrets = Box::new(device::app::FileSecrets(data.join("secrets.json")));
     let app = device::app::App::open(&data, vec![home.clone()], &kind, secrets, events)?;
     let picks: Arc<Mutex<Vec<String>>> = Arc::default();
+    let shell = Arc::new(Mutex::new(json!({ "kind": kind, "granted": true, "left": 0 })));
     let listener = std::net::TcpListener::bind(("127.0.0.1", port))?;
     eprintln!("Game Repo Go's pages on http://127.0.0.1:{port}/ (ES-DE looked for in {}, the client's folder {})", home.display(), data.display());
     for conn in listener.incoming() {
         let Ok(mut stream) = conn else { continue };
-        let (app, ui, picks, listeners, kind) = (app.clone(), ui.clone(), picks.clone(), listeners.clone(), kind.clone());
+        let (app, ui, picks, listeners, shell) = (app.clone(), ui.clone(), picks.clone(), listeners.clone(), shell.clone());
         std::thread::spawn(move || {
             let Ok(req) = crate::read_request(&mut stream) else { return };
             let (path, query) = req.path.split_once('?').unwrap_or((req.path.as_str(), ""));
@@ -420,13 +423,41 @@ pub fn client_ui(mut a: Args) -> Result<()> {
                                 crate::respond_with(&mut stream, 200, "application/json", &body, "x-failed: 1\r\n")
                             }
                         },
-                        "app_info" => json(&mut stream, 200, &json!({ "kind": kind, "version": env!("CARGO_PKG_VERSION"), "picture_url": "/picture/" })),
+                        "app_info" => {
+                            let kind = shell.lock().unwrap()["kind"].clone();
+                            json(&mut stream, 200, &json!({ "kind": kind, "version": env!("CARGO_PKG_VERSION"), "picture_url": "/picture/" }))
+                        }
+                        "storage" => {
+                            let mut s = shell.lock().unwrap();
+                            if args["ask"].as_bool() == Some(true) {
+                                s["granted"] = json!(true);
+                            }
+                            let answer = json!({ "needed": s["kind"] == "android", "granted": s["granted"] });
+                            drop(s);
+                            json(&mut stream, 200, &answer)
+                        }
+                        "leave" => {
+                            let mut s = shell.lock().unwrap();
+                            s["left"] = json!(s["left"].as_u64().unwrap_or(0) + 1);
+                            drop(s);
+                            json(&mut stream, 200, &Value::Null)
+                        }
                         "pick_folder" => {
                             let next = { let mut p = picks.lock().unwrap(); (!p.is_empty()).then(|| p.remove(0)) };
                             json(&mut stream, 200, &json!(next))
                         }
                         other => json(&mut stream, 404, &json!(format!("unknown command {other}"))),
                     }
+                } else if path == "/test/shell" {
+                    let mut s = shell.lock().unwrap();
+                    if let Value::Object(set) = serde_json::from_slice(&req.body).unwrap_or(Value::Null) {
+                        for (k, v) in set {
+                            s[k.as_str()] = v;
+                        }
+                    }
+                    let now = s.clone();
+                    drop(s);
+                    json(&mut stream, 200, &now)
                 } else if path == "/test/pick" {
                     let v: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
                     if let Some(p) = v["path"].as_str() {

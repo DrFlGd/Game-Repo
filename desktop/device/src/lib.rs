@@ -511,7 +511,45 @@ pub fn remove(d: &Device, keys: &[String]) -> Result<Removed> {
 
 /// Each server heard on the network (D91) until `wait` is up or `each` says that's
 /// enough: what it is, and every address it announces (IPv4 first).
+static ON_BROWSE: std::sync::OnceLock<Box<dyn Fn(bool) + Send + Sync>> = std::sync::OnceLock::new();
+static BROWSING: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+
+/// Told `true` as looking for libraries on the network starts and `false` once nothing
+/// looks any more (Android drops multicast unless an app holds its lock meanwhile).
+pub fn on_browse(f: Box<dyn Fn(bool) + Send + Sync>) {
+    let _ = ON_BROWSE.set(f);
+}
+
+/// While one lives, something's looking on the network (counted, as two can at once).
+struct Browsing;
+
+impl Browsing {
+    fn start() -> Browsing {
+        let mut n = BROWSING.lock().unwrap_or_else(|e| e.into_inner());
+        *n += 1;
+        if *n == 1 {
+            if let Some(f) = ON_BROWSE.get() {
+                f(true);
+            }
+        }
+        Browsing
+    }
+}
+
+impl Drop for Browsing {
+    fn drop(&mut self) {
+        let mut n = BROWSING.lock().unwrap_or_else(|e| e.into_inner());
+        *n -= 1;
+        if *n == 0 {
+            if let Some(f) = ON_BROWSE.get() {
+                f(false);
+            }
+        }
+    }
+}
+
 fn browse(wait: Duration, mut each: impl FnMut(Info, Vec<String>) -> bool) -> Result<()> {
+    let _browsing = Browsing::start();
     let daemon = mdns_sd::ServiceDaemon::new()?;
     let rx = daemon.browse(api::SERVICE)?;
     let until = std::time::Instant::now() + wait;

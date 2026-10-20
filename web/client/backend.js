@@ -1,5 +1,5 @@
 // How Game Repo Go's pages reach its backend (gamerepo_device::app, behind
-// desktop/client/src/main.rs): its commands through Tauri's "api" command, its changes as
+// desktop/client/src/lib.rs): its commands through Tauri's "api" command, its changes as
 // "go-changed" events (queue, sync, device, settings), and pictures through the app's own
 // protocol, from the device's cache or the library. In the page test, tests/tauri_shim.js
 // stands in for Tauri and `gamerepo-cli client-ui` for the app.
@@ -34,6 +34,18 @@ export function onChange(fn) {
 
 /** A folder chosen with the system's dialog; null if cancelled. */
 export const pickFolder = (title) => tauri.core.invoke("pick_folder", { title });
+
+/** Whether Game Repo Go may write ES-DE's folders: on Android, All files access (D87), and
+ *  with `ask` Android's screen for it first; elsewhere always { needed: false }. */
+export const storage = (ask = false) => tauri.core.invoke("storage", { ask });
+
+/** Game Repo Go to the background (Android's Back with nothing to go back from). */
+export const leave = () => tauri.core.invoke("leave");
+
+/** `fn()` on Android's Back (its button or gesture) instead of Android's own. */
+export function onBack(fn) {
+  tauri.app?.onBackButtonPress?.(fn)?.catch?.(() => {});
+}
 
 /** A game's picture, at least `size` pixels on its longest side. */
 export const pictureUrl = (key, kind = "cover", size = 256) =>
