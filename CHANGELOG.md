@@ -86,6 +86,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **For the Android app's releases: a helper that makes its signing key on your PC.** Double-click `tools/android_signing_key.cmd`: it makes the key with Windows' own tools, keeps it in Documents › Game Repo Go signing key, and adds it to GitHub as the two secrets the release signs the APK with.
+
 ## 0.5.31 (2026-10-20)
 
 - **Game Repo Go** for Windows, the device app, with its own installer: pair it with the code Game Repo shows, browse the library's games with their box fronts by system or collection or search them all, tick games and add them to ES-DE with the pictures and manuals you choose, watch the downloads, see everything on the device (and make room by ticking the games played longest ago), and remove games or just their pictures. It works with a mouse, the keyboard or a controller, takes Game Repo's skins and themes, and closing it while games download leaves an icon by the clock until they're done. The pairing is kept in Windows Credential Manager, and if the library's computer is given another address on your network, Game Repo Go finds it again without pairing again.

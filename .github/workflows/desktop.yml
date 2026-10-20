@@ -246,6 +246,10 @@ jobs:
           cygpath -w "$PWD/ci-tools" >> "$GITHUB_PATH"
       - name: Version ${{ needs.version.outputs.version }}
         run: python tools/set_version.py "${{ needs.version.outputs.version }}"
+      - name: The Android signing key helper, as Jerred runs it (both of its ways)
+        run: |
+          mkdir -p ci-out
+          python tests/android_key.py --out "$RUNNER_TEMP/android-key" 2>&1 | tee ci-out/android-key.log
       - name: Check and test the Rust code
         working-directory: desktop
         env:
