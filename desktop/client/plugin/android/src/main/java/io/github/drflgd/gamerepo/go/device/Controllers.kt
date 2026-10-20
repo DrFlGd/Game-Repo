@@ -3,6 +3,8 @@
 // Windows: the D-pad and the left stick as the arrows (held, they repeat), A as Enter, B as
 // Esc (back), X as x (ticks a game), and the shoulder buttons as Page Up and Page Down.
 // Android sends a D-pad either as keys or as a hat's axes; both end as the arrows here.
+// Keys go to the web view even before it has been touched: with nothing focused, Android
+// would spend the first press giving it focus.
 package io.github.drflgd.gamerepo.go.device
 
 import android.app.Activity
@@ -14,6 +16,7 @@ import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Window
+import android.webkit.WebView
 
 object Controllers {
     private const val FIRST = 400L
@@ -27,11 +30,11 @@ object Controllers {
         KeyEvent.KEYCODE_BUTTON_R1 to KeyEvent.KEYCODE_PAGE_DOWN,
     )
 
-    fun install(activity: Activity) {
+    fun install(activity: Activity, webView: WebView) {
         val window = activity.window
         val original = window.callback ?: return
         if (original is Mapped) return
-        window.callback = Mapped(original)
+        window.callback = Mapped(original, webView)
     }
 
     private fun key(action: Int, code: Int, repeat: Int = 0): KeyEvent {
@@ -39,7 +42,7 @@ object Controllers {
         return KeyEvent(now, now, action, code, repeat, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, KeyEvent.FLAG_FROM_SYSTEM, InputDevice.SOURCE_KEYBOARD)
     }
 
-    private class Mapped(private val original: Window.Callback) : Window.Callback by original {
+    private class Mapped(private val original: Window.Callback, private val webView: WebView) : Window.Callback by original {
         private val handler = Handler(Looper.getMainLooper())
         // the arrow held by the stick or hat, and how often it has repeated
         private var held = 0
@@ -54,6 +57,7 @@ object Controllers {
         }
 
         override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+            if (!webView.hasFocus()) webView.requestFocus()
             val to = buttons[event.keyCode] ?: return original.dispatchKeyEvent(event)
             return original.dispatchKeyEvent(KeyEvent(event.downTime, event.eventTime, event.action, to, event.repeatCount, event.metaState,
                 KeyCharacterMap.VIRTUAL_KEYBOARD, 0, event.flags, InputDevice.SOURCE_KEYBOARD))
@@ -72,6 +76,7 @@ object Controllers {
                 else -> 0
             }
             if (now != held) {
+                if (!webView.hasFocus()) webView.requestFocus()
                 handler.removeCallbacks(repeat)
                 if (held != 0) original.dispatchKeyEvent(key(KeyEvent.ACTION_UP, held))
                 held = now

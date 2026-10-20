@@ -62,7 +62,7 @@ class DevicePlugin(private val activity: Activity) : Plugin(activity) {
     private var askedNotifications = false
 
     override fun load(webView: WebView) {
-        Controllers.install(activity)
+        Controllers.install(activity, webView)
     }
 
     private fun hasStorage(): Boolean =

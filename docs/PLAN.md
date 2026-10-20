@@ -4343,10 +4343,12 @@ signing key. Built as D97 says, except where noted.
   multicast lock is held only while the library is being looked for
   (`gamerepo_device::on_browse`), not for the whole download.
 - **The pairing** is sealed with an AES key the Android Keystore holds, in the app's own
-  preferences (`gamerepo-go-secrets`); nothing else of it is written down.
+  preferences (`gamerepo-go-secrets`); nothing else of it is written down. It's unsealed
+  once a start and kept in memory, as every call to the library needs it.
 - **Controllers**: the plugin turns A, B and X into Enter, Esc and X, the shoulder buttons
   into Page Up and Down, and the left stick or hat into the arrows (repeating after 0.4 s),
-  before the web view sees them, so the page's own keys do the rest.
+  before the web view sees them, so the page's own keys do the rest. A key gives the web
+  view focus first when it hasn't any, so a handheld's first press isn't spent on that.
 - **Back** (not in the design): Android's Back closes a dialog, goes back a page, and on
   the Library sends Game Repo Go to the background, as Esc does on Windows.
 - **The APK**: arm64, Android 10 (API 29) or later, built by the *Android app* CI job on

@@ -147,6 +147,9 @@ lh = ("--home", work / "app", "--library", lib)
 run("roots", "add", fixtures / "Roms" / "Game Boy", "--platform", "gb", *lh)
 run("dat", "import", fixtures / "dats" / "gb.dat", *lh)
 run("scan", *lh)
+# Alpha's record (its details), which its pictures go with
+alpha = next(l.split()[0] for l in run("games", "gb", *lh).stdout.splitlines() if l.split()[:1] and l.split()[0].isdigit() and "Alpha (USA)" in l)
+run("game", alpha, "--edit", "description", "Alpha is a game made for this test.", *lh)
 media = lib / "_library" / "games" / "gb" / "Alpha (USA)" / "media"
 media.mkdir(parents=True, exist_ok=True)
 (media / "cover.png").write_bytes(png(300, 400, (200, 60, 60)))
@@ -352,10 +355,14 @@ try:
     ticked = pg.eval("document.querySelectorAll('.go-card.is-ticked').length")
     key("KEYCODE_BUTTON_X")
     key("KEYCODE_BUTTON_A")
-    opened = pg.wait("document.querySelector('#go-game-title')", 15, "a game's page")
+    opened = pg.wait("document.querySelector('#go-game-title')", 15, "a game's page", soft=True)
     key("KEYCODE_BUTTON_B")
-    pg.wait("document.querySelector('#go-games')", 15, "the Library again")
-    check("a controller's D-pad moves between games, X ticks one, A opens it and B comes back", moved == "1" and ticked == 1 and opened, (moved, ticked))
+    back_again = pg.wait("document.querySelector('#go-games')", 15, "the Library again", soft=True)
+    check("a controller's D-pad moves between games, X ticks one, A opens it and B comes back", moved == "1" and ticked == 1 and opened and back_again,
+          (moved, ticked, opened, back_again, pg.eval("location.hash"), sh("dumpsys window | grep -E 'mCurrentFocus|mInTouchMode'", ok=False).strip()))
+    if not back_again:
+        pg.eval("location.hash = '#library'")
+        pg.wait("document.querySelector('#go-games')", 15, "the Library")
 
     # 6. a game added comes into ES-DE's folders and gamelist, with its box front
     pg.click('.go-card[data-key="gb/Alpha (USA)"] .go-tick')

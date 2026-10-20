@@ -9,7 +9,9 @@ use crate::Go;
 use gamerepo_device::app::Secrets;
 use gamerepo_device::queue::State;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_gamerepo_device::Android;
@@ -18,26 +20,43 @@ fn plugin(app: &AppHandle) -> Android<Wry> {
     app.state::<Android<Wry>>().inner().clone()
 }
 
-/// The pairing token, kept with a key the Android Keystore holds (Secrets.kt).
-struct Keystore(Android<Wry>);
+/// The pairing token, kept with a key the Android Keystore holds (Secrets.kt), and in
+/// memory once read: every call to the library needs it, and each unsealing waits for
+/// Android's main thread.
+struct Keystore(Android<Wry>, Mutex<HashMap<String, Option<String>>>);
+
+impl Keystore {
+    fn keep(&self, name: &str, value: Option<String>) {
+        self.1.lock().unwrap_or_else(|e| e.into_inner()).insert(name.to_string(), value);
+    }
+}
 
 impl Secrets for Keystore {
     fn get(&self, name: &str) -> Option<String> {
+        if let Some(v) = self.1.lock().unwrap_or_else(|e| e.into_inner()).get(name) {
+            return v.clone();
+        }
         let v: Value = self.0.call("secretGet", json!({ "name": name })).ok()?;
-        v["found"].as_bool().unwrap_or(false).then(|| v["value"].as_str().unwrap_or_default().to_string())
+        let value = v["found"].as_bool().unwrap_or(false).then(|| v["value"].as_str().unwrap_or_default().to_string());
+        self.keep(name, value.clone());
+        value
     }
 
     fn set(&self, name: &str, value: &str) -> anyhow::Result<()> {
-        self.0.call::<Value>("secretSet", json!({ "name": name, "value": value })).map(|_| ()).map_err(anyhow::Error::msg)
+        self.0.call::<Value>("secretSet", json!({ "name": name, "value": value })).map_err(anyhow::Error::msg)?;
+        self.keep(name, Some(value.to_string()));
+        Ok(())
     }
 
     fn delete(&self, name: &str) -> anyhow::Result<()> {
-        self.0.call::<Value>("secretDelete", json!({ "name": name })).map(|_| ()).map_err(anyhow::Error::msg)
+        self.0.call::<Value>("secretDelete", json!({ "name": name })).map_err(anyhow::Error::msg)?;
+        self.keep(name, None);
+        Ok(())
     }
 }
 
 pub fn secrets(app: &AppHandle) -> Box<dyn Secrets> {
-    Box::new(Keystore(plugin(app)))
+    Box::new(Keystore(plugin(app), Mutex::new(HashMap::new())))
 }
 
 /// Where ES-DE is looked for: each storage volume that's there (internal storage, SD cards).
