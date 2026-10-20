@@ -17,10 +17,10 @@ export function useMedia(query) {
 
 export const NARROW = "(max-width: 900px)";
 
-/** The app's mark: a cartridge, drawn for each skin. */
+/** The app's mark: a folder with a d-pad and buttons (tools/make_icons.py), drawn for each skin. */
 export function Mark({ cls = "brand-mark" }) {
   return html`<svg class=${`${cls} icon`} viewBox="0 0 40 40" aria-hidden="true">
-    <g data-sk="classic" transform="scale(1.6667)"><path d="M6.5 3.5h11v13.5l-1.5 1.5v2h-8v-2l-1.5-1.5z" /><rect x="8.5" y="6" width="7" height="6" rx=".5" class="accent" /><path d="M9.5 18.5v2M12 18.5v2M14.5 18.5v2" /></g>
+    <g data-sk="classic" transform="scale(1.6667)"><path d="M3 7a1.5 1.5 0 0 1 1.5-1.5h4.5l1.5 2h9a1.5 1.5 0 0 1 1.5 1.5v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" /><path d="M6.6 12h1.6v-1.6h1.8v1.6h1.6v1.8h-1.6v1.6h-1.8v-1.6h-1.6z" class="accent" /><circle cx="15" cy="11.6" r="1.15" class="accent" /><circle cx="17.2" cy="14" r="1.15" class="accent" /></g>
   </svg>`;
 }
 

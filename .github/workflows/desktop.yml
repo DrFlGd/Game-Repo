@@ -435,8 +435,9 @@ jobs:
           npm install --no-save --no-audit --no-fund @tauri-apps/cli@2.12.3 2>&1 | tail -2
           tauri() { npm run tauri -- "$@"; }
           tauri android init --ci 2>&1 | tee ../../ci-out/android-init.log
-          # the launcher icon (written into gen/android's res folders)
-          tauri icon ../src-tauri/icons/icon.png 2>&1 | tail -3
+          # the launcher icon (written into gen/android's res folders): the mark on a yellow
+          # adaptive background, from tools/make_icons.py
+          tauri icon icons/android.json 2>&1 | tail -3
           tauri android build --ci --apk --split-per-abi --target aarch64 2>&1 | tee ../../ci-out/android-build.log
           # the emulator's: a debug build, so its web view can be driven (no debug info, smaller)
           CARGO_PROFILE_DEV_DEBUG=false tauri android build --ci --apk --split-per-abi --target x86_64 --debug 2>&1 | tee ../../ci-out/android-build-debug.log
