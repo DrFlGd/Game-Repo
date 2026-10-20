@@ -635,6 +635,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **Later** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). It reads every format Magazines imports: a PDF's pages and a CBZ's or CBR's images alike. |
 | **Later** | Videos | Walkthroughs, reviews and retrospectives kept as a section of their own, as magazines are, not as one game's metadata: each video can be linked to the games it covers, and shows on those games' pages (Jerred, 2026-10-20). Not designed yet. |
 | **Later** | Main DAT in Settings | Each system's main DAT chosen in Settings › DAT files too, beside its versions, as well as on the Audit page (Jerred, 2026-10-20: for an update or a different base set). Not designed yet. |
+| **Later** | Big-screen size | A size setting for Game Repo Go's big-screen view (D113), whose sizes are fixed for a television or the Steam Deck and too large on a phone (Jerred, 2026-10-20, on his Android devices): smaller, as it is, larger, kept per device. Not designed yet. |
 | **Later** | Android games | Support for games that are Android apps (APKs, with any OBB or data files they come with): kept and scraped as a system of their own, and installed on an Android device by Game Repo Go (Jerred, 2026-10-20). Not designed yet. |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
