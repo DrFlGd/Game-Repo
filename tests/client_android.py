@@ -373,7 +373,7 @@ try:
 
     # 6. a game added comes into ES-DE's folders and gamelist, with its box front
     pg.click('.go-card[data-key="gb/Alpha (USA)"] .go-tick')
-    pg.wait("document.querySelector('#go-add')", 10, "Add to queue…")
+    pg.wait("document.querySelector('#go-add')", 10, "Download…")
     pg.click("#go-add")
     pg.wait("document.querySelector('#add-kinds input[name=cover]')", 30, "the media kinds")
     shot("04-add")

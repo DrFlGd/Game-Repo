@@ -12,6 +12,7 @@
 pub mod app;
 pub mod catalogue;
 pub mod client;
+pub mod installs;
 pub mod pcgames;
 pub mod queue;
 pub mod removing;
@@ -74,7 +75,8 @@ impl Device {
     /// Settings, C3), `~` in its settings being `home`.
     pub fn open_esde(esde: &Path, home: &Path) -> Result<Device> {
         let esde = esde.to_path_buf();
-        let settings = esde.join("settings").join("es_settings.xml");
+        // ES-DE 3 keeps them in settings/, ES-DE 2 beside its gamelists
+        let settings = [esde.join("settings").join("es_settings.xml"), esde.join("es_settings.xml")].into_iter().find(|p| p.is_file()).unwrap_or_else(|| esde.join("settings").join("es_settings.xml"));
         if !settings.is_file() {
             bail!("{} has no ES-DE settings ({}): start ES-DE on it once first.", esde.display(), settings.display());
         }
@@ -151,6 +153,20 @@ fn existing(p: &Path) -> &Path {
         }
     }
     p
+}
+
+/// Whether two folders are on the same drive, so their free space is the same space.
+fn same_drive(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        matches!((std::fs::metadata(existing(a)), std::fs::metadata(existing(b))), (Ok(x), Ok(y)) if x.dev() == y.dev())
+    }
+    #[cfg(not(unix))]
+    {
+        let root = |p: &Path| std::fs::canonicalize(existing(p)).ok().and_then(|c| c.components().next().map(|c| c.as_os_str().to_ascii_lowercase()));
+        root(a).is_some() && root(a) == root(b)
+    }
 }
 
 /// A file written whole, through a temporary name.

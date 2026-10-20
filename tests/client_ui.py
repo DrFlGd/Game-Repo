@@ -244,7 +244,7 @@ try:
 
     # 2. a game added is downloaded into ES-DE's folder and gamelist
     click('.go-card[data-key="gb/Alpha (USA)"] .go-tick')
-    wait("document.querySelector('#go-add')", 10, "Add to queue…")
+    wait("document.querySelector('#go-add')", 10, "Download…")
     click("#go-add")
     wait("document.querySelector('#add-kinds input[name=cover]')", 30, "the media kinds")
     shot("03-add")

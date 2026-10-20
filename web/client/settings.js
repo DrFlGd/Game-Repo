@@ -132,6 +132,14 @@ export function SettingsPage() {
     <section class="go-set" id="set-esde">
       <h2>ES-DE on this device</h2>
       ${dev.error ? html`<p class="warn-note" id="set-no-esde">${dev.error}</p>` : null}
+      ${(dev.installs || []).length > 1 || (dev.installs?.length && dev.error) ? html`<div class="field-block" id="set-installs"><span>ES-DE set up on this device</span>
+        ${dev.installs.map((i) => { const on = dev.esde === i.esde; return html`<div class=${`go-install${on ? " is-on" : ""}`} key=${i.esde}>
+          <span><strong>${i.by}</strong> <span class="muted">· ROMs in ${i.roms}</span></span>
+          ${on ? html`<span class="badge go-from go-from-library">In use</span>` : html`<button type="button" class="ghost" onClick=${() => set({ esde: i.esde, roms: "" }).then(refreshStatus)}>Use this one</button>`}
+        </div>`; })}
+      </div>` : dev.by && dev.by !== "ES-DE" ? html`<p class="muted" id="set-by">Set up by ${dev.by}.</p>` : null}
+      ${dev.esde_roms ? html`<div class="warn-note" id="set-roms-mismatch"><span>ES-DE's own settings say its ROMs folder is ${dev.esde_roms}, so it won't find the games Game Repo Go puts in ${dev.roms}.</span>
+        <button type="button" class="ghost" onClick=${() => set({ roms: "" }).then(refreshStatus)}>Use ES-DE's</button></div>` : null}
       <${Folder} id="set-esde-folder" label="ES-DE's folder" value=${v.esde || dev.esde} setting="esde" fallback="ES-DE's folder, with settings/es_settings.xml in it" />
       <${Folder} id="set-roms-folder" label="ROMs folder" value=${v.roms || dev.roms} setting="roms" fallback="As ES-DE's settings say" />
       ${dev.media ? html`<p class="muted">Pictures and manuals go in ${dev.media}, where ES-DE looks for them.</p>` : null}

@@ -14,10 +14,12 @@ the library has, renamed, and one it doesn't).
 Checks: Game Repo Go asks to be paired, finds nothing wrong with an address typed in, and
 a wrong code is refused; the code from Game Repo pairs it and the library is read onto
 the device; a system browsed from the picker; a search across every system; three games
-ticked, their size against the free space; Add to queue… with the media kinds and their
-sizes, one unticked; the queue watched to the end and "Restart ES-DE"; the games in ES-DE's
+ticked, their size against the free space; Add to queue keeping them queued, not started,
+and Start downloads… with their size on disc and the free space; Download… with the media
+kinds and their sizes, one unticked; Downloads watched to the end and "Restart ES-DE"; the games in ES-DE's
 folders and gamelists with the kinds chosen and not the other; On this device with the
-games from the library, the copy recognised and the game from elsewhere; Make room ticking
+games from the library, the copy recognised and the game from elsewhere, by system and in
+one list; Make room ticking
 games; a removal shown and done; a game's media removed alone; Settings (Show games on this
 device, the look, each skin); the Library and a game's page kept with the library away; every page
 moved through with the keys alone, and the games by rows and columns; no page errors; and
@@ -304,27 +306,45 @@ async def main():
             check("three games ticked show their size against the free space", "3 games" in bar and "free" in bar, bar)
             await shot(pg, "03-phone-ticked")
 
-            # 4. Add to queue…: the kinds with their sizes, Screenshot unticked
+            # 3b. Add to queue: queued, not started, until Start downloads…, which shows what they take first
+            await pg.click("#go-enqueue")
+            said = await toast(pg, "added to the queue")
+            await pg.click("#go-nav-queue")
+            await pg.wait_for_selector("#queue-queued li")
+            queued = await pg.eval_on_selector_all("#queue-queued li", "els => els.map(e => e.dataset.key)")
+            await pg.click("#queue-start")
+            await pg.wait_for_selector("#start-games li")
+            summary = await pg.inner_text("#start-dialog")
+            await shot(pg, "03b-phone-start")
+            await pg.click("#start-dialog button:has-text('Not yet')")
+            check("Add to queue keeps games queued, not started, and Start downloads… shows their size on disc and the free space first",
+                  sorted(queued) == ["gb/Alpha (USA)", "gb/Beta (Europe)", "gb/Delta (World)"] and "3 games" in said and "Size on disc" in summary
+                  and "Free on this device" in summary and "Start 3 downloads (" in summary and not (phone / "ROMs" / "gb" / "Alpha (USA).gb").exists(), (queued, said, summary))
+            await pg.click("#go-nav-library")
+            for k in ("gb/Alpha (USA)", "gb/Beta (Europe)", "gb/Delta (World)"):
+                await pg.click(f'.go-card[data-key="{k}"] .go-tick')
+
+            # 4. Download…: the kinds with their sizes, Screenshot unticked
             await pg.click("#go-add")
             await pg.wait_for_selector("#add-kinds input[name=cover]")
             kinds = await pg.inner_text("#add-kinds")
             ticked = await pg.eval_on_selector_all("#add-kinds input", "els => els.filter(e => e.checked).map(e => e.name)")
-            check("Add to queue… shows the media kinds the library has, with sizes, ticked as Settings says", "Box front" in kinds and "Screenshot" in kinds and "KB" in kinds and "cover" in ticked and "screenshot" in ticked, (kinds, ticked))
+            check("Download… shows the media kinds the library has, with sizes, ticked as Settings says", "Box front" in kinds and "Screenshot" in kinds and "KB" in kinds and "cover" in ticked and "screenshot" in ticked, (kinds, ticked))
             await pg.uncheck("#add-kinds input[name=screenshot]")
             await shot(pg, "04-phone-add")
             label = await pg.inner_text("#add-dialog button[type=submit]")
             await pg.click("#add-dialog button[type=submit]")
-            said = await toast(pg, "added to the queue")
-            check("Add 3 games puts them in the queue", label.startswith("Add 3 games (") and "3 games" in said, (label, said))
+            said = await toast(pg, "Downloading 3 games")
+            check("Download 3 games starts them, the queued ones with the kinds chosen now", label.startswith("Download 3 games ("), (label, said))
             check("the games added come off the ticks", await pg.query_selector("#go-picked") is None)
 
-            # 5. the queue to the end, then Restart ES-DE
+            # 5. Downloads to the end, then Restart ES-DE
             await pg.click("#go-nav-queue")
             await pg.wait_for_selector("#go-queue")
             await shot(pg, "05-phone-queue")
             await pg.wait_for_selector("#queue-restart", timeout=120000)
             done = await pg.eval_on_selector_all("#queue-done li", "els => els.map(e => e.dataset.key)")
-            check("the queue is watched to the end, and says to restart ES-DE", sorted(done) == ["gb/Alpha (USA)", "gb/Beta (Europe)", "gb/Delta (World)"] and "Restart ES-DE" in await pg.inner_text("#queue-restart"), done)
+            check("Downloads are watched to the end, and say to restart ES-DE", sorted(done) == ["gb/Alpha (USA)", "gb/Beta (Europe)", "gb/Delta (World)"] and "Restart ES-DE" in await pg.inner_text("#queue-restart"), done)
             await shot(pg, "06-phone-queue-done")
             roms = sorted(x.name for x in (phone / "ROMs" / "gb").iterdir())
             gamelist = (phone / "ES-DE" / "gamelists" / "gb" / "gamelist.xml").read_text(encoding="utf-8")
@@ -341,19 +361,25 @@ async def main():
             await pg.click("#go-nav-device")
             await pg.wait_for_selector("#device-list")
             await pg.wait_for_function("() => !document.querySelector('#device-checking') && document.querySelector('[data-id=\"gb/My Alpha.gb\"] .go-from-known')", timeout=60000)
-            rows = await pg.eval_on_selector_all("#device-list > li", "els => els.map(e => [e.dataset.id, e.querySelector('.go-from').textContent])")
+            rows = await pg.eval_on_selector_all("#device-list .go-row", "els => els.map(e => [e.dataset.id, e.querySelector('.go-from').textContent])")
             froms = dict(rows)
-            check("On this device lists every game ES-DE has, with where each came from",
+            systems = await pg.eval_on_selector_all("#device-list > li.go-sys", "els => els.map(e => [e.dataset.system, e.querySelector('.go-sys-open').textContent])")
+            check("On this device lists every game ES-DE has by system, with where each came from",
                   froms.get("gb/Alpha (USA).gb") == "From the library" and froms.get("gb/My Alpha.gb") == "The library has it" and froms.get("gb/Homebrew.gb") == "From elsewhere"
-                  and "free" in await pg.inner_text("#device-sum"), rows)
+                  and len(systems) == 1 and systems[0][0] == "gb" and "5 games" in systems[0][1] and "free" in await pg.inner_text("#device-sum"), (rows, systems))
             await shot(pg, "07-phone-device")
+            await pg.click("#device-list .go-sys-remove")
+            await pg.wait_for_selector("#remove-files li")
+            listed = await pg.inner_text("#remove-dialog")
+            await pg.click("#remove-dialog button:has-text('Cancel')")
+            check("a system's Remove all… shows every one of its games going first", "5 games go." in listed and "Homebrew.gb" in listed and "Alpha (USA).gb" in listed, listed)
 
             # 7. Make room ticks the games played longest ago first
             await pg.click("#device-room")
             await pg.fill("#room-gb", "0.00001")
             await pg.click("#room-dialog button[type=submit]")
             await pg.wait_for_selector("#device-room-note")
-            ticked = await pg.eval_on_selector_all("#device-list > li.is-ticked", "els => els.map(e => e.dataset.id)")
+            ticked = await pg.eval_on_selector_all("#device-list .go-row.is-ticked", "els => els.map(e => e.dataset.id)")
             check("Make room ticks the game played longest ago first", ticked == ["gb/My Alpha.gb"], (ticked, await pg.inner_text("#device-room-note")))
             await pg.click("#device-picked button:has-text('Clear')")
 
@@ -379,6 +405,20 @@ async def main():
             await toast(pg, "Removed, freeing")
             check("a game's box front is removed on its own, and the game stays",
                   not (media / "covers" / "Alpha (USA).png").exists() and (phone / "ROMs" / "gb" / "Alpha (USA).gb").exists() and (media / "covers" / "Beta (Europe).png").exists())
+
+            # 9b. a game whose files aren't where Game Repo Go put them (its folder changed, say)
+            alpha = phone / "ROMs" / "gb" / "Alpha (USA).gb"
+            alpha.rename(alpha.with_suffix(".moved"))
+            await pg.click("#go-nav-library")
+            await pg.click("#go-nav-device")
+            await pg.wait_for_selector('[data-id="gb/Alpha (USA).gb"] .go-from-missing')
+            row = await pg.inner_text('[data-id="gb/Alpha (USA).gb"]')
+            await pg.click('[data-id="gb/Alpha (USA).gb"] .go-row-open')
+            again = await pg.query_selector('[data-id="gb/Alpha (USA).gb"] .go-row-again') is not None
+            await pg.click('[data-id="gb/Alpha (USA).gb"] .go-row-open')
+            alpha.with_suffix(".moved").rename(alpha)
+            check("a game whose files aren't where Game Repo Go put them is marked, not counted as there, with Download again…",
+                  "Files not found" in row and "its files aren't on this device" in row and again, (row, again))
 
             # 10. Settings: Show games on this device, and the look
             await pg.click("#go-nav-settings")
@@ -589,9 +629,9 @@ async def main():
             await pg.wait_for_selector("#add-pc")
             said = await pg.inner_text("#add-dialog")
             await shot(pg, "18-phone-add-pc-game")
-            check("Add to queue… says where a PC game goes, and that the library unpacks it first", str(pc_games) in said and "being unpacked on the library first" in said, said)
+            check("Download… says where a PC game goes, and that the library unpacks it first", str(pc_games) in said and "being unpacked on the library first" in said, said)
             await pg.click("#add-dialog button[type=submit]")
-            await toast(pg, "added to the queue")
+            await toast(pg, "Downloading 1 game")
             await pg.click("#go-nav-queue")
             await pg.wait_for_selector('#queue-done li[data-key="pcgames/zeta"]', timeout=120000)
             restart = await pg.query_selector("#queue-restart")
@@ -605,6 +645,7 @@ async def main():
                   files == ["Zeta/data/level1.dat", "Zeta/zeta.exe"] and shortcut and restart is None, (files, shortcut, restart is None))
             (folder / "Zeta" / "save1.sav").write_bytes(b"a save")
             await pg.click("#go-nav-device")
+            await pg.click('#device-list [data-system="pcgames"] .go-sys-open')
             await pg.wait_for_selector('[data-id="pc:Zeta (1999)"]')
             await pg.check('[data-id="pc:Zeta (1999)"] .go-row-tick')
             await pg.click("#device-remove")

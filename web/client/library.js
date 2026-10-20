@@ -2,13 +2,14 @@
 // search are instant and work away from home. Systems and collections down the side on a
 // PC, a list at the top on a phone; the games as box fronts in a list that only puts what's
 // in view in the page (100,000 games scroll as a hundred); a check on each to select it, and
-// a bar with what's selected, its size against the free space and Add to queue….
+// a bar with what's selected, its size against the free space, Add to queue and Download….
 import { html, useState, useEffect, useRef, useLayoutEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
 import { call, pictureUrl } from "./backend.js";
 import { go, open, showDialog } from "./state.js";
 import { bytes, count, message, plural } from "./format.js";
+import { enqueue } from "./add.js";
 
 const PAGE = 200;   // games read at a time from the device's copy
 const GAP = 12;
@@ -230,9 +231,9 @@ function Games({ ask, rev, picked }) {
   </div>`;
 }
 
-/** What's selected: how many, their size against the free space, Add to queue…, and Make
- *  room… when there isn't room (C9, C20). */
-function Picked({ picked, free }) {
+/** What's selected: how many, their size against the free space, Add to queue, Download…,
+ *  and Make room… when there isn't room (C9, C20, D114). */
+function Picked({ picked, free, collection }) {
   const keys = Object.keys(picked);
   if (!keys.length) return null;
   const size = keys.reduce((a, k) => a + (picked[k].size || 0), 0);
@@ -242,7 +243,8 @@ function Picked({ picked, free }) {
     <span class="go-picked-do">
       <button type="button" class="ghost" id="go-picked-clear" onClick=${() => go.set({ picked: {} })}>Clear</button>
       ${short ? html`<button type="button" class="ghost" id="go-make-room" onClick=${() => { go.set({ roomFor: size - free + (64 << 20) }); open({ page: "device" }); }}>Make room…</button>` : null}
-      <button type="button" class="primary" id="go-add" onClick=${() => showDialog({ type: "add", keys })}>Add to queue…</button>
+      <button type="button" class="ghost" id="go-enqueue" onClick=${() => enqueue(keys, collection)}>Add to queue</button>
+      <button type="button" class="primary" id="go-add" onClick=${() => showDialog({ type: "add", keys })}>Download…</button>
     </span>
   </div>`;
 }
@@ -290,7 +292,7 @@ export function LibraryPage() {
           <button type="button" class="ghost" onClick=${() => call("sync").catch(() => {})}>Try again</button>
         </div>` : null}
       <${Games} ask=${ask} rev=${s.rev} picked=${s.picked} />
-      <${Picked} picked=${s.picked} free=${st?.device?.free ?? null} />
+      <${Picked} picked=${s.picked} free=${st?.device?.free ?? null} collection=${s.where.collection || ""} />
     </div>
   </div>`;
 }
