@@ -3,11 +3,11 @@
 
     python3 tools/build_desktop.py --out build/desktop [--fetch-fonts]
 
-Copies web/ to <out>/ui (the frontendDist of both tauri.conf.json files: Game Repo's
-page is index.html, Game Repo Server's window server.html), with CHANGELOG.md,
+Copies web/ to <out>/ui (the frontendDist of the three tauri.conf.json files: Game Repo's
+page is index.html, Game Repo Server's window server.html, Game Repo Go's client.html), with CHANGELOG.md,
 THIRD_PARTY.md and build-info.json (date, commit, vendored library versions)
 for the About page. The app works offline,
-so the Google Fonts lines are dropped from both pages: with --fetch-fonts (CI)
+so the Google Fonts lines are dropped from the pages: with --fetch-fonts (CI)
 the skins' fonts (all SIL OFL, from google/fonts) are bundled instead, otherwise
 system fonts are used. A font file is only read when a skin in use needs it.
 """
@@ -107,8 +107,8 @@ if a.fetch_fonts:
         (fonts / (name + "-OFL.txt")).write_bytes(licence)
     (fonts / "fonts.css").write_text("".join(faces))
     font_css = '  <link rel="stylesheet" href="vendor/fonts/fonts.css">'
-# the app's page and Game Repo Server's window (server.html)
-for page in (ui / "index.html", ui / "server.html"):
+# the app's page, Game Repo Server's window (server.html) and Game Repo Go's (client.html)
+for page in (ui / "index.html", ui / "server.html", ui / "client.html"):
     out_lines = []
     for l in page.read_text(encoding="utf-8").splitlines():
         if "fonts.googleapis.com" in l or "fonts.gstatic.com" in l:

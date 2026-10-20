@@ -1,0 +1,21 @@
+[package]
+name = "gamerepo-client"
+description = "Game Repo Go: browse a Game Repo library on the home network and download games into ES-DE's folders on this device"
+version.workspace = true
+edition.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+gamerepo-device = { path = "../device" }
+
+[target.'cfg(windows)'.dependencies]
+# a second start shows the first one's window
+tauri-plugin-single-instance = "=2.5.2"
+# the pairing token in Windows Credential Manager
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials"] }

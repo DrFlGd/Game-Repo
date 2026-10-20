@@ -375,3 +375,101 @@ fn app_command(mut a: Args, to: &std::path::Path) -> Result<()> {
     app.queue.quit();
     show(&json!({ "answer": answer, "queue": app.call("queue", &json!({}))?, "status": app.call("status", &json!({}))? }))
 }
+
+/// Game Repo Go's pages and backend over HTTP, for the page test (tests/client_page.py) and
+/// for trying the pages in a browser: POST /invoke/<command> as tests/tauri_shim.js sends
+/// them (`api`, `app_info`, `pick_folder`), GET /picture/<key>/<kind> as the app's
+/// `picture://`, GET /events the backend's changes (server-sent events, the app's
+/// "go-changed"), POST /test/pick the answer to the next folder dialog, and the pages from
+/// --ui (client.html at /).
+pub fn client_ui(mut a: Args) -> Result<()> {
+    use std::io::Write;
+    use std::sync::mpsc::{channel, Sender};
+    use std::sync::{Arc, Mutex};
+    let ui = PathBuf::from(a.need("--ui")?);
+    let home = PathBuf::from(a.need("--home")?);
+    let data = a.flag("--data").map(PathBuf::from).unwrap_or_else(|| home.join(".gamerepo-go"));
+    let port: u16 = number(&mut a, "--port")?.unwrap_or(8791);
+    let kind = a.flag("--kind").unwrap_or_else(|| "stand-in".into());
+    let listeners: Arc<Mutex<Vec<Sender<String>>>> = Arc::default();
+    let tell = listeners.clone();
+    let events = Box::new(move |what: &str| tell.lock().unwrap().retain(|l| l.send(what.to_string()).is_ok()));
+    let secrets = Box::new(device::app::FileSecrets(data.join("secrets.json")));
+    let app = device::app::App::open(&data, vec![home.clone()], &kind, secrets, events)?;
+    let picks: Arc<Mutex<Vec<String>>> = Arc::default();
+    let listener = std::net::TcpListener::bind(("127.0.0.1", port))?;
+    eprintln!("Game Repo Go's pages on http://127.0.0.1:{port}/ (ES-DE looked for in {}, the client's folder {})", home.display(), data.display());
+    for conn in listener.incoming() {
+        let Ok(mut stream) = conn else { continue };
+        let (app, ui, picks, listeners, kind) = (app.clone(), ui.clone(), picks.clone(), listeners.clone(), kind.clone());
+        std::thread::spawn(move || {
+            let Ok(req) = crate::read_request(&mut stream) else { return };
+            let (path, query) = req.path.split_once('?').unwrap_or((req.path.as_str(), ""));
+            let json = |stream: &mut std::net::TcpStream, code: u16, v: &Value| crate::respond(stream, code, "application/json", &serde_json::to_vec(v).unwrap_or_default());
+            let r: Result<()> = (|| {
+                if let Some(cmd) = path.strip_prefix("/invoke/") {
+                    let args: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
+                    match cmd {
+                        "api" => match app.call(args["cmd"].as_str().unwrap_or(""), &args["args"]) {
+                            Ok(v) => json(&mut stream, 200, &v),
+                            Err(e) => {
+                                eprintln!("{} {}: {e:#}", args["cmd"].as_str().unwrap_or(""), args["args"]);
+                                // 200 marked failed: the shim throws it as the app's invoke does,
+                                // and the browser logs no failed request for an answer like a wrong code
+                                let body = serde_json::to_vec(&json!(format!("{e:#}"))).unwrap_or_default();
+                                crate::respond_with(&mut stream, 200, "application/json", &body, "x-failed: 1\r\n")
+                            }
+                        },
+                        "app_info" => json(&mut stream, 200, &json!({ "kind": kind, "version": env!("CARGO_PKG_VERSION"), "picture_url": "/picture/" })),
+                        "pick_folder" => {
+                            let next = { let mut p = picks.lock().unwrap(); (!p.is_empty()).then(|| p.remove(0)) };
+                            json(&mut stream, 200, &json!(next))
+                        }
+                        other => json(&mut stream, 404, &json!(format!("unknown command {other}"))),
+                    }
+                } else if path == "/test/pick" {
+                    let v: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
+                    if let Some(p) = v["path"].as_str() {
+                        picks.lock().unwrap().push(p.to_string());
+                    }
+                    json(&mut stream, 200, &json!(true))
+                } else if let Some(rest) = path.strip_prefix("/picture/") {
+                    let rest = gamerepo_core::api::percent_decode(rest);
+                    let size = query.split('&').find_map(|kv| kv.strip_prefix("size=")).and_then(|v| v.parse().ok()).unwrap_or(256u32);
+                    let found = rest.rsplit_once('/').and_then(|(key, kind)| app.catalogue.picture(app.server().as_ref(), key, kind, size.clamp(64, 2048)).ok().flatten());
+                    match found {
+                        Some(b) => crate::respond(&mut stream, 200, "image/jpeg", &b),
+                        None => crate::respond(&mut stream, 404, "text/plain", b"no picture"),
+                    }
+                } else if path == "/events" {
+                    let (tx, rx) = channel();
+                    listeners.lock().unwrap().push(tx);
+                    stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-store\r\naccess-control-allow-origin: *\r\nconnection: keep-alive\r\n\r\n: open\n\n")?;
+                    // a comment every 15 s finds a page that's gone
+                    loop {
+                        let line = match rx.recv_timeout(Duration::from_secs(15)) {
+                            Ok(what) => format!("data: {what}\n\n"),
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => ": still here\n\n".into(),
+                            Err(_) => return Ok(()),
+                        };
+                        if stream.write_all(line.as_bytes()).and_then(|_| stream.flush()).is_err() {
+                            return Ok(());
+                        }
+                    }
+                } else if req.method == "GET" {
+                    let rel = if path == "/" { "client.html".to_string() } else { gamerepo_core::api::percent_decode(path.trim_start_matches('/')) };
+                    match gamerepo_core::library::rel_inside(&rel).ok().and_then(|r| std::fs::read(ui.join(r)).ok()) {
+                        Some(b) => crate::respond(&mut stream, 200, crate::content_type(&rel), &b),
+                        None => crate::respond(&mut stream, 404, "text/plain", b"not found"),
+                    }
+                } else {
+                    crate::respond(&mut stream, 405, "text/plain", b"")
+                }
+            })();
+            if let Err(e) = r {
+                eprintln!("{path}: {e:#}");
+            }
+        });
+    }
+    Ok(())
+}

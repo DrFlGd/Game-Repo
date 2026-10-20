@@ -632,6 +632,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **8** | More targets, add-ons, magazines | RetroArch playlists, Pegasus, Playnite and LaunchBox exports (8a); updates, DLC and patches with their base game (D56) and a collection's history (D52) (8b); magazines (3.8, D31) (8c). MobyGames dropped (Jerred, 2026-10-18). |
 | **9** | Device client | 9a Game Repo Server on Windows, started from Game Repo (D85; "Phase 9a design", D89–D95). 9b the client for Windows and Android, ES-DE first (D84, D86–D88; "Phase 9b design", D96–D104). 9c the Steam Deck: the client built for Linux, usable with the Deck's controls in Game Mode. 9d later: the server on a NAS (Unraid, Synology), access from outside the home network (parked), other frontends, the read-only WebDAV view, muOS/Knulli/ROCKNIX handhelds. Needs Phase 5b's layouts. |
 | **Later** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). It reads every format Magazines imports: a PDF's pages and a CBZ's or CBR's images alike. |
+| **Later** | Videos | Walkthroughs, reviews and retrospectives kept as a section of their own, as magazines are, not as one game's metadata: each video can be linked to the games it covers, and shows on those games' pages (Jerred, 2026-10-20). Not designed yet. |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
 reordered.
@@ -660,9 +661,11 @@ What was built, and where it differs from the table above:
 - **Pages:** Home (the index, what's coming), Settings (name with Undo, folder, the index
   and Check, other libraries, skin, theme), About, and one page for each of Audit,
   Collections, PC games and Metadata saying what its phase brings.
-- **Skins:** Drafting Sheet (default) and Classic. Model Library's Parts Bin and Layer
-  Line were themed on 3D printing and weren't brought across; a game-themed skin can be
-  added later.
+- **Skins:** Drafting Sheet (the first default) and Classic. Model Library's Parts Bin and
+  Layer Line were themed on 3D printing and weren't brought across. Since 2026-10-20
+  (Jerred, PR #46): Classic is the default, Drafting Sheet is dropped, and five themed
+  skins join it (Neon City, Wasteland Terminal, Adventurer's Tome, Pixel Arcade, Cosy
+  Pastel), with textures on parts of the interface where they don't get in the way.
 - **Icons:** a cartridge mark of its own (menu, favicon, app icons).
 - **`Cargo.lock` is committed**: crates.io was reachable from the session and the whole
   workspace, Tauri included, resolved.
@@ -2986,7 +2989,8 @@ fixdat gets a plain label with the term in its tooltip.
 **Later (roadmap):** magazine OCR (text read from scanned issues, so they're searchable as
 documents are) and tagging an issue with the games it covers, linked from each game's page.
 The OCR reads every format an issue can be in: a PDF's pages, and the images in a CBZ or
-CBR (Jerred, 2026-10-18).
+CBR (Jerred, 2026-10-18). Videos too (Jerred, 2026-10-20): walkthroughs, reviews and
+retrospectives as a section of their own like magazines, each linked to the games it covers.
 
 ### UI pass 3 notes (built 2026-10-18)
 
@@ -3919,7 +3923,7 @@ where it differs, is in "Phase 9b notes, part 1".
 - `desktop/client/android` (`tauri-plugin-gamerepo-device`, Kotlin): what only Android can
   do (D97).
 - `web/client.html` and `web/client/` (Preact): the four pages, Library, Queue, *On this
-  device* and Settings, with the desktop app's look (its tokens and drafting skin) laid out
+  device* and Settings, with the desktop app's look (its tokens, skins and themes) laid out
   for a phone first.
 - `gamerepo-cli client-ui --home <folder>`: the client's pages and command table served
   over HTTP with `tests/tauri_shim.js`, as `gamerepo-cli serve` does for Game Repo, so the
@@ -4211,6 +4215,80 @@ end to end against a real server. No pages, window or APK yet (parts 2 and 3).
   reads its order's index (each ends with the system) and passes over the other systems'
   games, and asks for no system at all when ES-DE has a folder for every one with games.
 
+### Phase 9b notes, part 2: Game Repo Go's pages and Windows app (built 2026-10-20)
+
+The second of 9b's pull requests: the pages, the Windows app around them and its installer
+on the release. Android is part 3.
+
+- **Where**: `desktop/client/` (`gamerepo-client`, Tauri 2): `main.rs` (the commands `api`,
+  which runs `App::call` off the window's thread, `app_info` and `pick_folder`; the
+  `picture` protocol; the icon by the clock; "go-changed" events) and `secrets.rs`. The
+  pages are `web/client.html`, `client.js`, `client.css` and `web/client/` (`state.js`
+  holds the store and the address, `#library`, `#game/<key>`, `#queue`, `#device`,
+  `#settings`; `keys.js` the keys and controllers; one file per page or dialog). They take
+  `lib/` and `ui/icons.js`/`ui/state.js` from Game Repo and nothing else, so part 3 reuses
+  them as they are. `gamerepo-cli client-ui` serves them with the backend over HTTP.
+- **Pictures**: the `picture` protocol (`http://picture.localhost/<key>/<kind>?size=` on
+  Windows and Android, `picture://localhost/` elsewhere) answers from the device's cache or
+  the library, at 256 or 512 pixels by the card's width and the screen, cached by the web
+  view for a day. The page never holds data URLs, and the web view never has to trust the
+  server's certificate. The `picture` command's data URL stays for the stand-in.
+- **The look**: Game Repo's `styles.css` and its colour names only, no colours of its own;
+  the menu is a `.sidebar`, the Library's bar a `.cmdbar` and the games `.card`s, so a
+  skin's textures reach them. Skin and theme are chosen in Settings › *Look* and kept on
+  the device. Phone first: under 760 px wide the menu runs along the bottom and the systems
+  are a picker above the games; wider, both are down the side.
+- **Library** (C5–C9): the games a page of 200 at a time, and only the cards in view (two
+  rows either side) drawn, so a list of 100,000 scrolls as one of twenty. Places: every
+  game, a system, a collection or one of its groups. A search covers every system (D103)
+  and leaves the place; a place picked ends the search. Orders: title, year and size, each
+  either way. Ticks stay while moving between places; the bar under the games shows their
+  size against the free space, with *Make room…* when they don't fit.
+- **Add to device…** (C10–C12): `prepare` for the ticked games, then the media kinds the
+  library has for them with their sizes (ticked as last chosen), manuals, and what doesn't
+  fit. A game's page offers *Add to device…* and *See what's on this device*.
+- **Queue**: refreshed every 0.7 s while a game is coming (the backend's events say when one
+  starts or ends); *Pause*, *Resume* or *Try again*, and *Cancel* for each game and all;
+  *Restart ES-DE* once games are in, cleared with *OK*.
+- **On this device** (C13–C20): every game ES-DE has, with where it came from (*From the
+  library*, *The library has it*, *From elsewhere*, *Checking…*); ordered by played longest
+  ago (*Make room*'s order), size, name or system; a game opened shows its media with
+  *Remove* each and *Add media…*; *Make room* ticks games for the room asked; *Remove…*
+  shows each file and the room it frees first. A removal cut short is a note on every page
+  with *Finish removing* and *Put back*.
+- **Keys and controllers**: the arrow keys move between controls in the order they're
+  drawn, and in the games by card and row (Page Up and Down by a screen); Enter opens,
+  Space or X ticks, Esc or Backspace goes back. On Windows the page reads controllers
+  itself (the Gamepad API: the d-pad and left stick are the arrows, A Enter, B Back, X
+  ticks, the shoulder buttons a page); on Android the plugin will (part 3).
+- **The Windows app**: one copy at a time (a second start shows the first's window). The
+  pairing is a generic credential "Game Repo Go/server" in Windows Credential Manager, for
+  the signed-in user on this computer. Closing the window while games download hides it
+  and shows an icon by the clock with their progress (D99): a click opens the window again,
+  *Quit* stops them until Game Repo Go next opens, and Game Repo Go closes when they're
+  done.
+  The installer, `Game Repo Go_<version>_x64-setup.exe`, installs for the user without an
+  administrator, so it adds no firewall rule: finding the library on the network may make
+  Windows ask once to let Game Repo Go use private networks, and typing the library's
+  address works either way.
+- **The library at another address** (not in the design): when the library can't be
+  reached, Game Repo Go looks for it on the network by its id (a 3 s look, at most once a
+  minute, from the queue's wait or a sync) and, when it answers there with the certificate
+  pinned at pairing, keeps the new address with the pairing unchanged. So a computer given
+  another address by the router needs no new code; one that only announces itself at an
+  address the device can't reach is never taken.
+- **Tests**: `tests/client_page.py` (27 checks) runs the pages in Chromium at a phone's size
+  and a PC's against `client-ui` and a real `serve-devices`: pairing (a wrong code
+  refused), the Library with pictures, a system and a search, ticks against the free space,
+  *Add to device…* with a kind unticked, the queue to the end and the files and gamelists,
+  *On this device*'s sources, *Make room*'s order, removals of a game and of a picture,
+  Settings and the look, the keys through every page, and the library away from home; the
+  library, saves and ES-DE's settings compared byte for byte afterwards.
+  `tests/client_ui.py` drives the built app with WebDriver: paired, a picture through the
+  protocol, a download, the credential kept and gone after *Unpair*. Windows CI runs both,
+  `cargo test -p gamerepo-client`, and checks the installer is made; the release carries
+  it. `tests/serve_devices.py` checks the library found again at another address.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -4402,6 +4480,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     Serve to devices and the installers, is built ("Phase 9a notes, part 3"), all in
     v0.5.28. Next is 9b, the client for Windows and Android ("Phase 9b design", D96–D104,
     agreed 2026-10-20), in three pull requests: the first, Game Repo Go's backend and the
-    server's additions, is built ("Phase 9b notes, part 1"); the pages and the Windows app
-    come next, then Android. Later: reading magazines' text
-    (PDF, CBZ and CBR) and tagging each issue with the games it covers.
+    server's additions, is built ("Phase 9b notes, part 1"); the second, the pages and the
+    Windows app with its installer, is built ("Phase 9b notes, part 2"); Android comes
+    next. Later: reading magazines' text
+    (PDF, CBZ and CBR) and tagging each issue with the games it covers; videos
+    (walkthroughs, reviews, retrospectives) as a section of their own, linked to games.

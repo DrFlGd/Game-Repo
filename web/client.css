@@ -1,0 +1,164 @@
+/* Game Repo Go's pages (web/client.html): Game Repo's styles.css, its colour names and
+   skins, laid out for a phone first. The menu is a .sidebar and the Library's bar a
+   .cmdbar and its games .cards, so a skin's textures and edges reach them too. */
+
+body.go { overflow: hidden; }
+.go-app { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.go-opening { padding: 40px 24px; }
+
+/* ---- the bar and the menu --------------------------------------------- */
+.go-bar { gap: 12px; padding: 0 16px; flex: none; }
+.go-bar .brand { color: inherit; }
+.go-bar .brand span { display: inline; }   /* the name stays on a phone, with nothing else to show */
+.go-bar-library { color: color-mix(in srgb, var(--chrome-ink) 72%, transparent); font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.go-bar-queue { color: var(--chrome-ink); border: 1px solid color-mix(in srgb, var(--chrome-ink) 35%, transparent); border-radius: var(--radius-s); padding: 4px 10px; font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.go-bar-queue:hover { background: color-mix(in srgb, var(--chrome-ink) 12%, transparent); }
+.go-body { flex: 1; min-height: 0; display: flex; }
+/* always in place: Game Repo's narrow-window drawer (styles.css) isn't wanted here */
+.go-nav.sidebar { position: static; transform: none; transition: none; box-shadow: none; width: 196px; gap: 2px; }
+.go-nav-link { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--radius-s); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 14.5px; }
+.go-nav-link:hover { background: var(--white); }
+.go-nav-link[aria-current="page"] { background: var(--white); box-shadow: inset 3px 0 0 var(--tool); }
+.go-nav-n { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 99px; background: var(--tool); color: var(--tool-ink); font-size: 12px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
+.go-main { flex: 1; min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.go-main-library { overflow: hidden; }   /* the games scroll on their own */
+
+/* ---- a page, and the notes above it ------------------------------------ */
+.go-page { width: 100%; max-width: 980px; padding: 18px 24px 40px; display: grid; gap: 14px; align-content: start; grid-template-columns: minmax(0, 1fr); }
+.go-page h1 { font-size: 24px; font-stretch: var(--head-stretch); }
+.go-page h2 { font-size: 17px; }
+.go-page-head { display: flex; align-items: center; justify-content: space-between; gap: 10px 14px; flex-wrap: wrap; }
+.go-note { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: 12px 16px 0; padding: 10px 12px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); background: var(--white); font-size: 14px; }
+.go-page .go-note { margin: 0; }
+.go-note progress { flex: 1 1 160px; }
+.go-note-do { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+progress { accent-color: var(--tool); height: 8px; }
+
+/* ---- the Library ------------------------------------------------------- */
+.go-library { flex: 1; min-height: 0; display: flex; }
+.go-places { width: 228px; flex: none; overflow: auto; padding: 12px 8px 20px; border-right: 1px solid var(--steel-2); background: var(--panel); }
+.go-places h3 { margin: 14px 8px 4px; color: var(--graphite); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.go-place { width: 100%; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 0; background: transparent; font-weight: 500; text-align: left; }
+.go-place:hover { background: var(--white); }
+.go-place[aria-current="true"] { background: var(--white); font-weight: 700; box-shadow: inset 3px 0 0 var(--tool); }
+.go-place > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.go-place-n { color: var(--graphite); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.go-place-group .go-place { padding-left: 22px; }
+.go-places-pick { display: none; }
+.go-places-pick select { width: 100%; }
+.go-library-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.go-tools.cmdbar { flex-wrap: wrap; gap: 10px; min-height: 0; padding: 10px 16px; border-bottom: 1px solid var(--steel-2); background: var(--white); }
+.go-place-name { flex: 1 1 auto; min-width: 0; font-size: 20px; font-stretch: var(--head-stretch); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.go-search { position: relative; flex: 0 1 300px; display: flex; align-items: center; }
+.go-search .icon { position: absolute; left: 10px; color: var(--graphite); pointer-events: none; }
+.search.go-search input { width: 100%; padding-left: 32px; }
+.go-games { flex: 1; min-height: 0; overflow: auto; position: relative; overscroll-behavior: contain; }
+.go-games-inner { position: relative; }
+.go-games-note { padding: 16px; }
+
+.go-card.card { position: absolute; padding: 0; overflow: hidden; cursor: pointer; }
+.go-card-open { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 3px; padding: 6px; border: 0; border-radius: inherit; background: transparent; color: inherit; text-align: left; font-weight: 400; }
+.go-card-open:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
+.go-cover { position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 3 / 4; overflow: hidden; border-radius: var(--radius-s); background: var(--thumb-bg); }
+.go-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.go-cover-title { padding: 10px; color: var(--graphite); font-size: 13px; font-weight: 700; text-align: center; overflow-wrap: anywhere; }
+.go-card-title { margin-top: 3px; font-size: 13.5px; font-weight: 700; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.go-card-sub { color: var(--graphite); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.go-tick { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; padding: 0; border: 1px solid var(--steel-2); border-radius: 99px; background: color-mix(in srgb, var(--white) 88%, transparent); color: var(--graphite); }
+.go-tick:hover { border-color: var(--ink); color: var(--ink); }
+.go-tick[aria-pressed="true"] { background: var(--tool); border-color: var(--accent-edge); color: var(--tool-ink); }
+.go-card.is-ticked { border-color: var(--tool); box-shadow: 0 0 0 2px var(--tool); background: var(--sel); }
+.go-on-device { position: absolute; top: 12px; left: 12px; padding: 2px 7px; border-radius: 99px; background: var(--ok); color: var(--white); font-size: 11px; font-weight: 700; }
+.go-card.is-loading { cursor: default; }
+.go-card.is-loading .go-cover { margin: 6px; width: calc(100% - 12px); }
+
+.go-picked { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 10px 16px; border-top: 1px solid var(--steel-2); background: var(--white); font-variant-numeric: tabular-nums; }
+.go-picked-do { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.go-page > .go-picked { margin: 0 -24px -40px; }
+
+/* ---- a game's page ------------------------------------------------------ */
+.go-game-top { display: flex; }
+.go-game-body { display: grid; grid-template-columns: minmax(180px, 300px) minmax(0, 1fr); gap: 24px; }
+.go-game-pics { display: grid; gap: 12px; align-content: start; }
+.go-game-pic { width: 100%; border-radius: var(--radius-s); background: var(--thumb-bg); }
+.go-game-nocover { aspect-ratio: 3 / 4; }
+.go-game-info { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.go-game-info h1 { font-size: 26px; }
+.go-game-do { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.go-badge-on { color: var(--ok); border-color: var(--ok); }
+.go-game-text { display: grid; gap: 8px; max-width: 70ch; }
+.go-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; }
+.go-facts dt { color: var(--graphite); }
+.go-facts dd { margin: 0; }
+.go-sizes, .go-files { list-style: none; margin: 0; padding: 0; display: grid; }
+.go-sizes li, .go-files li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--steel-2); font-size: 14px; }
+.go-sizes li > :first-child { flex: 1; }
+.go-file { min-width: 0; font-family: var(--font-mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.go-files { max-height: 240px; overflow: auto; }
+
+/* ---- Add to device ------------------------------------------------------ */
+.go-kind { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; }
+.go-kind-size { font-variant-numeric: tabular-nums; }
+.go-kinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px 14px; }
+
+/* ---- the Queue ------------------------------------------------------------ */
+.go-queue-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.go-q { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px; padding: 10px 12px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); background: var(--white); }
+.go-q-what { display: grid; min-width: 0; }
+.go-q-what strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.go-q-what .muted { font-size: 13px; }
+.go-q progress { grid-column: 1; width: 100%; }
+.go-q-size { grid-column: 2; grid-row: 2; font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+.go-q-do { grid-column: 2; grid-row: 1; display: flex; gap: 6px; }
+.go-q-error { grid-column: 1 / -1; }
+.go-q-done { grid-template-columns: minmax(0, 1fr); }
+.go-q-done-head { margin-top: 8px; }
+
+/* ---- On this device -------------------------------------------------------- */
+.go-device-sum { font-variant-numeric: tabular-nums; }
+.go-sort { display: flex; align-items: center; gap: 8px; }
+.go-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.go-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 6px 12px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); background: var(--white); }
+.go-row.is-ticked { border-color: var(--tool); background: var(--sel); }
+.go-row-open { min-width: 0; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 0; padding: 4px 0; background: transparent; font-weight: 400; text-align: left; }
+.go-row-open strong { max-width: 100%; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.go-row-open .muted { font-size: 13px; }
+.go-row-more { grid-column: 2 / -1; display: grid; gap: 8px; padding-bottom: 6px; }
+.go-row-do { display: flex; flex-wrap: wrap; gap: 8px; }
+.go-row-path { font-size: 12.5px; overflow-wrap: anywhere; }
+.go-from { font-weight: 600; }
+.go-from-library { color: var(--ok); border-color: var(--ok); }
+.go-from-known { color: var(--ink); border-color: var(--tool); }
+.go-from-elsewhere, .go-from-unchecked { color: var(--graphite); border-color: var(--steel-2); }
+
+/* ---- Settings and pairing --------------------------------------------------- */
+.go-set { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--steel-2); border-radius: var(--radius-m); background: var(--white); }
+.go-set-do { display: flex; flex-wrap: wrap; gap: 8px; }
+.go-folder-row { display: flex; gap: 8px; }
+.go-folder-row input { flex: 1; min-width: 0; }
+.go-pair { max-width: 640px; }
+.go-found { display: grid; gap: 6px; }
+.go-found-item { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 2px; border: 1px solid var(--steel-2); text-align: left; }
+.go-found-item[aria-checked="true"] { border-color: var(--tool); background: var(--sel); box-shadow: 0 0 0 2px var(--tool); }
+.go-found-item .muted { font-weight: 400; font-size: 13px; }
+
+/* ---- a phone: the pages along the bottom, the systems a list at the top ------- */
+@media (max-width: 760px) {
+  .go-body { flex-direction: column-reverse; }
+  .go-nav.sidebar { width: auto; flex-direction: row; gap: 0; padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); overflow: visible; border-right: 0; border-top: 1px solid var(--steel-2); }
+  .go-nav-link { position: relative; flex: 1; flex-direction: column; gap: 2px; padding: 6px 2px; font-size: 11.5px; text-align: center; }
+  .go-nav-link[aria-current="page"] { box-shadow: inset 0 3px 0 var(--tool); }
+  .go-nav-n { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; }
+  .go-bar-library { display: none; }
+  .go-library { flex-direction: column; }
+  .go-places { display: none; }
+  .go-places-pick { display: block; padding: 10px 12px 0; background: var(--white); }
+  .go-tools.cmdbar { padding: 8px 12px; }
+  .go-place-name { display: none; }
+  .go-search { flex: 1 1 160px; }
+  .go-page { padding: 14px 14px 30px; }
+  .go-page > .go-picked { margin: 0 -14px -30px; }
+  .go-game-body { grid-template-columns: minmax(0, 1fr); }
+  .go-game-pics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .go-toast { bottom: 76px; }
+}

@@ -11,13 +11,15 @@
 //!   gamerepo-cli pc, identify, sources, launchbox, steam, add
 //!   gamerepo-cli games, game, scrape, docs
 //!   gamerepo-cli serve-devices [status|pair|devices|remove|changed|stop]
-//!   gamerepo-cli device find|pair|unpair|systems|collections|games|game|add|remove|holdings
+//!   gamerepo-cli device find|pair|unpair|systems|collections|games|game|add|remove|holdings|app
+//!   gamerepo-cli client-ui --ui <dir> --home <dir> [--data <dir>] [--port 8791]
 //!
 //! `serve` runs the app's commands behind a local web server, so the page can be
 //! tested in an ordinary browser (with tests/tauri_shim.js standing in for Tauri's
 //! `invoke`). The library commands (roots, scan, dat, audit, make-dat) work on the
 //! app's own library and index unless --library and --home say otherwise; they go
-//! through the same commands as the window (gamerepo_core::api).
+//! through the same commands as the window (gamerepo_core::api). `client-ui` does the
+//! same for Game Repo Go's pages (web/client.html) and its backend (gamerepo_device::app).
 
 mod devices;
 
@@ -267,6 +269,10 @@ ES-DE/ (with its settings) and ROMs/, as ES-DE has them.
                              pair, sync, systems, games, prepare, add, queue,
                              on_device, removal, remove, add_media, settings…), with
                              --data as its own folder; --wait waits for the queue
+  client-ui --ui <dir> --home <dir> [--data <dir>] [--port 8791] [--kind <kind>]
+                             Game Repo Go's pages (client.html in --ui) and its backend
+                             behind a local web server, with ES-DE looked for in --home
+                             and the client's own folder --data (--home/.gamerepo-go)
 ";
 
 struct Args {
@@ -329,6 +335,7 @@ async fn run() -> Result<()> {
         "serve" => serve(a).await,
         "serve-devices" => devices::serve_devices(a).await,
         "device" => devices::device_command(a),
+        "client-ui" => devices::client_ui(a),
         "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" | "organise" | "duplicates" | "history" | "undo" | "finish"
         | "set-aside" | "convert" | "extract" | "formats" | "tools" | "systems" | "collections" | "collection" | "export" | "exports" | "pc" | "identify"
         | "sources" | "launchbox" | "steam" | "add" | "games" | "game" | "scrape" | "docs" | "layouts" | "layout" | "bios" | "library" => library_command(&cmd, a).await,

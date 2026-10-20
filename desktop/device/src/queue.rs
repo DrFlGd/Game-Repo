@@ -120,6 +120,8 @@ pub struct Queue {
     wake: Condvar,
     ctx: Box<dyn Fn() -> Result<Ctx> + Send + Sync>,
     changed: Box<dyn Fn() + Send + Sync>,
+    /// Asked when the library can't be reached whether it was found at another address
+    away: std::sync::OnceLock<Box<dyn Fn() -> bool + Send + Sync>>,
     /// How long it waits for the library before trying again, in milliseconds
     retry: AtomicU64,
     /// A game downloading pauses once this much of it is in (for the tests; u64::MAX: never)
@@ -154,7 +156,13 @@ impl Queue {
                 it.state = State::Waiting;
             }
         }
-        Arc::new(Queue { path, inner: Mutex::new(Inner { items, ..Default::default() }), wake: Condvar::new(), ctx, changed, retry: AtomicU64::new(RETRY.as_millis() as u64), pause_at: AtomicU64::new(u64::MAX) })
+        Arc::new(Queue { path, inner: Mutex::new(Inner { items, ..Default::default() }), wake: Condvar::new(), ctx, changed, away: Default::default(), retry: AtomicU64::new(RETRY.as_millis() as u64), pause_at: AtomicU64::new(u64::MAX) })
+    }
+
+    /// Asked when the library can't be reached: true when it was found at another address,
+    /// and the games waiting for it are tried again at once.
+    pub fn on_away(&self, f: Box<dyn Fn() -> bool + Send + Sync>) {
+        let _ = self.away.set(f);
     }
 
     /// How long it waits for the library before trying again ([`RETRY`]; shorter in the tests).
@@ -379,6 +387,7 @@ impl Queue {
             let running = inner.running.take();
             let quitting = inner.quit;
             let mut plan_to_drop = None;
+            let mut away = false;
             match inner.items.iter_mut().find(|i| i.id == item.id) {
                 // cancelled while it came
                 None => plan_to_drop = running.filter(|r| r.cancel && result.is_err()).and_then(|r| r.plan),
@@ -408,6 +417,7 @@ impl Queue {
                             it.state = State::Offline;
                             it.error = "Waiting for the library".into();
                             inner.retry_at = Some(Instant::now() + Duration::from_millis(self.retry.load(Ordering::SeqCst)));
+                            away = true;
                         }
                         Err(e) => {
                             it.state = State::Failed;
@@ -427,6 +437,13 @@ impl Queue {
                 }
             }
             (self.changed)();
+            // the library at another address: tried there at once
+            if away && self.away.get().is_some_and(|f| f()) {
+                let mut inner = self.lock();
+                if inner.retry_at.is_some() {
+                    inner.retry_at = Some(Instant::now());
+                }
+            }
         }
     }
 

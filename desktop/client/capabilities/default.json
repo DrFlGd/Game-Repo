@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Game Repo Go's window: core IPC (its commands) and the events its backend sends (core:default includes event listening). Folder dialogs are opened from Rust, not from the page.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

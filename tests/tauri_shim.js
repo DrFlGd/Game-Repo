@@ -12,5 +12,14 @@ window.__TAURI__ = { core: { Channel, async invoke(cmd, args, opts) {
 } } };
 // window events (files dragged and dropped on the window): the test sends them with __shimEmit
 window.__shimListeners = {};
-window.__TAURI__.event = { async listen(name, fn) { (window.__shimListeners[name] ||= []).push(fn); return () => {}; } };
+// Game Repo Go's backend's changes (the app's "go-changed") come from `client-ui`'s /events
+let goEvents = null;
+window.__TAURI__.event = { async listen(name, fn) {
+  (window.__shimListeners[name] ||= []).push(fn);
+  if (name === "go-changed" && !goEvents) {
+    goEvents = new EventSource("/events");
+    goEvents.onmessage = (m) => window.__shimEmit("go-changed", m.data);
+  }
+  return () => {};
+} };
 window.__shimEmit = (name, payload) => (window.__shimListeners[name] || []).forEach((fn) => fn({ event: name, payload }));

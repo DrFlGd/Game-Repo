@@ -224,6 +224,17 @@ try:
     if delta_id:
         app("remove", {"asks": [{"id": delta_id}]})
     check("Game Repo Go removes a game", delta and not delta[0].exists() and not (go / "ROMs" / ".gamerepo-removing").exists() and (go / "ROMs" / "gb" / "My Alpha.gb").is_file())
+    if not a.no_find:
+        # the library somewhere else (its computer given another address): found again on
+        # the network by its id and answering with the certificate pinned, the pairing kept
+        kept = json.loads((go_data / "secrets.json").read_text(encoding="utf-8"))
+        paired = json.loads(kept["server"])
+        kept["server"] = json.dumps({**paired, "address": "127.0.0.1:1"})
+        (go_data / "secrets.json").write_text(json.dumps(kept), encoding="utf-8")
+        st = app("sync", wait=True)["status"]
+        check("Game Repo Go finds the library again at another address, still paired",
+              st["paired"] and st["sync"]["error"] == "" and st["library"]["address"] not in ("127.0.0.1:1", "") and st["library"]["address"].endswith(f":{port}")
+              and json.loads(json.loads((go_data / "secrets.json").read_text(encoding="utf-8"))["server"])["token"] == paired["token"], json.dumps(st))
 
     # a device removed from the server is refused, and told to pair again
     run("serve-devices", "remove", devices[0]["id"], "--data", data)

@@ -10,3 +10,4 @@ desktop/src-tauri/gen/
 desktop/node_modules/
 desktop/src-tauri/binaries/
 desktop/server/gen/
+desktop/client/gen/
