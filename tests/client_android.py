@@ -305,10 +305,13 @@ try:
 
     # 2. Allow access opens Android's own screen; allowed there, ES-DE's folder is found
     pg.click("#go-storage-allow")
-    end = time.time() + 30
-    while time.time() < end and resumed() == PKG:
+    # (between the two, no activity is in front for a moment)
+    asked, end = "", time.time() + 30
+    while time.time() < end:
+        asked = resumed()
+        if asked not in (PKG, ""):
+            break
         time.sleep(0.5)
-    asked = resumed()
     shot("02-android-access-screen")
     sh(f"appops set --uid {PKG} MANAGE_EXTERNAL_STORAGE allow")
     key("KEYCODE_BACK")
