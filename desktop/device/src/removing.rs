@@ -130,16 +130,30 @@ pub fn inside(d: &Device, place: &str, path: &str) -> Result<PathBuf> {
 }
 
 /// Whether a file of a place is on the device.
-fn there(d: &Device, place: &str, path: &str) -> bool {
+pub(crate) fn there(d: &Device, place: &str, path: &str) -> bool {
     d.at(place, path).is_ok_and(|p| std::fs::symlink_metadata(p).is_ok())
+}
+
+/// How many of the record's game's own files (its ROMs or PC game's, not its media or
+/// files another game needs) aren't on the device, of how many.
+fn lacking(d: &Device, h: &Held) -> (usize, usize) {
+    let own: Vec<_> = h.files.iter().filter(|f| f.needed_by.is_empty() && !media_kind(&f.role) && (f.place == "roms" || f.place == "pc")).collect();
+    (own.iter().filter(|f| !there(d, &f.place, &f.path)).count(), own.len())
 }
 
 /// Whether the record's game has none of its own files on the device any more (its ROMs or
 /// PC games folder changed since it was added, say): it isn't held then, and can be added
 /// again or taken off the record.
 pub fn missing(d: &Device, h: &Held) -> bool {
-    let own: Vec<_> = h.files.iter().filter(|f| f.needed_by.is_empty() && !media_kind(&f.role) && (f.place == "roms" || f.place == "pc")).collect();
-    !own.is_empty() && own.iter().all(|f| !there(d, &f.place, &f.path))
+    let (gone, own) = lacking(d, h);
+    own > 0 && gone == own
+}
+
+/// Whether some of its own files are gone but not all (a disc deleted by hand, say): it
+/// isn't held either, and added again only those that are gone come.
+pub fn partial(d: &Device, h: &Held) -> bool {
+    let (gone, own) = lacking(d, h);
+    gone > 0 && gone < own
 }
 
 /// What a removal takes (shown before it's asked to go ahead): `found` is what the scan

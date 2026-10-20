@@ -164,6 +164,10 @@ pub struct OnDevice {
     /// changed since, say): it can be added again, or removed from the record
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub missing: bool,
+    /// Some of its files aren't on the device (deleted by hand, say): added again, they come
+    /// back; its size is what's left
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub partial: bool,
 }
 
 pub struct App {
@@ -727,7 +731,8 @@ impl App {
                 return keys.clone();
             }
         }
-        let mut keys: HashSet<String> = d.record().games.into_iter().filter(|h| !removing::missing(&d, h)).map(|h| h.key).collect();
+        // a game with files gone isn't held: the Library offers it again, to put them back
+        let mut keys: HashSet<String> = d.record().games.into_iter().filter(|h| !removing::missing(&d, h) && !removing::partial(&d, h)).map(|h| h.key).collect();
         if let Ok((rows, _)) = self.rows() {
             keys.extend(rows.into_iter().filter(|r| r.from == "known").map(|r| r.key));
         }
@@ -760,14 +765,15 @@ impl App {
                 if !h.title.is_empty() {
                     row.name = h.title.clone();
                 }
-                // the record's media too, by the library's names
+                // the record's media too, by the library's names (those still there)
                 let have: HashSet<&str> = g.media.iter().map(|m| m.path.as_str()).chain(g.files.iter().map(|(p, _)| p.as_str())).collect();
-                for f in h.files.iter().filter(|f| !have.contains(f.path.as_str())) {
+                for f in h.files.iter().filter(|f| !have.contains(f.path.as_str()) && removing::there(&d, &f.place, &f.path)) {
                     if f.place == "media" {
                         *media.entry(f.role.clone()).or_default() += f.size;
                     }
                     row.size += f.size;
                 }
+                row.partial = removing::partial(&d, h);
             } else {
                 let size = g.files.first().map(|f| f.1).unwrap_or(0);
                 match self.catalogue.identified(&g.id, size, g.modified) {
@@ -795,17 +801,19 @@ impl App {
             // a PC game by its folder in the PC games folder
             let pc = h.files.iter().find(|f| f.place == "pc").and_then(|f| f.path.split('/').next()).map(|f| format!("pc:{f}"));
             let missing = removing::missing(&d, h);
+            let partial = removing::partial(&d, h);
             rows.push(OnDevice {
                 id: pc.or_else(|| first.map(|f| f.path.clone())).unwrap_or_default(),
                 key: h.key.clone(),
                 from: "library".into(),
                 name: h.title.clone(),
                 system: h.system.clone(),
-                size: if missing { 0 } else { h.files.iter().filter(|f| f.needed_by.is_empty()).map(|f| f.size).sum() },
+                size: if missing { 0 } else { h.files.iter().filter(|f| f.needed_by.is_empty() && removing::there(&d, &f.place, &f.path)).map(|f| f.size).sum() },
                 added: h.added as i64,
                 media: media.into_iter().collect(),
                 files: h.files.len(),
                 missing,
+                partial,
                 ..Default::default()
             });
         }

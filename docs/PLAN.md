@@ -4663,6 +4663,11 @@ built in PR #54).
   found*, with no size, Make room passes it by, the Library offers it again, and removing it
   takes it off the list with its gamelist entries and the media still in ES-DE's folders.
   The copies in the old folder are left as they are, as that's no longer ES-DE's.
+- A game whose own files are only partly gone (a disc deleted by hand, Jerred's question
+  of 2026-10-20 18:26) isn't counted as on the device either: *On this device* marks it
+  *Files missing* with the size of what's left, and the Library offers it again. Both kinds
+  have *Download again…*; added again, only the files that are gone come (those still there
+  match the record), and the record's entry is replaced. Built in PR #55.
 
 ### Phase 9e notes, part 1: the fix (built 2026-10-20, PR #54)
 
@@ -4704,6 +4709,11 @@ D114–D116, built as they say, except where noted.
   differs), which shows the warning with *Use ES-DE's*. **Changed:** EmuDeck's
   `settings.sh` and `settings.ps1` aren't read: the ES-DE it sets up names its ROMs and
   media folders itself, so they're only used to label `~/ES-DE` as EmuDeck's.
+- **Files gone (D117, the rest).** `removing.rs`'s `partial()` (some of a game's own files
+  gone, not all) beside `missing()`; such a game isn't in `keys_on_device`, its row has
+  `partial` and only what's there in its size, and *On this device* has *Download again…*
+  for it and for a missing one. Test: the disc deleted by hand in
+  `games_left_in_an_old_roms_folder_can_be_added_again_and_removed_through_linked_folders`.
 - **Labels.** *Download…* and *Add to queue* on the Picked bar and a game's page; the
   page is *Downloads*, its nav badge counts what's downloading, else what's queued.
 - **Tests.** `serve/tests/client.rs`, `queued_games_wait_to_be_started_and_retrodeck_and_emudeck_are_found`;

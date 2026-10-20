@@ -4,7 +4,8 @@
 // Remove… and Make room…. By system first: each system with its games and their size, one
 // open at a time, and Remove all… for a system's games. A game's media can be removed or
 // added on their own. Removing shows what goes and the room it frees first, and sets files
-// aside before deleting them.
+// aside before deleting them. A game whose files are gone, all or some (a folder changed, a
+// disc deleted by hand; D117), is marked, with Download again….
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { call, info } from "./backend.js";
@@ -18,7 +19,8 @@ const FROM = {
   known: ["The library has it", "Came from elsewhere; the library has the same game"],
   elsewhere: ["From elsewhere", "The library doesn't have this game"],
   unchecked: ["Checking…", "Being checked against the library"],
-  missing: ["Files not found", "Game Repo Go added it, but its files aren't where it put them (was a folder changed in Settings?). Remove it to take it off this list, or add it again from the Library."],
+  missing: ["Files not found", "Game Repo Go added it, but its files aren't where it put them (was a folder changed in Settings?). Remove it to take it off this list, or download it again."],
+  partial: ["Files missing", "Some of its files aren't on this device (deleted by hand?). Download it again to put them back, or remove what's left."],
 };
 
 /** Played longest ago first, then those never played by when they came (Make room's order). */
@@ -64,21 +66,23 @@ export function DevicePage() {
   const removed = () => { setTicked(new Set()); setRoom(""); };
   const systems = [...new Set(rows.map((r) => r.system))];
   const row = (r, grouped = false) => {
-    const [from, why] = FROM[r.missing ? "missing" : r.from] || [r.from, ""];
+    const lack = r.missing ? "missing" : r.partial ? "partial" : "";
+    const [from, why] = FROM[lack || r.from] || [r.from, ""];
     const open_ = shown === r.id;
     return html`<li class=${`go-row${ticked.has(r.id) ? " is-ticked" : ""}`} key=${r.id} data-id=${r.id}>
       <input type="checkbox" class="go-row-tick" aria-label=${`Select ${r.name}`} checked=${ticked.has(r.id)} onChange=${() => flip(r.id)} />
       <button type="button" class="go-row-open" aria-expanded=${open_ ? "true" : "false"} onClick=${() => setShown(open_ ? null : r.id)}>
         <strong>${r.name}</strong>
-        <span class="muted">${grouped ? "" : `${name(r.system)} · `}${r.missing ? "its files aren't on this device" : bytes(r.size)} · ${r.last_played ? `played ${ago(played(r.last_played))}` : "never played"}</span>
+        <span class="muted">${grouped ? "" : `${name(r.system)} · `}${r.missing ? "its files aren't on this device" : r.partial ? `${bytes(r.size)}, some of its files missing` : bytes(r.size)} · ${r.last_played ? `played ${ago(played(r.last_played))}` : "never played"}</span>
       </button>
-      <span class=${`badge go-from go-from-${r.missing ? "missing" : r.from}`} title=${why}>${from}</span>
+      <span class=${`badge go-from go-from-${lack ? "missing" : r.from}`} title=${why}>${from}</span>
       ${open_ ? html`<div class="go-row-more">
         ${r.media.length ? html`<ul class="go-sizes">${r.media.map(([k, size]) => html`<li key=${k}><span>${kindName(k)}</span><span class="muted">${bytes(size)}</span>
             <button type="button" class="ghost" onClick=${() => showDialog({ type: "remove", asks: [{ id: r.id, key: r.key, kinds: [k] }], media: true, title: `Remove ${kindName(k).toLowerCase()} of ${r.name}` })}>Remove</button></li>`)}</ul>`
           : html`<p class="muted">No pictures or manual on this device.</p>`}
         <div class="go-row-do">
-          ${r.key ? html`<button type="button" class="ghost" onClick=${() => showDialog({ type: "add-media", row: r })}>Add media…</button>
+          ${r.key && lack ? html`<button type="button" class="primary go-row-again" onClick=${() => showDialog({ type: "add", keys: [r.key] })}>Download again…</button>` : null}
+          ${r.key && !lack ? html`<button type="button" class="ghost" onClick=${() => showDialog({ type: "add-media", row: r })}>Add media…</button>
             <button type="button" class="ghost" onClick=${() => open({ page: "game", key: r.key })}>In the library</button>` : null}
           <button type="button" class="ghost danger-text" onClick=${() => showDialog({ type: "remove", asks: [{ id: r.id, key: r.key }], title: `Remove ${r.name}`, done: removed })}>Remove…</button>
         </div>

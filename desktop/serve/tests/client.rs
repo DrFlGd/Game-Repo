@@ -443,6 +443,25 @@ fn games_left_in_an_old_roms_folder_can_be_added_again_and_removed_through_linke
     queue_done(&app);
     assert!(roms.join("psx/Quest (USA).m3u").is_dir(), "{:?}", files_under(&roms));
     assert_eq!(of(&call(&app, "on_device", json!({})), QUEST)["missing"], Value::Null);
+
+    // a disc deleted by hand: marked, offered again, and added again only it comes back
+    let m3u = roms.join("psx/Quest (USA).m3u");
+    let mut discs: Vec<PathBuf> = std::fs::read_dir(&m3u).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x != "m3u")).collect();
+    discs.sort();
+    assert!(discs.len() >= 2, "{:?}", files_under(&m3u));
+    let (kept, gone) = (discs[0].clone(), discs.last().unwrap().clone());
+    let kept_at = std::fs::metadata(&kept).unwrap().modified().unwrap();
+    std::fs::remove_file(&gone).unwrap();
+    let r = of(&call(&app, "on_device", json!({})), QUEST);
+    assert_eq!((r["partial"].as_bool(), r["missing"].as_bool()), (Some(true), None), "{r}");
+    let page = call(&app, "games", json!({ "q": "quest", "system": "psx" }));
+    assert_eq!(page["items"][0]["on_device"].as_bool(), Some(false), "{page}");
+    call(&app, "add", json!({ "keys": [QUEST] }));
+    queue_done(&app);
+    assert!(gone.is_file() && std::fs::metadata(&kept).unwrap().modified().unwrap() == kept_at, "{:?}", files_under(&m3u));
+    let r = of(&call(&app, "on_device", json!({})), QUEST);
+    assert_eq!(r["partial"], Value::Null, "{r}");
+    assert_eq!(d.record().games.iter().filter(|g| g.key == QUEST).count(), 1);
     call(&app, "remove", json!({ "asks": [{ "key": QUEST }] }));
     assert!(!roms.join("psx/Quest (USA).m3u").exists() && home.join("ROMs/psx/Quest (USA).m3u").is_dir());
     assert!(!std::fs::read_to_string(gamelists.join("psx/gamelist.xml")).unwrap().contains("Quest"));

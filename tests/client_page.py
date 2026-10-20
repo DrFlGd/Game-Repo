@@ -413,9 +413,12 @@ async def main():
             await pg.click("#go-nav-device")
             await pg.wait_for_selector('[data-id="gb/Alpha (USA).gb"] .go-from-missing')
             row = await pg.inner_text('[data-id="gb/Alpha (USA).gb"]')
+            await pg.click('[data-id="gb/Alpha (USA).gb"] .go-row-open')
+            again = await pg.query_selector('[data-id="gb/Alpha (USA).gb"] .go-row-again') is not None
+            await pg.click('[data-id="gb/Alpha (USA).gb"] .go-row-open')
             alpha.with_suffix(".moved").rename(alpha)
-            check("a game whose files aren't where Game Repo Go put them is marked, not counted as there",
-                  "Files not found" in row and "its files aren't on this device" in row, row)
+            check("a game whose files aren't where Game Repo Go put them is marked, not counted as there, with Download again…",
+                  "Files not found" in row and "its files aren't on this device" in row and again, (row, again))
 
             # 10. Settings: Show games on this device, and the look
             await pg.click("#go-nav-settings")
