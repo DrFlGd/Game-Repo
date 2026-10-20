@@ -4371,6 +4371,91 @@ signing key. Built as D97 says, except where noted.
 - **Release**: the *What passed* job now waits for Windows and Android, so *Already tested*
   publishes the APK with the installers; the notes give the certificate's SHA-256.
 
+### Phase 9c design: the Steam Deck and PC games on devices (written 2026-10-20)
+
+Jerred asked (2026-10-20, after trying Game Repo Go for Android: "The app works and
+connects to the server as it should, go ahead and build phase 9c") for 9c as the roadmap
+has it: Game Repo Go built for Linux and usable with the Steam Deck's controls in Game
+Mode, and PC games on devices, unpacked into a folder that suits the platform (D105).
+D106–D112 are proposed here with the defaults Claude picked; since Jerred asked for it
+to be built, they're followed unless he says otherwise. Two pull requests, as 9b's parts:
+
+1. Game Repo Go for Linux and the Steam Deck (D106–D109).
+2. PC games on devices, for Windows and Linux (D110–D112).
+
+**D106 One AppImage for Linux and the Steam Deck.**
+- `Game Repo Go_<version>_amd64.AppImage` beside the other downloads on each release,
+  built on Ubuntu 22.04 so it runs on SteamOS 3 and on current desktop Linux. An AppImage
+  needs nothing installed, which suits SteamOS's read-only system; no Flatpak or `.deb`
+  for now.
+- On the Deck it's started from Desktop Mode, or from Game Mode once it's in Steam (D107).
+  ES-DE as EmuDeck sets it up is found as on Windows, from `~/ES-DE/settings/es_settings.xml`,
+  whose ROMs folder may be on the SD card.
+- Its data is in `~/.local/share/io.github.drflgd.gamerepo.go/`.
+
+**D107 Game Mode.**
+- Controllers: Steam Input gives a non-Steam app a standard controller, which WebKitGTK
+  hands to the page's Gamepad API, so the Windows code (D103) works as it is: the D-pad
+  and left stick move, A presses, B goes back, X ticks a game, the shoulder buttons page.
+- Typing: a text box reached with a controller in Game Mode opens Steam's on-screen
+  keyboard (`steam://open/keyboard`), since nothing else would.
+- Settings › *Steam* › *Add Game Repo Go to Steam* adds the app itself as a non-Steam game
+  (its AppImage and icon), so it's in Game Mode's library. It follows D109.
+- The pages fit the Deck's 1280×800 screen, full screen in Game Mode. Under Game Mode's
+  compositor WebKitGTK's DMA-BUF renderer is turned off, which avoids the blank window some
+  WebKitGTK apps show there.
+
+**D108 The pairing on Linux is kept in a file only its user can read** (`secrets.json`,
+mode 600, in the data folder), as Steam keeps its own sign-in. Not the Secret Service or
+KWallet: Game Mode can't unlock a keyring, and an unanswered prompt would stop pairing.
+
+**D109 Steam's files are written only while Steam is closed.**
+- Steam keeps non-Steam games in `userdata/<id>/config/shortcuts.vdf` and the Proton chosen
+  for each in `config/config.vdf`, and rewrites both itself, so Game Repo Go writes them
+  only while Steam is closed, as Game Repo's Steam export does (D28), backing each up first
+  (the last five kept).
+- While Steam runs (always, in Game Mode) the changes wait, and Settings says so with
+  *Restart Steam*: a small helper that outlives Steam closes it (`steam -shutdown`), writes
+  the changes and starts Steam again (Game Mode brings it back by itself). Otherwise they're
+  written the next time Game Repo Go finds Steam closed.
+- Only the shortcuts tagged *Game Repo Go* are the app's; every other is kept as it was.
+  The Steam user is the one signed in most recently, changeable in Settings.
+- The VDF code moves from the core into a small crate of its own, `gamerepo-steam`, which
+  the core and Game Repo Go's backend share.
+
+**D110 PC games in the catalogue.**
+- The server lists the library's PC games (D25, D55) as one more system, *PC games*
+  (`pcgames`, not ES-DE's `pc`, which is DOS), with each game's title, year, unpacked size
+  and pictures. Only devices that ask for it get it: Game Repo Go on Windows and Linux, from
+  this version. Android doesn't (D105), nor does the earlier Game Repo Go.
+- A game can go on a device when it has an archive of its game (zip, 7z or rar, of the kind
+  *install*) or an `extracted/` folder (D6). One that only has an installer is listed with
+  why it can't go yet; GOG's installers come later with `innoextract` (D14).
+
+**D111 A PC game's plan.**
+- A new place, `pc`: the device's PC games folder (D105: `C:\Games\` on Windows, `~/Games/`
+  on Linux, either changed in Settings). Each file goes to `<Title> (<Year>)/<its path in the
+  archive>`.
+- The server unpacks the archive once, into its data folder beside its made files (the
+  newest kept up to the same limit), and the plan gives each file with its size and SHA-1;
+  until it's unpacked the plan isn't ready, as with made files (D93). An `extracted/` copy is
+  sent as the library has it.
+- Only the game's install archives go in this version; its patches, DLC and extras are
+  listed as left, with why.
+- The device fetches and checks the files as it does every other game's (resumed, written
+  under a temporary name, renamed into place), so it never needs room for the archive too.
+
+**D112 Starting and removing a PC game.**
+- Windows: a Start menu shortcut in a *Game Repo Go* folder, to the game's program
+  (`game.json`'s *launch*, D6).
+- Linux: a Steam shortcut (D109), with Proton for a Windows program (`.exe`, `.bat`; Proton
+  Experimental unless Settings says another), and as it is for a Linux one. Its pictures go
+  in Steam's grid folder when the game has them, as D28 does.
+- A game without a program gets no shortcut, and Game Repo Go says so.
+- *On this device* lists PC games with the others. Removing one takes the files Game Repo
+  Go wrote and its shortcut; files the game made itself in its folder (saves, settings) are
+  kept with the folder, and Game Repo Go says how many (saves are never touched, D88).
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -4516,7 +4601,7 @@ signing key. Built as D97 says, except where noted.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D106). D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D113). D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
