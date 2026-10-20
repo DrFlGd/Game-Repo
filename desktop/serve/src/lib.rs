@@ -634,7 +634,7 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
     let ix = ix.as_ref().unwrap();
     let lib = &sh.lib;
     match (m, path) {
-        ("GET", "/v1/systems") => ok(Response::json(200, &catalogue::systems(ix, lib)?)),
+        ("GET", "/v1/systems") => ok(Response::json(200, &catalogue::systems(ix, lib, req.param("all").is_some_and(|v| v == "1" || v == "true"))?)),
         ("GET", "/v1/collections") => ok(Response::json(200, &catalogue::collections(ix, lib)?)),
         ("GET", "/v1/games") => {
             let a = catalogue::Ask {

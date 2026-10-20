@@ -14,7 +14,9 @@ Checks: the server starts with a copy of Game Repo's index and announces itself 
 device finds it by DNS-SD); a pairing code from the control channel pairs the device;
 the device lists the systems and games, adds two games into ES-DE's folders (each file
 as the library has it), the server hears what it holds; one game is removed with its
-files and entry; a device removed from the server is refused; the library and the
+files and entry; Game Repo Go's backend (`device app`) pairs a second device, reads the
+library, adds a game through its queue, finds a game from elsewhere and removes one; a
+device removed from the server is refused; the library and the
 folders with games are as they were, byte for byte; the server stops when asked and
 says so. Writes <out>/serve-devices.json with what each step answered.
 """
@@ -190,6 +192,38 @@ try:
     gl = (phone / "ES-DE" / "gamelists" / "gb" / "gamelist.xml").read_text(encoding="utf-8")
     check("a game removed with its file and entry", not beta.exists() and "Beta" not in gl and "<name>Mine</name>" in gl, gl)
     check("the other game stays", len(list((roms / "nes").glob("Echo (USA).*"))) == 1)
+
+    # Game Repo Go's backend, as its pages call it, on a second device
+    go = home / "go-phone"
+    go_data = home / "go-data"
+    (go / "ES-DE" / "settings").mkdir(parents=True)
+    (go / "ES-DE" / "settings" / "es_settings.xml").write_text('<?xml version="1.0"?>\n<string name="ROMDirectory" value="" />\n', encoding="utf-8")
+    for f in ("gb", "nes"):
+        (go / "ROMs" / f).mkdir(parents=True)
+    (go / "ROMs" / "gb" / "My Alpha.gb").write_bytes((fixtures / "Roms" / "Game Boy" / "Alpha (USA).gb").read_bytes())
+
+    def app(cmd, args=None, wait=False):
+        r = run("device", "app", cmd, json.dumps(args or {}), "--to", go, "--data", go_data, *(["--wait"] if wait else []))
+        v = json.loads(r.stdout)
+        answers["app " + cmd] = v
+        return v
+
+    code = run_json("serve-devices", "pair", "--data", data)["code"]
+    st = app("pair", {"address": address, "code": code}, wait=True)["status"]
+    check("Game Repo Go reads the library onto the device", st["paired"] and st["catalogue"]["games"] == 4 and st["sync"]["error"] == "", json.dumps(st))
+    found = app("games", {"q": "echo"})
+    check("Game Repo Go searches its own copy", [g["key"] for g in found["items"]] == ["nes/Echo (USA)"], json.dumps(found))
+    done = app("add", {"keys": ["gb/Delta (World)"]}, wait=True)
+    delta = list((go / "ROMs" / "gb").glob("Delta (World).*"))
+    check("Game Repo Go's queue adds a game", done["queue"]["items"][0]["state"] == "done" and len(delta) == 1 and not (go / "ROMs" / ".gamerepo-coming").exists(), json.dumps(done["queue"]))
+    app("on_device", wait=True)
+    rows = {r["id"]: r for r in app("on_device")["games"]}
+    delta_id = next((i for i, r in rows.items() if r.get("key") == "gb/Delta (World)"), None)
+    check("On this device: the game added and one from elsewhere the library knows",
+          delta_id and rows[delta_id]["from"] == "library" and rows.get("gb/My Alpha.gb", {}).get("from") == "known" and rows["gb/My Alpha.gb"]["key"] == "gb/Alpha (USA)", json.dumps(rows))
+    if delta_id:
+        app("remove", {"asks": [{"id": delta_id}]})
+    check("Game Repo Go removes a game", delta and not delta[0].exists() and not (go / "ROMs" / ".gamerepo-removing").exists() and (go / "ROMs" / "gb" / "My Alpha.gb").is_file())
 
     # a device removed from the server is refused, and told to pair again
     run("serve-devices", "remove", devices[0]["id"], "--data", data)

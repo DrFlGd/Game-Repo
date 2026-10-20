@@ -9,13 +9,18 @@
 //! `gamerepo-cli device …` is built on it, standing in for the device client with a folder
 //! that holds `ES-DE/` and `ROMs/`; 9b's client is built on it too.
 
+pub mod app;
+pub mod catalogue;
 pub mod client;
+pub mod queue;
+pub mod removing;
+pub mod scan;
 
-pub use client::Server;
+pub use client::{Server, Stopped, Watch};
 
 use anyhow::{anyhow, bail, Context, Result};
 use gamerepo_wire::api::{self, Held, HeldFile, Holding, Info, PlanAsk, Record};
-use gamerepo_wire::{gamelist, merge_lines, remove_lines, Left, Plan};
+use gamerepo_wire::{gamelist, merge_lines, Left, Plan};
 use sha1::Digest;
 use std::collections::{BTreeMap, HashSet};
 use std::io::Read;
@@ -25,8 +30,11 @@ use std::time::Duration;
 
 /// The record's format.
 pub const RECORD: u32 = 1;
-/// A file still coming is kept under its name and this.
+/// A file written whole is first kept under its name and this.
 pub const PART: &str = ".gamerepo-part";
+/// The files of games still coming are kept in this folder of their place until every one
+/// is in, so ES-DE never lists half a game (an `.m3u` folder with one disc of two, say).
+pub const COMING: &str = ".gamerepo-coming";
 
 /// A device: its ES-DE folders (its places, the ES-DE layout's own: `roms`, `esde`, `media`).
 pub struct Device {
@@ -53,10 +61,16 @@ impl Device {
     /// folder and media folder as its settings say (else `home/ROMs` and
     /// `ES-DE/downloaded_media`), as ES-DE finds them (C3).
     pub fn open(home: &Path) -> Result<Device> {
-        let esde = home.join("ES-DE");
+        Device::open_esde(&home.join("ES-DE"), home)
+    }
+
+    /// The device whose ES-DE folder is `esde` (one found elsewhere, or set in the client's
+    /// Settings, C3), `~` in its settings being `home`.
+    pub fn open_esde(esde: &Path, home: &Path) -> Result<Device> {
+        let esde = esde.to_path_buf();
         let settings = esde.join("settings").join("es_settings.xml");
         if !settings.is_file() {
-            bail!("{} has no ES-DE settings ({}): start ES-DE on it once first.", home.display(), settings.display());
+            bail!("{} has no ES-DE settings ({}): start ES-DE on it once first.", esde.display(), settings.display());
         }
         let xml = std::fs::read_to_string(&settings)?;
         let expand = |v: String| -> PathBuf {
@@ -169,13 +183,52 @@ pub struct AddOptions {
     pub bios: bool,
     /// Files fetched at once
     pub at_once: usize,
+    /// Only the games' media and manuals, for games the device has (D102)
+    pub media_only: bool,
+    /// Games the device has under names of its own (from elsewhere, D102): each one's key,
+    /// and its files in the ROMs folder, the first ES-DE's, which the record takes in
+    pub adopt: Vec<(String, Vec<HeldFile>)>,
 }
 
 impl Default for AddOptions {
     fn default() -> Self {
-        Self { media: vec!["cover".into()], manuals: false, size: 0, collection: String::new(), bios: false, at_once: 3 }
+        Self { media: vec!["cover".into()], manuals: false, size: 0, collection: String::new(), bios: false, at_once: 3, media_only: false, adopt: vec![] }
     }
 }
+
+impl AddOptions {
+    /// What the server is asked for, for these games.
+    pub fn ask(&self, keys: &[String]) -> PlanAsk {
+        PlanAsk {
+            games: keys.to_vec(),
+            media: self.media.clone(),
+            manuals: self.manuals,
+            size: self.size,
+            collection: self.collection.clone(),
+            bios: self.bios,
+            media_only: self.media_only,
+            named: self.adopt.iter().filter_map(|(k, files)| Some((k.clone(), files.first()?.path.clone()))).collect(),
+            ..Default::default()
+        }
+    }
+}
+
+/// A file came through damaged twice (or changed in the library while it came): the plan
+/// is asked for again.
+#[derive(Debug)]
+pub struct Damaged(pub String);
+
+impl std::fmt::Display for Damaged {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} came through damaged twice.", self.0)
+    }
+}
+
+impl std::error::Error for Damaged {}
+
+/// The record and the lists are changed by one thing at a time (a game put in place, a
+/// removal).
+pub(crate) static WRITING: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Default)]
 pub struct Added {
@@ -197,54 +250,122 @@ fn files_of<'a>(plan: &'a Plan, key: &str, system: &str) -> Vec<&'a gamerepo_wir
         .collect()
 }
 
-/// Add games to the device: a plan for them, its files fetched and put in place, the
-/// entries merged into its gamelists and collection, and the record kept.
-pub fn add(s: &Server, d: &Device, keys: &[String], o: &AddOptions, progress: &mut dyn FnMut(&str)) -> Result<Added> {
-    let ask = PlanAsk { games: keys.to_vec(), media: o.media.clone(), manuals: o.manuals, size: o.size, collection: o.collection.clone(), bios: o.bios, ..Default::default() };
-    let plan: Plan = s.call("POST", "/v1/plans", Some(&ask))?;
-    let mut rec = d.record();
+/// The plan's files the device doesn't have as the record has them (their places in
+/// `plan.files`), and how many it has.
+pub fn to_fetch(d: &Device, plan: &Plan) -> Result<(Vec<usize>, usize)> {
+    let rec = d.record();
     let had: HashSet<(String, String, String)> = rec.games.iter().flat_map(|g| &g.files).map(|f| (f.place.clone(), f.path.clone(), f.sha1.clone())).collect();
-    // what's to be fetched: those not there as the record has them
-    let mut todo = vec![];
-    let mut out = Added { left: plan.left.clone(), notes: plan.notes.clone(), ..Default::default() };
+    let (mut todo, mut there) = (vec![], 0);
     for (i, f) in plan.files.iter().enumerate() {
         let dest = d.at(&f.place, &f.path)?;
-        let there = f.sha1.as_ref().is_some_and(|h| had.contains(&(f.place.clone(), f.path.clone(), h.clone()))) && std::fs::metadata(&dest).is_ok_and(|m| m.len() == f.size);
-        if there {
-            out.there += 1;
+        if f.sha1.as_ref().is_some_and(|h| had.contains(&(f.place.clone(), f.path.clone(), h.clone()))) && std::fs::metadata(&dest).is_ok_and(|m| m.len() == f.size) {
+            there += 1;
         } else {
             todo.push(i);
         }
     }
+    Ok((todo, there))
+}
+
+/// Where a file of a plan is kept while it comes.
+pub fn part_of(d: &Device, f: &gamerepo_wire::File) -> Result<PathBuf> {
+    d.at(&f.place, &f.path)?;
+    Ok(d.places[&f.place].join(COMING).join(&f.path))
+}
+
+/// A part's ETag, kept beside it.
+fn etag_of(part: &Path) -> PathBuf {
+    part.with_extension(format!("{}.etag", part.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()))
+}
+
+/// What's kept of a plan's files still coming, removed (a game taken off the queue).
+pub fn drop_parts(d: &Device, plan: &Plan) {
+    for f in &plan.files {
+        if let Ok(part) = part_of(d, f) {
+            let _ = std::fs::remove_file(&part);
+            let _ = std::fs::remove_file(etag_of(&part));
+            tidy_coming(d, &f.place, &part);
+        }
+    }
+}
+
+/// The folders of `.gamerepo-coming/` a part was in, removed while they're empty.
+fn tidy_coming(d: &Device, place: &str, part: &Path) {
+    let top = d.places[place].join(COMING);
+    let mut at = part.parent().map(Path::to_path_buf);
+    while let Some(dir) = at {
+        if !dir.starts_with(&top) || std::fs::remove_dir(&dir).is_err() || dir == top {
+            break;
+        }
+        at = dir.parent().map(Path::to_path_buf);
+    }
+}
+
+/// Add games to the device: a plan for them, its files fetched and put in place, the
+/// entries merged into its gamelists and collection, and the record kept.
+pub fn add(s: &Server, d: &Device, keys: &[String], o: &AddOptions, progress: &mut dyn FnMut(&str)) -> Result<Added> {
+    let plan: Plan = s.call("POST", "/v1/plans", Some(&o.ask(keys)))?;
+    add_planned(s, d, &plan, keys, o, Watch::default(), progress)
+}
+
+/// [`add`] with the plan asked for already, watched by the queue (D99): a file that stops
+/// is kept to carry on from, and the games are put in the lists and the record only once
+/// every file is in.
+pub fn add_planned(s: &Server, d: &Device, plan: &Plan, keys: &[String], o: &AddOptions, watch: Watch, progress: &mut dyn FnMut(&str)) -> Result<Added> {
+    let (todo, there) = to_fetch(d, plan)?;
+    let mut out = Added { left: plan.left.clone(), notes: plan.notes.clone(), there, ..Default::default() };
     progress(&format!("{} files to fetch, {} there already", todo.len(), out.there));
     let sha1s: Arc<Mutex<BTreeMap<usize, String>>> = Arc::default();
     let queue = Arc::new(Mutex::new(todo.clone()));
     let fetched = Arc::new(Mutex::new(0u64));
-    let failed: Arc<Mutex<Vec<String>>> = Arc::default();
+    let failed: Arc<Mutex<Vec<(String, anyhow::Error)>>> = Arc::default();
     std::thread::scope(|sc| {
         for _ in 0..o.at_once.clamp(1, api::DOWNLOADS) {
             let (queue, sha1s, fetched, failed) = (queue.clone(), sha1s.clone(), fetched.clone(), failed.clone());
-            let plan = &plan;
             sc.spawn(move || loop {
                 let Some(i) = queue.lock().unwrap().pop() else { break };
                 let f = &plan.files[i];
-                match fetch_one(s, d, f) {
+                match fetch_one(s, d, f, watch) {
                     Ok((n, h)) => {
                         *fetched.lock().unwrap() += n;
                         sha1s.lock().unwrap().insert(i, h);
                     }
-                    Err(e) => failed.lock().unwrap().push(format!("{}: {e:#}", f.path)),
+                    Err(e) => failed.lock().unwrap().push((f.path.clone(), e)),
                 }
             });
         }
     });
-    let failed = failed.lock().unwrap().clone();
+    let mut failed = std::mem::take(&mut *failed.lock().unwrap());
     if !failed.is_empty() {
-        bail!("{} of the files didn't come: {}", failed.len(), failed.join("; "));
+        // a stop or a refusal says why for them all
+        if let Some(at) = failed.iter().position(|(_, e)| e.is::<client::Stopped>()) {
+            return Err(failed.remove(at).1);
+        }
+        if let Some(at) = failed.iter().position(|(_, e)| e.is::<client::Refused>() || e.is::<Damaged>()) {
+            return Err(failed.remove(at).1);
+        }
+        let n = failed.len();
+        let (path, e) = failed.remove(0);
+        return Err(e.context(format!("{n} of the files didn't come (the first, {path})")));
     }
     out.files = todo.len();
     out.bytes = *fetched.lock().unwrap();
     let sha1s = sha1s.lock().unwrap().clone();
+    let _writing = WRITING.lock().unwrap_or_else(|e| e.into_inner());
+    // every file in, each put in place
+    for &i in &todo {
+        let f = &plan.files[i];
+        let (dest, part) = (d.at(&f.place, &f.path)?, part_of(d, f)?);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        if dest.exists() {
+            std::fs::remove_file(&dest)?;
+        }
+        std::fs::rename(&part, &dest)?;
+        let _ = std::fs::remove_file(etag_of(&part));
+        tidy_coming(d, &f.place, &part);
+    }
     // the gamelists and the collection, merged with the device's own
     for l in &plan.lists {
         let p = d.at(&l.place, &l.path)?;
@@ -261,20 +382,42 @@ pub fn add(s: &Server, d: &Device, keys: &[String], o: &AddOptions, progress: &m
         }
     }
     // the record: each game with its files, entries and collection lines
+    let mut rec = d.record();
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     rec.server = s.server.clone();
     for key in keys {
         let g: serde_json::Value = s.get(&format!("/v1/games/{}", encode(key))).unwrap_or_default();
         let system = g["game"]["system"].as_str().map(String::from).unwrap_or_else(|| key.split('/').next().unwrap_or("").to_string());
-        let mut files: Vec<HeldFile> = vec![];
-        for f in files_of(&plan, key, &system) {
+        let mut files: Vec<HeldFile> = o.adopt.iter().filter(|(k, _)| k == key).flat_map(|(_, f)| f.clone()).collect();
+        for f in files_of(plan, key, &system) {
             let i = plan.files.iter().position(|x| std::ptr::eq(x, f)).unwrap();
             let sha1 = sha1s.get(&i).cloned().or_else(|| f.sha1.clone()).unwrap_or_default();
             files.push(HeldFile { place: f.place.clone(), path: f.path.clone(), size: f.size, sha1, role: f.role.clone(), needed_by: f.needed_by.clone() });
         }
-        let entries = plan.lists.iter().flat_map(|l| l.entries.iter().filter(|e| e.key == *key).map(|e| (l.place.clone(), l.path.clone(), e.path.clone()))).collect();
-        rec.games.retain(|h| h.key != *key);
-        rec.games.push(Held { key: key.clone(), title: g["game"]["title"].as_str().unwrap_or(key).to_string(), system, added: now, files, entries });
+        let entries: Vec<(String, String, String)> = plan.lists.iter().flat_map(|l| l.entries.iter().filter(|e| e.key == *key).map(|e| (l.place.clone(), l.path.clone(), e.path.clone()))).collect();
+        let title = g["game"]["title"].as_str().unwrap_or(key).to_string();
+        match rec.games.iter_mut().find(|h| h.key == *key).filter(|_| o.media_only) {
+            // media for a game held already: its files and entries joined to what it has
+            Some(h) => {
+                for f in files {
+                    match h.files.iter_mut().find(|x| (&x.place, &x.path) == (&f.place, &f.path)) {
+                        // a file of the game's it has already, as the record has it
+                        Some(_) if f.sha1.is_empty() => {}
+                        Some(x) => *x = f,
+                        None => h.files.push(f),
+                    }
+                }
+                for e in entries {
+                    if !h.entries.contains(&e) {
+                        h.entries.push(e);
+                    }
+                }
+            }
+            None => {
+                rec.games.retain(|h| h.key != *key);
+                rec.games.push(Held { key: key.clone(), title, system, added: now, files, entries });
+            }
+        }
         out.games += 1;
     }
     // the collection's lines are the games' too, by the file or folder ES-DE starts each from
@@ -321,29 +464,26 @@ fn encode(s: &str) -> String {
     out
 }
 
-/// One file fetched, checked against its SHA-1 and put in place: the bytes fetched and its SHA-1.
-fn fetch_one(s: &Server, d: &Device, f: &gamerepo_wire::File) -> Result<(u64, String)> {
-    let dest = d.at(&f.place, &f.path)?;
-    let part = dest.with_file_name(format!("{}{PART}", dest.file_name().unwrap_or_default().to_string_lossy()));
-    let mut n = s.fetch(&f.url, &part, None)?;
+/// One file fetched and checked against its SHA-1, left in `.gamerepo-coming/` until its
+/// game's every file is in: the bytes fetched and its SHA-1.
+fn fetch_one(s: &Server, d: &Device, f: &gamerepo_wire::File, watch: Watch) -> Result<(u64, String)> {
+    let part = part_of(d, f)?;
+    // one that came whole before a pause is only checked
+    let whole = f.size > 0 && std::fs::metadata(&part).is_ok_and(|m| m.len() == f.size);
+    let mut n = if whole { 0 } else { s.fetch_watched(&f.url, &part, None, watch)? };
     let want = s.sha1_of(&f.url, Duration::from_secs(600))?;
     let mut got = sha1_file(&part)?;
     if got != want {
         // once more from the start (a resume of a file that changed in between)
+        watch.take_back(std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0));
         let _ = std::fs::remove_file(&part);
-        n += s.fetch(&f.url, &part, None)?;
+        n += s.fetch_watched(&f.url, &part, None, watch)?;
         got = sha1_file(&part)?;
         if got != s.sha1_of(&f.url, Duration::from_secs(600))? {
             let _ = std::fs::remove_file(&part);
-            bail!("it came through damaged twice");
+            return Err(Damaged(f.path.clone()).into());
         }
     }
-    if dest.exists() {
-        std::fs::remove_file(&dest)?;
-    }
-    std::fs::rename(&part, &dest)?;
-    let tag = part.with_extension(format!("{}.etag", part.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()));
-    let _ = std::fs::remove_file(tag);
     Ok((n, got))
 }
 
@@ -356,79 +496,17 @@ pub struct Removed {
 }
 
 /// Remove games from the device: their files (but not those another game it holds needs),
-/// their gamelist entries and collection lines. Only what the record lists is touched.
+/// their gamelist entries and collection lines, set aside first and then deleted
+/// ([`removing`]). Only what the record lists is touched.
 pub fn remove(d: &Device, keys: &[String]) -> Result<Removed> {
-    let mut rec = d.record();
-    let (gone, stay): (Vec<Held>, Vec<Held>) = rec.games.drain(..).partition(|g| keys.contains(&g.key));
-    rec.games = stay;
-    if gone.len() < keys.iter().collect::<HashSet<_>>().len() {
-        let unknown: Vec<&String> = keys.iter().filter(|k| !gone.iter().any(|g| &g.key == *k)).collect();
-        bail!("This device doesn't hold {} from the server.", unknown.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", "));
+    let rec = d.record();
+    let unknown: Vec<&str> = keys.iter().filter(|k| !rec.games.iter().any(|g| &g.key == *k)).map(|k| k.as_str()).collect();
+    if !unknown.is_empty() {
+        bail!("This device doesn't hold {} from the server.", unknown.join(", "));
     }
-    let needed: HashSet<(String, String)> = rec.games.iter().flat_map(|g| &g.files).map(|f| (f.place.clone(), f.path.clone())).collect();
-    let mut out = Removed { games: gone.len(), ..Default::default() };
-    let mut dirs: HashSet<(String, PathBuf)> = HashSet::new();
-    let mut done: HashSet<(String, String)> = HashSet::new();
-    for g in &gone {
-        for f in &g.files {
-            if !done.insert((f.place.clone(), f.path.clone())) {
-                continue;
-            }
-            if needed.contains(&(f.place.clone(), f.path.clone())) {
-                out.kept += 1;
-                continue;
-            }
-            let p = d.at(&f.place, &f.path)?;
-            if p.is_file() {
-                std::fs::remove_file(&p)?;
-                out.files += 1;
-            }
-            if let Some(parent) = p.parent() {
-                dirs.insert((f.place.clone(), parent.to_path_buf()));
-            }
-        }
-    }
-    // the folders left empty, up to their place
-    for (place, dir) in dirs {
-        let top = &d.places[&place];
-        let mut at = dir;
-        while at.starts_with(top) && at != *top {
-            if std::fs::remove_dir(&at).is_err() {
-                break;
-            }
-            at = match at.parent() {
-                Some(p) => p.to_path_buf(),
-                None => break,
-            };
-        }
-    }
-    // their entries and collection lines
-    let mut by_list: BTreeMap<(String, String), (Vec<String>, Vec<String>)> = BTreeMap::new();
-    for g in &gone {
-        for (place, path, entry) in &g.entries {
-            let e = by_list.entry((place.clone(), path.clone())).or_default();
-            match entry.strip_prefix("line:") {
-                Some(line) => e.1.push(line.to_string()),
-                None => e.0.push(entry.clone()),
-            }
-        }
-    }
-    for ((place, path), (entries, lines)) in by_list {
-        let p = d.at(&place, &path)?;
-        let Ok(old) = std::fs::read_to_string(&p) else { continue };
-        let mut text = old.clone();
-        if let Some(t) = gamelist::remove(&text, &entries) {
-            text = t;
-        }
-        if let Some(t) = remove_lines(&text, &lines) {
-            text = t;
-        }
-        if text != old {
-            write_whole(&p, text.as_bytes())?;
-        }
-    }
-    d.save_record(&rec)?;
-    Ok(out)
+    let asks: Vec<removing::Ask> = keys.iter().map(|k| removing::Ask { key: k.clone(), ..Default::default() }).collect();
+    let r = removing::remove(d, &[], &asks)?;
+    Ok(Removed { games: r.keys.len(), files: r.files.len(), kept: r.kept.len() })
 }
 
 /// The servers announcing themselves on the network (D91), each with its address.

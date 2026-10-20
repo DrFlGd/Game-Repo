@@ -47,6 +47,43 @@ fn scratch(data: &Path) -> PathBuf {
     data.join("plans").join(crate::tls::random_hex(8))
 }
 
+/// A media kind or a manual: what a media-only plan carries.
+fn is_media(role: &str) -> bool {
+    role == "manual" || meta::MEDIA.iter().any(|(k, _, _)| *k == role)
+}
+
+/// A file's name without its extension (`Quest (USA).m3u`: `Quest (USA)`).
+fn stem(name: &str) -> &str {
+    match name.rsplit_once('.') {
+        Some((s, _)) if !s.is_empty() && !s.ends_with('/') => s,
+        _ => name,
+    }
+}
+
+/// Games the device has under names of its own (D102): their media and manuals named for
+/// the device's files, as ES-DE finds them (`<system>/<kind>/<the file's name>.<ext>` in
+/// its media folder), and their entries' paths the device's.
+fn name_for_device(plan: &mut Plan, named: &[(String, String)]) {
+    for (key, on_device) in named {
+        let on_device = on_device.replace('\\', "/");
+        // from the system's folder: `gb/More/Mine.gb` is `More/Mine.gb`
+        let Some((_, rel)) = on_device.split_once('/') else { continue };
+        let Some(ours) = plan.lists.iter().flat_map(|l| &l.entries).find(|e| &e.key == key).map(|e| e.path.trim_start_matches("./").to_string()) else { continue };
+        let (from, to) = (stem(&ours).to_string(), stem(rel).to_string());
+        for f in plan.files.iter_mut().filter(|f| &f.key == key && f.place == "media") {
+            let parts: Vec<&str> = f.path.splitn(3, '/').collect();
+            if let [system, kind, name] = parts[..] {
+                if let Some(ext) = name.strip_prefix(from.as_str()).and_then(|r| r.strip_prefix('.')) {
+                    f.path = format!("{system}/{kind}/{to}.{ext}");
+                }
+            }
+        }
+        for e in plan.lists.iter_mut().flat_map(|l| l.entries.iter_mut()).filter(|e| &e.key == key) {
+            e.path = rel.to_string();
+        }
+    }
+}
+
 /// The plan for `ask`. Err(why) when a game asked for isn't in the catalogue.
 pub fn plan(ix: &Index, lib: &Library, data: &Path, maker: &Maker, hashes: &Hashes, ask: &PlanAsk) -> Result<std::result::Result<Plan, String>> {
     let mut keys = vec![];
@@ -66,10 +103,7 @@ pub fn plan(ix: &Index, lib: &Library, data: &Path, maker: &Maker, hashes: &Hash
     let laid = export::lay_out(ix, lib, &device(ask.media.clone(), ask.manuals), &scratch(data))?;
     let roots = roots::list(lib);
     let mut plan = laid.plan;
-    let mut ready = true;
-    let mut hash = vec![];
-    let mut left = vec![];
-    for (f, op) in plan.files.iter_mut().zip(&laid.ops) {
+    for f in plan.files.iter_mut() {
         // the catalogue game each file is for, or the games needing a shared set
         if !matches!(f.role.as_str(), "bios" | "device" | "bios-file") {
             f.key = catalogue::game_for(ix, &format!("{}/{}", f.system, f.game))?.unwrap_or_default();
@@ -79,6 +113,30 @@ pub fn plan(ix: &Index, lib: &Library, data: &Path, maker: &Maker, hashes: &Hash
             by.extend(catalogue::game_for(ix, &format!("{}/{g}", f.system))?);
         }
         f.needed_by = by;
+    }
+    for l in &mut plan.lists {
+        for e in &mut l.entries {
+            e.key = catalogue::game_for(ix, &format!("{}/{}", l.system, e.game))?.unwrap_or_default();
+        }
+    }
+    // only the media, for games the device has (D102), named for its own files
+    let ops: Vec<Op> = if ask.media_only || !ask.named.is_empty() {
+        let named: Vec<&str> = ask.named.iter().map(|(k, _)| k.as_str()).collect();
+        let (files, ops): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut plan.files).into_iter().zip(laid.ops).filter(|(f, _)| is_media(&f.role) || !(ask.media_only || named.contains(&f.key.as_str()))).unzip();
+        plan.files = files;
+        if ask.media_only {
+            plan.collections.clear();
+        }
+        name_for_device(&mut plan, &ask.named);
+        ops
+    } else {
+        laid.ops
+    };
+    let mut ready = true;
+    let mut hash = vec![];
+    let mut left = vec![];
+    for (f, op) in plan.files.iter_mut().zip(&ops) {
         if !f.made {
             let src = PathBuf::from(&op.from[0].path);
             match files::url_of(lib, &roots, &src) {
@@ -114,18 +172,13 @@ pub fn plan(ix: &Index, lib: &Library, data: &Path, maker: &Maker, hashes: &Hash
     }
     hashes.want(hash);
     plan.ready = ready;
-    for l in &mut plan.lists {
-        for e in &mut l.entries {
-            e.key = catalogue::game_for(ix, &format!("{}/{}", l.system, e.game))?.unwrap_or_default();
-        }
-    }
     // each media kind's size, those not asked for too (C13), from a plan carrying every kind
     let mut kinds: BTreeMap<String, KindSize> = BTreeMap::new();
     let all_media: Vec<String> = meta::MEDIA.iter().map(|(k, _, _)| k.to_string()).collect();
     let whole = if all_media.iter().all(|k| ask.media.contains(k)) && ask.manuals { None } else { Some(export::lay_out(ix, lib, &device(all_media.clone(), true), &scratch(data))?) };
     let (files, ops): (&[gamerepo_wire::File], &[Op]) = match &whole {
         Some(w) => (&w.plan.files, &w.ops),
-        None => (&plan.files, &laid.ops),
+        None => (&plan.files, &ops),
     };
     for (f, op) in files.iter().zip(ops) {
         if f.role != "manual" && !all_media.contains(&f.role) {
