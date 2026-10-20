@@ -4277,12 +4277,12 @@ on the release. Android is part 3.
   pinned at pairing, keeps the new address with the pairing unchanged. So a computer given
   another address by the router needs no new code; one that only announces itself at an
   address the device can't reach is never taken.
-- **Tests**: `tests/client_page.py` (27 checks) runs the pages in Chromium at a phone's size
+- **Tests**: `tests/client_page.py` (28 checks) runs the pages in Chromium at a phone's size
   and a PC's against `client-ui` and a real `serve-devices`: pairing (a wrong code
   refused), the Library with pictures, a system and a search, ticks against the free space,
   *Add to device…* with a kind unticked, the queue to the end and the files and gamelists,
   *On this device*'s sources, *Make room*'s order, removals of a game and of a picture,
-  Settings and the look, the keys through every page, and the library away from home; the
+  Settings and the look, the Library in each of Game Repo's skins, the keys through every page, and the library away from home; the
   library, saves and ES-DE's settings compared byte for byte afterwards.
   `tests/client_ui.py` drives the built app with WebDriver: paired, a picture through the
   protocol, a download, the credential kept and gone after *Unpair*. Windows CI runs both,
