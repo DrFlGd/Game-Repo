@@ -84,6 +84,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.30 (2026-10-20)
+
 - **Five new skins** in Settings › Appearance, each with its own colours, lettering, shapes and textures: *Neon City* (cyberpunk), *Wasteland Terminal* (a green screen in a fallout shelter, amber in the Night theme), *Adventurer's Tome* (a fantasy role-playing game), *Pixel Arcade* (8-bit) and *Cosy Pastel*. Settings says what each one looks like, and their fonts come with the app.
 - **Classic is the default look again.** Drafting Sheet is gone (it was too like Classic); if you had chosen it, the app opens in Classic.
 
