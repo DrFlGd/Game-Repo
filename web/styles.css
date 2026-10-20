@@ -1328,119 +1328,13 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 #settings-previews .field-row > span:first-child, #settings-view-colour .field-row > span:first-child { min-width: 110px; }
 
 /* ---- skins (docs/PLAN.md, "Skins design") -------------------------------
-   A skin is data-skin on the root: its colours for light and dark (Night keeps
-   its own), its lettering, corners and icon line, and a few rules of its own. */
+   A skin is data-skin on the root: Classic is this file's colours; the others,
+   in skins.css, set their colours for light and dark, their lettering, corners
+   and icon line, and a few rules of their own. */
 .icon { stroke-width: var(--icon-stroke); stroke-linecap: var(--icon-cap); stroke-linejoin: var(--icon-join); }
+/* icons and the mark are drawn for each skin; one without drawings of its own shows Classic's */
 svg g[data-sk] { display: none; }
-:root:not([data-skin]) svg g[data-sk="classic"], :root[data-skin="classic"] svg g[data-sk="classic"],
-:root[data-skin="drafting"] svg g[data-sk="drafting"] { display: inline; }
-
-/* Overpass draws "·" at the left of its box, so "a · b" reads "a ·b": take that
-   one character from a system font (later faces win for the characters they cover). */
-@font-face { font-family: "Overpass"; src: local("Segoe UI"), local("Arial"), local("Helvetica"), local("DejaVu Sans"); unicode-range: U+00B7; }
-@font-face { font-family: "Overpass Mono"; src: local("Segoe UI"), local("Arial"), local("Helvetica"), local("DejaVu Sans"); unicode-range: U+00B7; }
-
-/* Drafting Sheet: a sheet from a technical drawing. */
-:root[data-skin="drafting"] {
-  --font: "Overpass", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-head: var(--font);
-  --font-mono: "Overpass Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
-  --head-stretch: 100%;
-  --radius-s: 2px;
-  --radius-m: 2px;
-  --radius-xs: 1px;
-  --icon-stroke: 1.4;
-  --icon-cap: butt;
-  --icon-join: miter;
-}
-:root[data-skin="drafting"]:not([data-theme="night"]) {
-  --ink: #15232d;
-  --graphite: #566872;
-  --steel: #edf0ee;
-  --steel-2: #b6c4ca;
-  --panel: #e6eae8;
-  --white: #fbfcfb;
-  --tool: #1c5aa6;
-  --tool-ink: #ffffff;
-  --accent-hover: #2468ba;
-  --accent-edge: #154b8c;
-  --danger: #c0392b;
-  --ok: #2e7d4f;
-  --focus: #1c5aa6;
-  --chrome: #fbfcfb;
-  --chrome-ink: #15232d;
-  --thumb-bg: #f1f4f2;
-  --sel: #d9e6f4;
-  --star: #b7700e;
-  --folder: #a1700f;
-  --grid: rgba(28, 90, 166, .07);
-}
-:root[data-skin="drafting"][data-theme="dark"] {
-  --ink: #d9e4ea;
-  --graphite: #8a9da8;
-  --steel: #0f1316;
-  --steel-2: #2c3a43;
-  --panel: #0b0e10;
-  --white: #161c20;
-  --tool: #69b2ff;
-  --tool-ink: #051628;
-  --accent-hover: #8cc4ff;
-  --accent-edge: #4f9de8;
-  --danger: #ff8f80;
-  --ok: #6fcf97;
-  --focus: #69b2ff;
-  --chrome: #161c20;
-  --chrome-ink: #d9e4ea;
-  --thumb-bg: #1b2227;
-  --sel: #18304a;
-  --star: #f0b44a;
-  --folder: #d9a54a;
-  --grid: rgba(105, 178, 255, .06);
-}
-:root[data-skin="drafting"][data-theme="night"] { --grid: rgba(208, 138, 42, .06); }
-/* grid film behind the pictures and the 3D view (not behind text: docs/PLAN.md, "0.5.21") */
-:root[data-skin="drafting"] .thumb, :root[data-skin="drafting"] .tile-pic,
-:root[data-skin="drafting"] .stage-canvas, :root[data-skin="drafting"] .stage-picture, :root[data-skin="drafting"] .insp-thumb {
-  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: 10px 10px;
-}
-:root[data-skin="drafting"] .cmdbar { border-bottom: 1px solid var(--ink); }
-:root[data-skin="drafting"] .page-title h1, :root[data-skin="drafting"] .bar-place h1 { font-weight: 700; letter-spacing: -.01em; }
-/* section headings: the heading face, with a rule after them */
-:root[data-skin="drafting"] .home h2, :root[data-skin="drafting"] .ls-section h2, :root[data-skin="drafting"] .dupes-section h2 {
-  display: flex; align-items: center; gap: 10px; font-family: var(--font-head); font-stretch: var(--head-stretch); font-size: 16px; font-weight: 700;
-  letter-spacing: 0; color: var(--ink);
-}
-:root[data-skin="drafting"] .home h2::after, :root[data-skin="drafting"] .ls-section h2::after, :root[data-skin="drafting"] .dupes-section h2::after {
-  content: ""; flex: 1; border-top: 1px solid var(--steel-2);
-}
-:root[data-skin="drafting"] .nav-head { font-family: var(--font-mono); font-weight: 600; letter-spacing: .1em; }
-/* the menu's current place is outlined in ink blue; counts read [12] */
-:root[data-skin="drafting"] .nav-link.active { color: var(--tool); outline: 1px solid var(--tool); outline-offset: -1px; }
-:root[data-skin="drafting"] .nav-link.active .nav-icon { color: var(--tool); }
-:root[data-skin="drafting"] .nav-count { font-family: var(--font-mono); font-size: 11.5px; }
-:root[data-skin="drafting"] .nav-count:not(:empty)::before { content: "["; }
-:root[data-skin="drafting"] .nav-count:not(:empty)::after { content: "]"; }
-/* corner ticks on cards and tiles */
-:root[data-skin="drafting"] :is(.card, .subcat-tile, .home-model, .file-tile) {
-  background-image: linear-gradient(var(--tool), var(--tool)), linear-gradient(var(--tool), var(--tool)), linear-gradient(var(--tool), var(--tool)), linear-gradient(var(--tool), var(--tool));
-  background-size: 8px 1px, 1px 8px, 8px 1px, 1px 8px;
-  background-position: top left, top left, bottom right, bottom right;
-  background-repeat: no-repeat;
-}
-/* figures in mono: sizes, counts, dates, file tags */
-:root[data-skin="drafting"] .tree-size, :root[data-skin="drafting"] .card-sub, :root[data-skin="drafting"] .ft,
-:root[data-skin="drafting"] .menu kbd { font-family: var(--font-mono); }
-:root[data-skin="drafting"] .ft { font-weight: 600; letter-spacing: .02em; color: var(--ft); background: transparent; border-color: var(--ft); }
-:root[data-skin="drafting"][data-theme="dark"] .ft, :root[data-skin="drafting"][data-theme="night"] .ft { color: color-mix(in srgb, var(--ft) 55%, white); background: transparent; border-color: color-mix(in srgb, var(--ft) 70%, white); }
-/* the status bar is the drawing's title block */
-:root[data-skin="drafting"] .statusbar { border-top: 1px solid var(--ink); background: var(--white); font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
-:root[data-skin="drafting"] .statusbar-inner { padding: 0 0 0 0; gap: 0; align-items: stretch; }
-:root[data-skin="drafting"] .statusbar-inner > * { display: flex; align-items: center; padding: 3px 12px; border-right: 1px solid var(--steel-2); }
-:root[data-skin="drafting"] .status-library { color: var(--tool); font-weight: 600; text-transform: none; letter-spacing: 0; }
-/* square tags and chips */
-:root[data-skin="drafting"] .badge, :root[data-skin="drafting"] .chip, :root[data-skin="drafting"] .chip-btn, :root[data-skin="drafting"] .about-badge,
-:root[data-skin="drafting"] .chip-item, :root[data-skin="drafting"] .sw-chip { border-radius: var(--radius-s); }
+svg g[data-sk="classic"] { display: inline; }
 
 /* ---- Game Repo: the pages still to come (Phase 0) ----------------------- */
 .nav-link.off { opacity: .45; }

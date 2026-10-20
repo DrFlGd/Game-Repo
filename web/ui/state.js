@@ -20,7 +20,7 @@ export const ui = createStore({
   menu: null,              // a right-click or ⋯ menu: { x, y, items, from }
   jobs: [],                // [{ id, label, started, cancel }]
   changes: 0,              // counts changes made to files (organising, Undo), so pages showing them read again
-  skin: "drafting",
+  skin: "classic",
   theme: "system",
   navOpen: false,          // the menu as a drawer in a narrow window
   navCollapsed: false,     // the desktop menu folded to its icons
@@ -38,7 +38,7 @@ const LAYOUT_KEY = "gr-ui";
 export function initState(store) {
   prefs = store.prefs;
   const saved = prefs.get(LAYOUT_KEY, {}) || {};
-  ui.set({ skin: SKINS.some(([v]) => v === saved.skin) ? saved.skin : "drafting", theme: THEMES.some(([v]) => v === saved.theme) ? saved.theme : "system", navCollapsed: !!saved.navCollapsed,
+  ui.set({ skin: SKINS.some(([v]) => v === saved.skin) ? saved.skin : "classic", theme: THEMES.some(([v]) => v === saved.theme) ? saved.theme : "system", navCollapsed: !!saved.navCollapsed,
     sidePanel: ["open", "folded"].includes(saved.sidePanel) ? saved.sidePanel : null, sidePanelWidth: Number(saved.sidePanelWidth) || 240,
     inspector: saved.inspector || {}, inspectorTab: saved.inspectorTab || {}, inspectorWidth: Number(saved.inspectorWidth) || 360 });
   applySkin();
@@ -57,11 +57,17 @@ export function setPref(patch) {
   savePrefs();
 }
 
-/** The skins (from Model Library): a skin is data-skin on the page's root, read by
- *  styles.css and by the icons drawn for each skin. */
+/** The skins: a skin is data-skin on the page's root, read by styles.css (Classic,
+ *  from Model Library), skins.css and the icons drawn for each skin; the first is the
+ *  default, and one saved but no longer offered (Drafting Sheet, Clean Slate) falls
+ *  back to it. [value, name, what it looks like]. */
 export const SKINS = [
-  ["drafting", "Drafting Sheet"],
-  ["classic", "Classic"],
+  ["classic", "Classic", "Plain and clear: slate and amber, rounded corners."],
+  ["neon", "Neon City", "Cyberpunk: hot pink and cyan on near black, cut corners and glowing headings. Always dark."],
+  ["terminal", "Wasteland Terminal", "An old green screen in a fallout shelter: phosphor text, scan lines, inverse video. Always dark; amber in the Night theme."],
+  ["tome", "Adventurer's Tome", "A fantasy role-playing game: parchment in a leather binding, carved capitals, crimson and gold."],
+  ["pixel", "Pixel Arcade", "An 8-bit game: chunky outlines, hard shadows, pixel lettering."],
+  ["cosy", "Cosy Pastel", "A cosy life-sim: cream and lavender, sugared pinks and mint, soft round shapes."],
 ];
 export function applySkin() {
   document.documentElement.dataset.skin = (SKINS.find(([v]) => v === ui.get().skin) || SKINS[0])[0];

@@ -19,7 +19,7 @@ sizes, one unticked; the queue watched to the end and "Restart ES-DE"; the games
 folders and gamelists with the kinds chosen and not the other; On this device with the
 games from the library, the copy recognised and the game from elsewhere; Make room ticking
 games; a removal shown and done; a game's media removed alone; Settings (Show games on this
-device, the look); the Library and a game's page kept with the library away; every page
+device, the look, each skin); the Library and a game's page kept with the library away; every page
 moved through with the keys alone, and the games by rows and columns; no page errors; and
 the library and everything outside ES-DE's folders as they were. Screenshots for each.
 """
@@ -362,6 +362,21 @@ async def main():
             text = await pg.inner_text("#go-game")
             check("a game's page shows its details, pictures and that it's on the device", "Alpha is a game made for this test." in text and "Players" in text and await pg.is_visible("#go-game-on"), text[:300])
             await shot(pg, "12-pc-game")
+
+            # Game Repo's skins reach Game Repo Go's pages (a screenshot of the Library in each)
+            skins = await pg.evaluate("async () => (await import('./ui/state.js')).SKINS.map(([v]) => v)")
+            shown = []
+            for v in skins:
+                await pg.goto(B + "#settings")
+                await pg.select_option("#set-skin", v)
+                await pg.goto(B + "#library")
+                await pg.wait_for_function("() => document.querySelectorAll('#go-games .go-card[data-key]').length === 4")
+                shown.append((v, await pg.evaluate("() => [document.documentElement.dataset.skin, getComputedStyle(document.querySelector('.go-nav')).backgroundImage + getComputedStyle(document.body).fontFamily]")))
+                await shot(pg, f"12-pc-skin-{v}")
+            check("each of Game Repo's skins reaches Game Repo Go's pages, and is kept", len(skins) >= 2 and all(v == got[0] for v, got in shown)
+                  and len({got[1] for _, got in shown}) == len(shown), shown)
+            await pg.goto(B + "#settings")
+            await pg.select_option("#set-skin", skins[0])
 
             # 12. every page moved through with the keys alone
             await pg.goto(B + "#library")

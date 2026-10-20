@@ -24,8 +24,7 @@ const PAGES = [
 ];
 
 function Mark() {
-  return html`<svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><g data-sk="classic"><rect x="3" y="7" width="18" height="11" rx="3" /><path d="M8 11v3M6.5 12.5h3" /><circle cx="15.5" cy="11.5" r="1" class="accent" /><circle cx="17.5" cy="13.5" r="1" class="accent" /></g>
-    <g data-sk="drafting" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="7" width="18" height="11" /><path d="M8 11v3M6.5 12.5h3" /><path d="M14 11.5h3M15.5 10v3" stroke-dasharray="1 1" /><path d="M2 20h20" stroke-dasharray="1.5 1.5" /></g></svg>`;
+  return html`<svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><g data-sk="classic"><rect x="3" y="7" width="18" height="11" rx="3" /><path d="M8 11v3M6.5 12.5h3" /><circle cx="15.5" cy="11.5" r="1" class="accent" /><circle cx="17.5" cy="13.5" r="1" class="accent" /></g></svg>`;
 }
 
 function Bar({ status }) {

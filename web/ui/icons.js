@@ -6,34 +6,11 @@ const svg = (d, size = 16, fill = "none") => html`<svg class="icon" width=${size
   stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 
 // Icons drawn for each skin (docs/PLAN.md, "Skins design"): every drawing is there
-// and the skin in use shows its own, so changing skin needs no new render.
-const skinned = (classic, own) => html`<g data-sk="classic">${classic}</g>${Object.entries(own).map(([sk, d]) => html`<g data-sk=${sk}>${d}</g>`)}`;
-const OWN = {
-  home: {
-    drafting: html`<path d="M3.5 11.5 12 4.5l8.5 7" /><path d="M6 9.5V20h12V9.5" /><path d="M10 20v-5h4v5" /><path d="M2 20h20" stroke-dasharray="1.5 1.5" />`,
-  },
-  inbox: {
-    drafting: html`<path d="M12 3v11" /><path d="M8.5 10.5 12 14l3.5-3.5" /><path d="M4 16v4h16v-4" /><path d="M2 16h4M18 16h4" />`,
-  },
-  layers: {
-    drafting: html`<path d="M12 4 21 8.5 12 13 3 8.5z" /><path d="M3 12.5 12 17l9-4.5" /><path d="M3 16.5 12 21l9-4.5" stroke-dasharray="2 1.5" />`,
-  },
-  star: {
-    drafting: html`<path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.8L12 16.8l-5.3 2.8 1.1-5.8-4.3-4.1 5.9-.8z" /><path d="M11 12.5h2M12 11.5v2" />`,
-  },
-  folder: {
-    drafting: html`<path d="M3 6h6l2 2h10v11H3z" /><path d="M3 11h18" stroke-dasharray="1.5 1.5" />`,
-  },
-  box: {
-    drafting: html`<path d="M12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z" /><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9" /><circle cx="12" cy="12" r="1.1" />`,
-  },
-  cog: {
-    drafting: html`<circle cx="12" cy="12" r="6.5" /><circle cx="12" cy="12" r="2.5" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" />`,
-  },
-  search: {
-    drafting: html`<circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.2 15.2 21 21" /><path d="M8 10.5h5M10.5 8v5" />`,
-  },
-};
+// and the skin in use shows its own, so changing skin needs no new render. OWN holds
+// a skin's own drawings by icon, { home: { <skin>: html`...` } }; none has any yet,
+// so every skin shows Classic's.
+const skinned = (classic, own = {}) => html`<g data-sk="classic">${classic}</g>${Object.entries(own).map(([sk, d]) => html`<g data-sk=${sk}>${d}</g>`)}`;
+const OWN = {};
 
 
 export const Icon = {
