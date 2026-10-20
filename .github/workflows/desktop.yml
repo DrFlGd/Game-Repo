@@ -87,10 +87,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           V: ${{ needs.version.outputs.version }}
+          SIGNING_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
         run: |
           # the What passed job names what Windows and Android passed with: these files (their
           # git tree) and this version. Only a run from this repository's own branches counts (a
-          # fork's pull request could name any files), and only while its installer is kept.
+          # fork's pull request could name any files), and only while its installer is kept;
+          # once the signing key is in the secrets, only a run that signed the APK with it (one
+          # tested before the key was added would publish no APK)
           tree=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq .commit.tree.sha)
           name="tested-$tree-$V"
           runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name" \
@@ -100,6 +103,11 @@ jobs:
             kept=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
               --jq '[.artifacts[] | select(.name == "bundles-windows" and (.expired | not))] | length')
             [ "$kept" = 1 ] || continue
+            if [ "$SIGNING_KEY" = true ]; then
+              apk=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
+                --jq '[.artifacts[] | select(.name == "bundles-android" and (.expired | not))] | length')
+              [ "$apk" = 1 ] || { echo "run $run has no signed APK: not using it"; continue; }
+            fi
             echo "run=$run" >> "$GITHUB_OUTPUT"
             echo "::notice title=Already tested::run $run built and tested these files as $V: publishing its installer"
             exit 0
