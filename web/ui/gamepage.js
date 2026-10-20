@@ -321,7 +321,7 @@ export function GamePage() {
       <${Gallery} g=${g} off=${off || busy} onChoose=${choose} />
       <section class="game-details" id="game-details" aria-busy=${busy ? "true" : "false"}>
         <p class="muted game-sub">${[g.platform_name, g.kind === "dat" ? (g.have ? "in the library" : "not in the library") : g.kind === "pc" ? "a PC game" : "a game no DAT knows", g.name && g.name !== g.title ? g.name : null].filter(Boolean).join(" · ")}</p>
-        ${g.variant ? html`<p class="game-variant-of" id="game-variant-of">${g.variant.of ? html`A variant of <a href=${gameHash(g.variant.of.key)}>${g.variant.of.name}</a>` : "A game of its own, in the system's custom DAT"}${g.variant.tags?.length ? html`<span class="variant-tags">${g.variant.tags.map((t) => html`<span class="variant-tag" key=${t}>${t}</span>`)}</span>` : null}</p>` : null}
+        ${g.variant ? html`<p class="game-variant-of" id="game-variant-of"><span>${g.variant.of ? html`A variant of <a href=${gameHash(g.variant.of.key)}>${g.variant.of.name}</a>` : "A game of its own, in the system's custom DAT"}</span>${g.variant.tags?.length ? html`<span class="variant-tags">${g.variant.tags.map((t) => html`<span class="variant-tag" key=${t}>${t}</span>`)}</span>` : null}</p>` : null}
         ${g.variant_games?.length ? html`<p class="muted" id="game-variant-list">${g.variant_games.length === 1 ? "Its variant" : "Its variants"}: ${g.variant_games.map((x, i) => html`${i ? ", " : ""}<a key=${x.key} href=${gameHash(x.key)}>${x.name}</a>`)}</p>` : null}
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
         ${main ? html`<p class="muted game-main-source" id="game-main-source">Details from ${sourceName(main)}, unless a detail says otherwise.</p>` : null}
