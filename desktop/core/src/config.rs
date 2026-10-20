@@ -14,6 +14,26 @@ pub fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Game Repo's own folders on this computer, config and data (as Tauri names them for its
+/// window): for the programs beside it, which find its settings and indexes there.
+pub fn app_dirs() -> (PathBuf, PathBuf) {
+    const ID: &str = "io.github.drflgd.gamerepo";
+    let home = home_dir();
+    let env = |k: &str| std::env::var_os(k).map(PathBuf::from);
+    if cfg!(windows) {
+        let roaming = env("APPDATA").unwrap_or_else(|| home.join("AppData/Roaming"));
+        let local = env("LOCALAPPDATA").unwrap_or_else(|| home.join("AppData/Local"));
+        (roaming.join(ID), local.join(ID))
+    } else if cfg!(target_os = "macos") {
+        let d = home.join("Library/Application Support").join(ID);
+        (d.clone(), d)
+    } else {
+        let config = env("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config"));
+        let data = env("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share"));
+        (config.join(ID), data.join(ID))
+    }
+}
+
 /// `~/Game Repo`, until the user opens another folder.
 pub fn default_library_path() -> PathBuf {
     home_dir().join("Game Repo")
@@ -53,6 +73,31 @@ pub struct AppConfig {
     /// Steam's folder, when the app shouldn't look for it
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub steam_dir: Option<PathBuf>,
+    /// Game Repo Server, as Settings › Serve to devices sets it (D89; crate::serving)
+    #[serde(default)]
+    pub serve: ServeSettings,
+}
+
+/// Settings › Serve to devices: whether Game Repo serves the library (started again when
+/// it opens), on which port, and whether the server stays when Game Repo is closed.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ServeSettings {
+    #[serde(default)]
+    pub on: bool,
+    #[serde(default = "serve_port")]
+    pub port: u16,
+    #[serde(default)]
+    pub keep: bool,
+}
+
+fn serve_port() -> u16 {
+    gamerepo_wire::api::PORT
+}
+
+impl Default for ServeSettings {
+    fn default() -> Self {
+        Self { on: false, port: serve_port(), keep: false }
+    }
 }
 
 /// A source in Settings › Sources: on or off.

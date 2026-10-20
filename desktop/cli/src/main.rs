@@ -10,6 +10,8 @@
 //!   gamerepo-cli systems, collections, collection, export, exports
 //!   gamerepo-cli pc, identify, sources, launchbox, steam, add
 //!   gamerepo-cli games, game, scrape, docs
+//!   gamerepo-cli serve-devices [status|pair|devices|remove|changed|stop]
+//!   gamerepo-cli device find|pair|unpair|systems|collections|games|game|add|remove|holdings
 //!
 //! `serve` runs the app's commands behind a local web server, so the page can be
 //! tested in an ordinary browser (with tests/tauri_shim.js standing in for Tauri's
@@ -17,8 +19,11 @@
 //! app's own library and index unless --library and --home say otherwise; they go
 //! through the same commands as the window (gamerepo_core::api).
 
+mod devices;
+
 use anyhow::{bail, Context, Result};
 use gamerepo_core::api::{App, AppPaths, Reply};
+use gamerepo_core::config::app_dirs;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -213,6 +218,50 @@ under <dir>/config and <dir>/data instead of the app's own folders.
         [--always-copy] [--dry-run]
                              bring documents into the library, each with the game it's
                              paired with (shown first)
+
+Game Repo Server serves the library to paired devices on the home network; its data
+(index, certificate, devices) is kept in --data <dir> (by default its own folder).
+
+  serve-devices [--library <dir>] [--port 47210] [--index-from <file>] [--pair]
+        [--no-announce] [--no-watch] [--parent [--keep]]
+                             run the server until Ctrl+C or serve-devices stop (the library
+                             it served last, else Game Repo's; its first index copied from
+                             Game Repo's); --pair shows a pairing code at once; --parent
+                             stops it when what started it ends (its input closes), unless
+                             --keep or Game Repo's Keep serving says otherwise
+  serve-devices status       how the running server is
+  serve-devices pair         a code to pair a device with (for 10 minutes)
+  serve-devices unpair       stop pairing
+  serve-devices devices      the paired devices, with what each holds
+  serve-devices remove <id>  remove a device: it has to pair again
+  serve-devices changed [<path>...]
+                             tell the server the library changed (those paths, or all)
+  serve-devices stop         stop the server
+
+The device commands stand in for a device's client: --to <dir> is a folder holding
+ES-DE/ (with its settings) and ROMs/, as ES-DE has them.
+
+  device find [--wait <seconds>]
+                             the servers announcing themselves on the network
+  device pair <address> <code> --to <dir> [--name <name>]
+                             pair with a server (its address, port 47210 unless given)
+  device unpair --to <dir>   forget the server, and tell it
+  device systems|collections --to <dir>
+                             the server's systems, or its collections with their groups
+  device games --to <dir> [--system <id>] [--search <text>] [--collection <id>]
+        [--group <id>] [--sort title|year|size] [--desc] [--offset <n>] [--limit <n>]
+                             the games, a page at a time, with their keys
+  device game <key> --to <dir>
+                             a game's details and files
+  device add <key>... --to <dir> [--media cover,screenshot,…] [--manuals]
+        [--size <pixels>] [--collection <name>] [--bios]
+                             fetch games into ES-DE's folders with their pictures (made
+                             as small as --size, the screen's longest side), manuals and
+                             gamelist entries, in a custom collection if named
+  device remove <key>... --to <dir>
+                             remove games with their files and entries (files another
+                             game it holds needs stay)
+  device holdings --to <dir> what the device holds from the server
 ";
 
 struct Args {
@@ -273,6 +322,8 @@ async fn run() -> Result<()> {
             Ok(())
         }
         "serve" => serve(a).await,
+        "serve-devices" => devices::serve_devices(a).await,
+        "device" => devices::device_command(a),
         "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" | "organise" | "duplicates" | "history" | "undo" | "finish"
         | "set-aside" | "convert" | "extract" | "formats" | "tools" | "systems" | "collections" | "collection" | "export" | "exports" | "pc" | "identify"
         | "sources" | "launchbox" | "steam" | "add" | "games" | "game" | "scrape" | "docs" | "layouts" | "layout" | "bios" | "library" => library_command(&cmd, a).await,
@@ -280,24 +331,6 @@ async fn run() -> Result<()> {
     }
 }
 
-/// The app's own folders on this computer (as Tauri names them for the window).
-fn app_dirs() -> (PathBuf, PathBuf) {
-    const ID: &str = "io.github.drflgd.gamerepo";
-    let home = gamerepo_core::config::home_dir();
-    let env = |k: &str| std::env::var_os(k).map(PathBuf::from);
-    if cfg!(windows) {
-        let roaming = env("APPDATA").unwrap_or_else(|| home.join("AppData/Roaming"));
-        let local = env("LOCALAPPDATA").unwrap_or_else(|| home.join("AppData/Local"));
-        (roaming.join(ID), local.join(ID))
-    } else if cfg!(target_os = "macos") {
-        let d = home.join("Library/Application Support").join(ID);
-        (d.clone(), d)
-    } else {
-        let config = env("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config"));
-        let data = env("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share"));
-        (config.join(ID), data.join(ID))
-    }
-}
 
 async fn invoke(app: &Arc<App>, cmd: &str, args: Value) -> Result<Value> {
     match app.call(cmd, args).await.map_err(|e| anyhow::anyhow!(e))? {
@@ -367,11 +400,14 @@ fn print(v: &Value) -> Result<()> {
 
 /// roots, scan, dat, audit, make-dat and platforms: the window's commands on the app's library.
 async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
-    let (config_dir, data_dir) = match a.flag("--home") {
-        Some(h) => (PathBuf::from(&h).join("config"), PathBuf::from(&h).join("data")),
-        None => app_dirs(),
+    let (config_dir, data_dir, server_data) = match a.flag("--home") {
+        Some(h) => (PathBuf::from(&h).join("config"), PathBuf::from(&h).join("data"), PathBuf::from(&h).join("server")),
+        None => {
+            let (c, d) = app_dirs();
+            (c, d, gamerepo_wire::control::default_data())
+        }
     };
-    let app = App::new(AppPaths { config_dir, data_dir, library_url: String::new() })?;
+    let app = App::new(AppPaths { config_dir, data_dir, library_url: String::new(), server_data, server_program: server_program() })?;
     // one command and done: nothing to watch
     app.watch_folders(false);
     if let Some(lib) = a.flag("--library") {
@@ -1417,7 +1453,14 @@ fn app_for(home: &Path, library_url: &str) -> Result<Arc<App>> {
         config_dir: home.join("config"),
         data_dir: home.join("data"),
         library_url: library_url.into(),
+        server_data: home.join("server"),
+        server_program: server_program(),
     })
+}
+
+/// Game Repo Server for the app's Settings: this program's `serve-devices`.
+fn server_program() -> Vec<String> {
+    std::env::current_exe().map(|p| vec![p.display().to_string(), "serve-devices".into()]).unwrap_or_default()
 }
 
 fn content_type(path: &str) -> &'static str {

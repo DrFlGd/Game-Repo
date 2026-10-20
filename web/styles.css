@@ -460,6 +460,17 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 .inline-form input { width: auto; flex: 1 1 220px; }
 .form-error { color: var(--danger); font-size: 13.5px; margin: 0; }
 .warn-note { padding: 10px 12px; background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-ink); border-radius: var(--radius-s); font-size: 13.5px; }
+/* Serve to devices (ui/serve.js): the pairing code large, the settings folded */
+.serve-state { display: grid; gap: 2px; font-size: 14px; }
+.serve-code-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; }
+.serve-code { font: 700 30px/1.1 var(--font-mono, ui-monospace, Consolas, monospace); letter-spacing: .08em; font-variant-numeric: tabular-nums; }
+.serve-confirm { flex: none !important; font-size: 13px; }
+.serve-more > summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
+.serve-more[open] > summary { margin-bottom: 8px; }
+.serve-more > .field-block + .field-block, .serve-more > form + .field-block { margin-top: 10px; }
+.field-block input#serve-port { width: 8em; flex: none; }
+/* the server's own window (server.html) */
+.server-main { padding: 8px 20px 20px; overflow: auto; }
 
 /* home: the library's layout, drawn as a folder tree */
 .folder-tree { margin: 0; padding: 12px 14px; background: var(--panel); border: 1px solid var(--steel-2); border-radius: var(--radius-s);

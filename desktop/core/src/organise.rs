@@ -1662,6 +1662,18 @@ pub(crate) struct Written {
     pub(crate) kind: &'static str,
 }
 
+/// Make the file a step makes (a ZIP, a ROM taken out, a cue sheet, a playlist, a smaller
+/// picture, a converted image) at `to` instead of where the step says, checked as a change
+/// checks it (Game Repo Server's made files, D93). Copies, moves and set-asides make nothing.
+pub fn make(op: &Op, to: &Path, cancel: &AtomicBool) -> Result<()> {
+    if matches!(op.op.as_str(), "rename" | "move" | "copy" | "link" | "aside") {
+        bail!("a {} step makes no file", op.op);
+    }
+    let mut op = op.clone();
+    op.to = to.display().to_string();
+    perform(&op, cancel).map(|_| ())
+}
+
 /// Do one step. Returns what it wrote (for the index) and whether a move had to copy.
 fn perform(op: &Op, cancel: &AtomicBool) -> Result<(Option<Written>, bool)> {
     let to = Path::new(&op.to);

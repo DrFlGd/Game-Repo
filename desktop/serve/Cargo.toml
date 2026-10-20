@@ -1,0 +1,27 @@
+[package]
+name = "gamerepo-serve"
+description = "Game Repo Server: a library served read-only to devices on the home network, over HTTPS with paired devices"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "gamerepo_serve"
+
+[dependencies]
+anyhow = "1"
+gamerepo-core = { path = "../core" }
+gamerepo-wire = { path = "../wire" }
+hex = "0.4"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
+mdns-sd = "=0.21.4"
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
+ring = "0.17"
+rusqlite = { version = "0.40", features = ["bundled"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha1 = "0.10"
+sha2 = "0.10"
+
+[dev-dependencies]
+gamerepo-device = { path = "../device" }

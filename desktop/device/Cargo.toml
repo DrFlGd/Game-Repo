@@ -1,0 +1,21 @@
+[package]
+name = "gamerepo-device"
+description = "A device's side of Game Repo Server: pairing, the catalogue, downloading a plan's files into ES-DE's folders, and removing them again"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "gamerepo_device"
+
+[dependencies]
+anyhow = "1"
+gamerepo-wire = { path = "../wire" }
+fs4 = "1"
+hex = "0.4"
+mdns-sd = "=0.21.4"
+ring = "0.17"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha1 = "0.10"
+sha2 = "0.10"

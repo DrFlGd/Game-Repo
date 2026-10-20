@@ -1,0 +1,336 @@
+//! `serve-devices` runs Game Repo Server, or asks the one running; `device` stands in for a
+//! device's client with a folder holding `ES-DE/` and `ROMs/` (docs/PLAN.md, "Phase 9a
+//! design").
+
+use crate::{bytes, Args};
+use anyhow::{bail, Context, Result};
+use gamerepo_core::config::{app_dirs, AppConfig};
+use gamerepo_device::{self as device, AddOptions, Device};
+use gamerepo_serve::{control, Options, Server};
+use gamerepo_wire::api::{self, Collection, Page, System};
+use serde_json::{json, Value};
+use std::path::PathBuf;
+use std::time::Duration;
+
+fn switch(a: &mut Args, name: &str) -> bool {
+    let had = a.rest.iter().any(|x| x == name);
+    a.rest.retain(|x| x != name);
+    had
+}
+
+fn number<T: std::str::FromStr>(a: &mut Args, name: &str) -> Result<Option<T>> {
+    a.flag(name).map(|v| v.parse::<T>().map_err(|_| anyhow::anyhow!("{name} is a number, not {v}"))).transpose()
+}
+
+fn list(v: Option<String>) -> Vec<String> {
+    v.map(|v| v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()).unwrap_or_default()
+}
+
+/// A query's value, every byte but letters, digits and `-._~` escaped.
+fn query_value(s: &str) -> String {
+    s.bytes().map(|c| if c.is_ascii_alphanumeric() || b"-._~".contains(&c) { (c as char).to_string() } else { format!("%{c:02X}") }).collect()
+}
+
+fn show(v: &impl serde::Serialize) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(v)?);
+    Ok(())
+}
+
+pub async fn serve_devices(mut a: Args) -> Result<()> {
+    let data = a.flag("--data").map(PathBuf::from).unwrap_or_else(gamerepo_serve::default_data);
+    let json_out = switch(&mut a, "--json");
+    let sub = if a.rest.first().is_some_and(|x| !x.starts_with("--")) { a.rest.remove(0) } else { String::new() };
+    match sub.as_str() {
+        "" | "run" => run(a, data).await,
+        "status" => {
+            let v = control::call(&data, "GET", "/status", None)?;
+            if json_out {
+                return show(&v);
+            }
+            let st: gamerepo_serve::Status = serde_json::from_value(v)?;
+            println!("Game Repo Server {} serving {} ({})", st.version, st.library_name, st.library);
+            println!("at {}{}", st.address.clone().unwrap_or_else(|| format!("127.0.0.1:{}", st.port)), if st.announced { ", announced on the network" } else { "" });
+            println!("certificate {}", st.fingerprint);
+            println!("{}", if st.ready { "ready".to_string() } else { format!("reading the library: {}", st.doing) });
+            if let Some(e) = st.error {
+                println!("problem: {e}");
+            }
+            println!("{} device{} paired", st.devices, if st.devices == 1 { "" } else { "s" });
+            if let Some((code, secs)) = st.pairing {
+                println!("pairing code {code} ({secs} s left)");
+            }
+            Ok(())
+        }
+        "pair" => {
+            let v = control::call(&data, "POST", "/pair", None)?;
+            if json_out {
+                return show(&v);
+            }
+            println!("{}", v["code"].as_str().unwrap_or(""));
+            eprintln!("Enter this code on the device within {} minutes.", v["seconds"].as_u64().unwrap_or(0) / 60);
+            Ok(())
+        }
+        "unpair" => {
+            control::call(&data, "DELETE", "/pair", None)?;
+            println!("No device is being paired now.");
+            Ok(())
+        }
+        "devices" => {
+            let v = control::call(&data, "GET", "/devices", None)?;
+            if json_out {
+                return show(&v);
+            }
+            for d in v.as_array().into_iter().flatten() {
+                let h = &d["holding"];
+                println!(
+                    "{}  {} ({})  {} games, {}, {} free  last seen from {}",
+                    d["id"].as_str().unwrap_or(""), d["name"].as_str().unwrap_or(""), d["kind"].as_str().unwrap_or(""),
+                    h["games"].as_u64().unwrap_or(0), bytes(h["size"].as_u64().unwrap_or(0)), bytes(h["free"].as_u64().unwrap_or(0)),
+                    d["address"].as_str().unwrap_or("")
+                );
+            }
+            Ok(())
+        }
+        "remove" => {
+            let id = a.rest.first().context("serve-devices remove <device id> (serve-devices devices lists them)")?;
+            control::call(&data, "DELETE", &format!("/devices/{}", query_value(id)), None)?;
+            println!("Removed: that device has to pair again to be answered.");
+            Ok(())
+        }
+        "changed" => {
+            let body = if a.rest.is_empty() { json!({}) } else { json!({ "paths": a.rest }) };
+            control::call(&data, "POST", "/changed", Some(&body))?;
+            Ok(())
+        }
+        "stop" => {
+            control::call(&data, "POST", "/stop", None)?;
+            println!("Stopping.");
+            Ok(())
+        }
+        other => bail!("unknown serve-devices command {other} (gamerepo-cli --help lists them)"),
+    }
+}
+
+/// Serve the library until stopped (Ctrl+C, or `serve-devices stop`).
+async fn run(mut a: Args, data: PathBuf) -> Result<()> {
+    let (config_dir, app_data) = match a.flag("--home") {
+        Some(h) => (PathBuf::from(&h).join("config"), PathBuf::from(&h).join("data")),
+        None => app_dirs(),
+    };
+    // the library asked for, else the one served last, else Game Repo's
+    let library = match a.flag("--library") {
+        Some(l) => PathBuf::from(l),
+        None => gamerepo_serve::last_library(&data)
+            .or_else(|| AppConfig::load(&config_dir.join("config.json")).library)
+            .context("No library is open in Game Repo: give --library <dir>.")?,
+    };
+    let port = number(&mut a, "--port")?.unwrap_or(api::PORT);
+    let index_from = match a.flag("--index-from") {
+        Some(p) => Some(PathBuf::from(p)),
+        None => gamerepo_core::Library::open_read_only(&library)?.id().map(|id| gamerepo_core::index::path_for(&app_data, &id)),
+    };
+    let pair = switch(&mut a, "--pair");
+    let o = Options {
+        library,
+        data,
+        port,
+        index_from,
+        announce: !switch(&mut a, "--no-announce"),
+        watch: !switch(&mut a, "--no-watch"),
+        parent: switch(&mut a, "--parent"),
+        keep: switch(&mut a, "--keep"),
+        ..Default::default()
+    };
+    let s = Server::start(o)?;
+    let st = s.status();
+    println!("Game Repo Server {} serving {} ({})", st.version, st.library_name, st.library);
+    println!("at {}{}", st.address.clone().unwrap_or_else(|| format!("127.0.0.1:{}", st.port)), if st.announced { ", announced on the network" } else { "" });
+    println!("certificate {}", st.fingerprint);
+    if pair {
+        let (code, secs) = s.pair();
+        println!("pairing code {code} (for {} minutes)", secs / 60);
+    }
+    let ctrl_c = tokio::signal::ctrl_c();
+    tokio::pin!(ctrl_c);
+    let (mut doing, mut ready, mut problem) = (String::new(), false, None);
+    loop {
+        tokio::select! {
+            _ = &mut ctrl_c => break,
+            _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+        }
+        if s.stopping() {
+            break;
+        }
+        let st = s.status();
+        if st.doing != doing {
+            if !st.doing.is_empty() {
+                eprintln!("{}", st.doing);
+            }
+            doing = st.doing;
+        }
+        if st.ready && !ready {
+            ready = true;
+            println!("ready: paired devices can browse the library");
+        }
+        if st.error != problem {
+            if let Some(e) = &st.error {
+                eprintln!("problem: {e}");
+            }
+            problem = st.error;
+        }
+    }
+    s.stop();
+    println!("stopped");
+    Ok(())
+}
+
+pub fn device_command(mut a: Args) -> Result<()> {
+    if a.rest.is_empty() {
+        bail!("device find|pair|unpair|systems|collections|games|game|add|remove|holdings (gamerepo-cli --help says more)");
+    }
+    let sub = a.rest.remove(0);
+    let json_out = switch(&mut a, "--json");
+    if sub == "find" {
+        let wait = number::<f64>(&mut a, "--wait")?.unwrap_or(3.0);
+        let found = device::find(Duration::from_secs_f64(wait))?;
+        if json_out {
+            return show(&found.iter().map(|(i, addr)| json!({ "address": addr, "server": i.server, "library": i.library, "version": i.version, "api": i.api })).collect::<Vec<_>>());
+        }
+        for (i, addr) in &found {
+            println!("{addr}  {}  (Game Repo Server {}, {})", i.library, i.version, i.server);
+        }
+        if found.is_empty() {
+            eprintln!("No server answered on this network (a firewall may be keeping it out): give device pair its address.");
+        }
+        return Ok(());
+    }
+    let to = PathBuf::from(a.need("--to").context("--to <folder>: the stand-in device's folder, holding ES-DE/ and ROMs/")?);
+    let d = Device::open(&to)?;
+    match sub.as_str() {
+        "pair" => {
+            let name = a.flag("--name").unwrap_or_else(|| "Stand-in device".into());
+            let (Some(address), Some(code)) = (a.rest.first(), a.rest.get(1)) else { bail!("device pair <address> <code> --to <folder>") };
+            let address = if address.contains(':') { address.clone() } else { format!("{address}:{}", api::PORT) };
+            let (info, _) = device::client::info(&address)?;
+            let s = device::client::pair(&address, code, &name, "stand-in")?;
+            d.keep_server(&s)?;
+            println!("Paired with {} at {address} (certificate {})", info.library, s.fingerprint);
+            Ok(())
+        }
+        "unpair" => {
+            let s = d.server()?;
+            if let Err(e) = s.call::<Value>("DELETE", "/v1/device", None::<&()>) {
+                eprintln!("The server wasn't told ({e:#}); this device forgets it all the same.");
+            }
+            d.forget_server()?;
+            println!("Unpaired.");
+            Ok(())
+        }
+        "systems" => {
+            let v: Vec<System> = d.server()?.get("/v1/systems")?;
+            if json_out {
+                return show(&v);
+            }
+            for x in v {
+                println!("{:<14} {:>7} games {:>10}  {}", x.id, x.games, bytes(x.size), x.name);
+            }
+            Ok(())
+        }
+        "collections" => {
+            let v: Vec<Collection> = d.server()?.get("/v1/collections")?;
+            if json_out {
+                return show(&v);
+            }
+            for c in v {
+                println!("{:<10} {:>7} games {:>10}  {}", c.id, c.games, bytes(c.size), c.name);
+                for g in c.groups.iter().filter(|g| !g.id.is_empty()) {
+                    println!("  {:<8} {:>7} games {:>10}  {}", g.id, g.games, bytes(g.size), g.name);
+                }
+            }
+            Ok(())
+        }
+        "games" => {
+            let mut q = vec![];
+            for (flag, param) in [("--system", "system"), ("--search", "q"), ("--collection", "collection"), ("--group", "group"), ("--sort", "sort"), ("--offset", "offset"), ("--limit", "limit")] {
+                if let Some(v) = a.flag(flag) {
+                    q.push(format!("{param}={}", query_value(&v)));
+                }
+            }
+            if switch(&mut a, "--desc") {
+                q.push("desc=1".into());
+            }
+            let page: Page = d.server()?.get(&format!("/v1/games{}{}", if q.is_empty() { "" } else { "?" }, q.join("&")))?;
+            if json_out {
+                return show(&page);
+            }
+            for g in &page.items {
+                let year = g.year.map(|y| format!(" ({y})")).unwrap_or_default();
+                let discs = if g.discs > 1 { format!(", {} discs", g.discs) } else { String::new() };
+                println!("{}  {}{year}  {}{discs}", g.key, g.title, bytes(g.size));
+            }
+            eprintln!("{} to {} of {}", if page.items.is_empty() { 0 } else { page.offset + 1 }, page.offset + page.items.len() as u64, page.total);
+            Ok(())
+        }
+        "game" => {
+            let key = a.rest.first().context("device game <key> --to <folder>")?;
+            show(&d.server()?.get::<Value>(&format!("/v1/games/{}", gamerepo_serve::http::encode_path(key)))?)
+        }
+        "add" => {
+            let mut media = list(a.flag("--media"));
+            let manuals = switch(&mut a, "--manuals") || media.iter().any(|m| m == "manual" || m == "manuals");
+            media.retain(|m| m != "manual" && m != "manuals");
+            let o = AddOptions {
+                media,
+                manuals,
+                size: number(&mut a, "--size")?.unwrap_or(0),
+                collection: a.flag("--collection").unwrap_or_default(),
+                bios: switch(&mut a, "--bios"),
+                ..Default::default()
+            };
+            let keys: Vec<String> = a.rest.iter().filter(|k| !k.starts_with("--")).cloned().collect();
+            if keys.is_empty() {
+                bail!("device add <key>... --to <folder> (device games lists the keys)");
+            }
+            let s = d.server()?;
+            let added = device::add(&s, &d, &keys, &o, &mut |p| eprintln!("{p}"))?;
+            if json_out {
+                return show(&json!({ "games": added.games, "files": added.files, "bytes": added.bytes, "there": added.there, "left": added.left, "notes": added.notes }));
+            }
+            println!("Added {} game{}: {} files fetched ({}), {} there already.", added.games, if added.games == 1 { "" } else { "s" }, added.files, bytes(added.bytes), added.there);
+            for l in &added.left {
+                println!("left out: {} ({})", l.what, l.why);
+            }
+            for n in &added.notes {
+                println!("note: {n}");
+            }
+            Ok(())
+        }
+        "remove" => {
+            let keys: Vec<String> = a.rest.clone();
+            if keys.is_empty() {
+                bail!("device remove <key>... --to <folder> (device holdings lists them)");
+            }
+            let r = device::remove(&d, &keys)?;
+            if let Ok(s) = d.server() {
+                let _ = s.call::<Value>("PUT", "/v1/device", Some(&d.holding()));
+            }
+            println!("Removed {} game{}: {} files deleted, {} kept for other games.", r.games, if r.games == 1 { "" } else { "s" }, r.files, r.kept);
+            Ok(())
+        }
+        "holdings" => {
+            let rec = d.record();
+            let h = d.holding();
+            if json_out {
+                return show(&json!({ "games": rec.games, "holding": h }));
+            }
+            for g in &rec.games {
+                let mut seen = std::collections::HashSet::new();
+                let size: u64 = g.files.iter().filter(|f| seen.insert((&f.place, &f.path))).map(|f| f.size).sum();
+                println!("{}  {}  {} files, {}", g.key, g.title, g.files.len(), bytes(size));
+            }
+            println!("{} games, {}; {} free", h.games, bytes(h.size), bytes(h.free));
+            Ok(())
+        }
+        other => bail!("unknown device command {other} (gamerepo-cli --help lists them)"),
+    }
+}

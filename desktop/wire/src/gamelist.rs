@@ -79,6 +79,35 @@ pub fn merge_entries(old: Option<&str>, entries: &[crate::Entry]) -> Option<Stri
     merge(old, &list, &details)
 }
 
+/// A gamelist without the entries for these paths (from the gamelist's folder), every
+/// other entry and field kept as it is. None: nothing changes.
+pub fn remove(old: &str, paths: &[String]) -> Option<String> {
+    let norm = |p: &str| xml_unescape(p.trim()).replace('\\', "/").trim_start_matches("./").to_lowercase();
+    let gone: HashSet<String> = paths.iter().map(|p| norm(p)).collect();
+    let mut out = String::new();
+    let mut rest = old;
+    let mut removed = false;
+    while let Some(at) = next_game(rest) {
+        let Some(end) = rest[at..].find("</game>").map(|e| at + e + "</game>".len()) else { break };
+        let block = &rest[at..end];
+        let path = block.split("<path>").nth(1).and_then(|s| s.split("</path>").next()).map(norm).unwrap_or_default();
+        if gone.contains(&path) {
+            // the entry and the indentation and line it's on
+            out.push_str(rest[..at].trim_end_matches(['\t', ' ']));
+            rest = &rest[end..];
+            if let Some(r) = rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n')) {
+                rest = r;
+            }
+            removed = true;
+            continue;
+        }
+        out.push_str(&rest[..end]);
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    removed.then_some(out)
+}
+
 /// A `<game>` block with `<tag>` set to `value` (replaced if it's there, else added before `</game>`).
 pub fn set_tag(block: &str, tag: &str, value: &str) -> String {
     set_tag_in(block, "game", tag, value)
@@ -109,8 +138,8 @@ mod tests {
     fn a_plans_entries_are_added_and_the_devices_own_kept() {
         let old = "<?xml version=\"1.0\"?>\n<gameList>\n\t<game>\n\t\t<path>./Mine.zip</path>\n\t\t<name>Mine</name>\n\t\t<playcount>4</playcount>\n\t</game>\n</gameList>\n";
         let entries = vec![
-            Entry { path: "Mine.zip".into(), name: "Mine".into(), game: "Mine (USA)".into(), fields: vec![("developer".into(), "Me & Co".into())] },
-            Entry { path: "Final Fantasy VII (USA).m3u".into(), name: "Final Fantasy VII".into(), game: "Final Fantasy VII (USA) (Disc 1)".into(), fields: vec![] },
+            Entry { path: "Mine.zip".into(), name: "Mine".into(), game: "Mine (USA)".into(), fields: vec![("developer".into(), "Me & Co".into())], ..Default::default() },
+            Entry { path: "Final Fantasy VII (USA).m3u".into(), name: "Final Fantasy VII".into(), game: "Final Fantasy VII (USA) (Disc 1)".into(), ..Default::default() },
         ];
         let merged = merge_entries(Some(old), &entries).unwrap();
         assert!(merged.contains("<playcount>4</playcount>"), "the device's own fields stay: {merged}");
@@ -118,5 +147,11 @@ mod tests {
         assert_eq!(merged.matches("<path>./Mine.zip</path>").count(), 1, "no second entry for a game listed already");
         assert!(merged.contains("<path>./Final Fantasy VII (USA).m3u</path>\n\t\t<name>Final Fantasy VII</name>"), "{merged}");
         assert_eq!(merge_entries(Some(&merged), &entries), None, "merged again, nothing changes");
+        // taken out again, the device's own entry and its fields stay as they were
+        let back = remove(&merged, &["Final Fantasy VII (USA).m3u".to_string()]).unwrap();
+        assert!(!back.contains("Final Fantasy"), "{back}");
+        assert!(back.contains("<playcount>4</playcount>") && back.contains("<developer>Me &amp; Co</developer>"), "{back}");
+        assert_eq!(remove(&back, &["Nothing.zip".to_string()]), None);
+        assert_eq!(remove(old, &["./mine.zip".to_string()]).unwrap(), "<?xml version=\"1.0\"?>\n<gameList>\n</gameList>\n");
     }
 }

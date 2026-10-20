@@ -3519,7 +3519,7 @@ stand-in's code. D89–D95 were proposed here and Jerred agreed them (2026-10-19
   `Library::writable()` (72 places today), which then refuses; the build checks that none
   goes round it, and a test proves the folder unchanged (below). A library from a newer
   Game Repo is refused with "update the server". Its index, thumbnails, made files (D93)
-  and devices are in its own data folder (`%LOCALAPPDATA%\Game Repo Server\`), as a
+  and devices are in its own data folder (`%LOCALAPPDATA%\io.github.drflgd.gamerepo.server\`, part 3), as a
   second computer's would be.
 - **The first index** is a copy of Game Repo's when it's on the same computer and the same
   version (SQLite's online backup, safe while Game Repo writes), then checked by a quick
@@ -3757,15 +3757,152 @@ the same plans as before except for games on several discs (D94).
   copies `desktop/wire` into the vendoring workspace and runs when its `Cargo.toml`
   changes.
 
+### Phase 9a notes, part 2: the server and the stand-in device (built 2026-10-19)
+
+The second of 9a's three pull requests: Game Repo Server as a crate, run from the CLI, and
+a stand-in device client, tested end to end. No window, tray icon or installer yet (part 3).
+
+- **Crates**: `desktop/serve` (`gamerepo-serve`), `desktop/device` (`gamerepo-device`) and
+  `desktop/cli` (`gamerepo-cli`, the binary moved out of the core, same name and place in
+  `target/`). The server is plain threads, one per connection (at most 64), with HTTP/1.1
+  written by hand over rustls (ring) rather than a web framework, so ranges, streaming in
+  1 MiB pieces and the slots per device are in plain view; the client the same. New
+  crates: rustls, ring, rcgen (the certificate) and mdns-sd (DNS-SD), all at least two
+  weeks old; mdns-sd is pinned (`=0.21.4`).
+- **D89**: `server.json` in the data folder (`%LOCALAPPDATA%\Game Repo Server\`, or
+  `--data`) holds the process, the HTTPS port, the control port and secret, the library
+  and the version; a second start is refused while the first answers. The control channel
+  (`GET /status`, `POST`/`DELETE /pair`, `GET /devices`, `DELETE /devices/<id>`,
+  `POST /changed`, `POST /stop`) is built now, so the CLI's `serve-devices status|pair|…`
+  use it as Game Repo will.
+- **D90**: the first index is a copy of Game Repo's (`VACUUM INTO`, only when its schema is
+  this build's), else made from scratch; the server keeps it up to date itself (DATs,
+  scan, metadata, the Library rows, then the catalogue) when told over the control
+  channel, when a watched local folder changes, or every 30 minutes. Until the first pass
+  is done the catalogue answers 503 ("still reading the library"). The library is opened
+  with `open_read_only`; the tests take the library and the folders with games byte for
+  byte and time for time.
+- **D91**: the certificate is ECDSA P-256 for the name `gamerepo-server`; a device pins its
+  SHA-256 at pairing and refuses any other ("pair it again"). Pairing codes are six
+  digits, ten minutes, five wrong ones end the pairing; `devices.json` keeps each token's
+  SHA-256 only. Connections from outside the home network's addresses (private,
+  link-local, loopback, IPv6 unique-local) are closed unanswered. The TXT record carries
+  `id`, `library`, `version` and `api`.
+- **D92**: the catalogue is `serve_games` in the server's index, made from the Library's
+  `library` rows of the DAT games had **whole**: a game had in part is left out, as an
+  export leaves it out. For that the core's `library` table gained a `partial` column (a
+  new index step, which makes every system's rows again once). PC games and files no DAT
+  knows aren't in it yet. Each row has a hash; a refresh gives the rows that changed (and
+  those gone, kept as `gone`) the next marker. The first marker is the time, so a
+  catalogue made again never follows a marker from before (410). Pages sort by title,
+  year or size, each with an index of its own (a deep page by size was 330 ms with
+  100,000 games before them, 25 ms after). `GET /v1/games/<key>` gives the game's details
+  and files as Game Repo's game page has them.
+- **D93**: a plan is `export::lay_out` in a scratch folder under the data folder, as part 1
+  built it. Each file gets the catalogue key of its game (`key`; empty for a set or BIOS
+  file, whose `needed_by` lists the catalogue keys that need it) and a URL. The kinds'
+  sizes come from a second `lay_out` with every media kind and manuals; pictures not
+  asked for are estimated from their size and the device's screen (`estimated`). Made
+  files are kept by **recipe** (a hash of the step, its sources' paths, sizes and times),
+  not by their SHA-1, since a plan names them before they're made; a made file's URL is
+  `/v1/files/made/<recipe>` and answers 202 until it's ready. The SHA-1 of any file is
+  `GET <its URL>?sha1`, which waits up to 20 s, then 202. `PlanAsk` has `bios` too. The
+  device builds its record from the plan (the server sends no separate record).
+- **D95**: a file in a folder with games is `/v1/files/roots/<root id>/<path>` and one in
+  the library folder `/v1/files/library/<path>` (only `_library/games/**/media|docs/**`,
+  `_library/docs/**` and files outside `_library`), rather than one `library/<path>`, as
+  the folders with games needn't be in the library. ETag `"<size>-<mtime ms>"`,
+  `If-Range`, single ranges, 429 with `Retry-After: 1` past four downloads per device.
+- **The device** (`gamerepo-device`): ES-DE's folders from `es_settings.xml`
+  (`ROMDirectory`, `MediaDirectory`, `~` the device's home), files fetched three at a time
+  to `<name>.gamerepo-part` with the ETag beside it, checked by SHA-1 and renamed into
+  place; entries and collection lines merged with `gamerepo-wire`; the record
+  `ES-DE/gamerepo/device.json` lists each game's files and its entries (collection lines
+  as `line:…`), so `remove` deletes only what it added and keeps a file another held game
+  lists. The stand-in keeps its pairing in `ES-DE/gamerepo/server.json`; 9b's client keeps
+  the token in the system's secure storage.
+- **Tests**: `serve/tests/devices.rs` (pairing, wrong codes and the limit, a removed
+  device, a changed certificate; a game on two discs as one game and its `.m3u` folder;
+  pictures made smaller; a shared BIOS set kept until both arcade games are gone; resume
+  at 40%; a file changed under a resume; four at once and a fifth refused; `changes` after
+  a game is added and one goes; identify; the library unchanged). Timings: a page of a
+  100,000-game catalogue in every order under 200 ms (25–30 ms here), `changes` under
+  100 ms (1 ms), a 512 MiB download sent at least 250 MB/s (870 MB/s here). The same
+  download written to disk and synced is only reported, as that's the disk's speed more
+  than the server's (320 MB/s here, 84 MB/s on Windows CI). `tests/serve_devices.py` runs the two programs on Windows CI: found by
+  DNS-SD (it worked in the cloud session too), paired by a code from the control channel,
+  games added and removed, a removed device refused, the library unchanged.
+- **CI**: builds with `-p gamerepo-cli`, tests `-p gamerepo-core -p gamerepo-wire
+  -p gamerepo-serve -p gamerepo-device`, timings with `-p gamerepo-core -p gamerepo-serve`;
+  `vendor.yml` vendors the new crates too.
+
+### Phase 9a notes, part 3: the tray app, Settings and the installers (built 2026-10-19)
+
+The last of 9a's three pull requests: Game Repo starting and stopping the server, Settings ›
+*Serve to devices*, Game Repo Server's own program with its tray icon and window, and the
+installers.
+
+- **Game Repo's side** (`core/src/serving.rs`, the `serve_*` commands in `api.rs`): the
+  server is started as its own process with `--library`, `--data`, `--port`, `--parent`,
+  Game Repo's index as `--index-from`, and `--keep` when ticked; its output goes to
+  `server.log` in the server's data folder, whose last lines are the message when it
+  doesn't start. Game Repo keeps the child's input open: with `--parent` the server reads
+  it until it closes (Game Repo ended, however it ended) and then stops unless it's kept,
+  so a crashed Game Repo doesn't leave a server behind it. *Keep serving* is told to a
+  running server (`POST /keep`) as well as kept in Game Repo's settings (`serve`: `on`,
+  `port`, `keep`). `on` brings the server back when Game Repo opens (`serve_resume`; why it
+  didn't start shows in Settings). After a job or a command that changes the library
+  (`TELLS_SERVER`), Game Repo tells a server serving that library (`POST /changed`).
+- **Start with Windows** is HKCU's Run value "Game Repo Server" (the name Tauri's
+  uninstaller already removes for the server's own install), pointing at the program;
+  started with no library, the server serves the library and port it served last
+  (`settings.json`). It's offered only where the program is installed (not for
+  `gamerepo-cli serve-devices`).
+- **The data folder** moved to `%LOCALAPPDATA%\io.github.drflgd.gamerepo.server\` (the
+  server app's identifier, as Tauri names its folders): the server's own installer puts
+  the program in `%LOCALAPPDATA%\Game Repo Server\`, which was to be the data folder, and
+  its uninstaller's "delete the app's data" now removes the server's data.
+- **Settings › Serve to devices** (`web/ui/serve.js`): the switch, the address, *Pair a
+  device* with the code counting down (it goes when a device pairs, and "Paired with …"
+  says which), the devices with what each holds and when it was seen, *Remove…* asked
+  in the row, "serving another library" with *Serve this one instead*, the public-network
+  note (`Get-NetConnectionProfile`) and, folded, the port, *Keep serving* and *Start with
+  Windows*. It polls `serve_status` every 2 s (every second while a code shows).
+- **Game Repo Server's program** (`desktop/server`, `gamerepo-server`): Tauri 2 with
+  `tray-icon`; the same options as Game Repo gives `serve-devices`. The tray menu has *Pair
+  a device…* (makes a code and opens the window), *Devices…*, *Open the library…* (serves
+  another, on the same port), *Start with Windows* (a tick) and *Stop*; a click opens the
+  window. The window is `server.html`, the same panel with *Open another library…* and
+  *Stop serving* in place of the switch; closing it hides it. One per computer: a second
+  start asks the first to show its window (`POST /show`) and ends. It ends when its
+  server is asked to stop (Game Repo's *Stop*, or Game Repo ending when it isn't kept).
+- **Installers** (`desktop/installer/hooks.nsh`, in both): the firewall rules are
+  "Game Repo Server" for its own install and "Game Repo Server (with Game Repo)" for the
+  copy beside the app, each for that program on private networks only: TCP (the port can
+  change) and UDP 5353. Adding a rule needs an administrator, so it's asked for once
+  (when the rule isn't there); if that's declined, Windows asks itself when the server
+  first listens. Installing or removing stops that copy of the server first; removing
+  (not updating) takes its rules away, and Start with Windows when it pointed there.
+- **Tests and CI**: the page test's part "serve" (a home of its own) starts the server
+  from Settings on a free port, pairs `gamerepo-cli device` with the code shown, sees it
+  in the list, removes it and sees it refused, stops and starts it, and checks it stops
+  when the backend that started it ends. `serve_devices.py --server` runs the stand-in
+  against Game Repo Server's own program. Windows CI builds the server with its
+  installer, runs the stand-in against it, copies it beside Game Repo and builds Game
+  Repo's installer (checked to carry it), and the release adds
+  `Game Repo Server_<version>_x64-setup.exe`.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
-  blocked in many cloud sessions, so `vendor.yml` pushes the core's dependencies to a
-  `crates-vendor` branch whenever `desktop/core/Cargo.toml` changes, and a session can
+  blocked in many cloud sessions, so `vendor.yml` pushes the dependencies of every crate
+  but the window's to a `crates-vendor` branch whenever one of their `Cargo.toml`s
+  changes, and a session can
   build offline from it (CHANGELOG.md, "For agents").
-- The Tauri app itself can't be built in a cloud session; the backend is tested with
-  `gamerepo-cli serve` + `tests/tauri_shim.js` in the pre-installed Chromium. The real app
-  builds only in CI.
+- The Tauri apps build in a cloud session once WebKitGTK is installed (CHANGELOG.md, "For
+  agents"), and Game Repo Server's program runs there under Xvfb; the backend is tested
+  with `gamerepo-cli serve` + `tests/tauri_shim.js` in the pre-installed Chromium. The
+  installers build only in CI.
 - CI reports and acceptance screenshots land on a `desktop-ci-windows` branch.
 
 ---
@@ -3941,5 +4078,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     Server on Windows, 9b the client for Windows and Android with ES-DE, 9c the Steam
     Deck, 9d later. 9a's design ("Phase 9a design", D89–D95) is agreed (Jerred,
     2026-10-19) and is built in three pull requests; the first, the groundwork in the core,
-    is built ("Phase 9a notes, part 1"). Later: reading magazines' text
+    is v0.5.27 ("Phase 9a notes, part 1"); the second, the server and the stand-in device
+    from the CLI, is built ("Phase 9a notes, part 2"); the third, the tray app, Settings ›
+    Serve to devices and the installers, is built ("Phase 9a notes, part 3"). Next is 9b,
+    the Windows and Android clients. Later: reading magazines' text
     (PDF, CBZ and CBR) and tagging each issue with the games it covers.

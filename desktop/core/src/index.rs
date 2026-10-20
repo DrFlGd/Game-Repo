@@ -194,6 +194,13 @@ const MIGRATIONS: &[(&str, &str)] = &[
         // Phase 8b (D66): how many of a game's updates, DLC and patches you have
         "ALTER TABLE library ADD COLUMN addons INTEGER NOT NULL DEFAULT 0;",
     ),
+    (
+        "partial",
+        // Phase 9a: the games had in part (their audit's partial), which Game Repo Server
+        // doesn't offer, as an export leaves them out; every system's rows made again
+        "ALTER TABLE library ADD COLUMN partial INTEGER NOT NULL DEFAULT 0;
+         DELETE FROM index_meta WHERE key LIKE 'library:%';",
+    ),
 ];
 
 /// How many schema steps this build knows.

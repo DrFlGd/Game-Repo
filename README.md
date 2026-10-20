@@ -22,9 +22,12 @@ metadata say what their phase will bring. Releases (Windows installer) are on th
 The Windows app is built by CI (`.github/workflows/desktop.yml`). Locally:
 
 ```
-cd desktop && cargo test -p gamerepo-core          # the core and its tests
-python3 tools/build_desktop.py --out build/desktop # the front end
-cd desktop && npx @tauri-apps/cli@2 build          # the app (needs Node and WebView2)
+cd desktop && cargo test -p gamerepo-core -p gamerepo-wire -p gamerepo-serve -p gamerepo-device
+                                                   # the core, Game Repo Server and their tests
+python3 tools/build_desktop.py --out build/desktop # the front end (Game Repo's and the server's)
+cd desktop/server && npx @tauri-apps/cli@2 build   # Game Repo Server and its own installer
+mkdir -p desktop/src-tauri/binaries && cp desktop/target/release/gamerepo-server.exe desktop/src-tauri/binaries/gamerepo-server-x86_64-pc-windows-msvc.exe
+cd desktop/src-tauri && npx @tauri-apps/cli@2 build # the app, with the server beside it (needs Node and WebView2)
 ```
 
 `CHANGELOG.md` has the map of the code for whoever works on it next.
@@ -34,8 +37,14 @@ cd desktop && npx @tauri-apps/cli@2 build          # the app (needs Node and Web
 ```
 docs/PLAN.md         project plan, decisions, phase designs and notes
 web/                 the front end (no build step)
-desktop/core/        Rust core and gamerepo-cli
+desktop/core/        Rust core
+desktop/wire/        what Game Repo Server and a device say to each other
+desktop/serve/       Game Repo Server (serves the library to devices)
+desktop/device/      a device's side (the stand-in client)
+desktop/cli/         gamerepo-cli: the backend, the server and the stand-in, without a window
 desktop/src-tauri/   the Tauri 2 app
+desktop/server/      Game Repo Server's own program: tray icon, window, installer
+desktop/installer/   what both installers add (the server's firewall rules)
 tools/, tests/       build and test scripts; synthetic fixtures only, never real game files
 ```
 

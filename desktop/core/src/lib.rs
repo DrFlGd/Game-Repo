@@ -67,6 +67,7 @@ pub mod roots;
 pub mod scan;
 pub mod scrape;
 pub mod scrapers;
+pub mod serving;
 pub mod sources;
 pub mod starter;
 pub mod steam;

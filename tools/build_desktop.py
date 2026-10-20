@@ -3,10 +3,11 @@
 
     python3 tools/build_desktop.py --out build/desktop [--fetch-fonts]
 
-Copies web/ to <out>/ui (tauri.conf.json's frontendDist), with CHANGELOG.md,
+Copies web/ to <out>/ui (the frontendDist of both tauri.conf.json files: Game Repo's
+page is index.html, Game Repo Server's window server.html), with CHANGELOG.md,
 THIRD_PARTY.md and build-info.json (date, commit, vendored library versions)
 for the About page. The app works offline,
-so the Google Fonts lines are dropped from index.html: with --fetch-fonts (CI)
+so the Google Fonts lines are dropped from both pages: with --fetch-fonts (CI)
 the skins' fonts (all SIL OFL, from google/fonts) are bundled instead, otherwise
 system fonts are used. A font file is only read when a skin in use needs it.
 """
@@ -87,9 +88,6 @@ FONTS = [
     ("Overpass", "overpass", [("Overpass%5Bwght%5D.ttf", "100 900")], None),
     ("Overpass Mono", "overpassmono", [("OverpassMono%5Bwght%5D.ttf", "300 700")], None),
 ]
-index = ui / "index.html"
-html = index.read_text(encoding="utf-8")
-lines = [l for l in html.splitlines() if "fonts.googleapis.com" not in l and "fonts.gstatic.com" not in l]
 font_css = ""
 if a.fetch_fonts:
     import re, urllib.request
@@ -109,12 +107,16 @@ if a.fetch_fonts:
         (fonts / (name + "-OFL.txt")).write_bytes(licence)
     (fonts / "fonts.css").write_text("".join(faces))
     font_css = '  <link rel="stylesheet" href="vendor/fonts/fonts.css">'
-out_lines = []
-for l in lines:
-    if font_css and 'href="styles.css"' in l:
-        out_lines.append(font_css)
-    out_lines.append(l)
-index.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+# the app's page and Game Repo Server's window (server.html)
+for page in (ui / "index.html", ui / "server.html"):
+    out_lines = []
+    for l in page.read_text(encoding="utf-8").splitlines():
+        if "fonts.googleapis.com" in l or "fonts.gstatic.com" in l:
+            continue
+        if font_css and 'href="styles.css"' in l:
+            out_lines.append(font_css)
+        out_lines.append(l)
+    page.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
 
 size = sum(f.stat().st_size for f in ui.rglob("*") if f.is_file())
 print(f"ui {size / 1e6:.1f} MB -> {ui}")
