@@ -29,11 +29,11 @@
     "shortDescription": "Download games from your Game Repo library into ES-DE",
     "longDescription": "Browse a Game Repo library served on your home network, download games with their pictures and manuals into ES-DE's folders on this device, and remove them again safely.",
     "icon": [
-      "../src-tauri/icons/32x32.png",
-      "../src-tauri/icons/128x128.png",
-      "../src-tauri/icons/128x128@2x.png",
-      "../src-tauri/icons/icon.png",
-      "../src-tauri/icons/icon.ico"
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico"
     ],
     "windows": {
       "nsis": {
