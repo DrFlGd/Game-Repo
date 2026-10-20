@@ -116,9 +116,15 @@ pub fn changed(data: &Path, library: &Path) {
     });
 }
 
+/// A command run without a console window: Settings asks these each time it opens, and
+/// each would show a Command Prompt window otherwise.
+fn quiet(program: &str) -> Command {
+    crate::tools::command(Path::new(program))
+}
+
 /// Is the server started with Windows?
 pub fn with_windows() -> bool {
-    cfg!(windows) && Command::new("reg").args(["query", RUN_KEY, "/v", RUN_VALUE]).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+    cfg!(windows) && quiet("reg").args(["query", RUN_KEY, "/v", RUN_VALUE]).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
 }
 
 /// Start the server with Windows (it serves the library it served last), or not.
@@ -126,7 +132,7 @@ pub fn set_with_windows(program: &Path, on: bool) -> Result<()> {
     if !cfg!(windows) {
         bail!("Only on Windows.");
     }
-    let mut c = Command::new("reg");
+    let mut c = quiet("reg");
     if on {
         c.args(["add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/d", &format!("\"{}\"", program.display()), "/f"]);
     } else {
@@ -145,7 +151,7 @@ pub fn networks() -> Vec<Value> {
     if !cfg!(windows) {
         return vec![];
     }
-    let out = Command::new("powershell")
+    let out = quiet("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", "Get-NetConnectionProfile | Select-Object Name, InterfaceAlias, @{n='Category';e={[string]$_.NetworkCategory}} | ConvertTo-Json -Compress"])
         .stderr(Stdio::null())
         .output();
