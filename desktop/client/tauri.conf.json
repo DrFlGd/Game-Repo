@@ -39,6 +39,9 @@
       "nsis": {
         "installMode": "currentUser"
       }
+    },
+    "android": {
+      "minSdkVersion": 29
     }
   }
 }

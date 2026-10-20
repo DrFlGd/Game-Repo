@@ -3445,7 +3445,8 @@ client; access from outside the home network.
 
 **PC games on devices (D105; Jerred, 2026-10-20: "When PC games are installed, zips will
 need to be extracted to a folder that makes sense for the platform. This will likely be
-different for windows and linux"; the folders and the timing are Claude's proposal).**
+different for windows and linux"; the folders and the timing are Claude's proposal, which
+Jerred agreed the same day: "you've nailed it").**
 - A PC game kept as an archive (zip or 7z, D12) goes onto the device unpacked, in a
   folder of its own, `<Title> (<Year>)/`, inside a *PC games folder* that suits the
   device. It is never put there as the archive.
@@ -4314,6 +4315,59 @@ on the release. Android is part 3.
   protocol, a download, the credential kept and gone after *Unpair*. Windows CI runs both,
   `cargo test -p gamerepo-client`, and checks the installer is made; the release carries
   it. `tests/serve_devices.py` checks the library found again at another address.
+
+### Phase 9b notes, part 3: Game Repo Go for Android (built 2026-10-20)
+
+The last of 9b's pull requests: the Kotlin plugin, the APK, the emulator test and the
+signing key. Built as D97 says, except where noted.
+
+- **Where**: the plugin is `desktop/client/plugin/` (`tauri-plugin-gamerepo-device`, a
+  crate of its own whose `android/` holds the Kotlin), not `desktop/client/android`, since
+  Tauri makes the app's Android project in `desktop/client/gen/android`. That project isn't
+  committed: CI makes it with `tauri android init` each time, so a Tauri update brings its
+  template with it. `gamerepo-client` is now a library (`src/lib.rs`, the APK's
+  `libgamerepo_client_lib.so`) with `main.rs` starting it on Windows; `src/android.rs` is
+  Android's side in Rust. The page asks nothing of the plugin itself: it calls the app's
+  `storage`, `pick_folder` and `leave`, and Rust asks the plugin, never from Android's main
+  thread (each answer comes from there).
+- **All files access** (D87): a note on every page until it's allowed, with *Allow access*
+  opening Android's own screen for Game Repo Go; when the person comes back it's checked
+  again and ES-DE is looked for on every storage volume. Browsing works without it.
+  Android 10 asks for the older storage permission instead.
+- **Downloads in the background** (C10): the foreground service runs while the queue has
+  games coming, waiting for the library or paused from its notification, which shows the
+  games left, the percentage and the size, and has *Pause* or *Resume*, and *Cancel*
+  (*Resume* isn't in the design). Android 13 and later ask once, on the first download,
+  whether Game Repo Go may show notifications. Past Android 15's six hours a day the
+  service stops; the queue goes on while the app runs and when it's next opened. The
+  multicast lock is held only while the library is being looked for
+  (`gamerepo_device::on_browse`), not for the whole download.
+- **The pairing** is sealed with an AES key the Android Keystore holds, in the app's own
+  preferences (`gamerepo-go-secrets`); nothing else of it is written down.
+- **Controllers**: the plugin turns A, B and X into Enter, Esc and X, the shoulder buttons
+  into Page Up and Down, and the left stick or hat into the arrows (repeating after 0.4 s),
+  before the web view sees them, so the page's own keys do the rest.
+- **Back** (not in the design): Android's Back closes a dialog, goes back a page, and on
+  the Library sends Game Repo Go to the background, as Esc does on Windows.
+- **The APK**: arm64, Android 10 (API 29) or later, built by the *Android app* CI job on
+  Linux with the runner's SDK, NDK and Java 17. Gradle makes it unsigned; CI aligns it and
+  signs it with `apksigner` using the key from `tools/android_signing_key.cmd` (the key's
+  name inside the file is whatever Windows gave it, so CI reads it from the file). Without
+  the secrets it's signed with a throwaway key for the check below and not published, with
+  a warning on the run.
+- **Tests**: `tests/client_android.py` runs a debug x86_64 build (only a debug build's web
+  view can be driven) on an emulator with Android 14 against `gamerepo-cli serve-devices`
+  on the runner, at 10.0.2.2: the access note and Android's screen for it, pairing by
+  address, a picture through the protocol, the Keystore, a controller's keys, a game added
+  into ES-DE's folders, the notification and its *Pause* while the library's away, the game
+  coming once it's back, a removal, Back, and no page errors. Then `--smoke` installs the
+  signed, minified arm64 APK on the same emulator (Android 14's emulator runs arm64 apps
+  by translating them) and checks it starts on the pairing page with the access note,
+  which needs the plugin to have come through minifying. `tests/client_page.py` checks the
+  note and Back in Chromium. Not tried: a real phone or handheld, an SD card, and
+  controllers other than the emulator's keys.
+- **Release**: the *What passed* job now waits for Windows and Android, so *Already tested*
+  publishes the APK with the installers; the notes give the certificate's SHA-256.
 
 ## 8. Working in a cloud session
 

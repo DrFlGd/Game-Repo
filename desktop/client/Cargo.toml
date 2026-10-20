@@ -4,18 +4,31 @@ description = "Game Repo Go: browse a Game Repo library on the home network and 
 version.workspace = true
 edition.workspace = true
 
+[lib]
+# the Android app loads it as a library (libgamerepo_client_lib.so); Windows runs main.rs
+name = "gamerepo_client_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 anyhow = "1"
 serde_json = "1"
+tauri = "2"
+gamerepo-device = { path = "../device" }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# the icon by the clock while games download, and folders chosen with the system's dialog
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
-gamerepo-device = { path = "../device" }
 
 [target.'cfg(windows)'.dependencies]
 # a second start shows the first one's window
 tauri-plugin-single-instance = "=2.5.2"
 # the pairing token in Windows Credential Manager
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# All files access, the storage volumes, the Keystore, multicast, the downloads' service
+tauri-plugin-gamerepo-device = { path = "plugin" }

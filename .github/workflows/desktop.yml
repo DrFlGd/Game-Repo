@@ -1,10 +1,12 @@
 name: Desktop
 
 # Builds the desktop app (Tauri) for Windows with Game Repo Server beside it and on its
-# own, and Game Repo Go (the device client) on its own; runs the Rust tests and the
-# acceptance test (the page against the app's real backend), Game Repo Server (as the CLI
-# and as its tray app) against the stand-in device client, Game Repo Go's pages against its
-# backend and the server, drives the app and Game Repo Go through WebDriver,
+# own, and Game Repo Go (the device client) on its own and as an Android APK; runs the Rust
+# tests and the acceptance test (the page against the app's real backend), Game Repo Server
+# (as the CLI and as its tray app) against the stand-in device client, Game Repo Go's pages
+# against its backend and the server, drives the app and Game Repo Go through WebDriver and
+# Game Repo Go's APK on an Android emulator, signs the APK with the key in the repository's
+# secrets (tools/android_signing_key.cmd puts it there; without it the APK isn't published),
 # and when everything passes on main publishes a numbered release (v0.0.0, v0.0.1,
 # ...; see tools/set_version.py) with notes taken from CHANGELOG.md's Unreleased
 # section. Windows is the only platform for now (decision D3, docs/PLAN.md):
@@ -14,8 +16,8 @@ name: Desktop
 # read-only except in the two jobs that write (reports and release), which run no build
 # or test code; actions are pinned to commits and tools to exact versions. Only a push
 # to main publishes: Run workflow on main builds and tests but doesn't publish again.
-# A push whose files a pull request's run already built and tested on Windows, for the
-# same version, publishes that run's installer instead of building and testing again
+# A push whose files a pull request's run already built and tested on Windows and Android,
+# for the same version, publishes that run's installers and APK instead of building and testing again
 # (the "Already tested" job); any difference, such as another merge in between, runs
 # everything.
 on:
@@ -86,9 +88,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           V: ${{ needs.version.outputs.version }}
         run: |
-          # the Windows job's last step names what it passed with: these files (their git tree)
-          # and this version. Only a run from this repository's own branches counts (a fork's
-          # pull request could name any files), and only while its installer is kept.
+          # the What passed job names what Windows and Android passed with: these files (their
+          # git tree) and this version. Only a run from this repository's own branches counts (a
+          # fork's pull request could name any files), and only while its installer is kept.
           tree=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq .commit.tree.sha)
           name="tested-$tree-$V"
           runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name" \
@@ -352,28 +354,157 @@ jobs:
           # Game Repo Go: paired with a server, a picture, a download, Credential Manager
           PYTHONUTF8=1 timeout 600 python tests/client_ui.py --app desktop/target/release/gamerepo-client.exe \
             --cli desktop/target/release/gamerepo-cli.exe --home "$RUNNER_TEMP/go-ui" --out ci-out/go-shots 2>&1 | tee ci-out/client-ui.log
-      - name: What passed
-        # only reached when every step above passed: names these files and this version, so
-        # a push to main with the same files publishes this installer (see Already tested)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with: { name: reports-windows, path: ci-out/, retention-days: 3, include-hidden-files: true }
+
+  android:
+    name: Android app
+    needs: [version, tested]
+    if: ${{ !cancelled() && needs.version.result == 'success' && !needs.tested.outputs.run }}
+    runs-on: ubuntu-24.04   # its Android SDK, NDK and Java 17; KVM for the emulator
+    timeout-minutes: 75
+    defaults:
+      run: { shell: bash }
+    env:
+      SYSTEM_IMAGE: "system-images;android-34;google_apis;x86_64"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "22" }
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: { python-version: "3.12" }
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with: { targets: "aarch64-linux-android,x86_64-linux-android" }
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with: { workspaces: desktop }
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-tauri2.12.3-${{ hashFiles('desktop/client/plugin/android/build.gradle.kts') }}
+      - name: Room on the disk (three Rust targets, Gradle and the emulator)
         run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL
+          df -h / | tail -1
+      - name: Start an Android emulator (it boots while the app builds)
+        run: |
+          mkdir -p ci-out
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
+          (yes || true) | "$sdk/sdkmanager" --licenses > /dev/null
+          "$sdk/sdkmanager" emulator platform-tools "$SYSTEM_IMAGE" > ci-out/sdkmanager.log
+          device=$("$sdk/avdmanager" list device -c | grep -m1 -xE 'pixel_(7|6|5)' || echo pixel)
+          echo no | "$sdk/avdmanager" create avd -n go -k "$SYSTEM_IMAGE" -d "$device" --force > /dev/null
+          nohup "$ANDROID_HOME/emulator/emulator" -avd go -no-window -no-audio -no-boot-anim -no-snapshot -memory 3072 \
+            -gpu swiftshader_indirect -camera-back none -camera-front none > ci-out/emulator.log 2>&1 &
+      - name: Version ${{ needs.version.outputs.version }}
+        run: python tools/set_version.py "${{ needs.version.outputs.version }}"
+      - name: Front end
+        env:
+          GAMEREPO_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python tools/build_desktop.py --out build/desktop --fetch-fonts
+      - name: Game Repo's command line (it serves the library to the emulator)
+        working-directory: desktop
+        run: cargo build -p gamerepo-cli 2>&1 | tee ../ci-out/cli-build.log
+      - name: Build Game Repo Go for Android (arm64 for devices; x86_64 with debugging for the emulator)
+        working-directory: desktop/client
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64" NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          tauri() { npx --yes @tauri-apps/cli@2.12.3 "$@"; }
+          tauri android init --ci 2>&1 | tee ../../ci-out/android-init.log
+          # the launcher icon (written into gen/android's res folders)
+          tauri icon ../src-tauri/icons/icon.png 2>&1 | tail -3
+          tauri android build --ci --apk --split-per-abi --target aarch64 2>&1 | tee ../../ci-out/android-build.log
+          # the emulator's: a debug build, so its web view can be driven (no debug info, smaller)
+          CARGO_PROFILE_DEV_DEBUG=false tauri android build --ci --apk --split-per-abi --target x86_64 --debug 2>&1 | tee ../../ci-out/android-build-debug.log
+          find gen/android/app/build/outputs/apk -name '*.apk' -exec ls -la {} \; | tee ../../ci-out/apks.txt
+      - name: Game Repo Go on the emulator, against Game Repo Server
+        run: |
+          timeout 600 adb wait-for-device
+          timeout 600 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 3; done'
+          for s in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global $s 0; done
+          adb shell input keyevent KEYCODE_WAKEUP
+          adb shell wm dismiss-keyguard || true
+          adb shell getprop ro.product.cpu.abilist | tee ci-out/emulator-abis.txt
+          pip install websocket-client==1.8.0
+          apk=$(find desktop/client/gen/android/app/build/outputs/apk -path '*x86_64*' -name '*debug.apk' | head -1)
+          timeout 900 python tests/client_android.py --apk "$apk" --cli desktop/target/debug/gamerepo-cli \
+            --home "$RUNNER_TEMP/go-android" --out ci-out/go-android 2>&1 | tee ci-out/client-android.log
+      - name: Sign the APK (with the key from tools/android_signing_key.cmd)
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYPASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          unsigned=$(find desktop/client/gen/android/app/build/outputs/apk -path '*arm64*' -name '*release*.apk' | head -1)
+          mkdir -p dist
+          "$bt/zipalign" -f -P 16 4 "$unsigned" "$RUNNER_TEMP/aligned.apk"
+          if [ -n "$KEYSTORE" ] && [ -n "$KEYPASS" ]; then
+            printf '%s' "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/go.p12"
+            published="dist/Game Repo Go_${V}_arm64.apk"
+          else
+            # no key yet: signed with a throwaway one for the check below, and not published
+            echo "::warning title=Android::The signing key isn't in the repository's secrets yet (run tools/android_signing_key.cmd), so the APK is built and checked but not published"
+            KEYPASS=$(openssl rand -hex 16)
+            keytool -genkeypair -keystore "$RUNNER_TEMP/go.p12" -storetype PKCS12 -storepass:env KEYPASS -alias check \
+              -keyalg RSA -keysize 2048 -validity 2 -dname "CN=Game Repo Go check" > /dev/null
+            published=""
+          fi
+          # the key's name in the file is whatever Windows gave it: the file's only key
+          alias=$(keytool -list -v -keystore "$RUNNER_TEMP/go.p12" -storetype PKCS12 -storepass:env KEYPASS | sed -n 's/^Alias name: //p' | head -1)
+          "$bt/apksigner" sign --ks "$RUNNER_TEMP/go.p12" --ks-type PKCS12 --ks-pass env:KEYPASS --ks-key-alias "$alias" \
+            --out "$RUNNER_TEMP/game-repo-go.apk" "$RUNNER_TEMP/aligned.apk"
+          rm -f "$RUNNER_TEMP/go.p12"
+          "$bt/apksigner" verify --print-certs "$RUNNER_TEMP/game-repo-go.apk" | tee ci-out/apk-certificate.txt
+          [ -z "$published" ] || cp "$RUNNER_TEMP/game-repo-go.apk" "$published"
+          ls -la dist | tee ci-out/bundles.txt
+      - name: The signed APK starts (arm64, where the emulator can run it)
+        run: |
+          if grep -q arm64-v8a ci-out/emulator-abis.txt; then
+            timeout 300 python tests/client_android.py --smoke --apk "$RUNNER_TEMP/game-repo-go.apk" --out ci-out/go-android 2>&1 | tee ci-out/client-android-release.log
+          else
+            echo "::warning title=Android::This emulator can't run arm64 apps, so the signed APK wasn't started"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: bundles-android, path: dist/, retention-days: 3, if-no-files-found: ignore }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with: { name: reports-android, path: ci-out/, retention-days: 3, include-hidden-files: true }
+
+  passed:
+    name: What passed
+    needs: [version, windows, android]
+    # only when Windows and Android passed: names these files and this version, so a push to
+    # main with the same files publishes this run's installers and APK (see Already tested)
+    if: ${{ !cancelled() && needs.windows.result == 'success' && needs.android.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - run: |
           mkdir -p tested
           git rev-parse 'HEAD^{tree}' > tested/TREE
           echo "${{ needs.version.outputs.version }}" > tested/VERSION
           echo "TESTED=tested-$(cat tested/TREE)-${{ needs.version.outputs.version }}" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: "${{ env.TESTED }}", path: tested/, retention-days: 3 }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with: { name: reports-windows, path: ci-out/, retention-days: 3, include-hidden-files: true }
 
   reports:
     name: Reports
-    needs: [linux, windows]
+    needs: [linux, windows, android]
     # (a pull request from a fork has no token to push with)
-    # (nothing to report when Windows' was already tested and Linux wasn't asked for)
+    # (nothing to report when Windows' and Android's were already tested and Linux wasn't asked for)
     if: >-
       always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-      (needs.windows.result != 'skipped' || needs.linux.result != 'skipped')
+      (needs.windows.result != 'skipped' || needs.android.result != 'skipped' || needs.linux.result != 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -387,9 +518,9 @@ jobs:
           # main's reports stay main's: a pull request's go to desktop-ci-<os>-pr (review M46)
           SUFFIX: ${{ github.event_name == 'pull_request' && '-pr' || '' }}
         run: |
-          for os in linux windows; do
+          for os in linux windows android; do
             [ -d "reports/reports-$os" ] || continue
-            name=$([ "$os" = linux ] && echo Linux || echo Windows)
+            name=$(case $os in linux) echo Linux;; windows) echo Windows;; *) echo Android;; esac)
             (
               cd "reports/reports-$os"
               echo "${GITHUB_SHA}" > COMMIT
@@ -431,13 +562,14 @@ jobs:
 
   release:
     name: Release
-    needs: [version, tested, linux, windows, portability]
+    needs: [version, tested, linux, windows, android, passed, portability]
     # only for a push to main (review M46: Run workflow on main published the same code
     # again), and only when every check that ran passed (Linux and the portability check
-    # are skipped unless asked for), or Windows' was passed by a run with the same files
+    # are skipped unless asked for), or Windows' and Android's were passed by a run with the
+    # same files
     if: >-
       always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.result == 'success' &&
-      (needs.windows.result == 'success' || (needs.windows.result == 'skipped' && needs.tested.outputs.run != '')) &&
+      (needs.passed.result == 'success' || (needs.windows.result == 'skipped' && needs.android.result == 'skipped' && needs.tested.outputs.run != '')) &&
       contains(fromJSON('["success","skipped"]'), needs.linux.result) &&
       contains(fromJSON('["success","skipped"]'), needs.portability.result)
     runs-on: ubuntu-24.04
@@ -453,7 +585,7 @@ jobs:
         with: { pattern: bundles-*, path: dist, merge-multiple: true }
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         if: needs.tested.outputs.run != ''
-        with: { name: bundles-windows, path: dist, run-id: "${{ needs.tested.outputs.run }}", github-token: "${{ github.token }}" }
+        with: { pattern: bundles-*, path: dist, merge-multiple: true, run-id: "${{ needs.tested.outputs.run }}", github-token: "${{ github.token }}" }
       - name: Publish v${{ needs.version.outputs.version }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -466,6 +598,14 @@ jobs:
             echo "**Windows:** \`Game Repo_${V}_x64-setup.exe\` (unsigned, so SmartScreen asks once: More info → Run anyway). It installs Game Repo Server beside the app."
             echo "\`Game Repo Server_${V}_x64-setup.exe\` is Game Repo Server on its own, for a computer that serves a library to devices without Game Repo."
             echo "\`Game Repo Go_${V}_x64-setup.exe\` is Game Repo Go, for a Windows computer or handheld that downloads games from a library into ES-DE."
+            apk="dist/Game Repo Go_${V}_arm64.apk"
+            if [ -f "$apk" ]; then
+              cert=$("$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+              echo
+              echo "**Android:** \`Game Repo Go_${V}_arm64.apk\` is Game Repo Go for an Android phone or handheld (Android 10 or later) with ES-DE. The first time, Android asks you to allow installing apps from your browser or file manager. Every version is signed with the same certificate (SHA-256 \`${cert}\`), so a new one installs over the last."
+            else
+              echo "::warning title=Android::No APK to publish (the signing key isn't in the repository's secrets yet)" >&2
+            fi
             if ls dist/*.deb dist/*.AppImage > /dev/null 2>&1; then
               echo "**Linux:** the \`.deb\` or the \`.AppImage\`."
             fi

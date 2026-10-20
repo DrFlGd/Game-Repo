@@ -36,6 +36,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 import zlib
 from pathlib import Path
 
@@ -194,6 +195,12 @@ async def toast(pg, text, timeout=20000):
 
 async def cards(pg):
     return await pg.eval_on_selector_all("#go-games .go-card[data-key]", "els => els.map(e => e.dataset.key)")
+
+
+def shell(**changes):
+    """What client-ui's shell says it is (kind, All files access), and how often Back left."""
+    req = urllib.request.Request(B + "test/shell", data=json.dumps(changes).encode(), method="POST")
+    return json.loads(urllib.request.urlopen(req, timeout=10).read())
 
 
 async def settled(pg, js, timeout=5000):
@@ -414,7 +421,38 @@ async def main():
             check("Settings: Down reaches every control in turn", "set-theme" in order and "set-on-device" in order and "set-unpair" in order and len(set(order)) >= stops - 1, (stops, order))
             await shot(pg, "13-pc-settings")
 
-            # 13. away from home: the library's list and a game's details are kept on the device
+            # 13. on Android: games wait for All files access (D87), asked for from a note on
+            # every page; Back closes, goes back, and from the Library leaves the app
+            shell(kind="android", granted=False)
+            await pg.set_viewport_size(PHONE)
+            await pg.goto(B + "#library")
+            await pg.reload()
+            await pg.wait_for_selector("#go-storage")
+            note = await pg.inner_text("#go-storage")
+            await shot(pg, "15-phone-android-access")
+            await pg.click("#go-storage-allow")
+            await pg.wait_for_selector("#go-storage", state="detached")
+            check("on Android, games wait for All files access, asked for from the note", "access to all files" in note and shell()["granted"] is True, note)
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#set-version")
+            await pg.goto(B + "#game/" + "gb%2FAlpha%20(USA)")
+            await pg.wait_for_selector("#go-game-title")
+            await pg.evaluate("() => window.__shimBack()")
+            await pg.wait_for_selector("#set-version")
+            from_game = await pg.evaluate("() => location.hash")
+            await pg.goto(B + "#library")
+            await pg.wait_for_selector("#go-games")
+            left_before = shell()["left"]
+            await pg.evaluate("() => window.__shimBack()")
+            for _ in range(50):
+                if shell()["left"] > left_before:
+                    break
+                await asyncio.sleep(0.1)
+            check("on Android, Back goes back a page, and from the Library leaves the app", from_game == "#settings" and shell()["left"] == left_before + 1
+                  and await pg.evaluate("() => location.hash") == "#library", (from_game, shell()))
+            shell(kind="windows")
+
+            # 14. away from home: the library's list and a game's details are kept on the device
             server.terminate()
             server.wait(timeout=30)
             await pg.goto(B + "#library")

@@ -22,4 +22,8 @@ window.__TAURI__.event = { async listen(name, fn) {
   }
   return () => {};
 } };
+// Android's Back: the page's handler, pressed by the test with __shimBack
+window.__shimBackHandlers = [];
+window.__TAURI__.app = { async onBackButtonPress(fn) { window.__shimBackHandlers.push(fn); return { unregister() {} }; } };
+window.__shimBack = () => window.__shimBackHandlers.forEach((fn) => fn({ canGoBack: false }));
 window.__shimEmit = (name, payload) => (window.__shimListeners[name] || []).forEach((fn) => fn({ event: name, payload }));
