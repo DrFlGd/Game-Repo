@@ -630,7 +630,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets, add-ons, magazines | RetroArch playlists, Pegasus, Playnite and LaunchBox exports (8a); updates, DLC and patches with their base game (D56) and a collection's history (D52) (8b); magazines (3.8, D31) (8c). MobyGames dropped (Jerred, 2026-10-18). |
-| **9** | Device client | 9a Game Repo Server on Windows, started from Game Repo (D85; "Phase 9a design", D89–D95). 9b the client for Windows and Android, ES-DE first (D84, D86–D88). 9c the Steam Deck: the client built for Linux, usable with the Deck's controls in Game Mode. 9d later: the server on a NAS (Unraid, Synology), access from outside the home network (parked), other frontends, the read-only WebDAV view, muOS/Knulli/ROCKNIX handhelds. Needs Phase 5b's layouts. |
+| **9** | Device client | 9a Game Repo Server on Windows, started from Game Repo (D85; "Phase 9a design", D89–D95). 9b the client for Windows and Android, ES-DE first (D84, D86–D88; "Phase 9b design", D96–D104). 9c the Steam Deck: the client built for Linux, usable with the Deck's controls in Game Mode. 9d later: the server on a NAS (Unraid, Synology), access from outside the home network (parked), other frontends, the read-only WebDAV view, muOS/Knulli/ROCKNIX handhelds. Needs Phase 5b's layouts. |
 | **Later** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). It reads every format Magazines imports: a PDF's pages and a CBZ's or CBR's images alike. |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
@@ -3892,6 +3892,231 @@ installers.
   Repo's installer (checked to carry it), and the release adds
   `Game Repo Server_<version>_x64-setup.exe`.
 
+### Phase 9b design: the device client for Windows and Android (written 2026-10-20, for Jerred's review)
+
+Jerred asked (2026-10-20) for 9b to start: the client of the "Device client requirements"
+(C1–C23) for Windows and Android, with ES-DE, on Game Repo Server as 9a built it. 9a's
+stand-in already does the hard part of a device's side (`gamerepo-device`: pairing with the
+pinned certificate, plans, downloads that resume and are checked by SHA-1, the gamelist
+merge, the record, removing with shared sets kept); 9b puts screens on it, adds what a
+device needs that a folder standing in for one doesn't, and builds it for both systems.
+D96–D104 are proposed here; D96, the app's name, is Jerred's to choose.
+
+**What's built**
+
+- `desktop/device` (`gamerepo-device`) grows into the client's whole backend, still
+  without the core (it links `gamerepo-wire`, rustls, SQLite and nothing with archives or
+  discs, so it builds for Android as it is): the catalogue kept on the device (D98), the
+  queue (D99), *On this device* (D100), removing safely (D101), media on their own (D102),
+  the client's settings, and one command table, `app::App::call(cmd, args)`, as the core's
+  `api.rs` is for Game Repo.
+- `desktop/client` (`gamerepo-client`, Tauri 2): the app itself, for Windows and Android,
+  a thin shell over that command table, with pictures through a protocol of its own
+  (`picture://`, from the device's cache or the server; a web view won't trust the
+  server's own certificate, "Notes for 9b").
+- `desktop/client/android` (`tauri-plugin-gamerepo-device`, Kotlin): what only Android can
+  do (D97).
+- `web/client.html` and `web/client/` (Preact): the four pages, Library, Queue, *On this
+  device* and Settings, with the desktop app's look (its tokens and drafting skin) laid out
+  for a phone first.
+- `gamerepo-cli client-ui --home <folder>`: the client's pages and command table served
+  over HTTP with `tests/tauri_shim.js`, as `gamerepo-cli serve` does for Game Repo, so the
+  client is tried in Chromium at a phone's size and a PC's, against a real server.
+- Game Repo Server: three small additions (below, "What the server adds").
+
+**D96 One client app for both systems, named "Game Repo Client"** (Jerred's choice)
+
+- One app from one codebase: `Game Repo Client_<version>_x64-setup.exe` for Windows and
+  `Game Repo Client_<version>_arm64.apk` for Android, beside Game Repo's and Game Repo
+  Server's on the same release. Identifier `io.github.drflgd.gamerepo.client`.
+- The name sits beside *Game Repo Server* and can't be mistaken for Game Repo on a PC that
+  has both. Android shows about twelve letters under an icon, so it reads "Game Repo
+  Cli…" there unless it's shorter. Other names: *Game Repo Go* (fits under the icon) or
+  *Game Repo* on Android only (no desktop app there to mix it up with).
+
+**D97 The Android parts in a plugin of the client's own**
+
+Tauri 2 builds the Rust and the page for Android; a small Kotlin plugin does the rest:
+
+- **All files access** (D87): asks for it on first start (Android's own *Allow access to
+  manage all files* screen) and says plainly what it's for; without it the client can
+  browse but not add. Android 10, which has no such permission, uses the older storage
+  permission. ES-DE needs the same access, so devices that run ES-DE allow it.
+- **The device's storage**: its volumes (internal storage and SD cards), so the client
+  finds `ES-DE/settings/es_settings.xml` on any of them (C3), and the free space where the
+  ROMs go (C9).
+- **Downloads in the background** (C10): a foreground service while the queue runs, with
+  Android's usual notification ("Downloading 3 games, 45%") and *Pause* and *Cancel* on
+  it; a Wi-Fi lock so the connection doesn't sleep; a multicast lock while looking for the
+  server ("Notes for 9b"). Android 15 lets such a service run six hours a day; past that
+  the queue pauses and goes on when the client is next opened.
+- **The pairing token** in the Android Keystore (an AES key kept by Android encrypts it
+  in the app's own files); on Windows it's in Windows Credential Manager.
+- **Controllers** (Retroid, AYN, Ayaneo): the D-pad already reaches the page as arrow
+  keys; the plugin turns the left stick into them too, A into Enter, B into Back, X into
+  ticking a game, and the shoulder buttons into a page up or down. On Windows the page reads controllers itself
+  (the Gamepad API).
+- The APK is built for arm64 (every handheld Jerred named), with an x86_64 build only
+  for CI's emulator.
+
+**D98 The catalogue is kept on the device** (C5, C8)
+
+- The client keeps the catalogue in SQLite in its own data folder: the systems (with every
+  system's ES-DE folder), the collections and their groups, and every game as the list
+  gives it, with FTS5 for search. The first time it fetches the whole list a page at a
+  time ("Reading the library: 12,000 of 100,000 games"), then only `changes?since=` each
+  time it connects, and the whole list again on a `410`. Browsing, scrolling and search
+  are its own copy's, so they're instant and work away from home; a game's details are
+  fetched when it's opened and kept.
+- **Pictures** (box fronts, at the screen's size) are fetched as they come into view and
+  kept in a cache of their own (500 MB by default, set in Settings; the least recently
+  shown go first). Away from home a game without a cached picture shows its title.
+- **What's shown** (C6): the systems the device has an ES-DE folder for (ES-DE makes them
+  all when it's set up, so in practice those it knows), with *Show every system*; games
+  already on the device are hidden unless *Show games on this device* is on.
+
+**D99 The queue: games, not files, kept until they're done** (C9–C13, C22)
+
+- A selection shows its games' total size against the free space (C9), the size of the
+  media kinds chosen included. *Add to device* first shows the media kinds the library has
+  for those games, each with its size, from the plan (D93; C22), ticked as last time on
+  this device, and *Add 3 games (2.4 GB)*. The choice is remembered per device.
+- The queue (`queue.json` in the client's data folder) holds games, each with its plan
+  and its state: waiting, downloading (bytes and speed), paused, waiting for the library,
+  done, or what went wrong. Files go three at a time (Settings: 1–4) as the stand-in
+  fetches them, each resumed, checked and renamed into place (C11); a game's gamelist
+  entry and record are written when its last file is in, so ES-DE never lists half a game.
+- When the server can't be reached the queue waits ("Waiting for the library") and goes
+  on by itself once it's found again; a plan whose files changed in the library since is
+  asked for again. Closing the client and opening it later goes on where it stopped.
+- **Windows**: closing the window while games are downloading leaves an icon by the clock
+  that shows the progress, and the client quits when the queue is done; Android's is the
+  notification (D97).
+- When it's done: "Restart ES-DE to see the new games" (C17), as ES-DE reads its gamelists
+  when it starts.
+
+**D100 *On this device* is every game ES-DE has there** (C18, C20, C21)
+
+- The client looks through ES-DE's ROMs folder, system by system, for the files ES-DE
+  would list (each system's extensions, from the server and kept with the catalogue;
+  `<name>.m3u/` folders as one game, as ES-DE treats them), with each game's size including
+  its media and manual (ES-DE's `downloaded_media/<system>/<kind>/<name>.*`) and when it
+  was last played (the gamelist's `lastplayed`).
+- **Where each came from**: a game the record lists came from the library; any other is
+  identified by the server (`POST /v1/identify`, a ZIP's CRCs from its directory or a CHD's
+  SHA-1 from its header, never the whole file), remembered by path, size and modified time,
+  so it's asked once. Games the library doesn't know show as *from elsewhere*.
+- **Sorting**: by last played (the default), size, name or system; *Make room* (C20), shown
+  when a selection is bigger than the free space, ticks the least recently played games
+  (never played ones by when they were added, oldest first) until there's room, for the
+  user to change and confirm.
+
+**D101 Removing a game safely** (C19, C21, the safety requirement)
+
+- Removing shows what goes (each file, its media and manual, its gamelist entry) and the
+  room it frees, and asks first. A BIOS, parent or device set another game on the device
+  needs stays (the record's `needed_by`, as the stand-in does). Saves are never touched:
+  ES-DE's emulators keep them elsewhere.
+- A game *from elsewhere* goes with every file it's made of: a `.cue`'s or `.gdi`'s tracks,
+  an `.m3u`'s discs, a `<name>.m3u/` folder, and its media by ES-DE's names. Nothing is
+  removed outside ES-DE's folders (the ROMs folder, the ES-DE folder and the media folder);
+  a path that leads out of them (`..`, a link) is refused.
+- **Set aside, then deleted**: a removal first moves its files into `.gamerepo-removing/`
+  in the same folder (the ROMs folder, the media folder; a rename on the same drive, so
+  it's instant), writes `ES-DE/gamerepo/removing.json`, updates the gamelists and the
+  record, and then deletes what it set aside. A removal cut short (the battery, a crash) is
+  found on the next start and offered *Finish removing* or *Put back*. ES-DE looks only in
+  each system's own folder, so it never lists what's set aside.
+
+**D102 Media on their own** (C23)
+
+- A game on the device shows its media kinds, each with its size: one can be removed on its
+  own, keeping the game, and one the library has can be added later without downloading
+  the game again (a plan asked for with `roms: false`, below).
+- For a game *from elsewhere* that the library knows (D100), its media can be added the
+  same way; it then shows as from the library and its entry is merged as the client's own.
+
+**D103 One layout for touch, mouse, keys and controllers**
+
+- Library: systems and collections down the side on a PC, a picker at the top on a phone;
+  the games as box fronts with title, year and size, scrolling a virtual list (only what's
+  in view is in the page, so 100,000 games scroll as 100), with a search across every
+  system; a tick on each, and a bar at the bottom with the selection, its size against the
+  free space and *Add to device*.
+- A game's page (C7): its pictures, description, players, genre, its size on the device
+  with the kinds chosen, and whether it's already there.
+- Queue: each game with its progress, *Pause*, *Cancel*, and *Pause all*.
+- *On this device*: the list of D100 with the free space at the top, ticks, *Remove…* and
+  *Make room…*.
+- Settings: the library (its name and address, *Pair with another library…*, *Unpair*),
+  the ES-DE folder and ROMs folder found (each can be changed, C3; "ES-DE isn't installed
+  on this device" when there's none), the media kinds ticked by default, downloads at
+  once, the ES-DE custom collection games are put in (none, *On this device*, or the
+  collection they came from, C16), the picture cache's size, and the version.
+- Every control can be reached with the arrow keys and Enter, in a set order, so a
+  controller (D97) moves through the Library and the Queue as a mouse would.
+
+**D104 Releases**
+
+- CI builds the Windows installer as it builds the server's, and the APK on Linux with
+  the Android SDK and NDK the runners have. Both go on the same release with the same
+  version (`set_version.py` bumps the client too; Android's version code follows it).
+- **An APK has to be signed, always with the same key**, or Android refuses each update
+  over the last one. The key is kept as two repository secrets (the key file and its
+  password); this session can't set secrets, so Jerred adds them once, with a script in
+  `tools/` that makes the key on his PC and opens the page to paste it into. Until then CI
+  builds and tests the APK but doesn't publish it.
+- Installing it on Android needs *Install unknown apps* for the browser or file manager
+  that opens it, once; the release notes say so.
+
+**What the server adds**
+
+- `GET /v1/systems?all=1`: every system ES-DE knows (from `platforms.rs`), with its
+  folder and extensions and the library's game count (none for most), so *On this device*
+  knows what ES-DE lists in a folder the library has no games for.
+- `PlanAsk.roms` (default `true`): `false` gives a plan of the media and manuals only, for
+  games the device already has (D102).
+- `limit` up to 5,000 for a client reading the whole list (D98); a page stays at 500
+  otherwise.
+
+**Tests**
+
+- Rust tests in `gamerepo-device`: the catalogue read whole, then by changes, and again
+  after a `410`; search and paging in its own copy; the queue kept across a restart and
+  resumed, waiting while the server's away and going on when it's back, a game's entry
+  written only when its last file is in; *On this device* with games from the library,
+  from elsewhere (identified and not) and multi-file games (`.cue`/`.bin`, `.gdi`, `.m3u`
+  and `<name>.m3u/` folders); a removal cut short at each step, then finished and put
+  back; shared sets kept; nothing outside ES-DE's folders touched (every file outside them
+  compared byte for byte and time for time); media removed and added on their own;
+  *Make room*'s order.
+- Timings: the whole catalogue of 100,000 games read over loopback in under 20 s; a page
+  and a search of the device's copy under 50 ms.
+- Page test (`tests/client_page.py`): `gamerepo-cli client-ui` with a real server on a
+  synthetic library, at a phone's size and a PC's: found by address, paired with the code
+  from the control channel, a system browsed, a search, three games ticked against the
+  free space, the media kinds chosen, the queue watched to the end, the games in ES-DE's
+  folders and gamelists, *On this device* with a game from elsewhere, *Make room*, a
+  removal, Settings, and every page moved through with the keyboard alone. Screenshots
+  for each.
+- Windows CI: builds the client and its installer, runs the page test against the Windows
+  server, and drives the real app with WebDriver, as Game Repo's is driven.
+- Android CI: builds the APK and runs it on an emulator (x86_64, Android 14) with the
+  server on the runner: All files access granted by `adb`, an ES-DE folder made on the
+  emulator's storage, the page driven through the web view's debugging socket, a game
+  added (its files and gamelist checked with `adb`), the notification seen while it
+  downloads, and the game removed. A real device can't be in CI: the first one is
+  Jerred's.
+
+**Not in 9b**: the Linux build and the Steam Deck (9c); other frontends, the NAS server,
+outside access and handhelds (9d); PC games; BIOS files outside the ROMs folder; save files;
+a second library.
+
+**Order of the build**, each a pull request tested before the next: (1) the client's
+backend in `gamerepo-device` with the server's additions, tried with the stand-in from the
+CLI; (2) the client's pages and the Windows app, with its installer on the release; (3)
+the Android build: the plugin, the APK, the emulator test and the signing key.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -4037,7 +4262,7 @@ installers.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D96). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D105). D96–D104 are proposed in "Phase 9b design" (2026-10-20), D96 for Jerred to choose. D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -4080,6 +4305,7 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     2026-10-19) and is built in three pull requests; the first, the groundwork in the core,
     is v0.5.27 ("Phase 9a notes, part 1"); the second, the server and the stand-in device
     from the CLI, is built ("Phase 9a notes, part 2"); the third, the tray app, Settings ›
-    Serve to devices and the installers, is built ("Phase 9a notes, part 3"). Next is 9b,
-    the Windows and Android clients. Later: reading magazines' text
+    Serve to devices and the installers, is built ("Phase 9a notes, part 3"), all in
+    v0.5.28. Next is 9b, the client for Windows and Android ("Phase 9b design", D96–D104,
+    written for Jerred's review), in three pull requests. Later: reading magazines' text
     (PDF, CBZ and CBR) and tagging each issue with the games it covers.
