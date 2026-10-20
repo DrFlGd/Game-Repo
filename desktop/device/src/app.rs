@@ -166,8 +166,10 @@ pub struct App {
     looked: Mutex<Option<std::time::Instant>>,
 }
 
-/// How often the library is looked for at another address while it can't be reached.
+/// How often the library is looked for at another address while it can't be reached,
+/// and how long each look lasts at most (it ends once the library answers).
 const FIND_AGAIN: Duration = Duration::from_secs(60);
+const FIND_WAIT: Duration = Duration::from_secs(8);
 
 fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
@@ -471,12 +473,10 @@ impl App {
             }
             *last = Some(std::time::Instant::now());
         }
-        let Ok(found) = crate::find(Duration::from_secs(3)) else { return false };
-        let Some((_, address)) = found.into_iter().find(|(i, a)| i.server == s.server && *a != s.address) else { return false };
-        // answering there, with the certificate pinned (not only an announcement)
-        if !client::info(&address).is_ok_and(|(i, seen)| i.server == s.server && seen == s.fingerprint) {
-            return false;
-        }
+        // an address it announces, answering there with the certificate pinned (not only
+        // an announcement, which anyone could make)
+        let answers = |a: &str| a != s.address && client::info(a).is_ok_and(|(i, seen)| i.server == s.server && seen == s.fingerprint);
+        let Ok(Some(address)) = crate::find_server(&s.server, FIND_WAIT, answers) else { return false };
         s.address = address;
         if serde_json::to_string(&s).map_err(anyhow::Error::from).and_then(|t| self.secrets.set("server", &t)).is_err() {
             return false;

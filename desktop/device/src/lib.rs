@@ -509,12 +509,12 @@ pub fn remove(d: &Device, keys: &[String]) -> Result<Removed> {
     Ok(Removed { games: r.keys.len(), files: r.files.len(), kept: r.kept.len() })
 }
 
-/// The servers announcing themselves on the network (D91), each with its address.
-pub fn find(wait: Duration) -> Result<Vec<(Info, String)>> {
+/// Each server heard on the network (D91) until `wait` is up or `each` says that's
+/// enough: what it is, and every address it announces (IPv4 first).
+fn browse(wait: Duration, mut each: impl FnMut(Info, Vec<String>) -> bool) -> Result<()> {
     let daemon = mdns_sd::ServiceDaemon::new()?;
     let rx = daemon.browse(api::SERVICE)?;
     let until = std::time::Instant::now() + wait;
-    let mut out: Vec<(Info, String)> = vec![];
     loop {
         let left = until.saturating_duration_since(std::time::Instant::now());
         if left.is_zero() {
@@ -526,13 +526,15 @@ pub fn find(wait: Duration) -> Result<Vec<(Info, String)>> {
                 let Some(info) = Info::from_txt(&txt) else { continue };
                 let mut ips: Vec<std::net::IpAddr> = r.addresses.iter().map(|a| a.to_ip_addr()).collect();
                 ips.sort_by_key(|ip| (!ip.is_ipv4(), ip.is_loopback()));
-                let Some(ip) = ips.first() else { continue };
-                let address = match ip {
-                    std::net::IpAddr::V6(v6) => format!("[{v6}]:{}", r.port),
-                    v4 => format!("{v4}:{}", r.port),
-                };
-                if !out.iter().any(|(i, _)| i.server == info.server) {
-                    out.push((info, address));
+                let addresses = ips
+                    .iter()
+                    .map(|ip| match ip {
+                        std::net::IpAddr::V6(v6) => format!("[{v6}]:{}", r.port),
+                        v4 => format!("{v4}:{}", r.port),
+                    })
+                    .collect();
+                if each(info, addresses) {
+                    break;
                 }
             }
             Ok(_) => {}
@@ -541,7 +543,36 @@ pub fn find(wait: Duration) -> Result<Vec<(Info, String)>> {
     }
     let _ = daemon.stop_browse(api::SERVICE);
     let _ = daemon.shutdown();
+    Ok(())
+}
+
+/// The servers announcing themselves on the network (D91), each with its address.
+pub fn find(wait: Duration) -> Result<Vec<(Info, String)>> {
+    let mut out: Vec<(Info, String)> = vec![];
+    browse(wait, |info, addresses| {
+        if let Some(address) = addresses.into_iter().next() {
+            if !out.iter().any(|(i, _)| i.server == info.server) {
+                out.push((info, address));
+            }
+        }
+        false
+    })?;
     Ok(out)
+}
+
+/// Where the server `id` answers now: each address it announces is tried with `answers`
+/// as it's heard, and the first that answers is given back as soon as it does (None once
+/// `wait` is up).
+pub fn find_server(id: &str, wait: Duration, mut answers: impl FnMut(&str) -> bool) -> Result<Option<String>> {
+    let mut found = None;
+    let mut tried = std::collections::HashSet::new();
+    browse(wait, |info, addresses| {
+        if info.server == id {
+            found = addresses.into_iter().find(|a| tried.insert(a.clone()) && answers(a));
+        }
+        found.is_some()
+    })?;
+    Ok(found)
 }
 
 #[cfg(test)]
