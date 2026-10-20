@@ -630,7 +630,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets, add-ons, magazines | RetroArch playlists, Pegasus, Playnite and LaunchBox exports (8a); updates, DLC and patches with their base game (D56) and a collection's history (D52) (8b); magazines (3.8, D31) (8c). MobyGames dropped (Jerred, 2026-10-18). |
-| **9** | Device client | 9a Game Repo Server on Windows, started from Game Repo (D85; "Phase 9a design", D89–D95). 9b the client for Windows and Android, ES-DE first (D84, D86–D88; "Phase 9b design", D96–D104). 9c the Steam Deck: the client built for Linux, usable with the Deck's controls in Game Mode, and PC games on devices, unpacked into a folder that suits Windows or Linux (D105). 9d later: the server on a NAS (Unraid, Synology), access from outside the home network (parked), other frontends, the read-only WebDAV view, muOS/Knulli/ROCKNIX handhelds. Needs Phase 5b's layouts. |
+| **9** | Device client | 9a Game Repo Server on Windows, started from Game Repo (D85; "Phase 9a design", D89–D95). 9b the client for Windows and Android, ES-DE first (D84, D86–D88; "Phase 9b design", D96–D104). 9c the Steam Deck: the client built for Linux, usable with the Deck's controls in Game Mode, and PC games on devices, unpacked into a folder that suits Windows or Linux (D105). 9e the big-screen view for controllers, Download and a queue started by hand, *On this device* by system, and RetroDECK and EmuDeck found by themselves (Jerred's tryout, 2026-10-20; "Phase 9e design", D113–D117). 9d later: the server on a NAS (Unraid, Synology), access from outside the home network (parked), other frontends, the read-only WebDAV view, muOS/Knulli/ROCKNIX handhelds. Needs Phase 5b's layouts. |
 | **Later** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). It reads every format Magazines imports: a PDF's pages and a CBZ's or CBR's images alike. |
 | **Later** | Videos | Walkthroughs, reviews and retrospectives kept as a section of their own, as magazines are, not as one game's metadata: each video can be linked to the games it covers, and shows on those games' pages (Jerred, 2026-10-20). Not designed yet. |
 
@@ -4553,6 +4553,117 @@ The second of 9c's pull requests: D110–D112, built as they say, except where n
   and the `.lnk` on Windows, removal keeping a save); `unpacked.rs`'s own test; step 13c of
   `tests/client_page.py` (the pages on Windows, Linux and the Steam Deck job).
 
+### Phase 9e design: the big-screen view, Download and the queue, and Jerred's tryout fixes (written 2026-10-20)
+
+Jerred tried 0.5.33 on Android and the Steam Deck (2026-10-20 17:30): "As far as
+functionality, everything works great so far". His list, in his order:
+
+1. The Linux app is clunky with a controller in Game Mode (Desktop Mode is fine): it needs
+   a redesign for that view, taking a lot of cues from Steam Big Picture's library browsing,
+   for the Linux and Android builds, with the option to switch back to the classic mouse
+   and keyboard view.
+2. *On this device* grows large: an option to group by system, one system open at a time,
+   and to remove a whole system's games.
+3. "Add to queue" downloads straight away, so it's called *Download*; *Queue* should only
+   put games in a queue that's started by hand, with a summary of the size on disc and the
+   space free before it starts.
+4. On the Deck he'd set ES-DE's folder and an old ROMs folder that didn't belong together;
+   removing the games then stopped with "gamelists/gba/gamelist.xml leads out of ES-DE's
+   esde folder, so it isn't removed", and after he set the right folder they still showed
+   as on the device, so they couldn't be added again.
+5. RetroDECK and EmuDeck set up automatically on Linux and Windows, where that's possible.
+
+D113–D117 are Claude's defaults, followed unless Jerred says otherwise. Three pull requests:
+the fix (D117, PR #54), then Download, the queue, *On this device* by system and RetroDECK
+and EmuDeck (D114–D116), then the big-screen view (D113), which builds on them.
+
+**D113 A big-screen view for controllers, after Steam Big Picture.**
+- Two views of the same pages: *Big screen* and *Classic* (today's, D103). Big screen is
+  the default on Android and in Steam's Game Mode or Big Picture; Classic everywhere else
+  (Windows, Linux's desktop, the Deck's Desktop Mode). Settings › *Look* › *View* switches
+  either way on any device, and big screen's own menu has *Switch to the classic view*.
+- Its frame: the pages as tabs along the top (*Library*, *Downloads*, *On this device*,
+  *Settings*), changed with the shoulder buttons (L1 and R1) from anywhere; the button
+  hints along the bottom, as Steam's are (Ⓐ Select, Ⓑ Back, Ⓧ Add to queue, Ⓨ Search, ☰
+  Options), showing only what the focused thing does; dark, large type (18 px and up), and
+  the skin's colours (D71).
+- Moving: the D-pad and stick go to the nearest control in that direction (not the next in
+  a list, as D103's order does); the focused tile grows a little and is outlined in the
+  skin's accent colour; holding a direction repeats and scrolls. Touch works on every tile
+  and button too, for phones.
+- Library: a home of shelves, one per system ES-DE has with games (in ES-DE's order),
+  each a row of box fronts with *All 2,345* at its end, and *Every game* and each collection
+  further down; Up and Down move between shelves, Left and Right along one. A system or
+  collection opened is a grid of box fronts filling the screen (the same virtual list as
+  D103), with Ⓨ for search and ☰ for the order. Games already on the device carry a mark.
+- A game's page: its screenshot or fan art large behind its title (its box front when
+  there's none), year, system, players and size; *Download* as the big first button with
+  the size, then *Add to queue*, *Media…* (the kinds and their sizes) and, when it's on the
+  device, *Remove…*; the description below.
+- Downloads and *On this device* (D114, D115) as lists of large rows; their actions on the
+  buttons and in ☰.
+- Dialogs open as a panel from the right, as Steam's do, with the first button focused;
+  Ⓑ closes one.
+- Text boxes: Game Mode's on-screen keyboard as now (D107); Android brings up its own.
+
+**D114 Download, and a queue started by hand.**
+- *Download…* (today's *Add to queue…*) chooses the media kinds and starts at once, as
+  now; on a game's page it's the big button, and for games selected it's on the bar.
+- *Add to queue* puts the games in the queue *not started*, with the media kinds last
+  chosen and no dialog (Ⓧ in big screen, a button in classic). Nothing downloads until
+  *Start downloads…*.
+- The Queue page becomes *Downloads*: what's downloading (with its progress, *Pause*,
+  *Cancel*), *Queued* (each game with its size and *Remove from queue*, and *Start
+  downloads…*), and *Done*. The queue is kept across restarts (D99), queued games too.
+- *Start downloads…* shows the summary first: each game with its size on disc (what's to
+  fetch, games and media), the total, the space free where they go (the ROMs folder's
+  drive, and the PC games folder's when that's another), and what's left after. Without
+  room for all of them it says how much more is needed, offers *Make room…*, and starts
+  only once there's room.
+
+**D115 On this device by system.**
+- Its first order is *By system*, the new default: each system a row with its name, its
+  number of games and their size; opening one closes the one open before; in it, its games
+  as now, played longest ago first. The other orders (*Played longest ago*, *Largest*,
+  *Name*) show one list, as now.
+- Each system has *Remove all…* (in ☰ in big screen): the removal of D101 for every game of
+  the system, showing what goes and the room it frees first.
+
+**D116 RetroDECK and EmuDeck found by themselves.**
+- Game Repo Go looks for ES-DE where RetroDECK and EmuDeck put it, as well as where ES-DE
+  puts itself, and takes the ROMs and media folders from that ES-DE's own settings, so the
+  folders always belong together:
+  - RetroDECK (a Flatpak, Linux only) starts ES-DE with its folder in
+    `~/.var/app/net.retrodeck.retrodeck/config/ES-DE/` (before 0.8.0b,
+    `…/config/emulationstation/.emulationstation/`). Its `es_settings.xml` names the ROMs
+    and media folders in full (`~/retrodeck/roms`, or `retrodeck/` on the SD card), and its
+    `gamelists` and `collections` are links into `~/retrodeck/ES-DE/` (D117). RetroDECK's
+    own `config/retrodeck/retrodeck.json` (`paths.rd_home_path`) names its folder.
+  - EmuDeck on Linux uses `~/ES-DE/` (found already), its ROMs folder `Emulation/roms` and
+    its media `Emulation/tools/downloaded_media`, both named in `es_settings.xml`;
+    `~/.config/EmuDeck/settings.sh` (`emulationPath=`) names the Emulation folder, which
+    may be on the SD card.
+  - EmuDeck on Windows installs a portable ES-DE in
+    `%APPDATA%\EmuDeck\EmulationStation-DE\ES-DE\` (`settings\es_settings.xml`; older
+    versions without `settings\`), and `%APPDATA%\EmuDeck\settings.ps1`
+    (`$emulationPath=`) names the Emulation folder.
+- When it finds more than one, Settings › *ES-DE* lists each by name (*RetroDECK*,
+  *EmuDeck*, *ES-DE*) with its ROMs folder, and asks which to use, instead of picking one.
+- Settings warns when the ROMs folder chosen by hand isn't the one ES-DE's settings name,
+  with *Use ES-DE's* (the mismatch in item 4).
+- RetroDECK is Linux only; EmuDeck is found on Linux and on Windows.
+
+**D117 Removing follows ES-DE's own linked folders; games left behind are marked** (the fix,
+built in PR #54).
+- RetroDECK and EmuDeck keep some of ES-DE's folders elsewhere and link them in. A link
+  at the first level of one of ES-DE's folders (its `gamelists` or `collections`, a
+  system's folder) is now followed when removing; one deeper down still isn't (D88).
+- A game Game Repo Go added whose own files aren't where it put them (a folder changed in
+  Settings since) isn't counted as on the device: *On this device* marks it *Files not
+  found*, with no size, Make room passes it by, the Library offers it again, and removing it
+  takes it off the list with its gamelist entries and the media still in ES-DE's folders.
+  The copies in the old folder are left as they are, as that's no longer ES-DE's.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -4698,7 +4809,7 @@ The second of 9c's pull requests: D110–D112, built as they say, except where n
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D113). D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D118). D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
