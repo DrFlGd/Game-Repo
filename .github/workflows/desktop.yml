@@ -542,7 +542,7 @@ jobs:
         run: |
           mkdir -p ../ci-out
           cargo build --release -p gamerepo-cli 2>&1 | tee ../ci-out/cli-build.log
-          cargo test --release -p gamerepo-steam -p gamerepo-device -p gamerepo-client 2>&1 | tee ../ci-out/deck-test.log
+          cargo test --release -p gamerepo-steam -p gamerepo-device 2>&1 | tee ../ci-out/deck-test.log
           # Game Repo's own Steam export, which shares the Steam crate
           cargo test --release -p gamerepo-core steam 2>&1 | tee ../ci-out/core-steam-test.log
       - name: Front end
@@ -555,7 +555,10 @@ jobs:
             --home "$RUNNER_TEMP/go-page" --out ci-out/go-page 2>&1 | tee ci-out/go-page.log
       - name: Build Game Repo Go (AppImage)
         working-directory: desktop/client
-        run: npx --yes @tauri-apps/cli@2.12.3 build --bundles appimage 2>&1 | tee ../../ci-out/tauri-build-client.log
+        run: |
+          npx --yes @tauri-apps/cli@2.12.3 build --bundles appimage 2>&1 | tee ../../ci-out/tauri-build-client.log
+          # (its tests need the front end built, as the app does)
+          cargo test --release -p gamerepo-client 2>&1 | tee ../../ci-out/client-test.log
       - name: Collect the AppImage
         env:
           V: ${{ needs.version.outputs.version }}
