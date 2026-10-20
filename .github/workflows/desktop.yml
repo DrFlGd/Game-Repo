@@ -416,7 +416,12 @@ jobs:
         working-directory: desktop/client
         run: |
           export JAVA_HOME="$JAVA_HOME_17_X64" NDK_HOME="$ANDROID_NDK_LATEST_HOME"
-          tauri() { npx --yes @tauri-apps/cli@2.12.3 "$@"; }
+          # Tauri's Gradle build calls its command line back the way it was started, and for
+          # npm that's "npm run tauri" in this folder: so a package.json with that script
+          # here, made for this job only
+          echo '{ "private": true, "scripts": { "tauri": "tauri" } }' > package.json
+          npm install --no-save --no-audit --no-fund @tauri-apps/cli@2.12.3 2>&1 | tail -2
+          tauri() { npm run tauri -- "$@"; }
           tauri android init --ci 2>&1 | tee ../../ci-out/android-init.log
           # the launcher icon (written into gen/android's res folders)
           tauri icon ../src-tauri/icons/icon.png 2>&1 | tail -3
