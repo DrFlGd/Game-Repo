@@ -22,35 +22,35 @@ fn plugin(app: &AppHandle) -> Android<Wry> {
 
 /// The pairing token, kept with a key the Android Keystore holds (Secrets.kt), and in
 /// memory once read: every call to the library needs it, and each unsealing waits for
-/// Android's main thread.
+/// Android's main thread. One at a time, so a read that started before a pairing can't put
+/// back what was there before it.
 struct Keystore(Android<Wry>, Mutex<HashMap<String, Option<String>>>);
-
-impl Keystore {
-    fn keep(&self, name: &str, value: Option<String>) {
-        self.1.lock().unwrap_or_else(|e| e.into_inner()).insert(name.to_string(), value);
-    }
-}
 
 impl Secrets for Keystore {
     fn get(&self, name: &str) -> Option<String> {
-        if let Some(v) = self.1.lock().unwrap_or_else(|e| e.into_inner()).get(name) {
+        let mut kept = self.1.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(v) = kept.get(name) {
             return v.clone();
         }
         let v: Value = self.0.call("secretGet", json!({ "name": name })).ok()?;
         let value = v["found"].as_bool().unwrap_or(false).then(|| v["value"].as_str().unwrap_or_default().to_string());
-        self.keep(name, value.clone());
+        kept.insert(name.to_string(), value.clone());
         value
     }
 
     fn set(&self, name: &str, value: &str) -> anyhow::Result<()> {
+        let mut kept = self.1.lock().unwrap_or_else(|e| e.into_inner());
+        kept.remove(name);
         self.0.call::<Value>("secretSet", json!({ "name": name, "value": value })).map_err(anyhow::Error::msg)?;
-        self.keep(name, Some(value.to_string()));
+        kept.insert(name.to_string(), Some(value.to_string()));
         Ok(())
     }
 
     fn delete(&self, name: &str) -> anyhow::Result<()> {
+        let mut kept = self.1.lock().unwrap_or_else(|e| e.into_inner());
+        kept.remove(name);
         self.0.call::<Value>("secretDelete", json!({ "name": name })).map_err(anyhow::Error::msg)?;
-        self.keep(name, None);
+        kept.insert(name.to_string(), None);
         Ok(())
     }
 }

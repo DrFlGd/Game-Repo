@@ -447,7 +447,11 @@ try:
     errors = pg.eval("(window.__errors || []).slice(0, 20)")
     check("no page errors", not errors, errors)
 except Exception as e:  # a step that timed out is a failure of its own
-    check("the test ran to the end", False, repr(e))
+    try:
+        e = f"{e!r}\n{app_log(80)}"
+    except Exception:
+        pass
+    check("the test ran to the end", False, e)
 finally:
     try:
         (out / "logcat.txt").write_text(adb("logcat", "-d", ok=False, timeout=120), encoding="utf-8")
