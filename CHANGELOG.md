@@ -88,6 +88,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.35 (2026-10-20)
+
 - **Game Repo Go: a big-screen view for controllers, after Steam's Big Picture.** On Android and in the Steam Deck's Game Mode, Game Repo Go now opens in a view made for a controller and a TV-sized screen: the pages are tabs along the top, changed with L1 and R1; the Library is shelves of box fronts, one per system, with *Every game* and your collections below; a game's page shows its fan art or screenshot large, with *Download…*, *Add to queue* and *Media…* as big buttons; and the bar along the bottom says what each button does for what's selected (Ⓐ, Ⓑ Back, Ⓧ Add to queue, Ⓨ Search, ☰ Options). The D-pad and stick move to the nearest thing in that direction, dialogs open as a panel from the right, and lists open as a panel of choices. Touch works everywhere too, and on a phone held upright the tabs sit along the bottom. Settings › *Look* › *View* switches between *Big screen* and *Classic* on any device, and ☰ Options has *Switch to the classic view*.
 
 ## 0.5.34 (2026-10-20)
