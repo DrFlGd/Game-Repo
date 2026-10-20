@@ -234,10 +234,11 @@ try:
             tap(e.BTN_SOUTH)
             opened = d.execute_script("return location.hash")
             tap(e.BTN_EAST)
-            back = d.execute_script("return location.hash")
+            # back where it came from: the Library, at the address it started at (no #library)
+            back = d.execute_script("return document.querySelector('#go-games') && !document.querySelector('#go-game-title') ? 'the Library' : location.hash")
             shot("02b-controller")
             check("a controller (as Steam Input gives one) moves between the games, opens one with A and comes back with B",
-                  first and moved and moved != first and opened.startswith("#game") and back.startswith("#library"), (seen, first, moved, opened, back))
+                  first and moved and moved != first and opened.startswith("#game") and back == "the Library", (seen, first, moved, opened, back))
         finally:
             pad.close()
 
