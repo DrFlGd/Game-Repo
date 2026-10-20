@@ -2246,25 +2246,24 @@ async def main():
                 check("the theme is chosen in one place, Settings › Appearance (the menu has no theme button)",
                       await pg.query_selector("#theme-toggle") is None and await pg.query_selector("#settings-appearance #theme-select") is not None)
 
-                # 8. the skin: Drafting Sheet unless chosen, changed at once (icons too) and kept
+                # 8. the skin: Classic unless chosen, changed at once and kept
                 first = await pg.evaluate("() => document.documentElement.dataset.skin")
                 drawn = lambda: pg.evaluate("() => [...document.querySelectorAll('.nav-link[title=Home] svg g[data-sk]')].find((g) => getComputedStyle(g).display !== 'none')?.dataset.sk")
                 icon_before = await drawn()
                 options = await pg.eval_on_selector_all("#skin-select option", "els => els.map(e => e.value)")
-                await pg.select_option("#skin-select", "classic")
+                await pg.select_option("#skin-select", "tome")
                 skin = await pg.evaluate("() => document.documentElement.dataset.skin")
-                icon_after = await drawn()
                 await pg.wait_for_timeout(500)
-                await pg.screenshot(path=str(out / "03-classic.png"))
                 saved = prefs().get("skin")
-                await pg.select_option("#skin-select", "drafting")
-                check("the skin is Drafting Sheet unless chosen; Classic changes the look and icons at once and is kept",
-                      first == "drafting" and icon_before == "drafting" and options[:2] == ["drafting", "classic"]
-                      and skin == "classic" and icon_after == "classic" and saved == "classic", (first, icon_before, options, skin, icon_after, saved))
+                await pg.select_option("#skin-select", "classic")
+                check("the skin is Classic unless chosen; another changes the look at once and is kept",
+                      first == "classic" and icon_before == "classic" and options[0] == "classic" and "drafting" not in options
+                      and skin == "tome" and saved == "tome", (first, icon_before, options, skin, saved))
+                await pg.screenshot(path=str(out / "03-classic.png"))
                 # the skins of skins.css: each changes the colours and lettering, says what it looks like,
                 # and draws Classic's icons; a screenshot of Home in each
                 looks, abouts = {}, set()
-                for sk in options[2:]:
+                for sk in options[1:]:
                     await pg.select_option("#skin-select", sk)
                     looks[sk] = await pg.evaluate("() => { const st = getComputedStyle(document.body); return [st.backgroundColor, st.fontFamily.split(',')[0], getComputedStyle(document.documentElement).getPropertyValue('--tool').trim()].join(' | '); }")
                     abouts.add(await pg.inner_text("#skin-about"))
@@ -2277,9 +2276,9 @@ async def main():
                     await pg.screenshot(path=str(out / f"03-skin-{sk}.png"))
                     await pg.click('.sidebar a[href="#/settings"]')
                     await pg.wait_for_selector("#skin-select")
-                await pg.select_option("#skin-select", "drafting")
+                await pg.select_option("#skin-select", "classic")
                 check("each further skin has its own colours, lettering and words in Settings, with Classic's icons",
-                      {"clean", "neon", "terminal", "tome", "pixel", "cosy"} <= set(looks) and len(set(looks.values())) == len(looks)
+                      {"neon", "terminal", "tome", "pixel", "cosy"} <= set(looks) and len(set(looks.values())) == len(looks)
                       and not any("icons" in v for v in looks.values()) and len(abouts) == len(looks), looks)
 
             async with Section(pg, B, "batch 4: narrow windows, Previous and Next, Enter, Metadata's system"):

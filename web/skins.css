@@ -1,104 +1,16 @@
-/* ---- more skins (docs/PLAN.md, "Skins design"; Drafting Sheet and Classic are in styles.css) ----
+/* ---- the skins after Classic (docs/PLAN.md, "Skins design"; Classic is styles.css itself) ----
    Each skin is data-skin on the root, read after styles.css: its fonts, corners and
    icon line; its colours for light and dark (Night keeps its own dim, warm colours,
-   except Wasteland Terminal's amber screen); and a few rules of its own. Neon City
-   and Wasteland Terminal are dark whatever the theme. The colour names are the
-   app's: --ink is text, --white a surface, --steel the page, --steel-2 a line,
-   --tool the main button. Rules use those names, so the same page (Game Repo Go's
-   too) takes any skin. Fonts are bundled by tools/build_desktop.py --fetch-fonts. */
+   except Wasteland Terminal's amber screen); textures where they don't sit under
+   text that needs reading (the page behind the cards, the menu, the bars); and a
+   few rules of its own. Neon City and Wasteland Terminal are dark whatever the
+   theme. The colour names are the app's: --ink is text, --white a surface, --steel
+   the page, --steel-2 a line, --tool the main button. Rules use those names, so the
+   same page (Game Repo Go's too) takes any skin. Fonts are bundled by
+   tools/build_desktop.py --fetch-fonts. */
 
 /* file tags on the skins that are dark in the light theme too */
 :root:is([data-skin="neon"], [data-skin="terminal"]) .ft { color: color-mix(in srgb, var(--ft) 50%, white); background: color-mix(in srgb, var(--ft) 26%, var(--white)); border-color: color-mix(in srgb, var(--ft) 60%, var(--white)); }
-
-/* ===================================================================== */
-/* Clean Slate: plain, crisp and well defined. One blue accent, clear lines,
-   quiet shadows, Inter throughout. */
-:root[data-skin="clean"] {
-  --font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --font-head: "Inter", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
-  --head-stretch: 100%;
-  --radius-xs: 5px;
-  --radius-s: 8px;
-  --radius-m: 12px;
-  --icon-stroke: 1.75;
-}
-:root[data-skin="clean"]:not([data-theme="night"]) {
-  --ink: #0f172a;
-  --graphite: #64748b;
-  --steel: #f1f5f9;
-  --steel-2: #dfe5ec;
-  --panel: #f8fafc;
-  --white: #ffffff;
-  --tool: #2563eb;
-  --tool-ink: #ffffff;
-  --accent-hover: #1d4ed8;
-  --accent-edge: #1e40af;
-  --danger: #dc2626;
-  --ok: #16a34a;
-  --focus: #2563eb;
-  --chrome: #ffffff;
-  --chrome-ink: #0f172a;
-  --thumb-bg: #f1f5f9;
-  --sel: #e8f0fe;
-  --star: #f59e0b;
-  --folder: #d97706;
-  --warn-bg: #fffbeb;
-  --warn-border: #fcd34d;
-  --warn-ink: #92400e;
-  --shadow: 0 16px 40px rgba(15, 23, 42, .14), 0 2px 6px rgba(15, 23, 42, .06);
-  --lift: 0 1px 2px rgba(15, 23, 42, .06), 0 1px 3px rgba(15, 23, 42, .04);
-  --lift-hover: 0 6px 18px rgba(15, 23, 42, .10);
-}
-:root[data-skin="clean"][data-theme="dark"] {
-  --ink: #e2e8f0;
-  --graphite: #94a3b8;
-  --steel: #0b1120;
-  --steel-2: #253047;
-  --panel: #0f172a;
-  --white: #131c31;
-  --tool: #3b82f6;
-  --tool-ink: #ffffff;
-  --accent-hover: #60a5fa;
-  --accent-edge: #2563eb;
-  --danger: #f87171;
-  --ok: #4ade80;
-  --focus: #60a5fa;
-  --chrome: #0f172a;
-  --chrome-ink: #e2e8f0;
-  --thumb-bg: #1a2439;
-  --sel: #172554;
-  --star: #fbbf24;
-  --folder: #fbbf24;
-  --warn-bg: #2a2110;
-  --warn-border: #78591c;
-  --warn-ink: #fcd34d;
-  --shadow: 0 16px 40px rgba(0, 0, 0, .55);
-  --lift: 0 1px 2px rgba(0, 0, 0, .4);
-  --lift-hover: 0 6px 18px rgba(0, 0, 0, .5);
-}
-:root[data-skin="clean"][data-theme="night"] { --lift: none; --lift-hover: none; }
-:root[data-skin="clean"] :is(h1, h2, h3) { font-weight: 700; letter-spacing: -.02em; }
-:root[data-skin="clean"] :is(.page-title h1, .bar-place h1, .home h2, .ls-section h2) { font-weight: 700; }
-:root[data-skin="clean"] .sidebar { background: var(--white); }
-:root[data-skin="clean"] .nav-link { font-weight: 500; }
-:root[data-skin="clean"] .nav-link.active { background: var(--sel); color: var(--tool); font-weight: 600; box-shadow: inset 3px 0 0 var(--tool); }
-:root[data-skin="clean"] .nav-link.active .nav-icon { color: var(--tool); }
-:root[data-skin="clean"] .nav-head { letter-spacing: .08em; font-weight: 600; }
-:root[data-skin="clean"] :is(.card, .home .home-card, .subcat-tile, .imp-results, .dupe-group) { box-shadow: var(--lift); }
-:root[data-skin="clean"] :is(.card, .subcat-tile):hover { box-shadow: var(--lift-hover); border-color: var(--steel-2); }
-:root[data-skin="clean"] .card[aria-selected="true"] { border-color: var(--tool); box-shadow: 0 0 0 2px var(--tool); }
-:root[data-skin="clean"] .primary { box-shadow: 0 1px 2px rgba(15, 23, 42, .18); }
-:root[data-skin="clean"] .ghost { background: var(--white); }
-:root[data-skin="clean"] .ghost:hover { background: var(--panel); border-color: var(--graphite); }
-:root[data-skin="clean"] :is(input, select, textarea):focus-visible { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 25%, transparent); }
-:root[data-skin="clean"] .statusbar { background: var(--white); }
-:root[data-skin="clean"] .badge, :root[data-skin="clean"] .chip { font-weight: 500; }
-:root[data-skin="clean"] .lib-tile:hover { background: var(--white); border-color: var(--steel-2); box-shadow: var(--lift-hover); }
-:root[data-skin="clean"] .lib-tile.selected { background: var(--sel); border-color: var(--tool); box-shadow: 0 0 0 1px var(--tool); }
-:root[data-skin="clean"] .lib-tile-art { box-shadow: var(--lift); }
-:root[data-skin="clean"] .home-next { border-color: var(--steel-2); background: var(--white); box-shadow: var(--lift); border-radius: var(--radius-m); }
-:root[data-skin="clean"] .lib-filter > summary { font-weight: 600; }
 
 /* ===================================================================== */
 /* Neon City: cyberpunk. A dark street under neon: hot pink and cyan on near
@@ -211,6 +123,41 @@
 :root[data-skin="neon"] .audit-bar > span { background: linear-gradient(90deg, var(--focus), var(--tool)); box-shadow: 0 0 8px var(--focus); }
 :root[data-skin="neon"] ::selection { background: var(--tool); color: #000000; }
 :root[data-skin="neon"] * { scrollbar-color: color-mix(in srgb, var(--tool) 60%, var(--steel-2)) transparent; }
+
+/* textures: a skyline along the foot of the page and circuit traces in the menu
+   (not in the Night theme, which keeps its dim, warm colours) */
+:root[data-skin="neon"] {
+  --tx-circuit: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E %3Cg fill='none' stroke='%2305d9e8' stroke-opacity='.13' stroke-width='1.2'%3E %3Cpath d='M0 24h34l12 12h44l12-12h38'/%3E%3Cpath d='M22 140V96l12-12V52'/%3E%3Cpath d='M104 140v-28l-18-18H58'/%3E%3Cpath d='M140 76h-24l-12 12'/%3E%3Cpath d='M70 0v14'/%3E%3C/g%3E %3Cg fill='%23ff2a6d' fill-opacity='.22'%3E%3Ccircle cx='34' cy='52' r='2.4'/%3E%3Ccircle cx='58' cy='94' r='2.4'/%3E%3Ccircle cx='104' cy='88' r='2.4'/%3E%3Ccircle cx='70' cy='14' r='2.4'/%3E%3C/g%3E%3C/svg%3E");
+  --tx-skyline: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='170'%3E%3Cg fill='%230d0d26'%3E%3Crect x='0' y='92' width='36' height='78'/%3E%3Crect x='17' y='78' width='2' height='14'/%3E%3Crect x='40' y='22' width='44' height='148'/%3E%3Crect x='84' y='126' width='28' height='44'/%3E%3Crect x='97' y='112' width='2' height='14'/%3E%3Crect x='116' y='67' width='28' height='103'/%3E%3Crect x='144' y='52' width='28' height='118'/%3E%3Crect x='176' y='49' width='36' height='121'/%3E%3Crect x='212' y='128' width='24' height='42'/%3E%3Crect x='236' y='108' width='28' height='62'/%3E%3Crect x='266' y='74' width='44' height='96'/%3E%3Crect x='314' y='62' width='52' height='108'/%3E%3Crect x='366' y='26' width='44' height='144'/%3E%3Crect x='412' y='54' width='52' height='116'/%3E%3Crect x='464' y='50' width='28' height='120'/%3E%3Crect x='492' y='93' width='28' height='77'/%3E%3Crect x='522' y='63' width='36' height='107'/%3E%3Crect x='560' y='118' width='28' height='52'/%3E%3Crect x='573' y='104' width='2' height='14'/%3E%3Crect x='592' y='80' width='28' height='90'/%3E%3Crect x='605' y='66' width='2' height='14'/%3E%3Crect x='620' y='31' width='24' height='139'/%3E%3C/g%3E%3Cg fill-opacity='.5'%3E%3Crect x='12' y='100' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='19' y='100' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='19' y='118' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='5' y='127' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='12' y='145' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='26' y='163' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='59' y='39' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='73' y='66' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='73' y='75' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='52' y='84' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='59' y='93' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='73' y='93' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='59' y='111' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='73' y='111' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='45' y='120' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='73' y='129' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='45' y='138' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='59' y='147' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='96' y='143' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='96' y='152' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='149' y='60' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='163' y='87' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='156' y='96' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='156' y='105' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='163' y='105' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='149' y='123' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='163' y='141' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='195' y='66' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='195' y='75' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='202' y='75' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='181' y='84' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='181' y='93' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='195' y='102' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='188' y='129' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='181' y='138' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='195' y='156' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='224' y='136' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='217' y='154' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='271' y='82' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='285' y='91' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='292' y='91' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='285' y='100' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='285' y='109' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='292' y='109' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='285' y='127' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='271' y='136' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='278' y='136' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='271' y='163' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='285' y='163' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='347' y='70' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='354' y='70' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='319' y='79' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='354' y='97' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='340' y='124' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='319' y='142' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='326' y='142' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='319' y='151' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='340' y='151' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='354' y='151' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='333' y='160' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='347' y='160' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='354' y='160' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='371' y='43' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='392' y='52' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='399' y='70' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='371' y='106' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='371' y='115' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='371' y='124' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='371' y='151' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='399' y='151' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='392' y='160' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='452' y='62' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='431' y='80' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='424' y='89' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='431' y='107' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='438' y='107' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='445' y='116' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='424' y='134' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='452' y='134' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='476' y='58' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='483' y='58' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='476' y='76' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='483' y='76' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='476' y='85' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='483' y='103' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='483' y='112' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='476' y='139' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='504' y='101' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='511' y='119' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='497' y='146' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='504' y='146' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='504' y='155' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='541' y='80' width='3' height='4' fill='%23f9f002'/%3E%3Crect x='541' y='134' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='548' y='134' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='527' y='143' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='572' y='135' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='565' y='153' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='572' y='153' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='597' y='97' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='604' y='97' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='597' y='142' width='3' height='4' fill='%23ff2a6d'/%3E%3Crect x='632' y='75' width='3' height='4' fill='%2305d9e8'/%3E%3Crect x='632' y='111' width='3' height='4' fill='%23f9f002'/%3E%3C/g%3E%3C/svg%3E");
+}
+:root[data-skin="neon"]:not([data-theme="night"]) body {
+  background-image:
+    var(--tx-skyline),
+    linear-gradient(to top, color-mix(in srgb, var(--tool) 14%, transparent), transparent 220px),
+    radial-gradient(1200px 500px at 100% 0%, color-mix(in srgb, var(--tool) 16%, transparent), transparent 60%),
+    radial-gradient(900px 500px at 0% 100%, color-mix(in srgb, var(--focus) 12%, transparent), transparent 60%),
+    linear-gradient(color-mix(in srgb, var(--focus) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--focus) 6%, transparent) 1px, transparent 1px);
+  background-size: 640px 170px, auto, auto, auto, 32px 32px, 32px 32px;
+  background-position: left bottom 27px, 0 0, 0 0, 0 0, 0 0, 0 0;
+  background-repeat: repeat-x, no-repeat, no-repeat, no-repeat, repeat, repeat;
+}
+:root[data-skin="neon"]:not([data-theme="night"]) .sidebar {
+  background-image: var(--tx-circuit), linear-gradient(180deg, transparent 60%, color-mix(in srgb, var(--tool) 10%, transparent));
+  background-size: 140px 140px, auto;
+  background-attachment: local, local;
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--tool) 60%, transparent), inset -14px 0 22px -18px var(--tool);
+}
+/* the status bar: hazard tape at its ends */
+:root[data-skin="neon"] .statusbar {
+  background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--star) 22%, transparent) 0 6px, transparent 6px 12px);
+  background-size: 64px 100%;
+  background-repeat: no-repeat;
+  background-position: right 0 top 0;
+}
+:root[data-skin="neon"] .statusbar-inner { padding-right: 78px; }
+/* scan sweep across the menu's current place */
+:root[data-skin="neon"] .nav-link.active { background-image: linear-gradient(90deg, color-mix(in srgb, var(--tool) 34%, transparent), transparent), repeating-linear-gradient(0deg, color-mix(in srgb, #ffffff 6%, transparent) 0 1px, transparent 1px 3px); }
 
 /* ===================================================================== */
 /* Wasteland Terminal: an old green screen in a fallout shelter. Phosphor text
@@ -333,6 +280,39 @@
 :root[data-skin="terminal"] :is(.card, .subcat-tile, .tile, .row, .lib-tile, .lib-line):hover :is(img, .lib-cover-none), :root[data-skin="terminal"] img:is(.game-hero, .lib-panel-cover):hover { filter: none; }
 :root[data-skin="terminal"] ::selection { background: var(--ink); color: var(--steel); }
 :root[data-skin="terminal"] * { scrollbar-color: var(--graphite) transparent; }
+
+/* textures: grain on the glass, a faded radiation sign behind the page, HUD
+   brackets on the cards' corners and a riveted metal menu */
+:root[data-skin="terminal"] {
+  --tx-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E %3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 .5 0 0 0 -.2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --tx-trefoil: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='9'/%3E%3Cpath d='M42.50 37.01L27.00 10.16A46 46 0 0 1 73.00 10.16L57.50 37.01A15 15 0 0 0 42.50 37.01ZM65.00 50.00L96.00 50.00A46 46 0 0 1 73.00 89.84L57.50 62.99A15 15 0 0 0 65.00 50.00ZM42.50 62.99L27.00 89.84A46 46 0 0 1 4.00 50.00L35.00 50.00A15 15 0 0 0 42.50 62.99Z'/%3E%3C/svg%3E");
+}
+:root[data-skin="terminal"] body { background-image: var(--tx-grain), radial-gradient(ellipse at center, color-mix(in srgb, var(--ink) 7%, var(--steel)) 0%, var(--steel) 75%); background-size: 180px 180px, auto; }
+:root[data-skin="terminal"] body::before {
+  content: ""; position: fixed; z-index: -1; pointer-events: none;
+  right: 3vw; bottom: 5vh; width: min(46vmin, 420px); aspect-ratio: 1;
+  background: var(--ink); opacity: .045;
+  -webkit-mask: var(--tx-trefoil) center / contain no-repeat; mask: var(--tx-trefoil) center / contain no-repeat;
+}
+:root[data-skin="terminal"] :is(.home .home-card, .home-next, .dialog) {
+  background-image:
+    linear-gradient(var(--ink), var(--ink)), linear-gradient(var(--ink), var(--ink)), linear-gradient(var(--ink), var(--ink)), linear-gradient(var(--ink), var(--ink)),
+    linear-gradient(var(--ink), var(--ink)), linear-gradient(var(--ink), var(--ink)), linear-gradient(var(--ink), var(--ink)), linear-gradient(var(--ink), var(--ink));
+  background-size: 14px 2px, 2px 14px, 14px 2px, 2px 14px, 14px 2px, 2px 14px, 14px 2px, 2px 14px;
+  background-position: top left, top left, top right, top right, bottom left, bottom left, bottom right, bottom right;
+  background-repeat: no-repeat;
+  border-color: var(--steel-2);
+}
+:root[data-skin="terminal"] .sidebar {
+  background:
+    radial-gradient(circle at 9px 9px, var(--graphite) 2px, transparent 2.5px) top left / 100% 100% no-repeat,
+    radial-gradient(circle at calc(100% - 9px) 9px, var(--graphite) 2px, transparent 2.5px) top left / 100% 100% no-repeat,
+    radial-gradient(circle at 9px calc(100% - 9px), var(--graphite) 2px, transparent 2.5px) top left / 100% 100% no-repeat,
+    radial-gradient(circle at calc(100% - 9px) calc(100% - 9px), var(--graphite) 2px, transparent 2.5px) top left / 100% 100% no-repeat,
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--ink) 4%, transparent) 0 1px, transparent 1px 4px),
+    color-mix(in srgb, var(--ink) 3%, var(--steel));
+  border-right: 3px double var(--steel-2);
+}
 
 /* ===================================================================== */
 /* Adventurer's Tome: a fantasy role-playing game. Parchment pages in a leather
@@ -464,6 +444,40 @@
 :root[data-skin="tome"] .statusbar .status-library { font-family: var(--font-head); color: var(--gilt); letter-spacing: .04em; }
 :root[data-skin="tome"] ::selection { background: color-mix(in srgb, var(--focus) 40%, transparent); }
 
+/* textures: paper fibres and specks on the pages, grained leather with stitching
+   on the binding, gilt corner pieces on the panels */
+:root[data-skin="tome"] {
+  --tx-paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.03 .09' numOctaves='4' stitchTiles='stitch'/%3E %3CfeColorMatrix values='0 0 0 0 0.42 0 0 0 0 0.27 0 0 0 0 0.1 .32 0 0 0 -.1'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E %3CfeColorMatrix values='0 0 0 0 0.36 0 0 0 0 0.22 0 0 0 0 0.08 .45 0 0 0 -.22'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --tx-leather: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.55' numOctaves='3' stitchTiles='stitch'/%3E %3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .9 0 0 0 -.3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+:root[data-skin="tome"][data-theme="dark"] { --tx-paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.03 .09' numOctaves='4' stitchTiles='stitch'/%3E %3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.85 0 0 0 0 0.6 .14 0 0 0 -.05'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E %3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 .5 0 0 0 -.2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+:root[data-skin="tome"][data-theme="night"] { --tx-paper: none, none; }
+:root[data-skin="tome"] body {
+  background-image:
+    var(--tx-paper),
+    radial-gradient(circle at 18% 22%, var(--page-blot, transparent) 0, transparent 38%),
+    radial-gradient(circle at 82% 68%, var(--page-blot, transparent) 0, transparent 42%),
+    radial-gradient(ellipse at center, transparent 55%, color-mix(in srgb, var(--steel-2) 45%, transparent) 100%);
+  background-size: 300px 300px, 180px 180px, auto, auto, auto;
+}
+:root[data-skin="tome"] :is(.cmdbar, .home .home-card, .home-next, .dialog, .lib-panel) { background-image: var(--tx-paper); background-size: 300px 300px, 180px 180px; }
+:root[data-skin="tome"] :is(.sidebar, .statusbar) {
+  background-image: var(--tx-leather), linear-gradient(90deg, var(--leather-2), var(--leather) 12%, var(--leather) 88%, var(--leather-2));
+  background-size: 180px 180px, auto;
+}
+:root[data-skin="tome"] .sidebar { outline: 1.5px dashed rgba(212, 175, 90, .38); outline-offset: -5px; }
+/* gilt corner pieces */
+:root[data-skin="tome"] .home .home-card { position: relative; }
+:root[data-skin="tome"] .home .home-card::before {
+  content: ""; position: absolute; inset: 6px; pointer-events: none;
+  background:
+    linear-gradient(var(--focus), var(--focus)) top left / 18px 2px, linear-gradient(var(--focus), var(--focus)) top left / 2px 18px,
+    linear-gradient(var(--focus), var(--focus)) top right / 18px 2px, linear-gradient(var(--focus), var(--focus)) top right / 2px 18px,
+    linear-gradient(var(--focus), var(--focus)) bottom left / 18px 2px, linear-gradient(var(--focus), var(--focus)) bottom left / 2px 18px,
+    linear-gradient(var(--focus), var(--focus)) bottom right / 18px 2px, linear-gradient(var(--focus), var(--focus)) bottom right / 2px 18px;
+  background-repeat: no-repeat; opacity: .8;
+}
+
 /* ===================================================================== */
 /* Pixel Arcade: an 8-bit game. Chunky outlines with notched corners, hard
    drop shadows, Press Start 2P headings; a grey console in the light theme,
@@ -589,6 +603,33 @@
 :root[data-skin="pixel"] .lib-filter > summary { font-family: var(--font-head); font-weight: 400; font-size: 9px; padding: 6px 0; }
 :root[data-skin="pixel"] .game-hero { box-shadow: 0 -4px 0 var(--line), 0 4px 0 var(--line), -4px 0 0 var(--line), 4px 0 0 var(--line), 10px 10px 0 var(--drop); }
 
+/* textures: a dithered menu, a brick floor along the foot of the page with
+   clouds above it in the light theme, and a 1UP on the status bar */
+:root[data-skin="pixel"] {
+  --tx-bricks: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' shape-rendering='crispEdges'%3E%3Crect width='32' height='32' fill='%23b4521e'/%3E%3Cg fill='%237a2e0c'%3E%3Crect y='15' width='32' height='2'/%3E%3Crect y='30' width='32' height='2'/%3E%3Crect x='15' width='2' height='15'/%3E%3Crect x='0' y='17' width='2' height='13'/%3E%3Crect x='30' y='17' width='2' height='13'/%3E%3C/g%3E%3Cg fill='%23e2874a'%3E%3Crect x='2' y='1' width='12' height='2'/%3E%3Crect x='18' y='1' width='11' height='2'/%3E%3Crect x='3' y='18' width='12' height='2'/%3E%3Crect x='19' y='18' width='10' height='2'/%3E%3C/g%3E%3C/svg%3E");
+  --tx-cloud: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='140' shape-rendering='crispEdges'%3E%3Cg fill='%23ffffff' fill-opacity='.7' transform='translate(20 30)'%3E%3Crect x='16' y='0' width='32' height='4'/%3E%3Crect x='8' y='4' width='48' height='4'/%3E%3Crect x='4' y='8' width='60' height='4'/%3E%3Crect x='0' y='12' width='72' height='4'/%3E%3Crect x='0' y='16' width='72' height='4'/%3E%3C/g%3E%3Cg fill='%23ffffff' fill-opacity='.5' transform='translate(190 90) scale(.6)'%3E%3Crect x='16' y='0' width='32' height='4'/%3E%3Crect x='8' y='4' width='48' height='4'/%3E%3Crect x='4' y='8' width='60' height='4'/%3E%3Crect x='0' y='12' width='72' height='4'/%3E%3Crect x='0' y='16' width='72' height='4'/%3E%3C/g%3E%3C/svg%3E");
+  --dither: rgba(0, 0, 0, .07);
+}
+:root[data-skin="pixel"][data-theme="dark"] { --dither: rgba(255, 255, 255, .05); }
+:root[data-skin="pixel"] .sidebar {
+  background-image: conic-gradient(var(--dither) 25%, transparent 0 50%, var(--dither) 0 75%, transparent 0);
+  background-size: 4px 4px;
+}
+:root[data-skin="pixel"]:not([data-theme="night"]) body {
+  background-image: var(--tx-bricks), var(--tx-cloud);
+  background-size: 32px 32px, 300px 140px;
+  background-repeat: repeat-x, repeat;
+  background-position: left bottom 27px, right 40px top 70px;
+}
+:root[data-skin="pixel"][data-theme="dark"] body {
+  background-image: var(--tx-bricks), radial-gradient(rgba(255, 255, 255, .7) 1px, transparent 1.6px), radial-gradient(rgba(60, 224, 255, .5) 1px, transparent 1.6px);
+  background-size: 32px 32px, 211px 173px, 337px 263px;
+  background-repeat: repeat-x, repeat, repeat;
+  background-position: left bottom 27px, 37px 59px, 151px 13px;
+}
+:root[data-skin="pixel"] .statusbar-inner::before { content: "1UP"; color: var(--tool); margin-right: 6px; }
+:root[data-skin="pixel"] .cmdbar { background-image: linear-gradient(to bottom, transparent calc(100% - 6px), var(--dither) calc(100% - 6px)); }
+
 /* ===================================================================== */
 /* Cosy Pastel: a cosy life-sim. Cream and lavender, sugared pinks and mint,
    soft round shapes and gentle shadows; a plum evening in the dark theme. */
@@ -704,3 +745,31 @@
 :root[data-skin="cosy"] .statusbar { background: color-mix(in srgb, var(--white) 80%, transparent); }
 :root[data-skin="cosy"] .dialog, :root[data-skin="cosy"] .menu { border-color: transparent; }
 :root[data-skin="cosy"] ::selection { background: var(--blush); }
+/* textures: polka dots on the page, gingham in the menu, a scalloped edge under
+   the command bar and washi tape on Home's cards */
+:root[data-skin="cosy"] { --dot: rgba(246, 165, 191, .22); --dot-2: rgba(143, 210, 180, .2); --check: rgba(246, 165, 191, .13); --tape: rgba(246, 165, 191, .55); --tape-2: rgba(255, 255, 255, .5); }
+:root[data-skin="cosy"][data-theme="dark"] { --dot: rgba(246, 165, 191, .08); --dot-2: rgba(143, 220, 178, .07); --check: rgba(246, 165, 191, .06); --tape: rgba(246, 165, 191, .4); --tape-2: rgba(255, 255, 255, .15); }
+:root[data-skin="cosy"][data-theme="night"] { --dot: transparent; --dot-2: transparent; --check: transparent; --tape: rgba(208, 138, 42, .3); --tape-2: transparent; }
+:root[data-skin="cosy"] body {
+  background-image:
+    radial-gradient(700px 420px at 92% 6%, var(--blush), transparent 70%), radial-gradient(640px 420px at 30% 104%, var(--mint), transparent 70%),
+    radial-gradient(var(--dot) 3px, transparent 3.5px), radial-gradient(var(--dot-2) 3px, transparent 3.5px);
+  background-size: auto, auto, 36px 36px, 36px 36px;
+  background-position: 0 0, 0 0, 0 0, 18px 18px;
+}
+:root[data-skin="cosy"] .sidebar {
+  background-image: linear-gradient(90deg, var(--check) 50%, transparent 0), linear-gradient(var(--check) 50%, transparent 0);
+  background-size: 22px 22px;
+}
+:root[data-skin="cosy"] .cmdbar { position: relative; z-index: 3; }
+:root[data-skin="cosy"] .cmdbar::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 7px; pointer-events: none;
+  background: radial-gradient(circle at 7px 0, color-mix(in srgb, var(--white) 92%, transparent) 6.5px, transparent 7px) 0 0 / 14px 7px repeat-x;
+}
+:root[data-skin="cosy"] .home .home-card { position: relative; }
+:root[data-skin="cosy"] .home .home-card::before {
+  content: ""; position: absolute; top: -9px; left: 22px; width: 74px; height: 18px; transform: rotate(-4deg); pointer-events: none;
+  background: repeating-linear-gradient(45deg, var(--tape) 0 6px, var(--tape-2) 6px 12px);
+  border-radius: 2px; box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+}
+:root[data-skin="cosy"] .home .home-card:nth-child(even)::before { left: auto; right: 22px; transform: rotate(5deg); }

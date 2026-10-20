@@ -85,9 +85,6 @@ FONT_URL = "https://raw.githubusercontent.com/google/fonts/main/ofl/"
 # licence's text with the copyright line from its METADATA.pb.
 FONTS = [
     ("Archivo", "archivo", [("Archivo%5Bwdth%2Cwght%5D.ttf", "100 900")], "62% 125%"),
-    ("Overpass", "overpass", [("Overpass%5Bwght%5D.ttf", "100 900")], None),
-    ("Overpass Mono", "overpassmono", [("OverpassMono%5Bwght%5D.ttf", "300 700")], None),
-    ("Inter", "inter", [("Inter%5Bopsz%2Cwght%5D.ttf", "100 900")], None),
     ("Orbitron", "orbitron", [("Orbitron%5Bwght%5D.ttf", "400 900")], None),
     ("Chakra Petch", "chakrapetch", [("ChakraPetch-Regular.ttf", "400"), ("ChakraPetch-SemiBold.ttf", "600"), ("ChakraPetch-Bold.ttf", "700")], None),
     ("Share Tech Mono", "sharetechmono", [("ShareTechMono-Regular.ttf", "400")], None),
