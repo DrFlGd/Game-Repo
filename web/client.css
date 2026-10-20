@@ -21,7 +21,7 @@ body.go { overflow: hidden; }
 .go-nav-link[aria-current="page"] { background: var(--white); box-shadow: inset 3px 0 0 var(--tool); }
 .go-nav-n { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 99px; background: var(--tool); color: var(--tool-ink); font-size: 12px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
 .go-main { flex: 1; min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
-.go-main-library { overflow: hidden; }   /* the games scroll on their own */
+.go-main-library, .go-main-games { overflow: hidden; }   /* the games scroll on their own */
 
 /* ---- a page, and the notes above it ------------------------------------ */
 .go-page { width: 100%; max-width: 980px; padding: 18px 24px 40px; display: grid; gap: 14px; align-content: start; grid-template-columns: minmax(0, 1fr); }
@@ -130,6 +130,18 @@ progress { accent-color: var(--tool); height: 8px; }
 .go-from-library { color: var(--ok); border-color: var(--ok); }
 .go-from-known { color: var(--ink); border-color: var(--tool); }
 .go-from-elsewhere, .go-from-unchecked { color: var(--graphite); border-color: var(--steel-2); }
+.go-systems { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.go-sys { border: 1px solid var(--steel-2); border-radius: var(--radius-m); background: var(--white); }
+.go-sys.is-open { border-color: var(--tool); }
+.go-sys-head { display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; }
+.go-sys-open { flex: 1; min-width: 0; justify-content: flex-start; gap: 10px; padding: 10px; background: transparent; font-weight: 400; text-align: left; }
+.go-sys-what { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; }
+.go-sys-what strong { font-size: 16px; }
+.go-sys-what .muted { font-size: 14px; }
+.go-sys-open svg { flex: none; transition: transform .15s; }
+.go-sys.is-open .go-sys-open svg { transform: rotate(90deg); }
+.go-sys > .go-rows { padding: 0 10px 10px; }
+.go-from-missing { color: var(--warn-ink); border-color: var(--warn-border); background: var(--warn-bg); }
 
 /* ---- Settings and pairing --------------------------------------------------- */
 .go-set { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--steel-2); border-radius: var(--radius-m); background: var(--white); }
@@ -161,4 +173,198 @@ progress { accent-color: var(--tool); height: 8px; }
   .go-game-body { grid-template-columns: minmax(0, 1fr); }
   .go-game-pics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .go-toast { bottom: 76px; }
+}
+.go-install { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); }
+.go-install.is-on { border-color: var(--ok); }
+
+/* ---- the big-screen view (D113, client/big.js): after Steam's Big Picture --------------
+   For a controller on a TV, a handheld or the Steam Deck: the pages as tabs along the top,
+   the button hints along the bottom, large type, the focus drawn large in the skin's
+   colour. Its sizes follow the screen's height, so a handheld's small one fits too. Each
+   rule starts [data-view="big"], so it wins over the classic one it replaces. */
+[data-view="big"] {
+  --bar-h: clamp(52px, 8.5vh, 68px);
+  --hint-h: clamp(44px, 7vh, 56px);
+  --side: clamp(16px, 3vw, 40px);
+  --cover-h: clamp(120px, calc((100vh - 124px) * .36), 240px);
+  --cover-w: calc(var(--cover-h) * .75);
+  --ring: 0 0 0 4px var(--tool), 0 0 26px color-mix(in srgb, var(--tool) 50%, transparent);
+}
+[data-view="big"] body { font-size: 18px; }
+[data-view="big"] .go-app :is(.primary, .ghost, .button) { min-height: 48px; padding: 0 20px; font-size: 17px; border-radius: 10px; }
+[data-view="big"] .go-app input:not([type="checkbox"]):not([type="radio"]), [data-view="big"] .go-app select { min-height: 48px; font-size: 17px; border-radius: 10px; }
+[data-view="big"] .go-app input[type="checkbox"] { width: 26px; height: 26px; }
+[data-view="big"] .go-app :is(.muted, small) { font-size: 15px; }
+[data-view="big"] .go-app .field-block > span { font-size: 16px; font-weight: 600; }
+[data-view="big"] .go-app .check-row { font-size: 17px; gap: 12px; min-height: 40px; }
+[data-view="big"] .go-app .badge { font-size: 14px; padding: 5px 12px; }
+[data-view="big"] .go-app .warn-note, [data-view="big"] .go-note { font-size: 16px; }
+/* the focus, for keys and a controller (after a touch or a click, none) */
+[data-view="big"]:not([data-input="pointer"]) .go-app :focus { outline: none; }
+[data-view="big"]:not([data-input="pointer"]) .go-app :is(button, a, input, select, [tabindex]):focus:not(.go-tile):not(.go-card-open):not(.dialog) { box-shadow: var(--ring); position: relative; z-index: 1; }
+[data-view="big"] .go-scroll:focus { border-radius: 10px; }
+
+/* the bar: the pages as tabs, L1 and R1 beside them */
+[data-view="big"] .go-big-bar { height: var(--bar-h); flex: none; display: flex; align-items: center; gap: 24px; padding: 0 var(--side); background: var(--chrome); color: var(--chrome-ink); border-bottom: 1px solid color-mix(in srgb, var(--chrome-ink) 16%, transparent); }
+.go-big-brand { color: var(--tool); font-size: 18px; font-weight: 800; font-stretch: var(--head-stretch); text-decoration: none; white-space: nowrap; }
+.go-big-here { display: none; }
+.go-tabs { flex: 1; min-width: 0; display: flex; justify-content: center; align-items: center; gap: 6px; }
+.go-tab { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 8px; color: var(--chrome-ink); font-size: 18px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.go-tab .icon { display: none; }
+.go-tab:hover { background: color-mix(in srgb, var(--chrome-ink) 12%, transparent); }
+.go-tab[aria-current="page"] { background: var(--tool); color: var(--tool-ink); font-weight: 700; }
+.go-tab .go-nav-n { margin: 0; }
+.go-big-free { flex: none; font-size: 15px; color: color-mix(in srgb, var(--chrome-ink) 72%, transparent); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.go-big-search { display: none; }
+.go-pad { display: inline-grid; place-items: center; flex: none; min-width: 28px; height: 28px; padding: 0 4px; border: 0; border-radius: 14px; color: #ffffff; font-size: 14px; font-weight: 800; line-height: 1; }
+.go-pad-shoulder { min-width: 34px; height: 24px; border-radius: 6px; background: color-mix(in srgb, var(--chrome-ink) 16%, transparent); color: color-mix(in srgb, var(--chrome-ink) 72%, transparent); font-size: 13px; }
+.go-pad-a { background: #2e7d4f; }
+.go-pad-b { background: #b3261e; }
+.go-pad-x { background: #2f6fd0; }
+.go-pad-y { background: #b07800; }
+.go-pad-menu { border-radius: 8px; background: #4a5866; }
+
+/* the hints: what A, X, Y, ☰ and B do for what's focused */
+.go-hints { height: var(--hint-h); flex: none; display: flex; align-items: center; gap: 6px 20px; padding: 0 var(--side); background: var(--chrome); color: var(--chrome-ink); border-top: 1px solid color-mix(in srgb, var(--chrome-ink) 16%, transparent); font-size: 16px; }
+.go-hints-say { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: color-mix(in srgb, var(--chrome-ink) 70%, transparent); }
+.go-hint { display: inline-flex; align-items: center; gap: 8px; min-height: 0; padding: 4px 2px; border: 0; background: transparent; color: inherit; font-size: 16px; font-weight: 500; white-space: nowrap; }
+.go-hint:hover { color: var(--tool); }
+
+[data-view="big"] .go-main { background: var(--steel); }
+[data-view="big"] .go-main-library { overflow: auto; }   /* the shelves scroll; a place's games on their own */
+[data-view="big"] .go-toast { bottom: calc(var(--hint-h) + 16px); font-size: 16px; background: var(--white); color: var(--ink); border: 1px solid var(--steel-2); }
+[data-view="big"] .go-toast .ghost.light { color: var(--ink); border-color: var(--steel-2); }
+[data-view="big"] .go-note { margin: 14px var(--side) 0; }
+[data-view="big"] .go-page .go-note { margin: 0; }
+
+/* the Library's shelves */
+.go-shelves { display: grid; gap: clamp(8px, 2vh, 20px); align-content: start; padding: clamp(10px, 2.4vh, 22px) 0 30px; }
+.go-shelf h2 { display: flex; align-items: baseline; gap: 12px; margin: 0 var(--side); font-size: 22px; font-stretch: var(--head-stretch); }
+.go-shelf h2 .muted { font-size: 15px; font-weight: 500; }
+.go-shelf-row { display: flex; gap: 18px; overflow-x: auto; scrollbar-width: none; padding: 16px var(--side) 12px; scroll-padding: 0 var(--side); }
+.go-shelf-row::-webkit-scrollbar { display: none; }
+[data-view="big"] .go-tile { flex: none; width: var(--cover-w); display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 3px; min-height: 0; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--ink); font-weight: 400; text-align: left; }
+.go-tile-cover { border-radius: 10px; transition: transform .12s, box-shadow .12s; }
+.go-tile .go-on-device, .go-big-game .go-on-device { top: 8px; left: auto; right: 8px; }
+.go-tile-title { margin-top: 4px; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.go-tile-sub { color: var(--graphite); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.go-tile:focus { outline: none; }
+[data-view="big"]:not([data-input="pointer"]) .go-tile:focus .go-tile-cover { transform: scale(1.06); box-shadow: var(--ring); }
+[data-view="big"]:not([data-input="pointer"]) .go-tile:focus .go-tile-title { color: var(--tool); }
+.go-tile:hover .go-tile-cover { box-shadow: 0 0 0 2px var(--steel-2); }
+.go-tile-place .go-tile-cover { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; aspect-ratio: 3 / 4; padding: 10px; border: 2px dashed var(--steel-2); color: var(--graphite); text-align: center; }
+.go-tile-place strong { color: var(--ink); font-size: 22px; line-height: 1.15; overflow-wrap: anywhere; }
+.go-tile.is-loading .go-tile-cover { opacity: .5; }
+
+/* a place's every game: the classic grid, larger */
+[data-view="big"] :is(.go-places, .go-places-pick, .go-picked, .go-tick) { display: none; }
+[data-view="big"] .go-tools.cmdbar { gap: 14px; padding: 14px var(--side); border-bottom: 0; background: transparent; box-shadow: none; }
+[data-view="big"] .go-place-name { display: block; font-size: 26px; }
+[data-view="big"] .go-search { flex: 0 1 380px; }
+[data-view="big"] .go-games { padding: 0 calc(var(--side) - 16px); }
+[data-view="big"] .go-card.card { border: 0; background: transparent; box-shadow: none; overflow: visible; }
+[data-view="big"] .go-card-open { padding: 8px; }
+[data-view="big"] .go-card-open:focus-visible { outline: none; }
+[data-view="big"] .go-card .go-cover { border-radius: 10px; transition: transform .12s, box-shadow .12s; }
+[data-view="big"]:not([data-input="pointer"]) .go-card-open:focus .go-cover { transform: scale(1.05); box-shadow: var(--ring); }
+[data-view="big"]:not([data-input="pointer"]) .go-card-open:focus .go-card-title { color: var(--tool); }
+[data-view="big"] .go-card-title { font-size: 15px; -webkit-line-clamp: 1; }
+[data-view="big"] .go-card-sub { font-size: 13px; }
+[data-view="big"] .go-card .go-on-device { top: 14px; left: auto; right: 14px; }
+
+/* a game's page: its picture large behind it */
+.go-big-game { position: relative; min-height: 100%; display: flex; }
+.go-hero-back { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.go-hero-pic { width: 100%; height: 100%; object-fit: cover; opacity: .45; filter: blur(2px) saturate(1.1); }
+.go-hero-back::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--steel) 0%, color-mix(in srgb, var(--steel) 55%, transparent) 55%, color-mix(in srgb, var(--steel) 20%, transparent) 100%), linear-gradient(180deg, transparent 40%, var(--steel) 100%); }
+.go-hero { position: relative; flex: 1; min-width: 0; padding: clamp(14px, 4vh, 44px) var(--side) 30px; display: grid; gap: 14px; align-content: start; }
+[data-view="big"] .go-big-back { justify-self: start; }
+[data-view="big"]:not([data-input="pointer"]) .go-big-back { display: none; }
+.go-hero-body { display: grid; grid-template-columns: clamp(140px, 22vw, 260px) minmax(0, 1fr); gap: clamp(20px, 4vw, 48px); align-items: start; }
+.go-hero-cover { border-radius: 12px; box-shadow: 0 16px 40px rgba(0, 0, 0, .5); }
+.go-hero-cover img { object-fit: cover; }
+.go-hero-info { display: grid; gap: 14px; align-content: start; min-width: 0; }
+.go-hero-system { color: var(--graphite); font-size: 16px; }
+.go-hero-info h1 { margin: 0; font-size: clamp(30px, 5.6vh, 48px); font-weight: 800; font-stretch: var(--head-stretch); line-height: 1.05; }
+.go-hero-line { margin: 0; font-size: 17px; color: var(--graphite); }
+.go-hero-do { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 6px; }
+[data-view="big"] .go-hero-do :is(.primary, .ghost) { min-height: clamp(48px, 7.5vh, 60px); padding: 0 24px; font-size: 18px; }
+[data-view="big"] .go-hero-do .primary { display: inline-flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 800; }
+[data-view="big"] .go-hero-do .ghost { background: color-mix(in srgb, var(--steel) 60%, transparent); }
+.go-hero-text { max-width: 72ch; max-height: clamp(90px, 26vh, 240px); overflow: auto; display: grid; gap: 10px; padding: 4px 2px; font-size: 18px; line-height: 1.5; }
+.go-hero-text p { margin: 0; }
+.go-hero-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; max-width: 72ch; margin: 0; }
+.go-hero-facts > div { padding: 12px 16px; border-radius: 10px; background: color-mix(in srgb, var(--white) 85%, transparent); }
+.go-hero-facts dt { color: var(--graphite); font-size: 13px; }
+.go-hero-facts dd { margin: 2px 0 0; font-size: 16px; font-weight: 600; }
+
+/* Downloads, On this device and Settings: the classic pages, larger */
+[data-view="big"] .go-page { max-width: 1120px; padding: clamp(14px, 3vh, 26px) var(--side) 40px; gap: 16px; }
+[data-view="big"] .go-page h1 { font-size: 30px; font-weight: 800; }
+[data-view="big"] .go-page h2 { font-size: 20px; }
+[data-view="big"] :is(.go-q, .go-row, .go-set) { padding: 14px 20px; border-radius: 12px; }
+[data-view="big"] .go-q-what strong, [data-view="big"] .go-row-open strong { font-size: 18px; }
+[data-view="big"] .go-row-open { padding: 6px 0; }
+[data-view="big"] .go-sys { border-radius: 12px; }
+[data-view="big"] .go-sys-open { min-height: 60px; padding: 10px 14px; }
+[data-view="big"] .go-sys-what strong { font-size: 19px; }
+[data-view="big"] .go-sys > .go-rows { padding: 0 16px 14px 40px; }
+[data-view="big"] progress { height: 10px; }
+[data-view="big"] .go-device-sum { font-size: 17px; }
+
+/* the dialogs: a panel from the right, its buttons at the foot, the main one first */
+[data-view="big"] .dialog-backdrop { top: var(--bar-h); bottom: var(--hint-h); padding: 0; display: flex; justify-content: flex-end; align-items: stretch; overflow: hidden; background: color-mix(in srgb, var(--steel) 55%, transparent); }
+[data-view="big"] .dialog { width: min(480px, 100%); max-height: none; display: flex; flex-direction: column; gap: 16px; padding: 26px 30px 0; border: 0; border-left: 1px solid var(--steel-2); border-radius: 0; box-shadow: -20px 0 40px rgba(0, 0, 0, .45); overflow: auto; }
+[data-view="big"] .dialog > * { flex: none; }
+[data-view="big"] .dialog-head h2 { font-size: 26px; font-weight: 800; }
+[data-view="big"] .dialog-foot { margin: auto -30px 0; padding: 14px 30px 20px; bottom: 0; }
+[data-view="big"] .dialog-actions { flex-direction: column-reverse; align-items: stretch; gap: 12px; }
+[data-view="big"] .dialog-actions .primary { min-height: 58px; font-size: 19px; font-weight: 800; }
+[data-view="big"] .go-files { max-height: none; }
+[data-view="big"] :is(.go-files, .go-sizes) li { padding: 8px 0; font-size: 17px; }
+[data-view="big"] .go-facts { gap: 8px 20px; font-size: 17px; }
+.go-options { display: grid; gap: 8px; }
+[data-view="big"] .go-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 0 18px; border: 1px solid var(--steel-2); border-radius: 10px; background: transparent; color: var(--ink); font-size: 17px; font-weight: 500; text-align: left; }
+[data-view="big"] .go-option.is-on { border-color: var(--tool); font-weight: 700; }
+[data-view="big"] .go-option.is-on .icon { color: var(--tool); }
+
+/* a handheld's small screen, on its side */
+@media (max-width: 900px) {
+  [data-view="big"] .go-big-brand { display: none; }
+  [data-view="big"] .go-tab { padding: 8px 12px; font-size: 16px; }
+  [data-view="big"] .go-hints { gap: 6px 14px; font-size: 15px; }
+  [data-view="big"] .go-hints-say { display: none; }
+  [data-view="big"] .go-hints::before { content: ""; flex: 1; }
+}
+@media (max-height: 480px) {
+  [data-view="big"] .go-pad-shoulder { display: none; }
+  [data-view="big"] .go-shelf h2 { font-size: 18px; }
+  [data-view="big"] .go-hero-info h1 { font-size: 26px; }
+}
+
+/* a phone upright: the pages along the bottom, no hints, as the phone's own apps are */
+@media (orientation: portrait) and (max-width: 760px) {
+  [data-view="big"] { --cover-h: 147px; --side: 16px; }
+  [data-view="big"] .go-big-bar { height: 60px; gap: 12px; }
+  [data-view="big"] .go-big-brand { display: none; }
+  [data-view="big"] .go-big-here { display: block; flex: 1; color: var(--tool); font-size: 20px; font-weight: 800; font-stretch: var(--head-stretch); }
+  [data-view="big"] .go-big-search { display: inline-grid; place-items: center; width: 44px; height: 44px; min-height: 0; padding: 0; border: 0; border-radius: 22px; background: color-mix(in srgb, var(--chrome-ink) 12%, transparent); color: var(--chrome-ink); }
+  [data-view="big"] .go-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 4px 4px env(safe-area-inset-bottom); background: var(--chrome); border-top: 1px solid color-mix(in srgb, var(--chrome-ink) 16%, transparent); }
+  [data-view="big"] .go-tabs .go-pad-shoulder { display: none; }
+  [data-view="big"] .go-tab { position: relative; flex-direction: column; gap: 3px; padding: 8px 2px; border-radius: 8px; font-size: 12px; }
+  [data-view="big"] .go-tab .icon { display: block; }
+  [data-view="big"] .go-tab[aria-current="page"] { background: transparent; color: var(--tool); }
+  [data-view="big"] .go-tab .go-nav-n { position: absolute; top: 2px; left: calc(50% + 8px); }
+  [data-view="big"] .go-hints { display: none; }
+  [data-view="big"] .go-body { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+  [data-view="big"] .go-toast { bottom: 84px; }
+  [data-view="big"] .dialog-backdrop { top: 0; bottom: 0; }
+  [data-view="big"] .dialog { width: 100%; border-left: 0; }
+  [data-view="big"] .go-shelf h2 { font-size: 18px; }
+  [data-view="big"] .go-shelf-row { gap: 12px; padding: 10px 16px 8px; }
+  [data-view="big"] .go-hero-body { grid-template-columns: minmax(0, 1fr); }
+  [data-view="big"] .go-hero-cover { width: 50%; }
+  [data-view="big"] .go-tools.cmdbar { padding: 10px 16px; }
+  [data-view="big"] .go-place-name { font-size: 20px; flex-basis: 100%; }
+  [data-view="big"] .go-search { flex: 1 1 160px; }
 }

@@ -324,11 +324,13 @@ try:
     pg.fill("#pair-address", f"10.0.2.2:{port}")
     pg.fill("#pair-code", code())
     pg.click("#pair-go")
-    pg.wait("(document.querySelector('#go-games-total')?.dataset.total | 0) >= 3", 90, "the library's games")
-    keys = pg.eval("[...document.querySelectorAll('#go-games .go-card[data-key]')].map(e => e.dataset.key)")
-    check("the code from Game Repo pairs it by address, and the library's games are shown", sorted(keys) == ["gb/Alpha (USA)", "gb/Beta (Europe)", "gb/Delta (World)"], keys)
-    shown = pg.wait("document.querySelector('.go-card[data-key=\"gb/Alpha (USA)\"] img')?.naturalWidth > 0", 30, "Alpha's box front", soft=True)
-    src = pg.eval("document.querySelector('.go-card[data-key=\"gb/Alpha (USA)\"] img')?.src || ''")
+    # (on Android the big-screen view is the usual one, D113: the Library as shelves)
+    pg.wait("document.querySelectorAll('#go-shelves .go-tile[data-key]').length >= 3", 90, "the library's games")
+    keys = pg.eval("[...document.querySelectorAll('#go-shelves .go-tile[data-key]')].map(e => e.dataset.key)")
+    check("the code from Game Repo pairs it by address, and the library's games are shown, on shelves in the big-screen view",
+          sorted(keys) == ["gb/Alpha (USA)", "gb/Beta (Europe)", "gb/Delta (World)"] and pg.eval("document.documentElement.dataset.view") == "big", keys)
+    shown = pg.wait("document.querySelector('.go-tile[data-key=\"gb/Alpha (USA)\"] img')?.naturalWidth > 0", 30, "Alpha's box front", soft=True)
+    src = pg.eval("document.querySelector('.go-tile[data-key=\"gb/Alpha (USA)\"] img')?.src || ''")
     why = (src, info)
     if not shown:
         # the protocol asked straight, the backend's own picture, and the app's log
@@ -338,7 +340,7 @@ try:
             own = str(pg.api("picture", {"key": "gb/Alpha (USA)", "kind": "cover"}))[:60]
         except Exception as e:
             own = repr(e)
-        card = pg.eval("document.querySelector('.go-card[data-key=\"gb/Alpha (USA)\"]')?.outerHTML.slice(0, 500)")
+        card = pg.eval("document.querySelector('.go-tile[data-key=\"gb/Alpha (USA)\"]')?.outerHTML.slice(0, 500)")
         why = f"{url} -> {asked}; the picture command: {own}; the card: {card}\n{app_log()}"
     check("a box front comes through the app's picture protocol", shown and src.startswith(info.get("picture_url", "?")), why)
     shot("03-library")
@@ -350,30 +352,54 @@ try:
     readable = sealed and b"token" in base64.b64decode(sealed.group(1) + "==")
     check("the pairing is kept encrypted with a Keystore key, with no token in the app's files", sealed and not readable and "token" not in prefs and not files.strip(), (prefs[:300], files))
 
-    # 5. a controller: the D-pad moves between games, X ticks, A opens, B comes back (the
-    # web view having Android's focus, as a handheld's first press gives it, then the first
-    # game focused)
+    # 5. a controller, in the big-screen view (D113): the D-pad moves to the nearest game, X
+    # adds one to the queue, A opens it and B comes back to it, R1 and L1 change the page,
+    # Start opens Options, Y searches; then Options › Switch to the classic view for the rest
+    # (the web view having Android's focus, as a handheld's first press gives it)
     key("KEYCODE_SHIFT_LEFT")
-    pg.eval("document.querySelector('#go-games .go-card-open[data-index=\"0\"]').focus()")
+    focused = "document.activeElement?.dataset.key || document.activeElement?.id || ''"
+    pg.eval("document.querySelector('#go-shelves .go-tile[data-key=\"gb/Alpha (USA)\"]').focus()")
     key("KEYCODE_DPAD_RIGHT")
-    moved = pg.eval("document.activeElement?.dataset.index")
-    focused = pg.eval("document.activeElement?.outerHTML.slice(0, 160)")
+    moved = pg.eval(focused)
     key("KEYCODE_BUTTON_X")
-    ticked = pg.eval("document.querySelectorAll('.go-card.is-ticked').length")
-    key("KEYCODE_BUTTON_X")
+    end, queued = time.time() + 10, []
+    while time.time() < end and not queued:
+        queued = [i for i in pg.api("queue")["items"] if i["state"] == "queued"]
+        time.sleep(0.3)
+    for i in queued:
+        pg.api("cancel", {"ids": [i["id"]]})
     key("KEYCODE_BUTTON_A")
-    opened = pg.wait("document.querySelector('#go-game-title')", 15, "a game's page", soft=True)
+    opened = pg.wait("document.querySelector('.go-big-game #go-game-title')", 15, "a game's page", soft=True)
     key("KEYCODE_BUTTON_B")
-    back_again = pg.wait("document.querySelector('#go-games')", 15, "the Library again", soft=True)
-    check("a controller's D-pad moves between games, X ticks one, A opens it and B comes back", moved == "1" and ticked == 1 and opened and back_again,
-          (moved, focused, ticked, opened, back_again, pg.eval("location.hash"), sh("dumpsys window | grep -E 'mCurrentFocus|mInTouchMode'", ok=False).strip()))
-    if not back_again:
-        pg.eval("location.hash = '#library'")
-        pg.wait("document.querySelector('#go-games')", 15, "the Library")
+    back_again = pg.wait("document.activeElement?.dataset.key === 'gb/Beta (Europe)'", 15, "the same game on the Library again", soft=True)
+    check("a controller's D-pad moves to the nearest game, X adds it to the queue, A opens it and B comes back to it",
+          moved == "gb/Beta (Europe)" and [i["key"] for i in queued] == ["gb/Beta (Europe)"] and opened and back_again,
+          (moved, queued, opened, back_again, pg.eval("location.hash"), sh("dumpsys window | grep -E 'mCurrentFocus|mInTouchMode'", ok=False).strip()))
+    shot("03b-big-library")
+    key("KEYCODE_BUTTON_R1")
+    right = pg.wait("location.hash === '#queue'", 10, "Downloads", soft=True)
+    key("KEYCODE_BUTTON_L1")
+    left = pg.wait("location.hash === '#library'", 10, "the Library", soft=True)
+    key("KEYCODE_BUTTON_START")
+    menu = pg.wait("document.querySelector('#options-dialog')", 10, "Options", soft=True)
+    shot("03c-big-options")
+    key("KEYCODE_BUTTON_B")
+    shut = pg.wait("!document.querySelector('#options-dialog')", 10, "Options closed", soft=True)
+    key("KEYCODE_BUTTON_Y")
+    found = pg.wait("document.activeElement?.id === 'go-search'", 10, "the search", soft=True)
+    check("R1 and L1 change the page, Start opens Options and B closes it, Y goes to the search", right and left and menu and shut and found,
+          (right, left, menu, shut, found, pg.eval("location.hash")))
+    pg.eval("document.activeElement?.blur(); location.hash = '#library'")
+    pg.wait("document.querySelector('#go-shelves')", 15, "the Library")
+    # (Options as Start opens it, should Start not have reached the page above)
+    pg.eval("dispatchEvent(new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true, cancelable: true }))")
+    pg.wait("document.querySelector('#options-classic')", 10, "Options")
+    pg.click("#options-classic")
+    pg.wait("document.querySelector('#go-games') && document.documentElement.dataset.view === 'classic'", 15, "the classic view")
 
     # 6. a game added comes into ES-DE's folders and gamelist, with its box front
     pg.click('.go-card[data-key="gb/Alpha (USA)"] .go-tick')
-    pg.wait("document.querySelector('#go-add')", 10, "Add to device…")
+    pg.wait("document.querySelector('#go-add')", 10, "Download…")
     pg.click("#go-add")
     pg.wait("document.querySelector('#add-kinds input[name=cover]')", 30, "the media kinds")
     shot("04-add")

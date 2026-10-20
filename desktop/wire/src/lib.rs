@@ -9,7 +9,7 @@ pub mod control;
 pub mod gamelist;
 pub mod plan;
 
-pub use plan::{Entry, File, Left, Lines, List, Plan};
+pub use plan::{Entry, File, Left, Lines, List, Plan, Program};
 
 /// The kinds of scraped media a game can have (the library's own, `gamerepo-core`'s
 /// `meta::MEDIA`): (kind, what it's called, ES-DE's folder for it in `downloaded_media`).

@@ -269,6 +269,10 @@ ES-DE/ (with its settings) and ROMs/, as ES-DE has them.
                              pair, sync, systems, games, prepare, add, queue,
                              on_device, removal, remove, add_media, settings…), with
                              --data as its own folder; --wait waits for the queue
+  device steam-apply --data <dir> [--game-mode]
+                             Game Repo Go's Steam helper: closes Steam, writes the
+                             shortcuts waiting in --data, starts Steam again (not in
+                             Game Mode, which does it itself)
   client-ui --ui <dir> --home <dir> [--data <dir>] [--port 8791] [--kind <kind>]
                              Game Repo Go's pages (client.html in --ui) and its backend
                              behind a local web server, with ES-DE looked for in --home

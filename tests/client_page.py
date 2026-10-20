@@ -14,10 +14,12 @@ the library has, renamed, and one it doesn't).
 Checks: Game Repo Go asks to be paired, finds nothing wrong with an address typed in, and
 a wrong code is refused; the code from Game Repo pairs it and the library is read onto
 the device; a system browsed from the picker; a search across every system; three games
-ticked, their size against the free space; Add to device… with the media kinds and their
-sizes, one unticked; the queue watched to the end and "Restart ES-DE"; the games in ES-DE's
+ticked, their size against the free space; Add to queue keeping them queued, not started,
+and Start downloads… with their size on disc and the free space; Download… with the media
+kinds and their sizes, one unticked; Downloads watched to the end and "Restart ES-DE"; the games in ES-DE's
 folders and gamelists with the kinds chosen and not the other; On this device with the
-games from the library, the copy recognised and the game from elsewhere; Make room ticking
+games from the library, the copy recognised and the game from elsewhere, by system and in
+one list; Make room ticking
 games; a removal shown and done; a game's media removed alone; Settings (Show games on this
 device, the look, each skin); the Library and a game's page kept with the library away; every page
 moved through with the keys alone, and the games by rows and columns; no page errors; and
@@ -165,8 +167,24 @@ port = int(wait_for("at ").split()[1].split(",")[0].rsplit(":", 1)[1])
 wait_for("ready")
 address = f"127.0.0.1:{port}"
 ui_port = free_port()
+# Steam on this "device" (D109): a user's folder, and on Linux a `steam` that closes a
+# stand-in Steam (a program named steam) when told -shutdown, and notes when it's started
+steam_dir, steam_bin = home / "steam" / "Steam", home / "steam" / "bin"
+(steam_dir / "userdata" / "22202" / "config").mkdir(parents=True)
+(steam_dir / "config").mkdir(parents=True)
+(steam_dir / "config" / "loginusers.vdf").write_text('"users"\n{\n\t"76561197960287930"\n\t{\n\t\t"AccountName"\t\t"deck"\n\t\t"PersonaName"\t\t"Deck"\n\t\t"MostRecent"\t\t"1"\n\t}\n}\n')
+steam_bin.mkdir(parents=True)
+(steam_bin / "steam").write_text(f"""#!/bin/sh
+if [ "$1" = "-shutdown" ]; then kill "$(cat '{steam_bin}/running.pid')"; else date > '{steam_bin}/started'; fi
+""")
+(steam_bin / "steam").chmod(0o755)
+go_env = {**os.environ, "PATH": f"{steam_bin}{os.pathsep}{os.environ.get('PATH', '')}"}
+if sys.platform == "win32":  # PC games' Start menu shortcuts (D112) go in the test's own
+    go_env["APPDATA"] = str(home / "appdata")
+for k in ("SteamGamepadUI", "GAMESCOPE_WAYLAND_DISPLAY"):
+    go_env.pop(k, None)
 go = subprocess.Popen([cli, "client-ui", "--ui", str(ui), "--home", str(phone), "--data", str(go_data), "--port", str(ui_port), "--kind", "windows"],
-                      stdout=subprocess.DEVNULL, stderr=open(out / "client-ui.log", "w", encoding="utf-8"))
+                      stdout=subprocess.DEVNULL, stderr=open(out / "client-ui.log", "w", encoding="utf-8"), env=go_env)
 B = f"http://127.0.0.1:{ui_port}/"
 for _ in range(100):
     try:
@@ -221,7 +239,23 @@ async def focus_order(pg, presses, key="ArrowDown"):
     return seen
 
 
+def add_pc_game():
+    """A PC game added to the library (D110): Zeta, only its install archive, which the server
+    unpacks for a device (D111)."""
+    import zipfile
+    game = lib / "PC" / "Zeta (1999)"
+    (game / "install").mkdir(parents=True)
+    with zipfile.ZipFile(game / "install" / "Zeta.zip", "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("Zeta/zeta.exe", b"MZ zeta")
+        z.writestr("Zeta/data/level1.dat", bytes(range(256)) * 256)
+    size = (game / "install" / "Zeta.zip").stat().st_size
+    (game / "game.json").write_text(json.dumps({"id": "zeta", "title": "Zeta", "year": 1999, "source": "other",
+                                                "files": [{"path": "install/Zeta.zip", "kind": "install", "size": size, "crc32": "", "added": ""}]}), encoding="utf-8")
+    run("serve-devices", "changed", "--data", data)
+
+
 async def main():
+    global before
     async with async_playwright() as p:
         b = await p.chromium.launch(executable_path=a.chromium)
         ctx = await b.new_context(viewport=PHONE, device_scale_factor=2, has_touch=True)
@@ -272,27 +306,45 @@ async def main():
             check("three games ticked show their size against the free space", "3 games" in bar and "free" in bar, bar)
             await shot(pg, "03-phone-ticked")
 
-            # 4. Add to device…: the kinds with their sizes, Screenshot unticked
+            # 3b. Add to queue: queued, not started, until Start downloads…, which shows what they take first
+            await pg.click("#go-enqueue")
+            said = await toast(pg, "added to the queue")
+            await pg.click("#go-nav-queue")
+            await pg.wait_for_selector("#queue-queued li")
+            queued = await pg.eval_on_selector_all("#queue-queued li", "els => els.map(e => e.dataset.key)")
+            await pg.click("#queue-start")
+            await pg.wait_for_selector("#start-games li")
+            summary = await pg.inner_text("#start-dialog")
+            await shot(pg, "03b-phone-start")
+            await pg.click("#start-dialog button:has-text('Not yet')")
+            check("Add to queue keeps games queued, not started, and Start downloads… shows their size on disc and the free space first",
+                  sorted(queued) == ["gb/Alpha (USA)", "gb/Beta (Europe)", "gb/Delta (World)"] and "3 games" in said and "Size on disc" in summary
+                  and "Free on this device" in summary and "Start 3 downloads (" in summary and not (phone / "ROMs" / "gb" / "Alpha (USA).gb").exists(), (queued, said, summary))
+            await pg.click("#go-nav-library")
+            for k in ("gb/Alpha (USA)", "gb/Beta (Europe)", "gb/Delta (World)"):
+                await pg.click(f'.go-card[data-key="{k}"] .go-tick')
+
+            # 4. Download…: the kinds with their sizes, Screenshot unticked
             await pg.click("#go-add")
             await pg.wait_for_selector("#add-kinds input[name=cover]")
             kinds = await pg.inner_text("#add-kinds")
             ticked = await pg.eval_on_selector_all("#add-kinds input", "els => els.filter(e => e.checked).map(e => e.name)")
-            check("Add to device… shows the media kinds the library has, with sizes, ticked as Settings says", "Box front" in kinds and "Screenshot" in kinds and "KB" in kinds and "cover" in ticked and "screenshot" in ticked, (kinds, ticked))
+            check("Download… shows the media kinds the library has, with sizes, ticked as Settings says", "Box front" in kinds and "Screenshot" in kinds and "KB" in kinds and "cover" in ticked and "screenshot" in ticked, (kinds, ticked))
             await pg.uncheck("#add-kinds input[name=screenshot]")
             await shot(pg, "04-phone-add")
             label = await pg.inner_text("#add-dialog button[type=submit]")
             await pg.click("#add-dialog button[type=submit]")
-            said = await toast(pg, "added to the queue")
-            check("Add 3 games puts them in the queue", label.startswith("Add 3 games (") and "3 games" in said, (label, said))
+            said = await toast(pg, "Downloading 3 games")
+            check("Download 3 games starts them, the queued ones with the kinds chosen now", label.startswith("Download 3 games ("), (label, said))
             check("the games added come off the ticks", await pg.query_selector("#go-picked") is None)
 
-            # 5. the queue to the end, then Restart ES-DE
+            # 5. Downloads to the end, then Restart ES-DE
             await pg.click("#go-nav-queue")
             await pg.wait_for_selector("#go-queue")
             await shot(pg, "05-phone-queue")
             await pg.wait_for_selector("#queue-restart", timeout=120000)
             done = await pg.eval_on_selector_all("#queue-done li", "els => els.map(e => e.dataset.key)")
-            check("the queue is watched to the end, and says to restart ES-DE", sorted(done) == ["gb/Alpha (USA)", "gb/Beta (Europe)", "gb/Delta (World)"] and "Restart ES-DE" in await pg.inner_text("#queue-restart"), done)
+            check("Downloads are watched to the end, and say to restart ES-DE", sorted(done) == ["gb/Alpha (USA)", "gb/Beta (Europe)", "gb/Delta (World)"] and "Restart ES-DE" in await pg.inner_text("#queue-restart"), done)
             await shot(pg, "06-phone-queue-done")
             roms = sorted(x.name for x in (phone / "ROMs" / "gb").iterdir())
             gamelist = (phone / "ES-DE" / "gamelists" / "gb" / "gamelist.xml").read_text(encoding="utf-8")
@@ -309,19 +361,25 @@ async def main():
             await pg.click("#go-nav-device")
             await pg.wait_for_selector("#device-list")
             await pg.wait_for_function("() => !document.querySelector('#device-checking') && document.querySelector('[data-id=\"gb/My Alpha.gb\"] .go-from-known')", timeout=60000)
-            rows = await pg.eval_on_selector_all("#device-list > li", "els => els.map(e => [e.dataset.id, e.querySelector('.go-from').textContent])")
+            rows = await pg.eval_on_selector_all("#device-list .go-row", "els => els.map(e => [e.dataset.id, e.querySelector('.go-from').textContent])")
             froms = dict(rows)
-            check("On this device lists every game ES-DE has, with where each came from",
+            systems = await pg.eval_on_selector_all("#device-list > li.go-sys", "els => els.map(e => [e.dataset.system, e.querySelector('.go-sys-open').textContent])")
+            check("On this device lists every game ES-DE has by system, with where each came from",
                   froms.get("gb/Alpha (USA).gb") == "From the library" and froms.get("gb/My Alpha.gb") == "The library has it" and froms.get("gb/Homebrew.gb") == "From elsewhere"
-                  and "free" in await pg.inner_text("#device-sum"), rows)
+                  and len(systems) == 1 and systems[0][0] == "gb" and "5 games" in systems[0][1] and "free" in await pg.inner_text("#device-sum"), (rows, systems))
             await shot(pg, "07-phone-device")
+            await pg.click("#device-list .go-sys-remove")
+            await pg.wait_for_selector("#remove-files li")
+            listed = await pg.inner_text("#remove-dialog")
+            await pg.click("#remove-dialog button:has-text('Cancel')")
+            check("a system's Remove all… shows every one of its games going first", "5 games go." in listed and "Homebrew.gb" in listed and "Alpha (USA).gb" in listed, listed)
 
             # 7. Make room ticks the games played longest ago first
             await pg.click("#device-room")
             await pg.fill("#room-gb", "0.00001")
             await pg.click("#room-dialog button[type=submit]")
             await pg.wait_for_selector("#device-room-note")
-            ticked = await pg.eval_on_selector_all("#device-list > li.is-ticked", "els => els.map(e => e.dataset.id)")
+            ticked = await pg.eval_on_selector_all("#device-list .go-row.is-ticked", "els => els.map(e => e.dataset.id)")
             check("Make room ticks the game played longest ago first", ticked == ["gb/My Alpha.gb"], (ticked, await pg.inner_text("#device-room-note")))
             await pg.click("#device-picked button:has-text('Clear')")
 
@@ -347,6 +405,20 @@ async def main():
             await toast(pg, "Removed, freeing")
             check("a game's box front is removed on its own, and the game stays",
                   not (media / "covers" / "Alpha (USA).png").exists() and (phone / "ROMs" / "gb" / "Alpha (USA).gb").exists() and (media / "covers" / "Beta (Europe).png").exists())
+
+            # 9b. a game whose files aren't where Game Repo Go put them (its folder changed, say)
+            alpha = phone / "ROMs" / "gb" / "Alpha (USA).gb"
+            alpha.rename(alpha.with_suffix(".moved"))
+            await pg.click("#go-nav-library")
+            await pg.click("#go-nav-device")
+            await pg.wait_for_selector('[data-id="gb/Alpha (USA).gb"] .go-from-missing')
+            row = await pg.inner_text('[data-id="gb/Alpha (USA).gb"]')
+            await pg.click('[data-id="gb/Alpha (USA).gb"] .go-row-open')
+            again = await pg.query_selector('[data-id="gb/Alpha (USA).gb"] .go-row-again') is not None
+            await pg.click('[data-id="gb/Alpha (USA).gb"] .go-row-open')
+            alpha.with_suffix(".moved").rename(alpha)
+            check("a game whose files aren't where Game Repo Go put them is marked, not counted as there, with Download again…",
+                  "Files not found" in row and "its files aren't on this device" in row and again, (row, again))
 
             # 10. Settings: Show games on this device, and the look
             await pg.click("#go-nav-settings")
@@ -441,7 +513,12 @@ async def main():
             await pg.wait_for_selector("#set-version")
             from_game = await pg.evaluate("() => location.hash")
             await pg.goto(B + "#library")
-            await pg.wait_for_selector("#go-games")
+            await pg.wait_for_selector("#go-shelves .go-tile[data-key]")
+            phone_big = await pg.evaluate("""() => { const t = document.querySelector('.go-tabs').getBoundingClientRect();
+                return { view: document.documentElement.dataset.view, tabs_low: t.bottom >= innerHeight - 1 && t.top > innerHeight / 2, hints: !!document.querySelector('#go-hints')?.getClientRects().length }; }""")
+            await shot(pg, "15b-phone-big-library")
+            check("on Android the big-screen view is the usual one, on a phone upright with the pages along the bottom and no button hints",
+                  phone_big == {"view": "big", "tabs_low": True, "hints": False}, phone_big)
             left_before = shell()["left"]
             await pg.evaluate("() => window.__shimBack()")
             for _ in range(50):
@@ -452,11 +529,272 @@ async def main():
                   and await pg.evaluate("() => location.hash") == "#library", (from_game, shell()))
             shell(kind="windows")
 
+            # 13b. on Linux and the Steam Deck (D107, D109): Settings › Steam adds Game Repo Go
+            # to Steam's library, written at once while Steam's closed; while it runs the change
+            # waits, and Restart Steam closes it, writes it and starts it again; in Game Mode A
+            # on a text box brings up Steam's keyboard
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#set-version")
+            not_on_windows = await pg.query_selector("#set-steam") is None
+            shell(kind="linux", game_mode=True)
+            await pg.set_viewport_size({"width": 1280, "height": 800})
+            await pg.reload()
+            await pg.wait_for_selector("#set-steam-none")
+            await pg.fill("#set-steam-folder input", str(steam_dir))
+            await pg.click("#set-steam-folder button:has-text('Save')")
+            await pg.wait_for_selector("#set-steam-self")
+            await pg.click("#set-steam-self")
+            await pg.wait_for_selector("#set-steam-done")
+            vdf = (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+            mine = b"Game Repo Go" in vdf and Path(cli).name.encode() in vdf
+            await shot(pg, "16-pc-linux-steam")
+            check("on Linux, Settings adds Game Repo Go to Steam's library, written while Steam's closed",
+                  not_on_windows and mine, (not_on_windows, vdf[:200]))
+            # A on a text box, from a controller, in Game Mode: Steam's keyboard
+            before_kb = shell()["keyboard"]
+            await pg.evaluate("""() => {
+                const pad = { id: "Steam Virtual Gamepad", connected: true, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+                window.__pad = pad;
+                Object.defineProperty(navigator, "getGamepads", { value: () => [pad], configurable: true });
+                document.querySelector("#set-name").focus();
+                dispatchEvent(new Event("gamepadconnected"));
+            }""")
+            await asyncio.sleep(0.3)
+            await pg.evaluate("() => { window.__pad.buttons[0].pressed = true; }")
+            await asyncio.sleep(0.3)
+            await pg.evaluate("() => { window.__pad.buttons[0].pressed = false; }")
+            for _ in range(30):
+                if shell()["keyboard"] > before_kb:
+                    break
+                await asyncio.sleep(0.1)
+            check("in Game Mode, A on a text box brings up Steam's on-screen keyboard", shell()["keyboard"] == before_kb + 1, shell())
+            if sys.platform.startswith("linux"):
+                # Steam running: a program named steam
+                (steam_bin / "run").mkdir(exist_ok=True)
+                shutil.copy("/bin/sleep", steam_bin / "run" / "steam")
+                fake = subprocess.Popen([str(steam_bin / "run" / "steam"), "600"])
+                (steam_bin / "running.pid").write_text(str(fake.pid))
+                await pg.reload()
+                await pg.wait_for_selector("#set-steam-self")
+                await pg.click("#set-steam-self")
+                await pg.wait_for_selector("#set-steam-waiting")
+                waiting = await pg.inner_text("#set-steam-waiting")
+                still = b"Game Repo Go" in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+                await pg.click("#set-steam-restart")
+                await pg.wait_for_selector("#set-steam-sure")
+                await shot(pg, "17-pc-linux-steam-restart")
+                await pg.click("#set-steam-restart-now")
+                log = go_data / "steam-restart.log"
+                for _ in range(300):
+                    if log.exists() and "written" in log.read_text() and (steam_bin / "started").exists():
+                        break
+                    await asyncio.sleep(0.1)
+                fake.wait(timeout=10)
+                gone = b"Game Repo Go" not in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+                await pg.wait_for_selector("#set-steam-waiting", state="detached", timeout=10000)
+                check("while Steam runs a change waits, and Restart Steam closes it, writes the change and starts it again",
+                      "Steam is running" in waiting and still and gone and (steam_bin / "started").exists(),
+                      (waiting, still, gone, log.read_text() if log.exists() else "no log"))
+
+            # 13d. the big-screen view (D113), as in Game Mode on the Steam Deck: the pages as
+            # tabs, changed with L1 and R1 (Page Up and Down); the Library as shelves, one per
+            # system, the arrows going to the nearest game; X adds one to the queue; A opens its
+            # page and B comes back to it; Start downloads… and ☰'s Options as panels from the
+            # right; a list as a panel to choose from; Y searching; the classic view again
+            async def at():
+                return await pg.evaluate("() => { const e = document.activeElement; return [e?.closest('[data-shelf]')?.dataset.shelf || '', e?.dataset.key || e?.id || (e?.textContent || '').trim().slice(0, 30)]; }")
+
+            def api(cmd, args=None):
+                return pg.evaluate("([cmd, args]) => window.__TAURI__.core.invoke('api', { cmd, args })", [cmd, args or {}])
+
+            # a key first, as a controller's press is (after a click or a touch nothing's focused)
+            await pg.keyboard.press("Shift")
+            await pg.goto(B + "#library")
+            await pg.wait_for_selector("#go-shelves .go-tile[data-key]")
+            await settled(pg, "() => document.activeElement?.classList.contains('go-tile')")
+            frame = await pg.evaluate("""() => ({ view: document.documentElement.dataset.view, tabs: [...document.querySelectorAll('.go-tab')].map(e => e.textContent.trim()),
+                shelves: [...document.querySelectorAll('#go-shelves [data-shelf]')].map(e => e.dataset.shelf), hints: document.querySelector('#go-hints')?.innerText || '',
+                focused: document.activeElement?.dataset.key || '' })""")
+            await shot(pg, "18-big-library")
+            check("in Game Mode the big-screen view: the pages as tabs, a shelf for each system, the first game focused and the buttons' hints",
+                  frame["view"] == "big" and [t[:9] for t in frame["tabs"]] == ["Library", "Downloads", "On this d", "Settings"] and frame["shelves"] == ["gb", "nes", "places"]
+                  and frame["focused"].startswith("gb/") and "Open" in frame["hints"] and "Options" in frame["hints"] and "Search" in frame["hints"], frame)
+            first = await at()
+            await pg.keyboard.press("ArrowRight")
+            right = await at()
+            await pg.keyboard.press("ArrowDown")
+            down = await at()
+            await pg.keyboard.press("ArrowUp")
+            up = await at()
+            check("the arrows go to the nearest: Right along the shelf, Down to what's below on the next system's, Up back to the same game",
+                  first[0] == "gb" and right[0] == "gb" and right[1] != first[1] and down[0] == "nes" and up[1] == right[1], (first, right, down, up))
+            target = await pg.evaluate("() => { const t = document.querySelector('#go-shelves .go-tile[data-x]'); t?.focus(); return t?.dataset.key || ''; }")
+            hint_x = await pg.inner_text("#go-hints")
+            await pg.keyboard.press("x")
+            queued_said = await toast(pg, "added to the queue")
+            queued = [i for i in (await api("queue"))["items"] if i["state"] == "queued"]
+            check("X adds the focused game to the queue, not started, as its hint says",
+                  target and "Add to queue" in hint_x and [i["key"] for i in queued] == [target], (target, hint_x, queued_said, queued))
+            await pg.evaluate("(k) => document.querySelector('#go-shelves .go-tile[data-key=\"' + CSS.escape(k) + '\"]').focus()", target)
+            await pg.keyboard.press("Enter")
+            await pg.wait_for_selector(".go-big-game #go-game-title")
+            await settled(pg, "() => document.activeElement?.id === 'go-game-add'")
+            game_focus = await pg.evaluate("() => document.activeElement?.id")
+            await shot(pg, "19-big-game")
+            await pg.keyboard.press("Escape")
+            await pg.wait_for_selector("#go-shelves")
+            await pg.wait_for_function("(k) => document.activeElement?.dataset.key === k", arg=target, timeout=5000)
+            check("A opens a game's page with Download… focused, and B comes back to the same game", game_focus == "go-game-add", game_focus)
+            hashes = []
+            for k in ("PageDown", "PageUp", "twice", "PageUp"):
+                if k == "twice":   # two presses before the page has changed (R1 twice, quickly)
+                    await pg.evaluate("""() => { for (let i = 0; i < 2; i++) (document.activeElement || document.body).dispatchEvent(
+                        new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true, cancelable: true })); }""")
+                else:
+                    await pg.keyboard.press(k)
+                await settled(pg, "() => document.querySelector('.go-tab[aria-current=page]')?.getAttribute('href') === location.hash", 2000)
+                hashes.append(await pg.evaluate("() => location.hash"))
+            check("R1 and L1 (Page Down and Up) go to the page after and the one before, pressed twice quickly too",
+                  hashes == ["#queue", "#library", "#device", "#queue"], hashes)
+            await pg.wait_for_selector("#queue-start")
+            await pg.focus("#queue-start")
+            await pg.keyboard.press("Enter")
+            await pg.wait_for_selector("#start-sum")
+            panel = await pg.evaluate("""() => { const r = document.querySelector('#start-dialog').getBoundingClientRect(), bar = document.querySelector('#go-big-bar').getBoundingClientRect(), hints = document.querySelector('#go-hints').getBoundingClientRect();
+                return { right: Math.round(innerWidth - r.right), left_half: r.left > innerWidth / 2, top: Math.round(r.top - bar.bottom), bottom: Math.round(hints.top - r.bottom),
+                  focused: document.activeElement?.closest('#start-dialog') ? (document.activeElement.textContent || '').trim() : '' }; }""")
+            await shot(pg, "20-big-start")
+            await pg.keyboard.press("Escape")
+            await pg.wait_for_selector("#start-dialog", state="detached")
+            await settled(pg, "() => document.activeElement?.id === 'queue-start'")
+            back_to = await pg.evaluate("() => document.activeElement?.id")
+            check("Start downloads… opens as a panel from the right between the bar and the hints, its button focused; B closes it and goes back to what opened it",
+                  panel["right"] == 0 and panel["left_half"] and panel["top"] == 0 and panel["bottom"] == 0 and panel["focused"].startswith("Start 1 download") and back_to == "queue-start", (panel, back_to))
+            await pg.click("#queue-queued button:has-text('Remove from queue')")
+            await pg.wait_for_selector("#queue-queued", state="detached")
+            await pg.keyboard.press("PageDown")
+            await pg.wait_for_selector("#device-sort")
+            await pg.keyboard.press("ContextMenu")
+            await pg.wait_for_selector("#options-dialog")
+            options_text = await pg.inner_text("#options-dialog")
+            await shot(pg, "21-big-options")
+            await pg.click("#options-dialog .go-option:has-text('Largest')")
+            await pg.wait_for_selector("#options-dialog", state="detached")
+            sorted_by = await pg.input_value("#device-sort")
+            await pg.keyboard.press("ContextMenu")
+            await pg.click("#options-dialog .go-option:has-text('By system')")
+            check("☰ opens Options for the page (its orders, Make room…, the classic view), and an order chosen there is the page's",
+                  sorted_by == "size" and "Make room…" in options_text and "Switch to the classic view" in options_text, (sorted_by, options_text))
+            await pg.keyboard.press("PageDown")
+            await pg.wait_for_selector("#set-theme")
+            theme = await pg.input_value("#set-theme")
+            await pg.focus("#set-theme")
+            await pg.keyboard.press("Enter")
+            await pg.wait_for_selector("#choose-dialog")
+            chooser = await pg.evaluate("() => ({ n: document.querySelectorAll('#choose-dialog .go-option').length, focused: document.activeElement?.getAttribute('aria-pressed') })")
+            await pg.keyboard.press("ArrowDown")
+            await pg.keyboard.press("Enter")
+            await pg.wait_for_selector("#choose-dialog", state="detached")
+            chosen = await pg.input_value("#set-theme")
+            check("A on a list opens its choices as a panel, the one chosen focused, and the one picked there is the list's",
+                  chooser["n"] >= 3 and chooser["focused"] == "true" and chosen != theme, (chooser, theme, chosen))
+            await pg.select_option("#set-theme", theme)
+            await pg.goto(B + "#library")
+            await pg.wait_for_selector("#go-shelves .go-tile[data-key]")
+            await settled(pg, "() => document.activeElement?.classList.contains('go-tile')")
+            await pg.keyboard.press("y")
+            await pg.wait_for_function("() => document.activeElement?.id === 'go-search'", timeout=10000)
+            await pg.keyboard.type("Alpha")
+            await pg.wait_for_function("() => document.querySelectorAll('#go-games .go-card[data-key]').length === 1", timeout=10000)
+            await pg.keyboard.press("ArrowDown")
+            found = await pg.evaluate("() => document.activeElement?.closest('.go-card')?.dataset.key")
+            await shot(pg, "22-big-search")
+            check("Y searches every game, and Down goes to what's found", found == "gb/Alpha (USA)", found)
+            await pg.keyboard.press("ContextMenu")
+            await pg.click("#options-classic")
+            await pg.wait_for_selector(".go-nav")
+            classic = await pg.evaluate("() => [document.documentElement.dataset.view, !!document.querySelector('#go-hints')]")
+            check("Options › Switch to the classic view brings back the classic pages", classic == ["classic", False], classic)
+            # the usual view again for the steps after
+            await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); delete l.view; localStorage.setItem('go-look', JSON.stringify(l)); }")
+
+            shell(kind="windows", game_mode=False)
+            await pg.set_viewport_size(PHONE)
+
+            # 13c. PC games (D110-D112), on Windows and Linux: a system of their own, put in the
+            # PC games folder Settings names, each game in its folder with a shortcut (in the
+            # Start menu on Windows, in Steam on Linux); removed, a save it made stays
+            add_pc_game()
+            before = snapshot(lib, fixtures, phone / "Saves", phone / "ES-DE" / "settings")
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#set-pc-folder")
+            usual = await pg.input_value("#set-pc-folder input")
+            pc_games = home / "pc-games"
+            await pg.fill("#set-pc-folder input", str(pc_games))
+            await pg.click("#set-pc-folder button:has-text('Save')")
+            await pg.wait_for_selector("#set-pc-usual")
+            check("Settings shows the PC games folder, the usual one until another is chosen", usual.endswith("Games"), usual)
+            # the library read again once the server has the game
+            listed = False
+            for _ in range(60):
+                listed = await pg.evaluate("""async () => { const b = await import('./client/backend.js'); await b.call('sync');
+                    for (let i = 0; i < 20 && (await b.call('status')).sync.running; i++) await new Promise((r) => setTimeout(r, 100));
+                    return (await b.call('systems')).some((x) => x.id === 'pcgames'); }""")
+                if listed:
+                    break
+                await asyncio.sleep(0.5)
+            await pg.goto(B + "#library")
+            await pg.reload()
+            await pg.wait_for_selector("#go-place-pick option[value='s:pcgames']", state="attached", timeout=20000)
+            await pg.select_option("#go-place-pick", "s:pcgames")
+            # Zeta is in every system's list too, so wait for the system's own to be shown
+            await settled(pg, "() => document.querySelector('#go-place-name')?.textContent.includes('PC games')"
+                              " && [...document.querySelectorAll('#go-games .go-card[data-key]')].map(e => e.dataset.key).join() === 'pcgames/zeta'", 20000)
+            shown = await cards(pg)
+            check("PC games are a system of their own in the Library", listed and shown == ["pcgames/zeta"], (listed, shown))
+            await pg.click('.go-card[data-key="pcgames/zeta"] .go-tick')
+            await pg.click("#go-add")
+            await pg.wait_for_selector("#add-pc")
+            said = await pg.inner_text("#add-dialog")
+            await shot(pg, "18-phone-add-pc-game")
+            check("Download… says where a PC game goes, and that the library unpacks it first", str(pc_games) in said and "being unpacked on the library first" in said, said)
+            await pg.click("#add-dialog button[type=submit]")
+            await toast(pg, "Downloading 1 game")
+            await pg.click("#go-nav-queue")
+            await pg.wait_for_selector('#queue-done li[data-key="pcgames/zeta"]', timeout=120000)
+            restart = await pg.query_selector("#queue-restart")
+            folder = pc_games / "Zeta (1999)"
+            files = sorted(str(x.relative_to(folder)).replace("\\", "/") for x in folder.rglob("*") if x.is_file()) if folder.is_dir() else []
+            if sys.platform == "win32":
+                shortcut = (home / "appdata" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Game Repo Go" / "Zeta.lnk").is_file()
+            else:
+                shortcut = b"Zeta" in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+            check("a PC game is unpacked into its own folder of the PC games folder, with a shortcut, and no ES-DE restart asked for",
+                  files == ["Zeta/data/level1.dat", "Zeta/zeta.exe"] and shortcut and restart is None, (files, shortcut, restart is None))
+            (folder / "Zeta" / "save1.sav").write_bytes(b"a save")
+            await pg.click("#go-nav-device")
+            await pg.click('#device-list [data-system="pcgames"] .go-sys-open')
+            await pg.wait_for_selector('[data-id="pc:Zeta (1999)"]')
+            await pg.check('[data-id="pc:Zeta (1999)"] .go-row-tick')
+            await pg.click("#device-remove")
+            await pg.wait_for_selector("#remove-pc")
+            listed = await pg.inner_text("#remove-dialog")
+            await pg.click("#remove-dialog button[type=submit]")
+            said = await toast(pg, "Removed 1 game")
+            if sys.platform == "win32":
+                shortcut = (home / "appdata" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Game Repo Go" / "Zeta.lnk").exists()
+            else:
+                shortcut = b"Zeta" in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+            left = sorted(str(x.relative_to(folder)).replace("\\", "/") for x in folder.rglob("*") if x.is_file()) if folder.is_dir() else []
+            check("removing a PC game takes its files and shortcut, and keeps a save it made, said so",
+                  "Files it made itself" in listed and "stay in Zeta (1999)" in said and left == ["Zeta/save1.sav"] and not shortcut, (listed[-300:], said, left, shortcut))
+
             # 14. away from home: the library's list and a game's details are kept on the device
             server.terminate()
             server.wait(timeout=30)
             await pg.goto(B + "#library")
-            await pg.wait_for_function("() => document.querySelectorAll('#go-games .go-card[data-key]').length === 4", timeout=20000)
+            await pg.select_option("#go-place-pick", "")
+            await pg.wait_for_function("() => document.querySelectorAll('#go-games .go-card[data-key]').length === 5", timeout=20000)
             await pg.goto(B + "#game/" + "gb%2FAlpha%20(USA)")
             await pg.wait_for_selector("#go-game-title")
             check("with the library away the list and a game's details are still here", "Alpha is a game made for this test." in await pg.inner_text("#go-game"))

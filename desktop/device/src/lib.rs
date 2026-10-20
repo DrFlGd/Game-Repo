@@ -12,9 +12,12 @@
 pub mod app;
 pub mod catalogue;
 pub mod client;
+pub mod installs;
+pub mod pcgames;
 pub mod queue;
 pub mod removing;
 pub mod scan;
+pub mod steam;
 
 pub use client::{Server, Stopped, Watch};
 
@@ -36,10 +39,14 @@ pub const PART: &str = ".gamerepo-part";
 /// is in, so ES-DE never lists half a game (an `.m3u` folder with one disc of two, say).
 pub const COMING: &str = ".gamerepo-coming";
 
-/// A device: its ES-DE folders (its places, the ES-DE layout's own: `roms`, `esde`, `media`).
+/// A device: its ES-DE folders (its places, the ES-DE layout's own: `roms`, `esde`, `media`),
+/// and on Windows and Linux its PC games folders (`pc`, `pcmedia`, and `startmenu` on
+/// Windows, D111).
 pub struct Device {
     pub home: PathBuf,
     pub places: BTreeMap<String, PathBuf>,
+    /// The app's data folder, where the Steam shortcuts it wants are kept (D109)
+    pub data: Option<PathBuf>,
 }
 
 fn xml_attr_unescape(s: &str) -> String {
@@ -68,7 +75,8 @@ impl Device {
     /// Settings, C3), `~` in its settings being `home`.
     pub fn open_esde(esde: &Path, home: &Path) -> Result<Device> {
         let esde = esde.to_path_buf();
-        let settings = esde.join("settings").join("es_settings.xml");
+        // ES-DE 3 keeps them in settings/, ES-DE 2 beside its gamelists
+        let settings = [esde.join("settings").join("es_settings.xml"), esde.join("es_settings.xml")].into_iter().find(|p| p.is_file()).unwrap_or_else(|| esde.join("settings").join("es_settings.xml"));
         if !settings.is_file() {
             bail!("{} has no ES-DE settings ({}): start ES-DE on it once first.", esde.display(), settings.display());
         }
@@ -83,7 +91,7 @@ impl Device {
         let roms = es_setting(&xml, "ROMDirectory").filter(|v| !v.trim().is_empty()).map(expand).unwrap_or_else(|| home.join("ROMs"));
         let media = es_setting(&xml, "MediaDirectory").filter(|v| !v.trim().is_empty()).map(expand).unwrap_or_else(|| esde.join("downloaded_media"));
         let places = BTreeMap::from([("roms".to_string(), roms), ("esde".to_string(), esde), ("media".to_string(), media)]);
-        Ok(Device { home: home.to_path_buf(), places })
+        Ok(Device { home: home.to_path_buf(), places, data: None })
     }
 
     /// Where a plan's path in a place is on the device: never outside the place.
@@ -147,6 +155,20 @@ fn existing(p: &Path) -> &Path {
     p
 }
 
+/// Whether two folders are on the same drive, so their free space is the same space.
+fn same_drive(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        matches!((std::fs::metadata(existing(a)), std::fs::metadata(existing(b))), (Ok(x), Ok(y)) if x.dev() == y.dev())
+    }
+    #[cfg(not(unix))]
+    {
+        let root = |p: &Path| std::fs::canonicalize(existing(p)).ok().and_then(|c| c.components().next().map(|c| c.as_os_str().to_ascii_lowercase()));
+        root(a).is_some() && root(a) == root(b)
+    }
+}
+
 /// A file written whole, through a temporary name.
 fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(d) = path.parent() {
@@ -154,6 +176,22 @@ fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
     }
     let tmp = path.with_file_name(format!("{}{PART}", path.file_name().unwrap_or_default().to_string_lossy()));
     std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// A file written whole that only its user can read (mode 600 on Linux).
+fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    let tmp = path.with_file_name(format!("{}{PART}", path.file_name().unwrap_or_default().to_string_lossy()));
+    let _ = std::fs::remove_file(&tmp);
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+    std::io::Write::write_all(&mut o.open(&tmp)?, bytes)?;
     std::fs::rename(&tmp, path)?;
     Ok(())
 }
@@ -188,11 +226,13 @@ pub struct AddOptions {
     /// Games the device has under names of its own (from elsewhere, D102): each one's key,
     /// and its files in the ROMs folder, the first ES-DE's, which the record takes in
     pub adopt: Vec<(String, Vec<HeldFile>)>,
+    /// PC games' pictures for Steam's grid too (Linux, D112)
+    pub steam_art: bool,
 }
 
 impl Default for AddOptions {
     fn default() -> Self {
-        Self { media: vec!["cover".into()], manuals: false, size: 0, collection: String::new(), bios: false, at_once: 3, media_only: false, adopt: vec![] }
+        Self { media: vec!["cover".into()], manuals: false, size: 0, collection: String::new(), bios: false, at_once: 3, media_only: false, adopt: vec![], steam_art: false }
     }
 }
 
@@ -208,6 +248,7 @@ impl AddOptions {
             bios: self.bios,
             media_only: self.media_only,
             named: self.adopt.iter().filter_map(|(k, files)| Some((k.clone(), files.first()?.path.clone()))).collect(),
+            steam_art: self.steam_art,
             ..Default::default()
         }
     }
@@ -393,6 +434,17 @@ pub fn add_planned(s: &Server, d: &Device, plan: &Plan, keys: &[String], o: &Add
             let i = plan.files.iter().position(|x| std::ptr::eq(x, f)).unwrap();
             let sha1 = sha1s.get(&i).cloned().or_else(|| f.sha1.clone()).unwrap_or_default();
             files.push(HeldFile { place: f.place.clone(), path: f.path.clone(), size: f.size, sha1, role: f.role.clone(), needed_by: f.needed_by.clone() });
+        }
+        // a PC game's shortcut (D112): a Start menu one is the game's file too
+        if let Some(p) = plan.programs.iter().find(|p| p.key == *key) {
+            match pcgames::shortcut(d, d.data.as_deref(), p) {
+                Ok(Some(f)) => {
+                    files.retain(|x| (&x.place, &x.path) != (&f.place, &f.path));
+                    files.push(f);
+                }
+                Ok(None) => {}
+                Err(e) => out.notes.push(format!("{}'s shortcut couldn't be made: {e:#}", p.name)),
+            }
         }
         let entries: Vec<(String, String, String)> = plan.lists.iter().flat_map(|l| l.entries.iter().filter(|e| e.key == *key).map(|e| (l.place.clone(), l.path.clone(), e.path.clone()))).collect();
         let title = g["game"]["title"].as_str().unwrap_or(key).to_string();

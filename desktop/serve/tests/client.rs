@@ -391,6 +391,242 @@ fn on_this_device_every_game_is_listed_and_removed_safely() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// As on Jerred's Steam Deck (2026-10-20): ES-DE's gamelists folder a link to elsewhere, as
+/// RetroDECK makes it, and the ROMs folder changed in Settings after games were added. The
+/// games left in the old folder aren't on the device, so they can be added again or taken
+/// off the record, and removing follows ES-DE's own linked folders.
+#[test]
+fn games_left_in_an_old_roms_folder_can_be_added_again_and_removed_through_linked_folders() {
+    let dir = temp("go-moved");
+    let lib = library(&dir);
+    let s = start(&lib, &dir.join("server"));
+    let d = a_device(&dir);
+    let home = d.home.clone();
+    let gamelists = if cfg!(unix) { dir.join("retrodeck/gamelists") } else { home.join("ES-DE/gamelists") };
+    #[cfg(unix)]
+    {
+        std::fs::create_dir_all(dir.join("retrodeck")).unwrap();
+        std::fs::rename(home.join("ES-DE/gamelists"), &gamelists).unwrap();
+        std::os::unix::fs::symlink(&gamelists, home.join("ES-DE/gamelists")).unwrap();
+    }
+    let app = open_app(&dir, &home);
+    pair(&app, &s);
+    call(&app, "set_settings", json!({ "media": ["cover"] }));
+    call(&app, "add", json!({ "keys": [ALPHA, QUEST] }));
+    queue_done(&app);
+    let old_alpha = home.join("ROMs/gb/Alpha (Europe).gb");
+    assert!(old_alpha.is_file(), "{:?}", files_under(&home));
+    assert!(std::fs::read_to_string(gamelists.join("gb/gamelist.xml")).unwrap().contains("Alpha (Europe).gb"));
+
+    let roms = dir.join("new-roms");
+    std::fs::create_dir_all(&roms).unwrap();
+    call(&app, "set_settings", json!({ "roms": roms.to_string_lossy() }));
+    let v = call(&app, "on_device", json!({}));
+    let of = |v: &Value, key: &str| v["games"].as_array().unwrap().iter().find(|r| r["key"] == key).cloned().unwrap_or_else(|| panic!("{key} in {v}"));
+    assert_eq!((of(&v, ALPHA)["missing"].as_bool(), of(&v, ALPHA)["size"].as_u64()), (Some(true), Some(0)), "{v}");
+    assert!(call(&app, "make_room", json!({ "need": 1 })).as_array().unwrap().is_empty(), "nothing to free");
+    let page = call(&app, "games", json!({ "q": "alph", "system": "gb" }));
+    assert_eq!((keys(&page), page["items"][0]["on_device"].as_bool()), (vec![ALPHA.to_string()], Some(false)), "{page}");
+
+    // taken off the record with its cover and gamelist entry; the old folder's copy stays
+    let r = call(&app, "removal", json!({ "asks": [{ "key": ALPHA }] }));
+    let paths = |k: &str| r[k].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!((paths("files"), paths("gone")), (vec!["gb/covers/Alpha (Europe).png".to_string()], vec!["gb/Alpha (Europe).gb".to_string()]), "{r}");
+    assert_eq!(r["frees"].as_u64(), std::fs::metadata(home.join("ES-DE/downloaded_media/gb/covers/Alpha (Europe).png")).ok().map(|m| m.len()));
+    call(&app, "remove", json!({ "asks": [{ "key": ALPHA }] }));
+    assert!(d.record().games.iter().all(|g| g.key != ALPHA));
+    assert!(!std::fs::read_to_string(gamelists.join("gb/gamelist.xml")).unwrap().contains("Alpha (Europe).gb"));
+    assert!(old_alpha.is_file() && !home.join("ES-DE/downloaded_media/gb/covers/Alpha (Europe).png").exists());
+
+    // added again, into the new folder, and removed from it
+    call(&app, "add", json!({ "keys": [QUEST] }));
+    queue_done(&app);
+    assert!(roms.join("psx/Quest (USA).m3u").is_dir(), "{:?}", files_under(&roms));
+    assert_eq!(of(&call(&app, "on_device", json!({})), QUEST)["missing"], Value::Null);
+
+    // a disc deleted by hand: marked, offered again, and added again only it comes back
+    let m3u = roms.join("psx/Quest (USA).m3u");
+    let mut discs: Vec<PathBuf> = std::fs::read_dir(&m3u).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x != "m3u")).collect();
+    discs.sort();
+    assert!(discs.len() >= 2, "{:?}", files_under(&m3u));
+    let (kept, gone) = (discs[0].clone(), discs.last().unwrap().clone());
+    let kept_at = std::fs::metadata(&kept).unwrap().modified().unwrap();
+    std::fs::remove_file(&gone).unwrap();
+    let r = of(&call(&app, "on_device", json!({})), QUEST);
+    assert_eq!((r["partial"].as_bool(), r["missing"].as_bool()), (Some(true), None), "{r}");
+    let page = call(&app, "games", json!({ "q": "quest", "system": "psx" }));
+    assert_eq!(page["items"][0]["on_device"].as_bool(), Some(false), "{page}");
+    call(&app, "add", json!({ "keys": [QUEST] }));
+    queue_done(&app);
+    assert!(gone.is_file() && std::fs::metadata(&kept).unwrap().modified().unwrap() == kept_at, "{:?}", files_under(&m3u));
+    let r = of(&call(&app, "on_device", json!({})), QUEST);
+    assert_eq!(r["partial"], Value::Null, "{r}");
+    assert_eq!(d.record().games.iter().filter(|g| g.key == QUEST).count(), 1);
+    call(&app, "remove", json!({ "asks": [{ "key": QUEST }] }));
+    assert!(!roms.join("psx/Quest (USA).m3u").exists() && home.join("ROMs/psx/Quest (USA).m3u").is_dir());
+    assert!(!std::fs::read_to_string(gamelists.join("psx/gamelist.xml")).unwrap().contains("Quest"));
+    assert!(d.record().games.is_empty(), "{:?}", d.record());
+    app.queue.quit();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// D114 and D116: games put in the queue not started wait for Start downloads, which says
+/// what they take first; Download… on one of them starts it alone. ES-DE as RetroDECK and
+/// EmuDeck set it up is found, and when it's set up more than once Game Repo Go asks which.
+#[test]
+fn queued_games_wait_to_be_started_and_retrodeck_and_emudeck_are_found() {
+    let dir = temp("go-queued");
+    let lib = library(&dir);
+    let s = start(&lib, &dir.join("server"));
+    let d = a_device(&dir);
+    let home = d.home.clone();
+    put(&home, ".config/EmuDeck/settings.sh", b"emulationPath=/home/deck/Emulation\n");
+    let app = open_app(&dir, &home);
+    pair(&app, &s);
+    call(&app, "set_settings", json!({ "media": ["cover"] }));
+    call(&app, "add", json!({ "keys": [ALPHA, QUEST], "start": false }));
+    std::thread::sleep(Duration::from_millis(300));
+    let q = call(&app, "queue", json!({}));
+    assert_eq!((item(&q, ALPHA)["state"].as_str(), item(&q, QUEST)["state"].as_str(), q["queued"].as_u64(), q["left"].as_u64()), (Some("queued"), Some("queued"), Some(2), Some(0)), "{q}");
+    assert!(!app.queue.busy() && !home.join("ROMs/gb/Alpha (Europe).gb").exists());
+    assert_eq!(call(&app, "status", json!({}))["queue"]["queued"], 2);
+
+    // what starting them takes: each one's size on disc, the whole, the free space
+    let sum = call(&app, "start_summary", json!({}));
+    let size_of = |key: &str| sum["games"].as_array().unwrap().iter().find(|g| g["key"] == key).and_then(|g| g["size"].as_u64()).unwrap_or_else(|| panic!("{key} in {sum}"));
+    assert!(size_of(ALPHA) > 32 * 1024 && size_of(QUEST) > 2 * 2352 * 4, "{sum}");
+    assert!(sum["size"].as_u64().unwrap() >= size_of(ALPHA) + size_of(QUEST), "{sum}");
+    assert_eq!((sum["places"].as_array().unwrap().len(), sum["short"].as_u64()), (1, Some(0)), "{sum}");
+    assert!(sum["places"][0]["free"].as_u64().unwrap() > 0);
+
+    // Download… on a queued game starts it alone; Start downloads the rest
+    call(&app, "add", json!({ "keys": [ALPHA] }));
+    queue_done(&app);
+    let q = call(&app, "queue", json!({}));
+    assert_eq!((item(&q, ALPHA)["state"].as_str(), item(&q, QUEST)["state"].as_str()), (Some("done"), Some("queued")), "{q}");
+    assert!(home.join("ROMs/gb/Alpha (Europe).gb").is_file() && !home.join("ROMs/psx/Quest (USA).m3u").exists());
+    assert_eq!(call(&app, "start_queue", json!({}))["started"], 1);
+    queue_done(&app);
+    assert!(home.join("ROMs/psx/Quest (USA).m3u").is_dir(), "{:?}", files_under(&home.join("ROMs")));
+    assert_eq!(call(&app, "start_summary", json!({}))["games"], json!([]));
+
+    // ES-DE as EmuDeck set it up, found as before, and named
+    let st = call(&app, "status", json!({}));
+    assert_eq!(st["device"]["by"], if cfg!(windows) { "ES-DE" } else { "EmuDeck" }, "{st}");
+    // RetroDECK too: set up twice, so Game Repo Go asks which rather than guessing
+    let rd = home.join(".var/app/net.retrodeck.retrodeck/config/ES-DE");
+    let rd_roms = dir.join("retrodeck/roms");
+    std::fs::create_dir_all(&rd_roms).unwrap();
+    put(&rd, "settings/es_settings.xml", format!("<?xml version=\"1.0\"?>\n<string name=\"ROMDirectory\" value=\"{}\" />\n<string name=\"MediaDirectory\" value=\"{}\" />\n", rd_roms.display(), dir.join("retrodeck/ES-DE/downloaded_media").display()).as_bytes());
+    let st = call(&app, "status", json!({}));
+    assert!(st["device"]["error"].as_str().unwrap_or("").contains("set up more than once"), "{st}");
+    let installs = st["device"]["installs"].as_array().unwrap();
+    assert_eq!(installs.iter().map(|i| i["by"].as_str().unwrap()).collect::<Vec<_>>(), [if cfg!(windows) { "ES-DE" } else { "EmuDeck" }, "RetroDECK"], "{st}");
+    assert_eq!(installs[1]["roms"], json!(rd_roms));
+    call(&app, "set_settings", json!({ "esde": rd.to_string_lossy() }));
+    let st = call(&app, "status", json!({}));
+    assert_eq!((st["device"]["by"].as_str(), st["device"]["roms"].clone()), (Some("RetroDECK"), json!(rd_roms)), "{st}");
+    // a ROMs folder chosen by hand that isn't ES-DE's own is warned of
+    let other = dir.join("other-roms");
+    std::fs::create_dir_all(&other).unwrap();
+    call(&app, "set_settings", json!({ "roms": other.to_string_lossy() }));
+    assert_eq!(call(&app, "status", json!({}))["device"]["esde_roms"], json!(rd_roms));
+    app.queue.quit();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const ZETA: &str = "pcgames/zeta";
+const OMEGA: &str = "pcgames/omega";
+
+#[test]
+fn pc_games_are_unpacked_by_the_library_written_whole_given_a_shortcut_and_removed_keeping_saves() {
+    let dir = temp("go-pc");
+    let lib = library(&dir);
+    pc_games(&lib);
+    let s = start(&lib, &dir.join("server"));
+    let d = a_device(&dir);
+    // Windows' Start menu for this test only
+    #[cfg(windows)]
+    std::env::set_var("APPDATA", dir.join("appdata"));
+    #[cfg(windows)]
+    let lnk = |name: &str| dir.join("appdata/Microsoft/Windows/Start Menu/Programs/Game Repo Go").join(format!("{name}.lnk"));
+    let app = open_app(&dir, &d.home);
+    let games = dir.join("Games");
+    call(&app, "set_settings", json!({ "pc_games": games }));
+    pair(&app, &s);
+    let before = snapshot(&lib);
+
+    // PC games are a system of their own for a device that can have them (D110); Lambda,
+    // with only its installer, isn't listed
+    let systems = call(&app, "systems", json!({}));
+    let pc = systems.as_array().unwrap().iter().find(|x| x["id"] == "pcgames").unwrap_or_else(|| panic!("{systems}"));
+    assert_eq!((pc["name"].as_str(), pc["games"].as_u64()), (Some("PC games"), Some(2)), "{systems}");
+    assert_eq!(keys(&call(&app, "games", json!({ "system": "pcgames" }))), [OMEGA, ZETA]);
+    let zeta_size = call(&app, "game", json!({ "key": ZETA }))["game"]["size"].as_u64().unwrap();
+    assert_eq!(zeta_size, 7 + 64 * 1024, "Zeta's size is its unpacked files'");
+
+    // before adding: Zeta's archive starts being unpacked on the library (D111), its size
+    // counted as the list has it; a game with only an installer can't go, nor a patch yet
+    let p = call(&app, "prepare", json!({ "keys": [ZETA, OMEGA, "pcgames/lambda"] }));
+    assert_eq!(p["unpacking"], 1, "{p}");
+    assert!(p["size"].as_u64().unwrap() >= zeta_size + 8 + 16 * 1024, "{p}");
+    let left: Vec<&str> = p["left"].as_array().unwrap().iter().map(|l| l["what"].as_str().unwrap()).collect();
+    assert_eq!(left, ["Omega › its patches (1)", "Lambda"], "{p}");
+    assert!(p["left"][1]["why"].as_str().unwrap().contains("only its installer"), "{p}");
+
+    // added: each game whole in its own `Title (Year)` folder of the PC games folder
+    call(&app, "add", json!({ "keys": [ZETA, OMEGA] }));
+    queue_done(&app);
+    let q = call(&app, "queue", json!({}));
+    for k in [ZETA, OMEGA] {
+        assert_eq!(item(&q, k)["state"], "done", "{q}");
+    }
+    assert_eq!(files_under(&games), ["Omega (2001)/Omega/omega.dat", "Omega (2001)/Omega/omega.exe", "Zeta (1999)/Zeta/data/level1.dat", "Zeta (1999)/Zeta/zeta.exe"]);
+    assert_eq!(std::fs::read(games.join("Zeta (1999)/Zeta/zeta.exe")).unwrap(), b"MZ zeta");
+    // and a shortcut (D112): in Steam on Linux, through Proton, with its cover
+    #[cfg(target_os = "linux")]
+    {
+        let wanted = gamerepo_device::steam::state(&dir.join("go")).wanted;
+        let w = |k: &str| wanted.iter().find(|w| w.key == k).unwrap_or_else(|| panic!("{k} in {wanted:?}")).clone();
+        let (omega, zeta) = (w(OMEGA), w(ZETA));
+        assert_eq!((omega.name.as_str(), omega.args.as_str(), omega.proton), ("Omega", "-windowed", true));
+        assert_eq!((omega.program, omega.start_dir), (games.join("Omega (2001)/Omega/omega.exe").display().to_string(), games.join("Omega (2001)/Omega").display().to_string()));
+        assert!(omega.art.get("cover").is_some_and(|p| Path::new(p).is_file()), "{:?}", omega.art);
+        assert_eq!(zeta.program, games.join("Zeta (1999)/Zeta/zeta.exe").display().to_string());
+    }
+    // in the Start menu on Windows
+    #[cfg(windows)]
+    assert!(lnk("Omega").is_file() && lnk("Zeta").is_file());
+
+    // On this device lists them by their folders
+    let v = call(&app, "on_device", json!({}));
+    let r = row(&v, "pc:Omega (2001)");
+    assert_eq!((r["from"].as_str(), r["key"].as_str(), r["name"].as_str()), (Some("library"), Some(OMEGA), Some("Omega")), "{v}");
+
+    // removed: what came from the library and its shortcut go; a save the game made stays,
+    // with its folder, and is told of
+    std::fs::create_dir_all(games.join("Omega (2001)/Omega/saves")).unwrap();
+    std::fs::write(games.join("Omega (2001)/Omega/saves/slot1.sav"), b"a save").unwrap();
+    let gone = call(&app, "remove", json!({ "asks": [{ "key": OMEGA }] }));
+    assert_eq!(gone["kept_made"], json!([["Omega (2001)", 1]]), "{gone}");
+    assert_eq!(files_under(&games), ["Omega (2001)/Omega/saves/slot1.sav", "Zeta (1999)/Zeta/data/level1.dat", "Zeta (1999)/Zeta/zeta.exe"]);
+    #[cfg(target_os = "linux")]
+    assert!(gamerepo_device::steam::state(&dir.join("go")).wanted.iter().all(|w| w.key != OMEGA));
+    #[cfg(windows)]
+    assert!(!lnk("Omega").exists() && lnk("Zeta").is_file());
+    // Zeta removed too: its folder goes, as nothing's left in it
+    let gone = call(&app, "remove", json!({ "asks": [{ "key": ZETA }] }));
+    assert_eq!(gone["kept_made"], json!([]), "{gone}");
+    assert!(!games.join("Zeta (1999)").exists());
+
+    app.queue.quit();
+    s.stop();
+    assert!(before == snapshot(&lib), "the library as it was");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // The targets of docs/PLAN.md ("Phase 9b design"): the whole catalogue of 100,000 games
 // read over loopback in under 20 s; a page and a search of the device's copy under 50 ms.
 // Run with `cargo test --release -- --ignored timing` (CI does, on Windows).

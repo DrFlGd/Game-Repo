@@ -1,23 +1,25 @@
 name: Desktop
 
 # Builds the desktop app (Tauri) for Windows with Game Repo Server beside it and on its
-# own, and Game Repo Go (the device client) on its own and as an Android APK; runs the Rust
-# tests and the acceptance test (the page against the app's real backend), Game Repo Server
-# (as the CLI and as its tray app) against the stand-in device client, Game Repo Go's pages
-# against its backend and the server, drives the app and Game Repo Go through WebDriver and
-# Game Repo Go's APK on an Android emulator, signs the APK with the key in the repository's
-# secrets (tools/android_signing_key.cmd puts it there; without it the APK isn't published),
-# and when everything passes on main publishes a numbered release (v0.0.0, v0.0.1,
-# ...; see tools/set_version.py) with notes taken from CHANGELOG.md's Unreleased
-# section. Windows is the only platform for now (decision D3, docs/PLAN.md):
-# the Linux app and the Linux-to-Windows library check run only when asked for, from
-# Run workflow with "Linux too" ticked. Reports and screenshots go to the
+# own, and Game Repo Go (the device client) on its own, as an Android APK and as an
+# AppImage for the Steam Deck; runs the Rust tests and the acceptance test (the page against
+# the app's real backend), Game Repo Server (as the CLI and as its tray app) against the
+# stand-in device client, Game Repo Go's pages against its backend and the server, drives
+# the app and Game Repo Go through WebDriver (on Linux with a virtual controller too), Game
+# Repo Go's APK on an Android emulator and its Steam helper against a stand-in Steam, signs
+# the APK with the key in the repository's secrets (tools/android_signing_key.cmd puts it
+# there; without it the APK isn't published), and when everything passes on main publishes
+# a numbered release (v0.0.0, v0.0.1, ...; see tools/set_version.py) with notes taken from
+# CHANGELOG.md's Unreleased section. Game Repo itself is for Windows only (decision D3,
+# docs/PLAN.md): its Linux app and the Linux-to-Windows library check run only when asked
+# for, from Run workflow with "Linux too" ticked. Reports and screenshots go to the
 # desktop-ci-<os> branches (a pull request's to desktop-ci-<os>-pr). The token is
 # read-only except in the two jobs that write (reports and release), which run no build
 # or test code; actions are pinned to commits and tools to exact versions. Only a push
 # to main publishes: Run workflow on main builds and tests but doesn't publish again.
-# A push whose files a pull request's run already built and tested on Windows and Android,
-# for the same version, publishes that run's installers and APK instead of building and testing again
+# A push whose files a pull request's run already built and tested on Windows, Android and
+# the Steam Deck, for the same version, publishes that run's installers, APK and AppImage
+# instead of building and testing again
 # (the "Already tested" job); any difference, such as another merge in between, runs
 # everything.
 on:
@@ -89,7 +91,7 @@ jobs:
           V: ${{ needs.version.outputs.version }}
           SIGNING_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
         run: |
-          # the What passed job names what Windows and Android passed with: these files (their
+          # the What passed job names what Windows, Android and the Steam Deck passed with: these files (their
           # git tree) and this version. Only a run from this repository's own branches counts (a
           # fork's pull request could name any files), and only while its installer is kept;
           # once the signing key is in the secrets, only a run that signed the APK with it (one
@@ -103,6 +105,9 @@ jobs:
             kept=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
               --jq '[.artifacts[] | select(.name == "bundles-windows" and (.expired | not))] | length')
             [ "$kept" = 1 ] || continue
+            appimage=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
+              --jq '[.artifacts[] | select(.name == "bundles-deck" and (.expired | not))] | length')
+            [ "$appimage" = 1 ] || { echo "run $run has no AppImage: not using it"; continue; }
             if [ "$SIGNING_KEY" = true ]; then
               apk=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
                 --jq '[.artifacts[] | select(.name == "bundles-android" and (.expired | not))] | length')
@@ -497,12 +502,109 @@ jobs:
         if: always()
         with: { name: reports-android, path: ci-out/, retention-days: 3, include-hidden-files: true }
 
+  deck:
+    name: Steam Deck app
+    needs: [version, tested]
+    if: ${{ !cancelled() && needs.version.result == 'success' && !needs.tested.outputs.run }}
+    runs-on: ubuntu-22.04   # oldest supported: the AppImage then runs on SteamOS and newer systems too
+    timeout-minutes: 60
+    defaults:
+      run: { shell: bash }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "22" }
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: { python-version: "3.12" }
+      - name: System packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 xvfb webkit2gtk-driver xdotool
+          pip install selenium==4.51.0 playwright==1.64.0 evdev==1.7.1
+          python -m playwright install --with-deps chromium 2>&1 | tail -2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with: { workspaces: desktop }
+      - name: Version ${{ needs.version.outputs.version }}
+        run: python tools/set_version.py "${{ needs.version.outputs.version }}"
+      - name: Room for a virtual controller (uinput), as Steam Input gives the app one on the Deck
+        run: |
+          sudo modprobe uinput
+          # the controller's input device readable by its user, as on the Deck (WebKitGTK reads it)
+          echo 'KERNEL=="uinput", MODE="0666"' | sudo tee /etc/udev/rules.d/99-gamerepo-pad.rules > /dev/null
+          echo 'SUBSYSTEM=="input", KERNEL=="event*", MODE="0666"' | sudo tee -a /etc/udev/rules.d/99-gamerepo-pad.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --subsystem-match=misc --subsystem-match=input
+          sudo chmod 0666 /dev/uinput
+          ls -la /dev/uinput
+      - name: Check and test the Rust code (Steam's files, the Steam helper, Game Repo Go's backend)
+        working-directory: desktop
+        run: |
+          mkdir -p ../ci-out
+          cargo build --release -p gamerepo-cli 2>&1 | tee ../ci-out/cli-build.log
+          cargo test --release -p gamerepo-steam -p gamerepo-device 2>&1 | tee ../ci-out/deck-test.log
+          # Game Repo's own Steam export, which shares the Steam crate
+          cargo test --release -p gamerepo-core steam 2>&1 | tee ../ci-out/core-steam-test.log
+      - name: Front end
+        env:
+          GAMEREPO_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python tools/build_desktop.py --out build/desktop --fetch-fonts
+      - name: Game Repo Go's pages (as on Linux and in Game Mode), its backend and Game Repo Server
+        run: |
+          timeout 600 python tests/client_page.py --cli desktop/target/release/gamerepo-cli --ui build/desktop/ui \
+            --home "$RUNNER_TEMP/go-page" --out ci-out/go-page 2>&1 | tee ci-out/go-page.log
+      - name: Build Game Repo Go (AppImage)
+        working-directory: desktop/client
+        run: |
+          npx --yes @tauri-apps/cli@2.12.3 build --bundles appimage 2>&1 | tee ../../ci-out/tauri-build-client.log
+          # (its tests need the front end built, as the app does)
+          cargo test --release -p gamerepo-client 2>&1 | tee ../../ci-out/client-test.log
+      - name: Collect the AppImage
+        env:
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          cp desktop/target/release/bundle/appimage/*.AppImage dist/
+          ls -la dist | tee ci-out/bundles.txt
+          # a missing AppImage fails here, not later in the release (review M46)
+          ls dist/"Game Repo Go_${V}_amd64.AppImage" > /dev/null
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: bundles-deck, path: dist/, retention-days: 3 }
+      - name: The AppImage starts, and its Steam helper restarts a stand-in Steam
+        env:
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          app="$PWD/dist/Game Repo Go_${V}_amd64.AppImage"
+          chmod +x "$app"
+          (HOME="$RUNNER_TEMP/deck-start" && mkdir -p "$HOME" && export HOME && timeout 25 xvfb-run -a "$app" > ci-out/appimage-start.log 2>&1; echo "exit $?" >> ci-out/appimage-start.log) || true
+          tail -5 ci-out/appimage-start.log
+          # still running when it was stopped after 25 s (timeout's 124): it started
+          grep -qx "exit 124" ci-out/appimage-start.log || { echo "::error title=AppImage::Game Repo Go's AppImage didn't keep running (appimage-start.log)"; exit 1; }
+          timeout 300 python tests/steam_helper.py --program "$app" --out ci-out/steam-helper 2>&1 | tee ci-out/steam-helper.log
+      - name: Drive Game Repo Go (WebDriver), with a virtual controller
+        run: |
+          cargo install tauri-driver --version 2.1.0 --locked 2>&1 | tail -3
+          export HOME="$RUNNER_TEMP/deck-ui" && mkdir -p "$HOME"
+          # one X server for tauri-driver, WebKitWebDriver and the app it launches
+          Xvfb :99 -screen 0 1280x800x24 > /dev/null 2>&1 &
+          export DISPLAY=:99
+          sleep 1
+          tauri-driver > ci-out/tauri-driver.log 2>&1 &
+          sleep 2
+          timeout 600 python tests/client_ui.py --gamepad --app desktop/target/release/gamerepo-client \
+            --cli desktop/target/release/gamerepo-cli --home "$RUNNER_TEMP/go-ui" --out ci-out/go-shots 2>&1 | tee ci-out/client-ui.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with: { name: reports-deck, path: ci-out/, retention-days: 3, include-hidden-files: true }
+
   passed:
     name: What passed
-    needs: [version, windows, android]
-    # only when Windows and Android passed: names these files and this version, so a push to
-    # main with the same files publishes this run's installers and APK (see Already tested)
-    if: ${{ !cancelled() && needs.windows.result == 'success' && needs.android.result == 'success' }}
+    needs: [version, windows, android, deck]
+    # only when Windows, Android and the Steam Deck passed: names these files and this version,
+    # so a push to main with the same files publishes this run's installers, APK and AppImage
+    # (see Already tested)
+    if: ${{ !cancelled() && needs.windows.result == 'success' && needs.android.result == 'success' && needs.deck.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -518,12 +620,12 @@ jobs:
 
   reports:
     name: Reports
-    needs: [linux, windows, android]
+    needs: [linux, windows, android, deck]
     # (a pull request from a fork has no token to push with)
-    # (nothing to report when Windows' and Android's were already tested and Linux wasn't asked for)
+    # (nothing to report when Windows', Android's and the Deck's were already tested and Linux wasn't asked for)
     if: >-
       always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-      (needs.windows.result != 'skipped' || needs.android.result != 'skipped' || needs.linux.result != 'skipped')
+      (needs.windows.result != 'skipped' || needs.android.result != 'skipped' || needs.deck.result != 'skipped' || needs.linux.result != 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -537,9 +639,9 @@ jobs:
           # main's reports stay main's: a pull request's go to desktop-ci-<os>-pr (review M46)
           SUFFIX: ${{ github.event_name == 'pull_request' && '-pr' || '' }}
         run: |
-          for os in linux windows android; do
+          for os in linux windows android deck; do
             [ -d "reports/reports-$os" ] || continue
-            name=$(case $os in linux) echo Linux;; windows) echo Windows;; *) echo Android;; esac)
+            name=$(case $os in linux) echo Linux;; windows) echo Windows;; deck) echo Steam Deck;; *) echo Android;; esac)
             (
               cd "reports/reports-$os"
               echo "${GITHUB_SHA}" > COMMIT
@@ -581,14 +683,14 @@ jobs:
 
   release:
     name: Release
-    needs: [version, tested, linux, windows, android, passed, portability]
+    needs: [version, tested, linux, windows, android, deck, passed, portability]
     # only for a push to main (review M46: Run workflow on main published the same code
     # again), and only when every check that ran passed (Linux and the portability check
-    # are skipped unless asked for), or Windows' and Android's were passed by a run with the
-    # same files
+    # are skipped unless asked for), or Windows', Android's and the Deck's were passed by a run
+    # with the same files
     if: >-
       always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.result == 'success' &&
-      (needs.passed.result == 'success' || (needs.windows.result == 'skipped' && needs.android.result == 'skipped' && needs.tested.outputs.run != '')) &&
+      (needs.passed.result == 'success' || (needs.windows.result == 'skipped' && needs.android.result == 'skipped' && needs.deck.result == 'skipped' && needs.tested.outputs.run != '')) &&
       contains(fromJSON('["success","skipped"]'), needs.linux.result) &&
       contains(fromJSON('["success","skipped"]'), needs.portability.result)
     runs-on: ubuntu-24.04
@@ -611,7 +713,7 @@ jobs:
           V: ${{ needs.version.outputs.version }}
         run: |
           ls -la dist
-          ls dist/"Game Repo_${V}_x64-setup.exe" dist/"Game Repo Server_${V}_x64-setup.exe" dist/"Game Repo Go_${V}_x64-setup.exe" > /dev/null   # the installers are this version's
+          ls dist/"Game Repo_${V}_x64-setup.exe" dist/"Game Repo Server_${V}_x64-setup.exe" dist/"Game Repo Go_${V}_x64-setup.exe" dist/"Game Repo Go_${V}_amd64.AppImage" > /dev/null   # the installers are this version's
           prev=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -1)
           {
             echo "**Windows:** \`Game Repo_${V}_x64-setup.exe\` (unsigned, so SmartScreen asks once: More info → Run anyway). It installs Game Repo Server beside the app."
@@ -626,8 +728,10 @@ jobs:
             else
               echo "::warning title=Android::No APK to publish (the signing key isn't in the repository's secrets yet)" >&2
             fi
-            if ls dist/*.deb dist/*.AppImage > /dev/null 2>&1; then
-              echo "**Linux:** the \`.deb\` or the \`.AppImage\`."
+            echo
+            echo "**Steam Deck and Linux:** \`Game Repo Go_${V}_amd64.AppImage\` is Game Repo Go for a Steam Deck, or a Linux computer with ES-DE. On the Deck, in Desktop Mode: download it, right-click it › Properties › Permissions › tick Is executable, and open it. In its Settings › Steam, tick \"Game Repo Go in Steam's library\", and it's in Game Mode's library too, where the Deck's controls work it."
+            if ls dist/*.deb "dist/Game Repo_${V}_amd64.AppImage" > /dev/null 2>&1; then
+              echo "**Linux:** Game Repo itself, the \`.deb\` or \`Game Repo_${V}_amd64.AppImage\`."
             fi
             echo
             # what changed for the user: CHANGELOG.md's Unreleased section; the

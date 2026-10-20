@@ -6,9 +6,12 @@
 //! settings, kept in its own data folder; the pairing token is kept by [`Secrets`].
 
 use crate::catalogue::{self, Catalogue};
+use crate::installs;
+use crate::pcgames;
 use crate::queue::{self, Ctx, Queue};
 use crate::removing::{self, Ask as RemoveAsk};
 use crate::scan::{self, Found};
+use crate::steam;
 use crate::{client, AddOptions, Device, Server};
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
@@ -29,7 +32,8 @@ pub trait Secrets: Send + Sync {
     fn delete(&self, name: &str) -> Result<()>;
 }
 
-/// Secrets in a file (the stand-in's and the tests'; never a real client's).
+/// Secrets in a file only its user can read: the stand-in's and the tests', and Game Repo
+/// Go's on Linux (D108).
 pub struct FileSecrets(pub PathBuf);
 
 impl FileSecrets {
@@ -46,13 +50,13 @@ impl Secrets for FileSecrets {
     fn set(&self, name: &str, value: &str) -> Result<()> {
         let mut m = self.all();
         m.insert(name.into(), value.into());
-        crate::write_whole(&self.0, &serde_json::to_vec_pretty(&m)?)
+        crate::write_private(&self.0, &serde_json::to_vec_pretty(&m)?)
     }
 
     fn delete(&self, name: &str) -> Result<()> {
         let mut m = self.all();
         if m.remove(name).is_some() {
-            crate::write_whole(&self.0, &serde_json::to_vec_pretty(&m)?)?;
+            crate::write_private(&self.0, &serde_json::to_vec_pretty(&m)?)?;
         }
         Ok(())
     }
@@ -86,6 +90,14 @@ pub struct Settings {
     pub screen: u32,
     /// The library paired with (its name)
     pub library: String,
+    /// Steam's folder, when it isn't where it's found, and the Steam user Game Repo Go's
+    /// shortcuts are for (none: the one signed in most recently) (D109)
+    pub steam: String,
+    pub steam_user: String,
+    /// The Proton a Windows program runs through (Steam's name for it, D112)
+    pub proton: String,
+    /// The PC games folder (empty: `C:\Games` on Windows, `~/Games` on Linux, D111)
+    pub pc_games: String,
 }
 
 impl Default for Settings {
@@ -104,6 +116,10 @@ impl Default for Settings {
             name: String::new(),
             screen: 1280,
             library: String::new(),
+            steam: String::new(),
+            steam_user: String::new(),
+            proton: "proton_experimental".into(),
+            pc_games: String::new(),
         }
     }
 }
@@ -144,6 +160,14 @@ pub struct OnDevice {
     /// Each media kind it has, and its size
     pub media: Vec<(String, u64)>,
     pub files: usize,
+    /// The record has it, but its files aren't on the device any more (its ROMs folder
+    /// changed since, say): it can be added again, or removed from the record
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub missing: bool,
+    /// Some of its files aren't on the device (deleted by hand, say): added again, they come
+    /// back; its size is what's left
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub partial: bool,
 }
 
 pub struct App {
@@ -164,6 +188,17 @@ pub struct App {
     me: Weak<App>,
     /// When the library was last looked for at another address
     looked: Mutex<Option<std::time::Instant>>,
+    /// Game Repo Go itself, for its own Steam shortcut (D107)
+    own: Mutex<Own>,
+}
+
+/// Game Repo Go's own program and icon, and the command line of its Steam helper
+/// ([`crate::steam::helper`]), as the app (or the stand-in) gives them.
+#[derive(Clone, Debug, Default)]
+pub struct Own {
+    pub program: PathBuf,
+    pub icon: PathBuf,
+    pub helper: Vec<String>,
 }
 
 /// How often the library is looked for at another address while it can't be reached,
@@ -191,6 +226,7 @@ impl App {
         let settings: Settings = std::fs::read(data.join("settings.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let catalogue = Arc::new(Catalogue::open(data)?);
         catalogue.set_picture_limit(settings.pictures_mb << 20);
+        catalogue.set_pc(kind != "android");
         let app = Arc::new_cyclic(|me: &Weak<App>| {
             let (a, b) = (me.clone(), me.clone());
             let queue = Queue::open(
@@ -202,7 +238,7 @@ impl App {
                     }
                 }),
             );
-            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default() }
+            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default() }
         });
         let me = Arc::downgrade(&app);
         app.queue.on_away(Box::new(move || me.upgrade().is_some_and(|a| a.find_again())));
@@ -217,6 +253,15 @@ impl App {
         self.changed("device");
     }
 
+    /// What Game Repo Go is (its program, icon and Steam helper).
+    pub fn set_own(&self, own: Own) {
+        *self.own.lock().unwrap_or_else(|e| e.into_inner()) = own;
+    }
+
+    fn own(&self) -> Own {
+        self.own.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     pub fn settings(&self) -> Settings {
         self.settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
@@ -229,17 +274,40 @@ impl App {
     /// The device's ES-DE folders, found (or as Settings has them).
     pub fn device(&self) -> Result<Device> {
         let s = self.settings();
+        let homes = self.homes.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let mut d = if !s.esde.is_empty() {
             let esde = PathBuf::from(&s.esde);
-            let home = esde.parent().map(Path::to_path_buf).unwrap_or_else(|| esde.clone());
+            let home = homes.iter().find(|h| esde.starts_with(h)).cloned().or_else(|| esde.parent().map(Path::to_path_buf)).unwrap_or_else(|| esde.clone());
             Device::open_esde(&esde, &home)?
         } else {
-            self.homes.lock().unwrap_or_else(|e| e.into_inner()).iter().find_map(|h| Device::open(h).ok()).ok_or_else(|| anyhow!("ES-DE isn't installed on this device (no ES-DE folder with its settings was found). Install ES-DE and start it once, or choose its folder in Settings."))?
+            // ES-DE as it set itself up, or as RetroDECK or EmuDeck did (D116); more than
+            // one is asked about rather than guessed
+            let mut found = installs::find(&homes);
+            match found.len() {
+                0 => bail!("ES-DE isn't installed on this device (no ES-DE folder with its settings was found). Install ES-DE and start it once, or choose its folder in Settings."),
+                1 => found.remove(0).1,
+                _ => bail!("ES-DE is set up more than once on this device ({}): choose which one Game Repo Go uses in Settings.", found.iter().map(|(i, _)| format!("{} in {}", i.by, i.esde.display())).collect::<Vec<_>>().join(", and ")),
+            }
         };
         if !s.roms.is_empty() {
             d.places.insert("roms".into(), PathBuf::from(&s.roms));
         }
+        // PC games' folders (D111), on Windows and Linux
+        if self.pc() {
+            let games = if s.pc_games.is_empty() { pcgames::default_folder(&d.home) } else { PathBuf::from(&s.pc_games) };
+            d.places.insert("pc".into(), games);
+            d.places.insert("pcmedia".into(), self.data.join("pc-media"));
+            if let Some(m) = pcgames::start_menu().filter(|_| cfg!(windows)) {
+                d.places.insert("startmenu".into(), m);
+            }
+        }
+        d.data = Some(self.data.clone());
         Ok(d)
+    }
+
+    /// Whether PC games can go on this device (Windows and Linux, not Android, D110).
+    fn pc(&self) -> bool {
+        self.kind != "android"
     }
 
     fn options(&self) -> AddOptions {
@@ -250,6 +318,7 @@ impl App {
             size: s.screen,
             bios: true,
             at_once: s.at_once.clamp(1, api::DOWNLOADS),
+            steam_art: cfg!(target_os = "linux") && self.pc(),
             ..Default::default()
         }
     }
@@ -330,6 +399,8 @@ impl App {
             "prepare" => self.prepare(&arg::<Vec<String>>(args, "keys")?, args)?,
             "add" => self.add(&arg::<Vec<String>>(args, "keys")?, args)?,
             "queue" => serde_json::to_value(self.queue.shown())?,
+            "start_summary" => self.start_summary()?,
+            "start_queue" => json!({ "started": self.queue.start_queued(&arg_or::<Vec<u64>>(args, "ids")) }),
             "pause" => {
                 self.queue.pause(&arg_or::<Vec<u64>>(args, "ids"));
                 json!({})
@@ -350,7 +421,7 @@ impl App {
             "make_room" => {
                 let need: u64 = arg(args, "need")?;
                 let rows = self.rows()?.0;
-                let v: Vec<(String, u64, String, i64)> = rows.into_iter().map(|r| (r.id, r.size, r.last_played, r.added)).collect();
+                let v: Vec<(String, u64, String, i64)> = rows.into_iter().filter(|r| !r.missing).map(|r| (r.id, r.size, r.last_played, r.added)).collect();
                 json!(scan::make_room(&v, need))
             }
             "removal" => {
@@ -365,14 +436,18 @@ impl App {
                 }
                 let d = self.device()?;
                 let r = removing::remove(&d, &self.found(&d), &asks)?;
+                let kept = self.after_removal(&d, &r);
                 self.tell_holding(&d);
                 self.changed("device");
-                json!(r)
+                let mut v = json!(r);
+                v["kept_made"] = json!(kept);
+                v
             }
             "pending_removal" => json!(removing::pending(&self.device()?)),
             "finish_removal" => {
                 let d = self.device()?;
                 let r = removing::finish(&d)?;
+                self.after_removal(&d, &r);
                 self.tell_holding(&d);
                 self.changed("device");
                 json!(r)
@@ -383,6 +458,42 @@ impl App {
                 json!(r)
             }
             "add_media" => self.add_media(&arg_or::<String>(args, "id"), &arg_or::<String>(args, "key"), &arg::<Vec<String>>(args, "kinds")?)?,
+            "steam" => steam::status(&self.data),
+            "steam_add_self" => {
+                let own = self.own();
+                let w = if arg_or::<bool>(args, "on") {
+                    if own.program.as_os_str().is_empty() {
+                        bail!("Game Repo Go can't add itself to Steam from here.");
+                    }
+                    let icon = own.icon.display().to_string();
+                    Some(steam::Wanted {
+                        name: "Game Repo Go".into(),
+                        program: own.program.display().to_string(),
+                        start_dir: own.program.parent().map(|p| p.display().to_string()).unwrap_or_default(),
+                        icon: icon.clone(),
+                        art: if icon.is_empty() { BTreeMap::new() } else { BTreeMap::from([("icon".to_string(), icon)]) },
+                        ..Default::default()
+                    })
+                } else {
+                    None
+                };
+                steam::want(&self.data, steam::OWN, w)?;
+                self.changed("settings");
+                steam::status(&self.data)
+            }
+            "steam_apply" => {
+                let r = steam::apply(&self.data)?;
+                self.changed("settings");
+                r
+            }
+            "steam_restart" => {
+                let mut helper = self.own().helper;
+                if steam::game_mode() {
+                    helper.push("--game-mode".into());
+                }
+                steam::restart(&helper)?;
+                json!({})
+            }
             "settings" => json!(self.settings()),
             "set_settings" => {
                 let mut v = serde_json::to_value(self.settings())?;
@@ -393,15 +504,26 @@ impl App {
                     v[k] = x.clone();
                 }
                 let new: Settings = serde_json::from_value(v).context("A setting isn't as it should be")?;
-                if !new.esde.is_empty() && !Path::new(&new.esde).join("settings").join("es_settings.xml").is_file() {
+                if !new.esde.is_empty() && !Path::new(&new.esde).join("settings").join("es_settings.xml").is_file() && !Path::new(&new.esde).join("es_settings.xml").is_file() {
                     bail!("{} isn't ES-DE's folder (it has no settings/es_settings.xml).", new.esde);
                 }
                 if !new.roms.is_empty() && !Path::new(&new.roms).is_dir() {
                     bail!("{} isn't a folder.", new.roms);
                 }
+                if !new.pc_games.is_empty() && !Path::new(&new.pc_games).is_absolute() {
+                    bail!("{} isn't a whole folder path (such as {}).", new.pc_games, pcgames::default_folder(Path::new("/home/deck")).display());
+                }
+                if !new.steam.is_empty() && !Path::new(&new.steam).join("userdata").is_dir() {
+                    bail!("{} isn't Steam's folder (it has no userdata folder).", new.steam);
+                }
+                let old = self.settings();
                 self.update_settings(|s| *s = new.clone())?;
                 self.catalogue.set_picture_limit(new.pictures_mb << 20);
                 self.changed("settings");
+                // ES-DE's folders changed: what's on the device is looked for again
+                if (&old.esde, &old.roms, &old.pc_games) != (&new.esde, &new.roms, &new.pc_games) {
+                    self.changed("device");
+                }
                 json!(new)
             }
             _ => bail!("There's no command {cmd}."),
@@ -421,13 +543,27 @@ impl App {
     fn status(&self) -> Value {
         let s = self.settings();
         let server = self.server();
-        let esde = match self.device() {
+        let homes = self.homes.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let found: Vec<installs::Install> = installs::find(&homes).into_iter().map(|(i, _)| i).collect();
+        let mut esde = match self.device() {
             Ok(d) => {
                 let roms = &d.places["roms"];
-                json!({ "esde": d.places["esde"], "roms": roms, "media": d.places["media"], "free": fs4::available_space(crate::existing(roms)).unwrap_or(0) })
+                let mut v = json!({ "esde": d.places["esde"], "roms": roms, "media": d.places["media"], "free": fs4::available_space(crate::existing(roms)).unwrap_or(0) });
+                // a ROMs folder chosen by hand that isn't ES-DE's own: ES-DE won't find the games there
+                if !s.roms.is_empty() {
+                    let own = Device::open_esde(&d.places["esde"], &d.home).ok().map(|x| x.places["roms"].clone());
+                    if own.as_ref().is_some_and(|o| o != roms && std::fs::canonicalize(o).ok() != std::fs::canonicalize(roms).ok()) {
+                        v["esde_roms"] = json!(own);
+                    }
+                }
+                if let Some(i) = found.iter().find(|i| i.esde == d.places["esde"]) {
+                    v["by"] = json!(i.by);
+                }
+                v
             }
             Err(e) => json!({ "error": format!("{e:#}") }),
         };
+        esde["installs"] = json!(found);
         let (games, _) = self.catalogue.counts();
         let q = self.queue.shown();
         let (pictures, picture_bytes) = self.catalogue.pictures_kept();
@@ -438,11 +574,12 @@ impl App {
             "library": server.as_ref().map(|x| json!({ "name": s.library, "address": x.address, "server": x.server })),
             "device": esde,
             "removal": self.device().ok().and_then(|d| removing::pending(&d)),
-            "queue": { "left": q.left, "offline": q.offline, "added": q.added, "size": q.size, "done": q.done, "speed": q.speed },
+            "queue": { "left": q.left, "queued": q.queued, "offline": q.offline, "added": q.added, "size": q.size, "done": q.done, "speed": q.speed },
             "sync": self.sync_state(),
             "checking": self.checking.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "catalogue": { "games": games, "synced": self.catalogue.meta("synced").and_then(|v| v.parse::<i64>().ok()) },
             "pictures": { "kept": pictures, "size": picture_bytes },
+            "pc": self.device().ok().and_then(|d| d.places.get("pc").cloned()).map(|f| json!({ "folder": f, "default": s.pc_games.is_empty() })),
         })
     }
 
@@ -543,6 +680,19 @@ impl App {
         });
     }
 
+    /// After PC games are removed (D112): their Steam shortcuts taken out, and the files
+    /// each game made itself in its folder (saves, settings), which stay, counted.
+    fn after_removal(&self, d: &Device, r: &removing::Removal) -> Vec<(String, usize)> {
+        let mut folders = vec![];
+        for h in r.held.iter().filter(|h| pcgames::is_pc(&h.key) && r.keys.contains(&h.key)) {
+            let _ = pcgames::unshortcut(&self.data, &h.key);
+            if let Some(f) = h.files.iter().find(|f| f.place == "pc").and_then(|f| f.path.split('/').next()) {
+                folders.push(f.to_string());
+            }
+        }
+        pcgames::left_in(d, &folders).into_iter().filter(|(_, n)| *n > 0).collect()
+    }
+
     /// What the library's told the device holds (best done; it's only shown there).
     fn tell_holding(&self, d: &Device) {
         if let Some(s) = self.server() {
@@ -557,7 +707,8 @@ impl App {
         let roms = self.device().ok().map(|d| d.places["roms"].clone());
         let mut out = vec![];
         for x in self.catalogue.systems()?.into_iter().filter(|x| x.games > 0) {
-            let there = roms.as_ref().is_some_and(|r| r.join(&x.folder).is_dir());
+            // PC games go in a folder of their own, made when the first comes
+            let there = x.id == pcgames::SYSTEM || roms.as_ref().is_some_and(|r| r.join(&x.folder).is_dir());
             if every || there || roms.is_none() {
                 out.push(json!({ "id": x.id, "name": x.name, "folder": x.folder, "games": x.games, "size": x.size, "on_device": there }));
             }
@@ -580,7 +731,8 @@ impl App {
                 return keys.clone();
             }
         }
-        let mut keys: HashSet<String> = d.record().games.into_iter().map(|h| h.key).collect();
+        // a game with files gone isn't held: the Library offers it again, to put them back
+        let mut keys: HashSet<String> = d.record().games.into_iter().filter(|h| !removing::missing(&d, h) && !removing::partial(&d, h)).map(|h| h.key).collect();
         if let Ok((rows, _)) = self.rows() {
             keys.extend(rows.into_iter().filter(|r| r.from == "known").map(|r| r.key));
         }
@@ -613,14 +765,15 @@ impl App {
                 if !h.title.is_empty() {
                     row.name = h.title.clone();
                 }
-                // the record's media too, by the library's names
+                // the record's media too, by the library's names (those still there)
                 let have: HashSet<&str> = g.media.iter().map(|m| m.path.as_str()).chain(g.files.iter().map(|(p, _)| p.as_str())).collect();
-                for f in h.files.iter().filter(|f| !have.contains(f.path.as_str())) {
+                for f in h.files.iter().filter(|f| !have.contains(f.path.as_str()) && removing::there(&d, &f.place, &f.path)) {
                     if f.place == "media" {
                         *media.entry(f.role.clone()).or_default() += f.size;
                     }
                     row.size += f.size;
                 }
+                row.partial = removing::partial(&d, h);
             } else {
                 let size = g.files.first().map(|f| f.1).unwrap_or(0);
                 match self.catalogue.identified(&g.id, size, g.modified) {
@@ -645,16 +798,22 @@ impl App {
             for f in h.files.iter().filter(|f| f.place == "media") {
                 *media.entry(f.role.clone()).or_default() += f.size;
             }
+            // a PC game by its folder in the PC games folder
+            let pc = h.files.iter().find(|f| f.place == "pc").and_then(|f| f.path.split('/').next()).map(|f| format!("pc:{f}"));
+            let missing = removing::missing(&d, h);
+            let partial = removing::partial(&d, h);
             rows.push(OnDevice {
-                id: first.map(|f| f.path.clone()).unwrap_or_default(),
+                id: pc.or_else(|| first.map(|f| f.path.clone())).unwrap_or_default(),
                 key: h.key.clone(),
                 from: "library".into(),
                 name: h.title.clone(),
                 system: h.system.clone(),
-                size: h.files.iter().filter(|f| f.needed_by.is_empty()).map(|f| f.size).sum(),
+                size: if missing { 0 } else { h.files.iter().filter(|f| f.needed_by.is_empty() && removing::there(&d, &f.place, &f.path)).map(|f| f.size).sum() },
                 added: h.added as i64,
                 media: media.into_iter().collect(),
                 files: h.files.len(),
+                missing,
+                partial,
                 ..Default::default()
             });
         }
@@ -728,7 +887,7 @@ impl App {
         });
     }
 
-    /// Before *Add to device* (D99, C9, C22): the games' size, each media kind the library
+    /// Before *Add to queue…* (D99, C9, C22): the games' size, each media kind the library
     /// has for them with its size (those ticked as last time), and the free space.
     fn prepare(&self, keys: &[String], args: &Value) -> Result<Value> {
         let s = self.server().ok_or_else(|| anyhow!("This device isn't paired with a library: pair it in Settings."))?;
@@ -751,12 +910,20 @@ impl App {
             .iter()
             .map(|k| json!({ "kind": k.kind, "name": names.get(k.kind.as_str()).copied().unwrap_or(&k.kind), "games": k.games, "size": k.size, "estimated": k.estimated, "ticked": if k.kind == "manual" { o.manuals } else { o.media.contains(&k.kind) } }))
             .collect();
-        let free = fs4::available_space(crate::existing(&d.places["roms"])).unwrap_or(0);
-        Ok(json!({ "games": keys.len(), "size": games, "kinds": kinds, "to_fetch": to_fetch, "free": free, "left": plan.left, "notes": plan.notes }))
+        // the free space where they go: the PC games folder's for PC games only
+        let place = if !keys.is_empty() && keys.iter().all(|k| pcgames::is_pc(k)) && d.places.contains_key("pc") { "pc" } else { "roms" };
+        let free = fs4::available_space(crate::existing(&d.places[place])).unwrap_or(0);
+        // a PC game being unpacked on the library: its size as the list has it
+        let waiting: u64 = plan.waiting.iter().filter_map(|k| self.catalogue.game(k)).map(|g| g.size).sum();
+        let (games, to_fetch) = (games + waiting, to_fetch + waiting);
+        Ok(json!({ "games": keys.len(), "size": games, "kinds": kinds, "to_fetch": to_fetch, "free": free, "left": plan.left, "notes": plan.notes, "unpacking": plan.waiting.len() }))
     }
 
-    /// Games put in the queue with the media kinds chosen, which are remembered (C22).
+    /// Games put in the queue with the media kinds chosen, which are remembered (C22): to
+    /// come now (*Download…*), or with `start: false` queued, not started (*Add to queue*,
+    /// D114), with the kinds last chosen unless others are given.
     fn add(&self, keys: &[String], args: &Value) -> Result<Value> {
+        let start = args.get("start").and_then(Value::as_bool).unwrap_or(true);
         let s = self.settings();
         let media: Vec<String> = args.get("media").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or(s.media.clone());
         let manuals = args.get("manuals").and_then(Value::as_bool).unwrap_or(s.manuals);
@@ -769,10 +936,12 @@ impl App {
             }
             _ => String::new(),
         };
-        self.update_settings(|x| {
-            x.media = media.clone();
-            x.manuals = manuals;
-        })?;
+        if start {
+            self.update_settings(|x| {
+                x.media = media.clone();
+                x.manuals = manuals;
+            })?;
+        }
         let items: Vec<queue::Item> = keys
             .iter()
             .map(|k| {
@@ -788,7 +957,62 @@ impl App {
                 }
             })
             .collect();
-        Ok(json!(self.queue.add(items)))
+        Ok(json!(if start { self.queue.add(items) } else { self.queue.enqueue(items) }))
+    }
+
+    /// What starting the queued games takes (D114): each one's size on disc (what's still to
+    /// fetch, its media and manual too), the whole, and the space free where they go (the
+    /// ROMs folder's drive, and the PC games folder's when that's another).
+    fn start_summary(&self) -> Result<Value> {
+        let items = self.queue.queued();
+        let s = self.server().ok_or_else(|| anyhow!("This device isn't paired with a library: pair it in Settings."))?;
+        let d = self.device()?;
+        let base = self.options();
+        // one plan for the games asked for with the same choices
+        let mut groups: BTreeMap<(Vec<String>, bool, bool), Vec<&queue::Item>> = BTreeMap::new();
+        for it in &items {
+            groups.entry((it.media.clone(), it.manuals, it.media_only)).or_default().push(it);
+        }
+        let mut games = vec![];
+        let (mut roms, mut pc) = (0u64, 0u64);
+        let mut counted: HashSet<(String, String)> = HashSet::new();
+        let pc_place = |p: &str| matches!(p, "pc" | "pcmedia" | "startmenu");
+        for ((media, manuals, media_only), its) in groups {
+            let mut o = base.clone();
+            (o.media, o.manuals, o.media_only) = (media, manuals, media_only);
+            let keys: Vec<String> = its.iter().map(|i| i.key.clone()).collect();
+            let plan: Plan = s.call("POST", "/v1/plans", Some(&o.ask(&keys)))?;
+            let (todo, _) = crate::to_fetch(&d, &plan)?;
+            for it in its {
+                // a PC game being unpacked on the library: its size as the list has it
+                let size = if plan.waiting.contains(&it.key) {
+                    let n = self.catalogue.game(&it.key).map(|g| g.size).unwrap_or(0);
+                    pc += n;
+                    n
+                } else {
+                    todo.iter().map(|&i| &plan.files[i]).filter(|f| f.key == it.key).map(|f| f.size).sum()
+                };
+                games.push(json!({ "id": it.id, "key": it.key, "title": it.title, "system": it.system, "size": size }));
+            }
+            for f in todo.iter().map(|&i| &plan.files[i]) {
+                if counted.insert((f.place.clone(), f.path.clone())) {
+                    *if pc_place(&f.place) { &mut pc } else { &mut roms } += f.size;
+                }
+            }
+        }
+        let free = |place: &str| fs4::available_space(crate::existing(&d.places[place])).unwrap_or(0);
+        let mut places = vec![json!({ "what": "roms", "folder": d.places["roms"], "size": roms, "free": free("roms") })];
+        let mut short = roms.saturating_sub(free("roms"));
+        if pc > 0 && d.places.contains_key("pc") {
+            if crate::same_drive(&d.places["pc"], &d.places["roms"]) {
+                places[0]["size"] = json!(roms + pc);
+                short = (roms + pc).saturating_sub(free("roms"));
+            } else {
+                places.push(json!({ "what": "pc", "folder": d.places["pc"], "size": pc, "free": free("pc") }));
+                short += pc.saturating_sub(free("pc"));
+            }
+        }
+        Ok(json!({ "games": games, "size": roms + pc, "places": places, "short": short }))
     }
 
     /// Media added on its own to a game on the device (D102): one the client added, or one

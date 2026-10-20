@@ -25,3 +25,4 @@ sha2 = "0.10"
 
 [dev-dependencies]
 gamerepo-device = { path = "../device" }
+zip = { version = "9", default-features = false, features = ["deflate"] }

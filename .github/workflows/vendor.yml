@@ -1,7 +1,7 @@
 name: Vendor crates
 
 # For local development without crates.io: vendors the dependencies of gamerepo-core,
-# gamerepo-wire, Game Repo Server (gamerepo-serve), the device crate and the CLI (Linux
+# gamerepo-wire, gamerepo-steam, Game Repo Server (gamerepo-serve), the device crate and the CLI (Linux
 # only; not the window's) and pushes them, with a matching
 # Cargo.lock, to the "crates-vendor" branch. Build offline with:
 #   cargo build --offline --config <branch>/vendor-config.toml
@@ -11,6 +11,7 @@ on:
     paths:
       - "desktop/core/Cargo.toml"
       - "desktop/wire/Cargo.toml"
+      - "desktop/steam/Cargo.toml"
       - "desktop/serve/Cargo.toml"
       - "desktop/device/Cargo.toml"
       - "desktop/cli/Cargo.toml"
@@ -34,10 +35,11 @@ jobs:
           mkdir -p out ws
           cp -r desktop/core ws/core
           cp -r desktop/wire ws/wire
+          cp -r desktop/steam ws/steam
           cp -r desktop/serve ws/serve
           cp -r desktop/device ws/device
           cp -r desktop/cli ws/cli
-          printf '[workspace]\nresolver = "2"\nmembers = ["core", "wire", "serve", "device", "cli"]\n\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n' > ws/Cargo.toml
+          printf '[workspace]\nresolver = "2"\nmembers = ["core", "wire", "steam", "serve", "device", "cli"]\n\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n' > ws/Cargo.toml
           cd ws
           cargo generate-lockfile 2>&1 | tee ../out/vendor.log
           cargo install cargo-vendor-filterer --locked 2>&1 | tail -2 | tee -a ../out/vendor.log

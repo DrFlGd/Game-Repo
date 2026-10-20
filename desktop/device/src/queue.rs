@@ -4,11 +4,12 @@
 //! checked), and its gamelist entry and record written only when its last file is in. When
 //! the library can't be reached the queue waits and tries again by itself; a plan whose
 //! files changed in the library since is asked for again. Closing and opening the client
-//! goes on where it stopped.
+//! goes on where it stopped. A game can also be put in the queue *not started* (D114): it
+//! waits there until it's started by hand.
 
 use crate::client::Refused;
 use crate::{add_planned, drop_parts, part_of, to_fetch, AddOptions, Damaged, Device, Server, Stopped, Watch};
-use anyhow::Result;
+use anyhow::{bail, Result};
 use gamerepo_wire::api::HeldFile;
 use gamerepo_wire::Plan;
 use serde::{Deserialize, Serialize};
@@ -32,6 +33,8 @@ pub enum State {
     Offline,
     Done,
     Failed,
+    /// In the queue, not started: it waits to be started by hand (D114)
+    Queued,
 }
 
 /// A game in the queue.
@@ -68,6 +71,9 @@ pub struct Item {
     /// The plan was asked for again once already (its files changed while they came)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub replanned: bool,
+    /// A PC game the library is unpacking for it (D111), before its files can come
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unpacking: bool,
 }
 
 /// What a game is added with: the server, the device and the options from Settings.
@@ -112,6 +118,8 @@ pub struct Shown {
     pub size: u64,
     pub done: u64,
     pub speed: u64,
+    /// The games queued, not started
+    pub queued: usize,
 }
 
 pub struct Queue {
@@ -193,17 +201,29 @@ impl Queue {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Games added to the end of the queue (a game there already and not done isn't added
-    /// twice). Their ids.
+    /// Games added to the end of the queue to come now (a game there already and not done
+    /// isn't added twice, and one queued is started). Their ids.
     pub fn add(&self, items: Vec<Item>) -> Vec<u64> {
+        self.put(items, true)
+    }
+
+    /// Games added to the end of the queue, not started (D114): they wait for
+    /// [`start_queued`](Self::start_queued). A game there already isn't added twice.
+    pub fn enqueue(&self, items: Vec<Item>) -> Vec<u64> {
+        self.put(items, false)
+    }
+
+    fn put(&self, items: Vec<Item>, start: bool) -> Vec<u64> {
         let mut inner = self.lock();
         let mut next = inner.items.iter().map(|i| i.id).max().unwrap_or(0) + 1;
         let mut ids = vec![];
         for mut it in items {
             if let Some(there) = inner.items.iter_mut().find(|x| x.key == it.key && x.media_only == it.media_only && x.state != State::Done) {
-                if there.state == State::Failed || there.state == State::Paused {
+                if start && matches!(there.state, State::Failed | State::Paused | State::Queued) {
                     there.state = State::Waiting;
                     there.error.clear();
+                    // what's asked for now, as a queued game's choices were made earlier
+                    (there.media, there.manuals, there.collection) = (it.media, it.manuals, it.collection);
                 }
                 ids.push(there.id);
                 continue;
@@ -211,7 +231,7 @@ impl Queue {
             inner.items.retain(|x| !(x.key == it.key && x.media_only == it.media_only && x.state == State::Done));
             it.id = next;
             next += 1;
-            it.state = State::Waiting;
+            it.state = if start { State::Waiting } else { State::Queued };
             it.added = now();
             ids.push(it.id);
             inner.items.push(it);
@@ -246,7 +266,9 @@ impl Queue {
                 it.done = got.min(it.size);
                 it.speed = speed;
             }
-            if !matches!(it.state, State::Done | State::Failed) {
+            if it.state == State::Queued {
+                s.queued += 1;
+            } else if !matches!(it.state, State::Done | State::Failed) {
                 s.left += 1;
                 s.size += it.size;
                 s.done += it.done;
@@ -277,6 +299,28 @@ impl Queue {
         self.save(&inner);
         drop(inner);
         (self.changed)();
+    }
+
+    /// Games queued, not started, to come now in their order (none named: every one).
+    pub fn start_queued(&self, ids: &[u64]) -> usize {
+        let mut inner = self.lock();
+        let all = ids.is_empty();
+        let mut n = 0;
+        for it in inner.items.iter_mut().filter(|i| i.state == State::Queued && (all || ids.contains(&i.id))) {
+            it.state = State::Waiting;
+            n += 1;
+        }
+        inner.retry_at = None;
+        self.save(&inner);
+        drop(inner);
+        self.wake.notify_all();
+        (self.changed)();
+        n
+    }
+
+    /// The games queued, not started (to show what starting them takes).
+    pub fn queued(&self) -> Vec<Item> {
+        self.lock().items.iter().filter(|i| i.state == State::Queued).map(|i| Item { plan: None, ..i.clone() }).collect()
     }
 
     /// Paused games, and those that went wrong, to go on (none named: every one).
@@ -398,7 +442,10 @@ impl Queue {
                             it.state = State::Done;
                             it.done = it.size;
                             it.plan = None;
-                            inner.added += 1;
+                            // ES-DE doesn't list PC games, so they need no restart of it
+                            if !crate::pcgames::is_pc(&it.key) {
+                                inner.added += 1;
+                            }
                         }
                         Err(e) if e.is::<Stopped>() => {
                             if quitting && it.state == State::Downloading {
@@ -447,6 +494,17 @@ impl Queue {
         }
     }
 
+    fn set_unpacking(&self, id: u64, on: bool) {
+        let mut inner = self.lock();
+        let Some(it) = inner.items.iter_mut().find(|i| i.id == id) else { return };
+        if it.unpacking == on {
+            return;
+        }
+        it.unpacking = on;
+        drop(inner);
+        (self.changed)();
+    }
+
     /// One game: its plan (asked for once and kept), then its files and its entries.
     fn one(&self, item: &Item, stop: &AtomicBool, got: &AtomicU64) -> Result<()> {
         let c = (self.ctx)()?;
@@ -460,7 +518,25 @@ impl Queue {
         let plan = match &item.plan {
             Some(p) => p.clone(),
             None => {
-                let p: Plan = c.server.call("POST", "/v1/plans", Some(&o.ask(&keys)))?;
+                let mut p: Plan = c.server.call("POST", "/v1/plans", Some(&o.ask(&keys)))?;
+                // a PC game's archive being unpacked on the library: its files aren't
+                // listed until it's done, so the plan's asked for again until then
+                while !p.waiting.is_empty() {
+                    self.set_unpacking(item.id, true);
+                    for _ in 0..20 {
+                        if stop.load(Ordering::SeqCst) {
+                            self.set_unpacking(item.id, false);
+                            return Err(Stopped.into());
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                    p = c.server.call("POST", "/v1/plans", Some(&o.ask(&keys))).inspect_err(|_| self.set_unpacking(item.id, false))?;
+                }
+                self.set_unpacking(item.id, false);
+                // nothing of it can go (a PC game whose archive couldn't be unpacked): why
+                if p.files.is_empty() && !p.left.is_empty() {
+                    bail!("{}", p.left.iter().map(|l| format!("{}: {}", l.what, l.why)).collect::<Vec<_>>().join(" "));
+                }
                 let mut inner = self.lock();
                 if let Some(it) = inner.items.iter_mut().find(|i| i.id == item.id) {
                     it.plan = Some(p.clone());

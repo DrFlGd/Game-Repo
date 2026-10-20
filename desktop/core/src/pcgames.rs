@@ -1102,7 +1102,7 @@ fn rel_path(dir: &Path, rel: &str) -> PathBuf {
 // ------------------------------------------------------------ unpacking, the program
 
 /// Files that start something other than the game.
-fn not_the_game(name: &str) -> bool {
+pub fn not_the_game(name: &str) -> bool {
     let n = name.to_lowercase();
     ["unins", "setup", "install", "vcredist", "vc_redist", "dxsetup", "dxwebsetup", "directx", "crashhandler", "crashreport", "uploader", "redist", "dotnet", "physx", "oalinst", "ue4prereq", "cleanup"]
         .iter()

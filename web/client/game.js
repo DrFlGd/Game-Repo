@@ -1,5 +1,6 @@
 // A game's page (C7): its pictures, description, players and genre, its files and media
-// with their sizes, and whether it's on the device already, with Add to device…. Its
+// with their sizes, and whether it's on the device already, with Download… and Add to queue
+// (D114). Its
 // details are fetched when it's opened and kept, so it shows away from home too.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
@@ -7,7 +8,8 @@ import { Icon } from "../ui/icons.js";
 import { call, pictureUrl } from "./backend.js";
 import { back, go, open, showDialog } from "./state.js";
 import { bytes, kindName, message } from "./format.js";
-import { tick } from "./library.js";
+import { pick } from "./library.js";
+import { enqueue } from "./add.js";
 
 function Picture({ k, kind, size, alt }) {
   const [bad, setBad] = useState(false);
@@ -52,8 +54,9 @@ export function GamePage({ gameKey }) {
             ${g.on_device
               ? html`<span class="badge go-badge-on" id="go-game-on">On this device</span>
                   <button type="button" class="ghost" onClick=${() => open({ page: "device" })}>See what's on this device</button>`
-              : html`<button type="button" class="primary" id="go-game-add" onClick=${() => showDialog({ type: "add", keys: [game.key] })}>Add to device…</button>
-                  <button type="button" class="ghost" id="go-game-tick" aria-pressed=${ticked ? "true" : "false"} onClick=${() => tick([game])}>${ticked ? "Ticked" : "Tick"}</button>`}
+              : html`<button type="button" class="primary" id="go-game-add" onClick=${() => showDialog({ type: "add", keys: [game.key] })}>Download…</button>
+                  <button type="button" class="ghost" id="go-game-enqueue" onClick=${() => enqueue([game.key])}>Add to queue</button>
+                  <button type="button" class="ghost" id="go-game-tick" aria-pressed=${ticked ? "true" : "false"} onClick=${() => pick([game])}>${ticked ? "Selected" : "Select"}</button>`}
           </div>
           ${d.description ? html`<div class="go-game-text">${String(d.description).split(/\n\s*\n/).map((p) => html`<p>${p}</p>`)}</div>` : null}
           ${facts.length ? html`<dl class="go-facts">${facts.map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>` : null}

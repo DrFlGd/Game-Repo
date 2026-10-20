@@ -1,14 +1,15 @@
 // Game Repo Go's page state: where it is (the address's #page), what the backend last said
 // (status, settings, the library's systems and collections), the Library's place, search
-// and ticks, and the dialog and message showing. The backend's changes ("go-changed")
+// and what's selected, and the dialog and message showing. The backend's changes ("go-changed")
 // bring the parts they touch up to date.
 import { createStore } from "../lib/store.js";
 import { SKINS, THEMES } from "../ui/state.js";
-import { call, onChange, storage } from "./backend.js";
+import { call, info, onChange, storage } from "./backend.js";
 
 export const go = createStore({
   ready: false,
-  route: { page: "library" },  // library | game (key) | queue | device | settings
+  route: { page: "library" },  // library | games (big screen: a place's games) | game (key) | queue | device | settings
+  view: "classic",             // big (D113) | classic, from look()
   status: null,                // `status`: pairing, ES-DE's folders, the queue's and sync's progress
   storage: { needed: false, granted: true },  // Android's All files access (D87)
   settings: null,
@@ -18,21 +19,22 @@ export const go = createStore({
   q: "",
   sort: "title",
   desc: false,
-  picked: {},                  // the games ticked in the Library: key -> { title, size, system }
+  picked: {},                  // the games selected in the Library: key -> { title, size, system }
   libraryRev: 0,               // counts the catalogue's changes, so lists read again
   deviceRev: 0,                // counts the device's changes (On this device)
   queueRev: 0,
-  roomFor: 0,                  // Make room: the bytes the Library's ticks need
+  deviceSort: "system",        // On this device's order (D115)
+  roomFor: 0,                  // Make room: the bytes the Library's selected games need
   dialog: null,                // { type: "add" | "remove" | "pair" | …, … }
   toast: null,                 // { text, page? }
 });
 
-// ---- the address: #library, #game/<key>, #queue, #device, #settings -------------------
+// ---- the address: #library, #games, #game/<key>, #queue, #device, #settings ------------
 
 export function routeOf(hash) {
   const h = decodeURIComponent((hash || "").replace(/^#\/?/, ""));
   if (h.startsWith("game/")) return { page: "game", key: h.slice(5) };
-  return { page: ["queue", "device", "settings"].includes(h) ? h : "library" };
+  return { page: ["games", "queue", "device", "settings"].includes(h) ? h : "library" };
 }
 
 export function open(route) {
@@ -58,8 +60,21 @@ export function say(text, page = null) {
   toastTimer = setTimeout(() => go.set({ toast: null }), 6000);
 }
 
-export const showDialog = (dialog) => go.set({ dialog });
-export const closeDialog = () => go.set({ dialog: null });
+// the control a dialog was opened from, focused again once it closes (a controller would
+// otherwise be left with nothing focused)
+let opener = null;
+export function showDialog(dialog) {
+  if (!go.get().dialog) opener = document.activeElement;
+  go.set({ dialog });
+}
+export function closeDialog() {
+  const was = opener;
+  opener = null;
+  go.set({ dialog: null });
+  requestAnimationFrame(() => {
+    if (was?.isConnected && (!document.activeElement || document.activeElement === document.body)) was.focus({ preventScroll: true });
+  });
+}
 
 // ---- what the backend says -------------------------------------------------------------
 
@@ -130,9 +145,13 @@ export async function load() {
   if (go.get().status?.paired) call("sync").catch(() => {});
 }
 
-// ---- the look: Game Repo's skins and themes, kept on this device ------------------------
+// ---- the look: Game Repo's skins and themes, and the view, kept on this device -----------
 
 const LOOK = "go-look";
+
+/** The view a device starts in (D113): big screen on Android and in Steam's Game Mode or
+ *  Big Picture, classic elsewhere. Known once the shell has said what it is. */
+export const usualView = () => (info.kind === "android" || info.game_mode ? "big" : "classic");
 
 export function look() {
   let saved = {};
@@ -141,13 +160,19 @@ export function look() {
     // the first is the default, and one no longer offered falls back to it
     skin: SKINS.some(([v]) => v === saved.skin) ? saved.skin : SKINS[0][0],
     theme: THEMES.some(([v]) => v === saved.theme) ? saved.theme : "system",
+    // "" until one is chosen in Settings: the usual one for the device
+    view: ["big", "classic"].includes(saved.view) ? saved.view : "",
   };
 }
 
 export function applyLook(next = look()) {
   const root = document.documentElement;
+  const view = next.view || usualView();
   root.dataset.skin = next.skin;
-  root.dataset.theme = next.theme === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : next.theme;
+  // the big screen is dark unless a theme is chosen (D113)
+  root.dataset.theme = next.theme === "system" ? (view === "big" || matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : next.theme;
+  root.dataset.view = view;
+  if (go.get().view !== view) go.set({ view });
 }
 
 export function setLook(patch) {

@@ -58,6 +58,8 @@ pub struct Catalogue {
     read: Mutex<Connection>,
     write: Mutex<Connection>,
     pictures: AtomicU64,
+    /// The library's PC games are asked for too (Windows and Linux, D110)
+    pc: std::sync::atomic::AtomicBool,
 }
 
 /// What a sync did.
@@ -183,7 +185,21 @@ impl Catalogue {
         write.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
         write.execute_batch(SCHEMA)?;
         let read = Connection::open(&path)?;
-        Ok(Catalogue { dir: dir.to_path_buf(), read: Mutex::new(read), write: Mutex::new(write), pictures: AtomicU64::new(PICTURES) })
+        Ok(Catalogue { dir: dir.to_path_buf(), read: Mutex::new(read), write: Mutex::new(write), pictures: AtomicU64::new(PICTURES), pc: Default::default() })
+    }
+
+    /// Ask the library for its PC games too (a device that can have them, D110).
+    pub fn set_pc(&self, on: bool) {
+        self.pc.store(on, Ordering::SeqCst);
+    }
+
+    /// What every list request adds: the PC games, when they're asked for.
+    fn also(&self) -> &'static str {
+        if self.pc.load(Ordering::SeqCst) {
+            "&pc=1"
+        } else {
+            ""
+        }
     }
 
     fn reader(&self) -> std::sync::MutexGuard<'_, Connection> {
@@ -228,7 +244,13 @@ impl Catalogue {
             self.forget()?;
             self.set_meta("server", &s.server)?;
         }
-        let systems: Vec<System> = s.get("/v1/systems?all=1")?;
+        // a list read without the PC games (an earlier version) is read whole again with them
+        let asks = if self.also().is_empty() { "" } else { "pc" };
+        if self.meta("asks").unwrap_or_default() != asks {
+            self.set_meta("rev", "0")?;
+            self.set_meta("asks", asks)?;
+        }
+        let systems: Vec<System> = s.get(&format!("/v1/systems?all=1{}", self.also()))?;
         let collections: Vec<Collection> = s.get("/v1/collections")?;
         // each collection's games, group by group, as keys
         let mut members: Vec<(String, String, String)> = vec![];
@@ -292,7 +314,7 @@ impl Catalogue {
         tx.execute_batch("DELETE FROM games; INSERT INTO games_text (games_text) VALUES ('delete-all');")?;
         let (mut offset, mut rev) = (0u64, None);
         loop {
-            let page: Page = s.get(&format!("/v1/games?limit={READ_AT_ONCE}&offset={offset}"))?;
+            let page: Page = s.get(&format!("/v1/games?limit={READ_AT_ONCE}&offset={offset}{}", self.also()))?;
             rev.get_or_insert(page.rev);
             for g in &page.items {
                 put(&tx, g)?;
@@ -324,7 +346,7 @@ impl Catalogue {
         let mut w = self.writer();
         let tx = w.transaction()?;
         let new_rev = loop {
-            let c: Changes = s.get(&format!("/v1/changes?since={rev}&offset={offset}"))?;
+            let c: Changes = s.get(&format!("/v1/changes?since={rev}&offset={offset}{}", self.also()))?;
             for g in &c.items {
                 to_delete.extend(stale(&tx, &g.key)?);
                 put(&tx, g)?;

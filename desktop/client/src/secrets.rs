@@ -1,6 +1,6 @@
 //! Where Game Repo Go keeps its pairing token (D97): Windows Credential Manager, as a
-//! generic credential "Game Repo Go/<name>" for the signed-in user. Elsewhere (a Linux
-//! build, tried in the session) a file in the client's data folder, as the stand-in's.
+//! generic credential "Game Repo Go/<name>" for the signed-in user. On Linux a file in the
+//! client's data folder only its user can read (D108): Game Mode can't unlock a keyring.
 
 use gamerepo_device::app::Secrets;
 use std::path::Path;
@@ -13,6 +13,12 @@ pub fn store(data: &Path) -> Box<dyn Secrets> {
     }
     #[cfg(not(windows))]
     {
+        // one an earlier version wrote readable by others too
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(data.join("secrets.json"), std::fs::Permissions::from_mode(0o600));
+        }
         Box::new(gamerepo_device::app::FileSecrets(data.join("secrets.json")))
     }
 }
