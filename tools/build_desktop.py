@@ -80,13 +80,24 @@ for name, path, pattern, fmt in (
 }, indent=2) + "\n", encoding="utf-8")
 
 FONT_URL = "https://raw.githubusercontent.com/google/fonts/main/ofl/"
-# The skins' fonts (Drafting Sheet and Classic): (family, folder in google/fonts,
+# The skins' fonts (styles.css and skins.css): (family, folder in google/fonts,
 # [(file, weights)], widths). A family whose folder has no OFL.txt gets the
 # licence's text with the copyright line from its METADATA.pb.
 FONTS = [
     ("Archivo", "archivo", [("Archivo%5Bwdth%2Cwght%5D.ttf", "100 900")], "62% 125%"),
     ("Overpass", "overpass", [("Overpass%5Bwght%5D.ttf", "100 900")], None),
     ("Overpass Mono", "overpassmono", [("OverpassMono%5Bwght%5D.ttf", "300 700")], None),
+    ("Inter", "inter", [("Inter%5Bopsz%2Cwght%5D.ttf", "100 900")], None),
+    ("Orbitron", "orbitron", [("Orbitron%5Bwght%5D.ttf", "400 900")], None),
+    ("Chakra Petch", "chakrapetch", [("ChakraPetch-Regular.ttf", "400"), ("ChakraPetch-SemiBold.ttf", "600"), ("ChakraPetch-Bold.ttf", "700")], None),
+    ("Share Tech Mono", "sharetechmono", [("ShareTechMono-Regular.ttf", "400")], None),
+    ("VT323", "vt323", [("VT323-Regular.ttf", "400")], None),
+    ("Cinzel", "cinzel", [("Cinzel%5Bwght%5D.ttf", "400 900")], None),
+    ("Alegreya", "alegreya", [("Alegreya%5Bwght%5D.ttf", "400 900")], None),
+    ("Press Start 2P", "pressstart2p", [("PressStart2P-Regular.ttf", "400")], None),
+    ("Pixelify Sans", "pixelifysans", [("PixelifySans%5Bwght%5D.ttf", "400 700")], None),
+    ("Nunito", "nunito", [("Nunito%5Bwght%5D.ttf", "200 1000")], None),
+    ("Fredoka", "fredoka", [("Fredoka%5Bwdth%2Cwght%5D.ttf", "300 700")], "75% 125%"),
 ]
 font_css = ""
 if a.fetch_fonts:

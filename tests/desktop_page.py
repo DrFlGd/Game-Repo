@@ -2259,8 +2259,28 @@ async def main():
                 saved = prefs().get("skin")
                 await pg.select_option("#skin-select", "drafting")
                 check("the skin is Drafting Sheet unless chosen; Classic changes the look and icons at once and is kept",
-                      first == "drafting" and icon_before == "drafting" and options == ["drafting", "classic"]
+                      first == "drafting" and icon_before == "drafting" and options[:2] == ["drafting", "classic"]
                       and skin == "classic" and icon_after == "classic" and saved == "classic", (first, icon_before, options, skin, icon_after, saved))
+                # the skins of skins.css: each changes the colours and lettering, says what it looks like,
+                # and draws Classic's icons; a screenshot of Home in each
+                looks, abouts = {}, set()
+                for sk in options[2:]:
+                    await pg.select_option("#skin-select", sk)
+                    looks[sk] = await pg.evaluate("() => { const st = getComputedStyle(document.body); return [st.backgroundColor, st.fontFamily.split(',')[0], getComputedStyle(document.documentElement).getPropertyValue('--tool').trim()].join(' | '); }")
+                    abouts.add(await pg.inner_text("#skin-about"))
+                    icons = await drawn()
+                    if icons != "classic":
+                        looks[sk] += f" | icons {icons}"
+                    await pg.click('.sidebar a[href="#/"]')
+                    await pg.wait_for_selector("#home-platforms")
+                    await pg.wait_for_timeout(300)
+                    await pg.screenshot(path=str(out / f"03-skin-{sk}.png"))
+                    await pg.click('.sidebar a[href="#/settings"]')
+                    await pg.wait_for_selector("#skin-select")
+                await pg.select_option("#skin-select", "drafting")
+                check("each further skin has its own colours, lettering and words in Settings, with Classic's icons",
+                      {"clean", "neon", "terminal", "tome", "pixel", "cosy"} <= set(looks) and len(set(looks.values())) == len(looks)
+                      and not any("icons" in v for v in looks.values()) and len(abouts) == len(looks), looks)
 
             async with Section(pg, B, "batch 4: narrow windows, Previous and Next, Enter, Metadata's system"):
                 # batch 4: the Audit bar fits a 1000 px window (review H22); a game opened from

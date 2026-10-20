@@ -1332,7 +1332,8 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
    its own), its lettering, corners and icon line, and a few rules of its own. */
 .icon { stroke-width: var(--icon-stroke); stroke-linecap: var(--icon-cap); stroke-linejoin: var(--icon-join); }
 svg g[data-sk] { display: none; }
-:root:not([data-skin]) svg g[data-sk="classic"], :root[data-skin="classic"] svg g[data-sk="classic"],
+/* a skin without drawings of its own (skins.css) shows Classic's */
+:root:not([data-skin="drafting"]) svg g[data-sk="classic"],
 :root[data-skin="drafting"] svg g[data-sk="drafting"] { display: inline; }
 
 /* Overpass draws "·" at the left of its box, so "a · b" reads "a ·b": take that

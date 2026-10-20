@@ -439,7 +439,8 @@ export function Settings() {
         <select id="skin-select" class="compact" value=${s.skin} onChange=${(e) => setSkin(e.target.value)}>
           ${SKINS.map(([v, label]) => html`<option value=${v} key=${v}>${label}</option>`)}
         </select>
-        <small class="muted">The app's look: its colours, lettering, shapes and icons. Each one has light and dark colours, chosen by Theme below.</small></label>
+        <small class="muted" id="skin-about">${(SKINS.find(([v]) => v === s.skin) || SKINS[0])[2]}</small>
+        <small class="muted">The app's look: its colours, lettering, shapes and icons. Most have light and dark colours, chosen by Theme below.</small></label>
       <label class="field-block"><span>Theme</span>
         <select id="theme-select" class="compact" value=${s.theme} onChange=${(e) => setTheme(e.target.value)}>
           ${THEMES.map(([v, label]) => html`<option value=${v} key=${v}>${label}</option>`)}

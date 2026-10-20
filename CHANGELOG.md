@@ -68,7 +68,7 @@ The code started as a trimmed copy of [Model Library](https://github.com/DrFlGd/
 - Renamed files are read again on the next scan (a move to another folder keeps its hashes; the rename can't be told apart from a different file safely).
 - DATs whose platform isn't in `platforms.rs` or the library's systems (TOSEC's names, for one) are asked about once per DAT name; the answer is kept in library.json.
 - A DAT ROM with no CRC32 isn't matched (every Logiqx and ClrMamePro DAT seen so far gives one).
-- Two skins (Drafting Sheet, the default, and Classic). Model Library's Parts Bin and Layer Line were 3D-printing themed and weren't brought across.
+- Eight skins: Drafting Sheet (the default) and Classic in `web/styles.css`; Clean Slate, Neon City, Wasteland Terminal, Adventurer's Tome, Pixel Arcade and Cosy Pastel in `web/skins.css`, which is read after it and only uses the colour names (`--ink`, `--white`, `--tool`…), so a page built on them (Game Repo Go's too) takes any skin. A new skin is a block there, a line in `SKINS` (`web/ui/state.js`) and its fonts in `FONTS` (`tools/build_desktop.py`); a skin without drawings of its own shows Classic's icons and mark. Neon City and Wasteland Terminal are dark whatever the theme.
 - `web/styles.css` still holds some of Model Library's rules that nothing here uses (the grid and the inspector are built; the review's Low "Housekeeping" items list what's left), to be pruned.
 - Installers aren't code-signed, and there's no auto-update.
 - Phase 8a's frontends were written from their documentation and tested against files shaped like theirs, not the programs: RetroArch's playlist names for a few systems (PC Engine, Sega CD, 3DO, PC-FX, FBNeo), LaunchBox's and Playnite's platform names, and Pegasus' picture names are to check against the real thing. Each can be put right in a copy of the layout.
@@ -84,6 +84,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **Six new skins** in Settings › Appearance, each with its own colours, lettering and shapes: *Clean Slate* (plain and crisp), *Neon City* (cyberpunk), *Wasteland Terminal* (a green screen in a fallout shelter, amber in the Night theme), *Adventurer's Tome* (a fantasy role-playing game), *Pixel Arcade* (8-bit) and *Cosy Pastel*. Settings says what each one looks like; Drafting Sheet stays the default. Their fonts come with the app.
 - **Plans**: Game Repo Go, the device app for Windows and Android, is designed: browsing the library on the device, even away from home, picking games with the pictures and manuals you want, downloads that carry on in the background, and seeing and removing what's on the device safely, ready for review before it's built.
 
 ## 0.5.28 (2026-10-20)

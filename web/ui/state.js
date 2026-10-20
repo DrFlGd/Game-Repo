@@ -57,11 +57,18 @@ export function setPref(patch) {
   savePrefs();
 }
 
-/** The skins (from Model Library): a skin is data-skin on the page's root, read by
- *  styles.css and by the icons drawn for each skin. */
+/** The skins (the first two from Model Library): a skin is data-skin on the page's
+ *  root, read by styles.css, skins.css and the icons drawn for each skin.
+ *  [value, name, what it looks like]. */
 export const SKINS = [
-  ["drafting", "Drafting Sheet"],
-  ["classic", "Classic"],
+  ["drafting", "Drafting Sheet", "A sheet from a technical drawing: ink blue on paper, square corners, figures in mono."],
+  ["classic", "Classic", "The first look: slate and amber, rounded corners."],
+  ["clean", "Clean Slate", "Plain and crisp: one blue accent, clear lines and quiet shadows."],
+  ["neon", "Neon City", "Cyberpunk: hot pink and cyan on near black, cut corners and glowing headings. Always dark."],
+  ["terminal", "Wasteland Terminal", "An old green screen in a fallout shelter: phosphor text, scan lines, inverse video. Always dark; amber in the Night theme."],
+  ["tome", "Adventurer's Tome", "A fantasy role-playing game: parchment in a leather binding, carved capitals, crimson and gold."],
+  ["pixel", "Pixel Arcade", "An 8-bit game: chunky outlines, hard shadows, pixel lettering."],
+  ["cosy", "Cosy Pastel", "A cosy life-sim: cream and lavender, sugared pinks and mint, soft round shapes."],
 ];
 export function applySkin() {
   document.documentElement.dataset.skin = (SKINS.find(([v]) => v === ui.get().skin) || SKINS[0])[0];
