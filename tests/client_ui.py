@@ -225,10 +225,12 @@ try:
             pad.syn()
             time.sleep(1)
             seen = d.execute_script("return navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean).map(p => p.id + ' ' + p.mapping) : 'no Gamepad API'")
-            d.execute_script("document.querySelector('.go-card[data-key=\"gb/Alpha (USA)\"]').focus()")
-            first = d.execute_script("return document.activeElement?.dataset?.key || ''")
+            # a card's button takes the focus; the card round it has the game's key
+            focused = "return document.activeElement?.closest('.go-card')?.dataset?.key || ''"
+            d.execute_script("document.querySelector('.go-card[data-key=\"gb/Alpha (USA)\"] .go-card-open').focus()")
+            first = d.execute_script(focused)
             tap(e.ABS_HAT0X, 1, e.EV_ABS)
-            moved = d.execute_script("return document.activeElement?.dataset?.key || ''")
+            moved = d.execute_script(focused)
             tap(e.BTN_SOUTH)
             opened = d.execute_script("return location.hash")
             tap(e.BTN_EAST)
