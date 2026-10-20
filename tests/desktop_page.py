@@ -540,7 +540,7 @@ async def import_by_system(pg, base, home, library):
     await pg.screenshot(path=str(out / "23g-import-gather.png"))
     await pg.click("#organise-dialog button[type=submit]")
     said = await toast_text(pg, "Moved the games outside the library into it", timeout=30000)
-    inside = sorted(str(x.relative_to(library)) for x in library.rglob("*") if x.suffix in (".gb", ".gg", ".zip") and "_library" not in x.parts)
+    inside = sorted(x.relative_to(library).as_posix() for x in library.rglob("*") if x.suffix in (".gb", ".gg", ".zip") and "_library" not in x.parts)
     check("Move into the library… takes every game outside the library folder into it, each system's into a folder named for it there, as one change",
           "Move the games outside the library into it" in preview and "Game Boy/Alpha (Europe).gb" in inside and "Game Boy/Delta (World).zip" in inside
           and "Sega Game Gear/Gear One (World).gg" in inside and not (incoming / "europe one.gb").exists() and not (incoming / "gear.gg").exists()
