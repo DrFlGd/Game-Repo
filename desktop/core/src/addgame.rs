@@ -102,7 +102,7 @@ pub fn places(conn: Option<&rusqlite::Connection>, lib: &Library, platform: &str
 
 /// The folder the systems' own folders are in, the usual one: Roms for Roms/GBA and
 /// Roms/GBA/Champion. A folder is a system's when it's named for one, or is set as one's.
-fn systems_parent(rs: &[roots::Root]) -> Option<PathBuf> {
+pub(crate) fn systems_parent(rs: &[roots::Root]) -> Option<PathBuf> {
     let mut count: Vec<(PathBuf, usize)> = vec![];
     for r in rs {
         let top = r.dir.ancestors().filter(|a| a.file_name().is_some_and(|n| platforms::from_folder(&n.to_string_lossy()).is_some())).last();

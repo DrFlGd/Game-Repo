@@ -165,8 +165,10 @@ export async function followJob(id, label, onProgress, open) {
       const job = await api("job", { id });
       onProgress?.(job);
       const p = job.progress || {};
-      if (p.items) done.update(`${label}: ${Math.min(p.item + 1, p.items)} of ${p.items}`);
-      else if (p.text) done.update(`${label}: ${p.text}`);
+      const part = p.items ? Math.min(p.item + 1, p.items) / p.items : p.total ? Math.min(p.done || 0, p.total) / p.total : null;
+      if (p.items) done.update(`${label}: ${Math.min(p.item + 1, p.items)} of ${p.items}`, part);
+      else if (p.text) done.update(`${label}: ${p.text}`, part);
+      else if (part != null) done.update(label, part);
       if (job.done) return job;
       await new Promise((r) => setTimeout(r, 300));
     }

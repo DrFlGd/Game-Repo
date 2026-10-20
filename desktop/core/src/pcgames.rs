@@ -1172,7 +1172,7 @@ pub fn unpack(lib: &Library, id: &str, file: Option<&str>, cancel: &AtomicBool, 
                     std::fs::create_dir_all(d)?;
                 }
                 let mut w = std::fs::File::create(&to)?;
-                std::io::copy(r, &mut w)?;
+                archive::copy_stoppable(r, &mut w, cancel)?;
                 done += size;
                 progress(json!({ "name": name, "done": done.min(total), "total": total }));
                 Ok(())

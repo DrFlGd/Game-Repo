@@ -359,13 +359,13 @@ async def arcade(pg, base, home, library):
     await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"misnamed\"] .tab-count')?.textContent === '1'", timeout=15000)
     kept = json.loads((library / "_library/library.json").read_text()).get("arcade_sets", {})
     await pg.click('.sidebar a[href="#/"]')
-    await pg.wait_for_function("() => document.querySelector('#home-next')?.textContent.includes('Arcade (MAME) to put right')", timeout=15000)
+    await pg.wait_for_function("() => document.querySelector('#home-next')?.textContent.includes('Arcade (MAME) needs review')", timeout=15000)
     nxt = await pg.inner_text("#home-next")
     await pg.screenshot(path=str(out / "57-home-next.png"))
     await pg.click('#home-next li[data-kind="misnamed"] a:has-text("Arcade")')
     await pg.wait_for_selector('#audit-list[data-tab="misnamed"]')
     check("Home's Next strip says what to do, and its link opens the page to do it on",
-          "1 file in Arcade (MAME) to put right" in nxt and "#/audit" in await pg.evaluate("location.hash"), nxt)
+          "1 file in Arcade (MAME) needs review" in nxt and "#/audit" in await pg.evaluate("location.hash"), nxt)
     await pg.click('.sidebar a[href="#/settings"]')
     await pg.wait_for_selector('#arcade-set-types li[data-system="mame"] select')
     in_settings = await pg.input_value('#arcade-set-types li[data-system="mame"] select')
@@ -517,6 +517,42 @@ async def import_by_system(pg, base, home, library):
     roots = [Path(r["path"]) for r in json.loads((library / "_library/library.json").read_text()).get("roots", [])]
     back = [(incoming / "europe one.gb").is_file(), (incoming / "gear.gg").is_file(), not (gb / "Alpha (Europe).gb").exists(), not new_dir.exists(), new_dir not in roots]
     check("Undo moves them back, and takes away the new folder and its place in the library", all(back), (back, roots))
+
+    # Jerred, 2026-10-20: games can be left where they are, and moved into the library
+    # later all at once; the status bar shows how far what's running has got
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#import-games")
+    pick(incoming, base)
+    await pg.click("#import-add-folder")
+    await pg.wait_for_selector("#import-folders li")
+    await pg.check('#import-mode input[value="leave"]')
+    label = await pg.inner_text("#import-games-dialog button[type=submit]")
+    await pg.click("#import-games-dialog button[type=submit]")
+    said = await toast_text(pg, "Scanned", timeout=30000)
+    roots = [Path(r["path"]) for r in json.loads((library / "_library/library.json").read_text()).get("roots", [])]
+    stayed = [(incoming / "europe one.gb").is_file(), (incoming / "gear.gg").is_file()]
+    check("Leave them where they are adds the folder to Folders with games and scans it, copying nothing",
+          label == "Add the folders" and incoming in roots and all(stayed), (label, said, roots, stayed))
+    await pg.wait_for_selector("#import-gather")
+    await pg.click("#import-gather")
+    await pg.wait_for_selector("#organise-dialog #organise-totals")
+    preview = await pg.inner_text("#organise-dialog")
+    await pg.screenshot(path=str(out / "23g-import-gather.png"))
+    await pg.click("#organise-dialog button[type=submit]")
+    said = await toast_text(pg, "Moved the games outside the library into it", timeout=30000)
+    inside = sorted(str(x.relative_to(library)) for x in library.rglob("*") if x.suffix in (".gb", ".gg", ".zip") and "_library" not in x.parts)
+    check("Move into the library… takes every game outside the library folder into it, each system's into a folder named for it there, as one change",
+          "Move the games outside the library into it" in preview and "Game Boy/Alpha (Europe).gb" in inside and "Game Boy/Delta (World).zip" in inside
+          and "Sega Game Gear/Gear One (World).gg" in inside and not (incoming / "europe one.gb").exists() and not (incoming / "gear.gg").exists()
+          and not (gb / "Delta (World).zip").exists(), (preview[-300:], said, inside))
+    await pg.click('.sidebar a[href="#/history"]')
+    await pg.wait_for_selector('#history li:first-child [data-action="undo"]')
+    await pg.click('#history li:first-child [data-action="undo"]')
+    await toast_text(pg, "Undone")
+    back = [(incoming / "europe one.gb").is_file(), (incoming / "gear.gg").is_file(), (gb / "Delta (World).zip").is_file()]
+    bar = await pg.evaluate("""async (b) => { const { addJob } = await import(b + 'ui/state.js'); const done = addJob('Testing', null); done.update('Testing: 1 of 4', 0.25);
+        await new Promise((r) => setTimeout(r, 100)); const p = document.querySelector('#status-progress'); const v = p && p.value; done(); return v; }""", base)
+    check("Undo puts them back where they were; and the status bar shows how far running work has got", all(back) and bar == 0.25, (back, bar))
 
 
 async def serve_to_devices(pg, base, home, library):

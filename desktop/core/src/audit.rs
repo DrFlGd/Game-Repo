@@ -723,7 +723,15 @@ pub fn home(ix: &Index, lib: &Library) -> Result<Value> {
             Ok(json!({ "platform": (!p.is_empty()).then(|| p.clone()), "platform_name": (!p.is_empty()).then(|| platforms::name_of(&p)), "files": r.get::<_, i64>(1)? }))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let roots: Vec<Value> = roots::list(lib).iter().map(|r| r.to_json()).collect();
+    // (`outside`: a folder outside the library's with games a DAT knows, which Import's
+    // Move into the library… takes; files no DAT knows stay where they are)
+    let mut q = conn.prepare("SELECT EXISTS (SELECT 1 FROM files f JOIN matches m ON m.file_id = f.id WHERE f.root_id = ?1 AND f.missing_since IS NULL)")?;
+    let mut roots: Vec<Value> = vec![];
+    for r in roots::list(lib) {
+        let mut v = r.to_json();
+        v["outside"] = json!(!roots::in_library(lib, &r.dir) && q.query_row([&r.id], |x| x.get::<_, bool>(0))?);
+        roots.push(v);
+    }
     let files: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE kind NOT IN ('zip', '7z', 'rar', 'chd', 'cso', 'zso', 'rvz')", [], |r| r.get(0))?;
     let unhashed: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE hashed = 0 AND locked != 2", [], |r| r.get(0))?;
     // RVZ files wait for dolphin-tool (scan.rs)
@@ -735,7 +743,7 @@ pub fn home(ix: &Index, lib: &Library) -> Result<Value> {
     }))
 }
 
-/// What to do next, for Home's *Next* strip: files to put right on the Audit page, games
+/// What to do next, for Home's *Next* strip: files that need review on the Audit page, games
 /// whose details need a look, systems you have games of that aren't scraped yet, and
 /// systems missing BIOS files. Each says what, how many, and the page it's done on.
 fn next(ix: &Index, lib: &Library, bars: &[Value]) -> Result<Vec<Value>> {
@@ -745,7 +753,7 @@ fn next(ix: &Index, lib: &Library, bars: &[Value]) -> Result<Vec<Value>> {
         let n = b["attention"].as_i64().unwrap_or(0);
         if n > 0 {
             v.push(json!({ "kind": "misnamed", "system": b["platform"], "count": n, "page": "audit",
-                           "text": format!("{} in {} to put right", if n == 1 { "1 file".to_string() } else { format!("{n} files") }, b["platform_name"].as_str().unwrap_or("")) }));
+                           "text": format!("{} in {} {}", if n == 1 { "1 file".to_string() } else { format!("{n} files") }, b["platform_name"].as_str().unwrap_or(""), if n == 1 { "needs review" } else { "need review" }) }));
         }
     }
     let look: i64 = conn.query_row("SELECT COUNT(*) FROM meta_games WHERE review = 1", [], |r| r.get(0))?;

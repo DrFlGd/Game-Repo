@@ -88,6 +88,11 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **Import: games can be left where they are, and moved into the library later in one go.** *How* gets a fourth choice, *Leave them where they are*: the folders become folders with games and are scanned, and nothing is copied. Once any folder with games is outside the library folder, the Import page shows *Move into the library…*, which moves every game outside it into the library at once, each system's into its own folder there (the one it already has, else one named for the system), as one change with a preview and Undo.
+- **Stopping an import now stops a large zip part way.** Stop used to wait for the file being copied out of a large zip, or past a file in it not wanted, to finish; it now stops within a moment and removes the part-copied file.
+- **What's running shows how far it has got in the bar at the bottom.** An import, a scan or a scrape now has a progress bar beside its name in the status bar, whether its window is open or it runs in the background, and the list of what's running has one for each.
+- **"to put right" is now "need review".** Home's *Next* says "1 file in Game Boy needs review", for example.
+
 ## 0.5.35 (2026-10-20)
 
 - **Game Repo Go: a big-screen view for controllers, after Steam's Big Picture.** On Android and in the Steam Deck's Game Mode, Game Repo Go now opens in a view made for a controller and a TV-sized screen: the pages are tabs along the top, changed with L1 and R1; the Library is shelves of box fronts, one per system, with *Every game* and your collections below; a game's page shows its fan art or screenshot large, with *Download…*, *Add to queue* and *Media…* as big buttons; and the bar along the bottom says what each button does for what's selected (Ⓐ, Ⓑ Back, Ⓧ Add to queue, Ⓨ Search, ☰ Options). The D-pad and stick move to the nearest thing in that direction, dialogs open as a panel from the right, and lists open as a panel of choices. Touch works everywhere too, and on a phone held upright the tabs sit along the bottom. Settings › *Look* › *View* switches between *Big screen* and *Classic* on any device, and ☰ Options has *Switch to the classic view*.

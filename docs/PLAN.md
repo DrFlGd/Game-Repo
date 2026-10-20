@@ -631,6 +631,7 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets, add-ons, magazines | RetroArch playlists, Pegasus, Playnite and LaunchBox exports (8a); updates, DLC and patches with their base game (D56) and a collection's history (D52) (8b); magazines (3.8, D31) (8c). MobyGames dropped (Jerred, 2026-10-18). |
 | **9** | Device client | 9a Game Repo Server on Windows, started from Game Repo (D85; "Phase 9a design", D89–D95). 9b the client for Windows and Android, ES-DE first (D84, D86–D88; "Phase 9b design", D96–D104). 9c the Steam Deck: the client built for Linux, usable with the Deck's controls in Game Mode, and PC games on devices, unpacked into a folder that suits Windows or Linux (D105). 9e the big-screen view for controllers, Download and a queue started by hand, *On this device* by system, and RetroDECK and EmuDeck found by themselves (Jerred's tryout, 2026-10-20; "Phase 9e design", D113–D117). 9d later: the server on a NAS (Unraid, Synology), access from outside the home network (parked), other frontends, the read-only WebDAV view, muOS/Knulli/ROCKNIX handhelds. Needs Phase 5b's layouts. |
+| **10** | Variants | A custom DAT per system for the translations, hacks, prototypes and mods no DAT knows, each a variant of its original in the main DAT, suggested by comparing names, with its parentheticals as tags; several DATs audited per system (Jerred, 2026-10-20; "Phase 10 design", D118–D123). |
 | **Later** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). It reads every format Magazines imports: a PDF's pages and a CBZ's or CBR's images alike. |
 | **Later** | Videos | Walkthroughs, reviews and retrospectives kept as a section of their own, as magazines are, not as one game's metadata: each video can be linked to the games it covers, and shows on those games' pages (Jerred, 2026-10-20). Not designed yet. |
 
@@ -4765,6 +4766,141 @@ D113, built as it says, except where noted.
   downloads…* as a panel, Options, a list as a panel, search, the switch to classic);
   step 5 of `tests/client_android.py` presses the controller's buttons on the emulator.
 
+### Jerred's import notes (built 2026-10-20)
+
+Four of Jerred's notes of 2026-10-20 21:19, built as he asked, in one pull request:
+
+- **Stopping a large zip.** `archive::copy_stoppable` copies a megabyte at a time and
+  checks Stop between them; `organise::copy_file` (which every copy and the staging of a
+  zip's member go through) removes the part-copied file when it stops. Members not wanted
+  are skipped the same way, as reading past them in a zip is a copy to nowhere.
+- **The progress bar at the bottom.** `addJob`'s `update(text, part)` takes how much is
+  done (0 to 1, from a job's `item`/`items` or `done`/`total`), and the status bar shows it
+  beside what's running, or a moving bar when it isn't known; the list of what's running
+  has one for each.
+- **"need review".** Home's *Next* says "N files in <system> need review" (Help too).
+- **Leaving games where they are.** Import's *How* has *Leave them where they are*
+  (`HowControl`'s `leave`): the folders are added to *Folders with games* (with the System
+  chosen, if one is) and scanned, and nothing is copied. A folder with games outside the
+  library folder with games a DAT knows is `outside` in Home's listing
+  (`roots::in_library`); while there's one, the Import page shows *Move into the
+  library…* (`#import-gather`), which
+  makes `organise::gather_plan`: for each system with games outside, a move of the games
+  with none of their files inside (`Options.outside_library`) into that system's folder in
+  the library (its first D77 place there, else a folder named for the system beside the
+  other systems' folders), merged into one plan, previewed and undone as one change. A
+  system with no DAT is listed as left out. The folders stay in *Folders with games*, and
+  files no DAT knows stay in them.
+
+### Phase 10 design: variants, custom DATs and tags (written 2026-10-20)
+
+Jerred, 2026-10-20 21:19: most files no DAT knows are translations, hacks, prototypes or
+mods that add a feature. There should be support for several DATs per system, chosen on the
+Audit page; a *custom* DAT per system, filled with these variants; their names compared with
+the main DAT's (libretro's, shipped) to suggest the original game, shown on Audit's
+*Unknown* tab beside the file's name; the parentheticals at the end of a variant's name kept
+in its name everywhere, even when its details come from the original, and treated as tags
+the user can add to and pick from a drop-down; with no game to match, the file added to the
+custom DAT as it is, renamed and matched again; and until then, the files kept out of the
+library. His examples (Game Boy Advance):
+
+- *Dark Eden (Prototype).gba*: a prototype of a game that may or may not have come out.
+- *Donkey Kong 3 (NA, Animal Crossing GameCube Link).gba*: the North American release, from
+  Animal Crossing's link to the GameCube.
+- *Dragon Quest Monsters - Caravan Heart (English Translated).gba*: a translation of a game
+  released only in Japan.
+
+D118–D123 are Claude's defaults, followed unless Jerred says otherwise. Two pull requests:
+the custom DAT, the suggestions and the tags, with variants in the Library, collections,
+exports and devices (D119–D123); then several DATs per system on the Audit page (D118).
+Arcade systems are left out for now: their hacks and bootlegs are sets of many ROMs, which
+MAME's own DATs and the *Unknown* tab handle as they are.
+
+**D118 A system is audited against several DATs.** Each system has a *main* DAT, chosen as
+now (the one Audit's *DAT* picker sets, libretro's No-Intro or Redump DAT by default), its
+custom DAT (D119), and any of its other DATs ticked *Audit with it too* (a DAT of
+translations from a translation group, say). Audit's picker becomes *DATs…*, which lists the
+system's DATs with the main one chosen by a radio button and the others by ticks; it's
+there with one DAT too, with *Import a DAT…*. The totals are the main DAT's, with a line for
+each other one ("Custom: 14 variants · Translations (2024-05): 3 of 120"); the lists show
+every ticked DAT's games, each named with its DAT where it isn't the main one; *Unknown* is
+the files none of them knows. The Library, collections, exports and devices take a system's
+games from the same DATs, in that order, a game listed once by name, as collection groups'
+DATs are taken now (D75). Kept in library.json as `audit_dats` (the main one, as now) and
+`also_dats: {system: [DAT name]}`.
+
+**D119 A custom DAT per system, written by Game Repo.** It's a Logiqx DAT kept with the
+others, at `_library/dats/<system>/Custom - <System>.dat` (name *Custom - <System>*,
+version *custom*), made the first time a variant is added. Each variant is a game in it,
+under the name the user gives it, with its file's size, CRC32, MD5 and SHA1 from the scan,
+and `cloneof` naming its original in the main DAT (D120); a game of its own has none. A
+game of several files (a cue sheet and its tracks, a game's folder of discs) is one game
+with all of them. It's loaded and matched like any other DAT, so its games are *Have* on
+Audit once their files are found, *Misnamed* until they're renamed to their names
+(*Rename to the DAT's names…*, as for any DAT), and *Missing* if their files go. Every
+change writes it again (to a temporary file, then in its place) and loads it again; the
+twenty versions before are kept in `_library/dats/<system>/custom-versions/`, and each
+change's message has *Undo*. Its header's comment says that `cloneof` names games of the
+main DAT, so it can be used in clrmamepro or RomVault as it is. When a new version of the
+main DAT renames an original, the variants' `cloneof` follows by the original's ROMs, as
+D45 does for game folders. Settings › DATs lists it with the others (marked *Custom*), with
+*Show the file*.
+
+**D120 The original is suggested by comparing names.** For each unknown file, its name
+(without the extension) is split into its title and the parentheticals and brackets after
+it (`dat::parse_name`), GoodTools' codes are read as words ((U) USA, (E) Europe, (J) Japan,
+[T+Eng] English Translated, [h] Hack, [p] Pirate, [b] Bad Dump, [a] Alternate, [f] Fixed,
+[t] Trainer; [!] is dropped), and the title is compared with the titles of the main DAT's
+games: made lower case, without accents and punctuation, "&" as "and", "The" at either end
+dropped, Roman numerals as numbers. The same title is a sure match; otherwise the closest
+by the words and letters they share, if close enough, is a likely one. Among games with
+the same title (a game's releases and revisions) the one whose ROM is the file's size comes
+first (a translation patch keeps the size of the release it was made for, usually), then
+the collection rules' region order. Up to three are offered, each marked *Same title* or
+*Close name*. *Dragon Quest Monsters - Caravan Heart (English Translated)* suggests
+*Dragon Quest Monsters - Caravan Heart (Japan)*, and its tag is *English Translated*.
+
+**D121 The parentheticals are tags, kept in the name.** A variant's tags are the parts of
+the parentheticals and brackets after its title, split at commas: *Donkey Kong 3 (NA,
+Animal Crossing GameCube Link)* has the tags *NA* and *Animal Crossing GameCube Link*. They
+live in its name in the custom DAT, so nothing else has to keep them, and the name is kept
+as written until its tags are changed; a tag added is written in parentheses of its own at
+the end. The tag list is in library.json (`variant_tags`), started with *Prototype, Beta,
+Demo, English Translated, Translated, Hack, Mod, Homebrew, Unlicensed, Pirate, Bug Fix,
+Restoration, Colorized, Enhanced*, and every tag used in a custom DAT joins it. The review
+(D123) has a drop-down of the list for each variant, with *New tag…*, which adds one to the
+list; Settings › Library › *Variant tags* renames or removes them. The Library filters by
+tag (*Tags*), and a collection's rules can take or leave out variants, and variants with a
+tag.
+
+**D122 A variant keeps its own name, and uses the original's details.** Wherever a game's
+name shows (the Library, its page, collections, exports, devices), a variant shows its own
+name with its tags. Its details, pictures and manuals are the original's (from the
+original's game folder) until it has its own: its own game folder
+(`_library/games/<system>/<its name>/`) keeps what's changed by hand, its documents, and
+what a scrape of it found (*Scrape* on its page asks the sources for it by its own file, and
+what they know wins over the original's). Scraping a system or collection scrapes the
+originals of its variants, not the variants. In the Library a variant sits beside its
+original, and isn't folded into it by *One per title*; its page says *Variant of* the
+original, with a link, and the original's page lists its variants. An export or a device
+gets a variant as a game of its own, under its own name, with the original's pictures
+under the variant's names (`cover.jpg` and so on, D46).
+
+**D123 Files no DAT knows stay out until they're dealt with, on Audit's *Unknown* tab.**
+As now, the Library, collections, exports and devices don't have them. The *Unknown* tab
+lists each file with its suggested original (D120), its tags and its folder, and for each:
+*Add as a variant* (of the suggestion), *Choose the game…* (search the main DAT), *Add as a
+game of its own* (no original), *Edit…* (its name and tags: the title in a text field, the
+tags as chips with the drop-down, the original with a search) and *Leave it*. Several can
+be ticked and added with their suggestions at once (only those with one). Adding renames
+nothing: the file is then *Misnamed* if its name differs, and *Rename to the DAT's
+names…* renames it as one change with Undo. *Remove from the custom DAT* on a variant's
+page puts its file back on *Unknown*. Home's *Next* ("N files in Game Boy Advance need
+review") opens the tab; an import that brings in files no DAT knows ends with "N files no
+DAT knows need review" and *Review them…*. *Add a game…*, for a ROM no DAT knows, adds it
+to the custom DAT the same way (games added before, kept in folders named by their SHA1,
+show as they do now).
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -4910,7 +5046,7 @@ D113, built as it says, except where noted.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D118). D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D124). D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -4961,3 +5097,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     next. Later: reading magazines' text
     (PDF, CBZ and CBR) and tagging each issue with the games it covers; videos
     (walkthroughs, reviews, retrospectives) as a section of their own, linked to games.
+15. Phase 9 is done through 9e (v0.5.35); 9d (the server on a NAS, access from outside the
+    home network, muOS-style handhelds) is later. Jerred's import notes of 2026-10-20 are
+    built ("Jerred's import notes"). Next is Phase 10, variants and custom DATs ("Phase 10
+    design", D118–D123), in two pull requests: the custom DAT, the suggestions and the tags
+    with variants everywhere games show, then several DATs per system on the Audit page.

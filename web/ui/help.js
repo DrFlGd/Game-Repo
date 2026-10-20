@@ -48,7 +48,7 @@ export const TERMS = [
 export const PAGES = [
   ["home", "Home", "Where your library stands: how complete each system is against its DAT, and what to do next.", [
     "Scan, at the top, reads the folders with games for what's new or changed.",
-    "Next: files to put right, games whose details need a look, systems not scraped yet and missing BIOS files, each a link to the page it's done on.",
+    "Next: files that need review, games whose details need a look, systems not scraped yet and missing BIOS files, each a link to the page it's done on.",
     "Systems: how complete each one is against its DAT, with Import DATs… (and Get starter DATs… while you have none) and Open the audit.",
     "Folders with games: how many files were found and when they were last scanned, Add a folder… while there are none, folders not found on this computer (Point it elsewhere…), and files no DAT takes yet. Before any library is open, Home offers Open a library….",
   ]],

@@ -56,10 +56,11 @@ export function StatusBar() {
     <span class="status-jobs">
       ${latest ? html`<button type="button" class="status-job" id="status-job" aria-expanded=${open ? "true" : "false"} title=${latest.open && s.jobs.length === 1 ? "Show it" : "Show what's running"}
         onClick=${() => (latest.open && s.jobs.length === 1 ? latest.open() : setOpen(!open))}>
-        <span class="dot busy"></span>${latest.label}… <${Elapsed} since=${latest.started} />${s.jobs.length > 1 ? ` · ${s.jobs.length} running` : ""}</button>`
+        <span class="dot busy"></span>${latest.label}… <${Elapsed} since=${latest.started} />${s.jobs.length > 1 ? ` · ${s.jobs.length} running` : ""}
+        ${latest.part != null ? html`<progress class="status-progress" id="status-progress" max="1" value=${latest.part}></progress>` : html`<progress class="status-progress" id="status-progress"></progress>`}</button>`
         : html`<span class="status-idle"><span class="dot"></span>Ready</span>`}
       ${open && s.jobs.length ? html`<div class="jobs-panel" role="dialog" aria-label="Background work">
-        ${s.jobs.map((j) => html`<div class="job" key=${j.id}><span>${j.label}</span><span class="muted"><${Elapsed} since=${j.started} /></span>
+        ${s.jobs.map((j) => html`<div class="job" key=${j.id}><span>${j.label}</span>${j.part != null ? html`<progress max="1" value=${j.part}></progress>` : null}<span class="muted"><${Elapsed} since=${j.started} /></span>
           ${j.open ? html`<button type="button" class="ghost" onClick=${() => { setOpen(false); j.open(); }}>Show</button>` : null}
           ${j.cancel ? html`<button type="button" class="ghost" onClick=${() => j.cancel()}>Stop</button>` : null}</div>`)}
       </div>` : null}

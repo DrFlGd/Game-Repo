@@ -12,13 +12,13 @@ import { ctx, routeHash } from "./context.js";
 import { api, followJob, isDesktop, plural, toast } from "./library.js";
 import { CommandBar } from "./layout.js";
 import { Dialog, close } from "./dialogs.js";
-import { Preview, runPlan, HowControl, howArgs, IMPORT_KINDS } from "./organise.js";
+import { Preview, runPlan, HowControl, howArgs, gatherDialog, IMPORT_KINDS } from "./organise.js";
 import { RootsSection, DatsSection, ChangeHistory } from "./settings.js";
 import { importPc, addGameDialog } from "./pcgames.js";
 import { importBios } from "./bios.js";
 import { attachDocs } from "./documents.js";
 import { importMagazines } from "./magazines.js";
-import { importDats, starterDats, addRoot } from "./games.js";
+import { importDats, starterDats, addRoot, refreshGames, scan } from "./games.js";
 import { Icon } from "./icons.js";
 import { argHash, useRouteArg } from "./panels.js";
 
@@ -106,6 +106,31 @@ async function work(cmd, args, label) {
 
 /** Says a result is ready when the window isn't up, with a button that brings it back. */
 const ready = (text) => { if (!importShown()) toast(text, { ms: 12000, action: { label: "Show", run: showImport } }); };
+
+/** Leave them where they are: each folder becomes a folder with games (for the system
+ *  chosen, or every system) and is scanned; nothing is copied. */
+async function leaveFolders() {
+  const s = imp.get();
+  const typed = s.typed.trim();
+  const paths = typed && !s.folders.includes(typed) ? [...s.folders, typed] : s.folders;
+  const added = [], failed = [];
+  for (const path of paths) {
+    try {
+      await api("roots_add", { path, platform: s.only || null });
+      added.push(path);
+    } catch (e) {
+      // one that's a folder with games already (or inside one) is scanned as it is
+      if (/already/.test(e.message || "")) added.push(path);
+      else failed.push(`${baseName(path)}: ${e.message || e}`);
+    }
+  }
+  if (failed.length) return imp.set({ folders: paths, typed: "", error: failed.join(" ") });
+  imp.set(blank());
+  close();
+  await refreshGames();
+  toast(`${plural(added.length, "folder is", "folders are")} in Folders with games now, and scanned; the games stay where they are. Import › Move into the library… brings them in when you want.`, 12000);
+  scan();
+}
 
 async function readFolders() {
   const s = imp.get();
@@ -224,7 +249,9 @@ function ImportGamesDialog() {
     <//>`;
   }
   const typed = s.typed.trim();
-  return html`<${Dialog} title="Import games from folders" id="import-games-dialog" sticky=${true} onDismiss=${hide} onSubmit=${readFolders} busy=${!(s.folders.length || typed)} error=${s.error} submitLabel="Read"
+  const leave = how === "leave";
+  return html`<${Dialog} title="Import games from folders" id="import-games-dialog" sticky=${true} onDismiss=${hide} onSubmit=${leave ? leaveFolders : readFolders} busy=${!(s.folders.length || typed)} error=${s.error}
+      submitLabel=${leave ? "Add the folders" : "Read"}
       onCancel=${() => { imp.set(blank()); close(); }}>
     <div class="field-block"><span class="field-label">Folders</span>
       ${s.folders.length ? html`<ul class="ls-list" id="import-folders">${s.folders.map((f) => html`<li key=${f}><span class="op-to">${f}</span>
@@ -233,14 +260,14 @@ function ImportGamesDialog() {
         <input type="text" id="import-folder-path" placeholder="A folder's path" value=${s.typed} onInput=${(e) => imp.set({ typed: e.target.value })} onKeyDown=${(e) => { if (e.key === "Enter" && typed) { e.preventDefault(); add(typed); imp.set({ typed: "" }); } }} />
         ${isDesktop() ? html`<button type="button" class="ghost" id="import-add-folder" onClick=${async () => add(await ctx.platform.library.pickFolder("A folder of games to import"))}>Add a folder…</button>` : null}
       </div>
-      <small class="muted">Every file in them is read and matched against your DATs.</small></div>
+      <small class="muted">${leave ? "They're added to Folders with games and scanned, and their games are found by your DATs where they are." : "Every file in them is read and matched against your DATs."}</small></div>
     <label class="field-block"><span class="field-label">System</span>
       <select id="import-system" class="compact" value=${s.only} onChange=${(e) => imp.set({ only: e.target.value })}>
         <option value="">Every system (each game's own, found by its DAT)</option>
         ${platforms.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
       </select>
       <small class="muted">${s.only ? `Only ${nameOf(s.only)}'s games, and files no DAT knows are taken as ${nameOf(s.only)}'s.` : "Each system's games go to its own folder; you'll be asked about files no DAT knows."}</small></label>
-    <${HowControl} id="import-mode" value=${how} onChange=${(mode) => imp.set({ mode })} />
+    <${HowControl} id="import-mode" value=${how} onChange=${(mode) => imp.set({ mode })} leave=${true} />
   <//>`;
 }
 
@@ -332,6 +359,7 @@ function Card({ id, icon, title, where, here, children }) {
 
 export function ImportPage() {
   const lib = useStore(ui, (s) => s.library);
+  const roots = useStore(ui, (s) => s.roots) || [];
   const at = useRouteArg("import");
   useEffect(() => {
     if (at) document.getElementById(at)?.scrollIntoView({ block: "nearest" });
@@ -340,12 +368,15 @@ export function ImportPage() {
   if (!lib) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   const off = !!lib.read_only;
   const desk = isDesktop();
+  const away = roots.filter((r) => r.outside && r.found);
   return html`${head}<div class="pages import-page" id="import-page" data-at=${at || ""}><div class="library-settings">
     <p class="page-lead">${Icon.inbox(18)} Everything that comes into the library comes in here, and files dropped on the window too. Checking it is the <a href=${routeHash("audit")}>Audit</a>'s; choosing games to export is <a href=${routeHash("collections")}>Collections</a>'.</p>
     <div class="import-cards">
-      <${Card} id="import-copy" icon="move" title="Games into the library" here=${at === "import-copy"} where="Matched against your DATs and copied or moved into each system's folder with games, named as the DAT says.">
+      <${Card} id="import-copy" icon="move" title="Games into the library" here=${at === "import-copy"} where="Matched against your DATs and copied or moved into each system's folder with games, named as the DAT says, or left where they are.">
         <button type="button" class="primary" id="import-games" disabled=${off} onClick=${importGamesDialog}>From a folder…</button>
         <button type="button" class="ghost" id="import-one" disabled=${off} onClick=${() => addGameDialog()}>One game…</button>
+        ${away.length ? html`<button type="button" class="ghost" id="import-gather" disabled=${off} title=${`Every game in ${away.map((r) => r.dir).join(", ")}, moved into each system's folder in the library, with the preview first`}
+          onClick=${() => gatherDialog()}>Move into the library…</button>` : null}
       <//>
       <${Card} id="import-pc" icon="monitor" title="PC games" here=${at === "import-pc"} where="Installers, archives and game folders, each into its own folder under PC/.">
         <button type="button" class="ghost" id="import-pc-files" disabled=${off || !desk} onClick=${() => importPc("files")}>Files…</button>

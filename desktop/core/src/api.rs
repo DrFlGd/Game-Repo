@@ -700,6 +700,8 @@ impl App {
                         let mut v = r.to_json();
                         let network = r.found() && watch::is_network(&r.dir);
                         v["network"] = json!(network);
+                        // (a folder left where it was: Import's Move into the library… takes its games)
+                        v["outside"] = json!(!roots::in_library(&lib, &r.dir));
                         v["watched"] = json!(on && r.found() && !network);
                         v
                     })
@@ -985,6 +987,17 @@ impl App {
                 j(self
                     .with_index(move |ix| {
                         let plan = organise::plan(ix, &lib, &o)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            "organise_gather" => {
+                let lib = self.library()?;
+                let platform = args["platform"].as_str().filter(|p| !p.is_empty()).map(String::from);
+                j(self
+                    .with_index(move |ix| {
+                        let plan = organise::gather_plan(ix, &lib, platform.as_deref())?;
                         organise::save_pending(&data_dir, &plan)?;
                         Ok(plan.summary())
                     })
