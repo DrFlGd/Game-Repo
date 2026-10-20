@@ -660,6 +660,8 @@ async def main():
             await pg.focus("#queue-start")
             await pg.keyboard.press("Enter")
             await pg.wait_for_selector("#start-sum")
+            # (its button is focused a render after the summary shows)
+            await settled(pg, "() => !!document.activeElement?.closest('#start-dialog')")
             panel = await pg.evaluate("""() => { const r = document.querySelector('#start-dialog').getBoundingClientRect(), bar = document.querySelector('#go-big-bar').getBoundingClientRect(), hints = document.querySelector('#go-hints').getBoundingClientRect();
                 return { right: Math.round(innerWidth - r.right), left_half: r.left > innerWidth / 2, top: Math.round(r.top - bar.bottom), bottom: Math.round(hints.top - r.bottom),
                   focused: document.activeElement?.closest('#start-dialog') ? (document.activeElement.textContent || '').trim() : '' }; }""")
