@@ -1402,6 +1402,10 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 .audit-table .tick { width: 28px; }
 .unknown-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 6px 0; font-size: 13px; }
 .unknown-original select { max-width: 360px; }
+/* a name breaks between words, and the folder gives way first */
+:is(.unknown-wrap, .variants-wrap) td.audit-name { min-width: 15em; overflow-wrap: break-word; }
+:is(.unknown-wrap, .variants-wrap) td.audit-path { max-width: 16em; }
+.unknown-wrap td.unknown-original, .variants-wrap td:nth-child(3) { min-width: 11em; }
 .variant-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .variant-tag { padding: 1px 7px; border: 1px solid var(--steel-2); border-radius: 99px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .variant-new-tag { display: inline-flex; gap: 6px; }
