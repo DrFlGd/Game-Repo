@@ -7,11 +7,19 @@ import { html, useState, useEffect, useRef, useLayoutEffect } from "../lib/html.
 import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
 import { call, pictureUrl } from "./backend.js";
-import { go, open, showDialog } from "./state.js";
+import { go, open, say, showDialog } from "./state.js";
 import { bytes, count, message, plural } from "./format.js";
 import { enqueue } from "./add.js";
 
 const PAGE = 200;   // games read at a time from the device's copy
+const big = () => document.documentElement.dataset.view === "big";
+
+/** The orders the games can be in (also big screen's Options). */
+export const LIBRARY_ORDERS = [
+  ["title", "Title, A to Z"], ["title-desc", "Title, Z to A"],
+  ["year", "Year, oldest first"], ["year-desc", "Year, newest first"],
+  ["size", "Size, smallest first"], ["size-desc", "Size, largest first"],
+];
 const GAP = 12;
 const PAD = 16;
 
@@ -75,13 +83,14 @@ function Places({ systems, collections, where }) {
 
 /** One game's card: its box front (its title when there's no picture, or none kept away
  *  from home), title, year and size, its check to select it, and whether it's on the device. */
-function Card({ g, i, current, style, ticked, size, onKey }) {
+function Card({ g, i, current, style, ticked, size, onKey, place }) {
   const [bad, setBad] = useState(false);
   useEffect(() => setBad(false), [g?.key]);
   if (!g) return html`<div class="card go-card is-loading" style=${style} aria-hidden="true"><span class="go-cover"></span></div>`;
   const sub = [g.year, bytes(g.size), g.discs > 1 ? `${g.discs} discs` : null].filter(Boolean).join(" · ");
   return html`<div class=${`card go-card${ticked ? " is-ticked" : ""}`} style=${style} data-key=${g.key}>
-    <button type="button" class="go-card-open" data-index=${i} tabindex=${current ? 0 : -1} aria-label=${`${g.title}, ${sub}${g.on_device ? ", on this device" : ""}${ticked ? ", selected" : ""}`}
+    <button type="button" class="go-card-open" data-index=${i} tabindex=${current ? 0 : -1} data-first=${current ? "" : null}
+      data-a="Open" data-x=${g.on_device ? null : big() ? "Add to queue" : "Select"} data-say=${`${place} › ${g.title} · ${bytes(g.size)}`} aria-label=${`${g.title}, ${sub}${g.on_device ? ", on this device" : ""}${ticked ? ", selected" : ""}`}
       onClick=${() => open({ page: "game", key: g.key })} onKeyDown=${(e) => onKey(e, i, g)}>
       <span class="go-cover">
         <span class="go-cover-title">${g.title}</span>
@@ -97,7 +106,7 @@ function Card({ g, i, current, style, ticked, size, onKey }) {
 
 /** The games, read a page at a time and only those in view drawn. Arrows move by card and
  *  row, Page Up and Down by a screen, X or Space selects. */
-function Games({ ask, rev, picked }) {
+function Games({ ask, rev, picked, place }) {
   const scroller = useRef(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [top, setTop] = useState(0);
@@ -154,10 +163,10 @@ function Games({ ask, rev, picked }) {
   }, []);
 
   const narrow = box.w < 560;
-  const min = narrow ? 132 : 164;
+  const min = big() ? (narrow ? 140 : 190) : narrow ? 132 : 164;
   const cols = Math.max(2, Math.floor((box.w - 2 * PAD + GAP) / (min + GAP)));
   const cw = Math.max(60, (box.w - 2 * PAD - GAP * (cols - 1)) / cols);
-  const ch = Math.round(cw * 4 / 3) + 58;
+  const ch = Math.round(cw * 4 / 3) + (big() ? 66 : 58);
   const rh = ch + GAP;
   const n = total || 0;
   const rows = Math.ceil(n / cols);
@@ -213,7 +222,10 @@ function Games({ ask, rev, picked }) {
       goTo(to);
     } else if (e.key === " " || e.key === "x" || e.key === "X") {
       e.preventDefault();
-      pick([g]);
+      // big screen: X adds to the queue, as Steam's does (D113)
+      if (!big()) pick([g]);
+      else if (g.on_device) say(`${g.title} is on this device already.`);
+      else enqueue([g.key]);
     }
   };
 
@@ -221,7 +233,7 @@ function Games({ ask, rev, picked }) {
   for (let i = r0 * cols; i < Math.min(n, r1 * cols); i++) {
     const g = pages[Math.floor(i / PAGE)]?.[i % PAGE];
     const style = `left:${PAD + (i % cols) * (cw + GAP)}px;top:${PAD + Math.floor(i / cols) * rh}px;width:${cw}px;height:${ch}px`;
-    items.push(html`<${Card} key=${g?.key || `i${i}`} g=${g} i=${i} current=${i === Math.min(current, n - 1)} style=${style} ticked=${!!(g && picked[g.key])} size=${size} onKey=${onKey} />`);
+    items.push(html`<${Card} key=${g?.key || `i${i}`} g=${g} i=${i} current=${i === Math.min(current, n - 1)} style=${style} ticked=${!!(g && picked[g.key])} size=${size} onKey=${onKey} place=${place} />`);
   }
   return html`<div class="go-games" ref=${scroller} data-keys="own" id="go-games" aria-label="Games" onScroll=${(e) => setTop(e.currentTarget.scrollTop)}>
     ${error ? html`<p class="form-error go-games-note" role="alert">${error}</p>` : null}
@@ -274,12 +286,7 @@ export function LibraryPage() {
         </label>
         <label class="go-sort"><span class="visually-hidden">Order</span>
           <select id="go-sort" value=${`${s.sort}${s.desc ? "-desc" : ""}`} onChange=${(e) => { const [sort, d] = e.currentTarget.value.split("-"); go.set({ sort, desc: !!d }); }}>
-            <option value="title">Title, A to Z</option>
-            <option value="title-desc">Title, Z to A</option>
-            <option value="year">Year, oldest first</option>
-            <option value="year-desc">Year, newest first</option>
-            <option value="size">Size, smallest first</option>
-            <option value="size-desc">Size, largest first</option>
+            ${LIBRARY_ORDERS.map(([v, label]) => html`<option value=${v}>${label}</option>`)}
           </select>
         </label>
       </div>
@@ -291,7 +298,7 @@ export function LibraryPage() {
           <span>${sync.error} Nothing of the library is kept on this device yet.</span>
           <button type="button" class="ghost" onClick=${() => call("sync").catch(() => {})}>Try again</button>
         </div>` : null}
-      <${Games} ask=${ask} rev=${s.rev} picked=${s.picked} />
+      <${Games} ask=${ask} rev=${s.rev} picked=${s.picked} place=${s.q ? "Search" : placeName(s.where, s.systems, s.collections)} />
       <${Picked} picked=${s.picked} free=${st?.device?.free ?? null} collection=${s.where.collection || ""} />
     </div>
   </div>`;

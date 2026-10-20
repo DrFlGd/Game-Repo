@@ -3,9 +3,10 @@
 // reached through client/backend.js.
 import { html, render } from "./lib/html.js";
 import { inApp, leave, onBack, start } from "./client/backend.js";
-import { applyLook, back, go, load, routeOf } from "./client/state.js";
+import { applyLook, back, closeDialog, go, load, routeOf } from "./client/state.js";
 import { gamepads, keys } from "./client/keys.js";
 import { Shell } from "./client/shell.js";
+import { choose, options, page, search } from "./client/big.js";
 
 // errors the tests read back (tests/client_page.py)
 window.__errors = [];
@@ -22,14 +23,16 @@ async function main() {
   }
   render(html`<${Shell} />`, root);
   await start();
-  const route = () => go.set({ route: routeOf(location.hash), dialog: null });
+  // the view's known once the shell has said what it is (big screen on Android and in Game Mode)
+  applyLook();
+  const route = () => { if (go.get().dialog) closeDialog(); go.set({ route: routeOf(location.hash) }); };
   route();
   addEventListener("hashchange", () => { route(); document.getElementById("go-main")?.scrollTo?.(0, 0); });
-  keys(() => (go.get().dialog ? go.set({ dialog: null }) : back()));
+  keys(() => (go.get().dialog ? closeDialog() : back()), { page, search, options, choose });
   // Android's Back as Esc: a dialog closes, a page goes back, and on the Library with
   // nothing to go back from Game Repo Go goes to the background
   onBack(() => {
-    if (go.get().dialog) go.set({ dialog: null });
+    if (go.get().dialog) closeDialog();
     else if (go.get().route.page !== "library") back();
     else leave().catch(() => {});
   });

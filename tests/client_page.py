@@ -513,7 +513,12 @@ async def main():
             await pg.wait_for_selector("#set-version")
             from_game = await pg.evaluate("() => location.hash")
             await pg.goto(B + "#library")
-            await pg.wait_for_selector("#go-games")
+            await pg.wait_for_selector("#go-shelves .go-tile[data-key]")
+            phone_big = await pg.evaluate("""() => { const t = document.querySelector('.go-tabs').getBoundingClientRect();
+                return { view: document.documentElement.dataset.view, tabs_low: t.bottom >= innerHeight - 1 && t.top > innerHeight / 2, hints: !!document.querySelector('#go-hints')?.getClientRects().length }; }""")
+            await shot(pg, "15b-phone-big-library")
+            check("on Android the big-screen view is the usual one, on a phone upright with the pages along the bottom and no button hints",
+                  phone_big == {"view": "big", "tabs_low": True, "hints": False}, phone_big)
             left_before = shell()["left"]
             await pg.evaluate("() => window.__shimBack()")
             for _ in range(50):
@@ -590,6 +595,124 @@ async def main():
                 check("while Steam runs a change waits, and Restart Steam closes it, writes the change and starts it again",
                       "Steam is running" in waiting and still and gone and (steam_bin / "started").exists(),
                       (waiting, still, gone, log.read_text() if log.exists() else "no log"))
+
+            # 13d. the big-screen view (D113), as in Game Mode on the Steam Deck: the pages as
+            # tabs, changed with L1 and R1 (Page Up and Down); the Library as shelves, one per
+            # system, the arrows going to the nearest game; X adds one to the queue; A opens its
+            # page and B comes back to it; Start downloads… and ☰'s Options as panels from the
+            # right; a list as a panel to choose from; Y searching; the classic view again
+            async def at():
+                return await pg.evaluate("() => { const e = document.activeElement; return [e?.closest('[data-shelf]')?.dataset.shelf || '', e?.dataset.key || e?.id || (e?.textContent || '').trim().slice(0, 30)]; }")
+
+            def api(cmd, args=None):
+                return pg.evaluate("([cmd, args]) => window.__TAURI__.core.invoke('api', { cmd, args })", [cmd, args or {}])
+
+            # a key first, as a controller's press is (after a click or a touch nothing's focused)
+            await pg.keyboard.press("Shift")
+            await pg.goto(B + "#library")
+            await pg.wait_for_selector("#go-shelves .go-tile[data-key]")
+            await settled(pg, "() => document.activeElement?.classList.contains('go-tile')")
+            frame = await pg.evaluate("""() => ({ view: document.documentElement.dataset.view, tabs: [...document.querySelectorAll('.go-tab')].map(e => e.textContent.trim()),
+                shelves: [...document.querySelectorAll('#go-shelves [data-shelf]')].map(e => e.dataset.shelf), hints: document.querySelector('#go-hints')?.innerText || '',
+                focused: document.activeElement?.dataset.key || '' })""")
+            await shot(pg, "18-big-library")
+            check("in Game Mode the big-screen view: the pages as tabs, a shelf for each system, the first game focused and the buttons' hints",
+                  frame["view"] == "big" and [t[:9] for t in frame["tabs"]] == ["Library", "Downloads", "On this d", "Settings"] and frame["shelves"] == ["gb", "nes", "places"]
+                  and frame["focused"].startswith("gb/") and "Open" in frame["hints"] and "Options" in frame["hints"] and "Search" in frame["hints"], frame)
+            first = await at()
+            await pg.keyboard.press("ArrowRight")
+            right = await at()
+            await pg.keyboard.press("ArrowDown")
+            down = await at()
+            await pg.keyboard.press("ArrowUp")
+            up = await at()
+            check("the arrows go to the nearest: Right along the shelf, Down to what's below on the next system's, Up back to the same game",
+                  first[0] == "gb" and right[0] == "gb" and right[1] != first[1] and down[0] == "nes" and up[1] == right[1], (first, right, down, up))
+            target = await pg.evaluate("() => { const t = document.querySelector('#go-shelves .go-tile[data-x]'); t?.focus(); return t?.dataset.key || ''; }")
+            hint_x = await pg.inner_text("#go-hints")
+            await pg.keyboard.press("x")
+            queued_said = await toast(pg, "added to the queue")
+            queued = [i for i in (await api("queue"))["items"] if i["state"] == "queued"]
+            check("X adds the focused game to the queue, not started, as its hint says",
+                  target and "Add to queue" in hint_x and [i["key"] for i in queued] == [target], (target, hint_x, queued_said, queued))
+            await pg.evaluate("(k) => document.querySelector('#go-shelves .go-tile[data-key=\"' + CSS.escape(k) + '\"]').focus()", target)
+            await pg.keyboard.press("Enter")
+            await pg.wait_for_selector(".go-big-game #go-game-title")
+            await settled(pg, "() => document.activeElement?.id === 'go-game-add'")
+            game_focus = await pg.evaluate("() => document.activeElement?.id")
+            await shot(pg, "19-big-game")
+            await pg.keyboard.press("Escape")
+            await pg.wait_for_selector("#go-shelves")
+            await pg.wait_for_function("(k) => document.activeElement?.dataset.key === k", arg=target, timeout=5000)
+            check("A opens a game's page with Download… focused, and B comes back to the same game", game_focus == "go-game-add", game_focus)
+            hashes = []
+            for k in ("PageDown", "PageDown", "PageUp"):
+                await pg.keyboard.press(k)
+                await settled(pg, "() => true", 200)
+                hashes.append(await pg.evaluate("() => location.hash"))
+            check("R1 and L1 (Page Down and Up) go to the page after and the one before", hashes == ["#queue", "#device", "#queue"], hashes)
+            await pg.wait_for_selector("#queue-start")
+            await pg.focus("#queue-start")
+            await pg.keyboard.press("Enter")
+            await pg.wait_for_selector("#start-sum")
+            panel = await pg.evaluate("""() => { const r = document.querySelector('#start-dialog').getBoundingClientRect(), bar = document.querySelector('#go-big-bar').getBoundingClientRect(), hints = document.querySelector('#go-hints').getBoundingClientRect();
+                return { right: Math.round(innerWidth - r.right), left_half: r.left > innerWidth / 2, top: Math.round(r.top - bar.bottom), bottom: Math.round(hints.top - r.bottom),
+                  focused: document.activeElement?.closest('#start-dialog') ? (document.activeElement.textContent || '').trim() : '' }; }""")
+            await shot(pg, "20-big-start")
+            await pg.keyboard.press("Escape")
+            await pg.wait_for_selector("#start-dialog", state="detached")
+            await settled(pg, "() => document.activeElement?.id === 'queue-start'")
+            back_to = await pg.evaluate("() => document.activeElement?.id")
+            check("Start downloads… opens as a panel from the right between the bar and the hints, its button focused; B closes it and goes back to what opened it",
+                  panel["right"] == 0 and panel["left_half"] and panel["top"] == 0 and panel["bottom"] == 0 and panel["focused"].startswith("Start 1 download") and back_to == "queue-start", (panel, back_to))
+            await pg.click("#queue-queued button:has-text('Remove from queue')")
+            await pg.wait_for_selector("#queue-queued", state="detached")
+            await pg.keyboard.press("PageDown")
+            await pg.wait_for_selector("#device-sort")
+            await pg.keyboard.press("ContextMenu")
+            await pg.wait_for_selector("#options-dialog")
+            options_text = await pg.inner_text("#options-dialog")
+            await shot(pg, "21-big-options")
+            await pg.click("#options-dialog .go-option:has-text('Largest')")
+            await pg.wait_for_selector("#options-dialog", state="detached")
+            sorted_by = await pg.input_value("#device-sort")
+            await pg.keyboard.press("ContextMenu")
+            await pg.click("#options-dialog .go-option:has-text('By system')")
+            check("☰ opens Options for the page (its orders, Make room…, the classic view), and an order chosen there is the page's",
+                  sorted_by == "size" and "Make room…" in options_text and "Switch to the classic view" in options_text, (sorted_by, options_text))
+            await pg.keyboard.press("PageDown")
+            await pg.wait_for_selector("#set-theme")
+            theme = await pg.input_value("#set-theme")
+            await pg.focus("#set-theme")
+            await pg.keyboard.press("Enter")
+            await pg.wait_for_selector("#choose-dialog")
+            chooser = await pg.evaluate("() => ({ n: document.querySelectorAll('#choose-dialog .go-option').length, focused: document.activeElement?.getAttribute('aria-pressed') })")
+            await pg.keyboard.press("ArrowDown")
+            await pg.keyboard.press("Enter")
+            await pg.wait_for_selector("#choose-dialog", state="detached")
+            chosen = await pg.input_value("#set-theme")
+            check("A on a list opens its choices as a panel, the one chosen focused, and the one picked there is the list's",
+                  chooser["n"] >= 3 and chooser["focused"] == "true" and chosen != theme, (chooser, theme, chosen))
+            await pg.select_option("#set-theme", theme)
+            await pg.goto(B + "#library")
+            await pg.wait_for_selector("#go-shelves .go-tile[data-key]")
+            await settled(pg, "() => document.activeElement?.classList.contains('go-tile')")
+            await pg.keyboard.press("y")
+            await pg.wait_for_function("() => document.activeElement?.id === 'go-search'", timeout=10000)
+            await pg.keyboard.type("Alpha")
+            await pg.wait_for_function("() => document.querySelectorAll('#go-games .go-card[data-key]').length === 1", timeout=10000)
+            await pg.keyboard.press("ArrowDown")
+            found = await pg.evaluate("() => document.activeElement?.closest('.go-card')?.dataset.key")
+            await shot(pg, "22-big-search")
+            check("Y searches every game, and Down goes to what's found", found == "gb/Alpha (USA)", found)
+            await pg.keyboard.press("ContextMenu")
+            await pg.click("#options-classic")
+            await pg.wait_for_selector(".go-nav")
+            classic = await pg.evaluate("() => [document.documentElement.dataset.view, !!document.querySelector('#go-hints')]")
+            check("Options › Switch to the classic view brings back the classic pages", classic == ["classic", False], classic)
+            # the usual view again for the steps after
+            await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); delete l.view; localStorage.setItem('go-look', JSON.stringify(l)); }")
+
             shell(kind="windows", game_mode=False)
             await pg.set_viewport_size(PHONE)
 

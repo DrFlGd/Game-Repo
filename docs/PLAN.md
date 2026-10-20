@@ -4719,6 +4719,52 @@ D114–D116, built as they say, except where noted.
 - **Tests.** `serve/tests/client.rs`, `queued_games_wait_to_be_started_and_retrodeck_and_emudeck_are_found`;
   steps 3b, 4, 6 and the PC step of `tests/client_page.py`.
 
+### Phase 9e notes, part 3: the big-screen view (built 2026-10-20)
+
+D113, built as it says, except where noted.
+
+- **Which view.** `state.js`'s `usualView()` is *Big screen* on Android and in Game Mode
+  (`info.game_mode`), *Classic* elsewhere; Settings › *Look* › *View* (`#set-view`) keeps a
+  choice in `go-look` (`view`, empty for the usual one), and `applyLook` sets
+  `data-view="big"` on the page, which `client.css`'s big-screen section keys on. Big screen
+  with the theme *System* is dark.
+- **`web/client/big.js`.** The frame (`BigBar`, the tabs; `Hints`, the bottom bar), the
+  Library's `Shelves` (one per system with games, in the sidebar's order, each loading its
+  first 15 games by title once it's near the screen, then *All N*; *Every game* and the
+  collections last), `BigGame` (the hero picture: fan art, else a screenshot, else the box
+  front, at 512, as no larger size is served), and the dialogs `OptionsDialog` (☰: the
+  page's order, *Make room…* on *On this device*, *Switch to the classic view*),
+  `ChooseDialog` (a `<select>`'s choices as a panel of buttons) and `MediaDialog`. A system
+  or collection opened is the classic view's grid with larger cards; Downloads, *On this
+  device* and Settings are the classic pages made larger by CSS.
+- **Hints.** The bottom bar reads `data-a`, `data-x` and `data-say` from the focused
+  control and its parents (a tile says *Open* and *Add to queue*, and its system, title and
+  size), else names what Ⓐ does to it (*Choose*, *Type*, *Tick*, *Select*); each hint is a
+  button too, for touch.
+- **Moving (`keys.js`).** In big screen an arrow goes to the nearest control whose centre
+  is that way (distance ahead plus twice the distance across), skipping those with
+  `tabindex="-1"` (the tabs, the hints, the toast's button, which have their own buttons);
+  Up and Down scroll a long text (`.go-scroll`) before leaving it. PageUp and PageDown (L1
+  and R1) change tab; Y searches; ☰ (Start, `ContextMenu`) opens Options; Enter on a list
+  opens `ChooseDialog`. `data-input` on the page says whether the last input was a pointer
+  or keys: the focus ring and focusing the first thing on a page (`data-first`) are only for
+  keys, so touch shows neither. `useFocus` puts the focus back where it was on each page
+  (by `data-key` or id), and a dialog closed gives it back to what opened it. Android maps
+  the controller's Y and Start (`Controllers.kt`) to the keys the page reads.
+- **Dialogs** open as a panel from the right, with their main button at the top and
+  focused (once it's enabled: *Start downloads…*'s waits for its summary).
+- **Phones.** Under 760px wide and portrait the tabs go along the bottom with their icons
+  and the hints are hidden, as there's no controller; short screens (480px high) make the
+  bar and tiles smaller.
+- **Changed:** *On this device*'s order is kept in the store across visits (so Options
+  can change it), not reset to *By system* each time; *Make room* still changes it to
+  *Played longest ago*. Holding a direction repeats (on a controller after 400 ms, then
+  every 90 ms) without speeding up.
+- **Tests.** Step 13 of `tests/client_page.py` (Android, a phone held upright) and step
+  13d (Game Mode at 1280×800: the frame, moving, Ⓧ, a game and back, the tabs, *Start
+  downloads…* as a panel, Options, a list as a panel, search, the switch to classic);
+  step 5 of `tests/client_android.py` presses the controller's buttons on the emulator.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
