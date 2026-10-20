@@ -1,6 +1,8 @@
 // Game Repo Go's frame: the bar at the top, the four pages (Library, Downloads, On this device,
 // Settings) down the side on a PC and along the bottom on a phone, the notes every page
 // shows (a removal cut short, ES-DE not found), the dialogs and the message at the bottom.
+// In the big-screen view (D113, big.js) the pages are tabs along the top and the button
+// hints run along the bottom.
 import { html, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
@@ -15,6 +17,7 @@ import { AddDialog, AddMediaDialog } from "./add.js";
 import { QueuePage, StartDialog } from "./queue.js";
 import { DevicePage, PendingRemoval, RemoveDialog, RoomDialog } from "./device.js";
 import { SettingsPage } from "./settings.js";
+import { BigBar, BigGame, ChooseDialog, Hints, MediaDialog, OptionsDialog, Shelves, useFocus } from "./big.js";
 
 const PAGES = [
   ["library", "Library", Icon.gamepad],
@@ -78,14 +81,18 @@ function Dialogs({ dialog }) {
     case "room": return html`<${RoomDialog} run=${dialog.run} />`;
     case "pair": return html`<${PairDialog} />`;
     case "unpair": return html`<${UnpairDialog} library=${dialog.library} />`;
+    case "options": return html`<${OptionsDialog} />`;
+    case "choose": return html`<${ChooseDialog} select=${dialog.select} />`;
+    case "media": return html`<${MediaDialog} title=${dialog.title} media=${dialog.media} files=${dialog.files} />`;
     default: return null;
   }
 }
 
-function Page({ route, paired }) {
+function Page({ route, paired, big }) {
   if (!paired && route.page !== "settings") return html`<${PairPage} />`;
   switch (route.page) {
-    case "game": return html`<${GamePage} gameKey=${route.key} key=${route.key} />`;
+    case "game": return big ? html`<${BigGame} gameKey=${route.key} key=${route.key} />` : html`<${GamePage} gameKey=${route.key} key=${route.key} />`;
+    case "library": return big ? html`<${Shelves} />` : html`<${LibraryPage} />`;
     case "queue": return html`<${QueuePage} />`;
     case "device": return html`<${DevicePage} />`;
     case "settings": return html`<${SettingsPage} />`;
@@ -107,25 +114,33 @@ function StorageNote() {
     <button type="button" class="primary" id="go-storage-allow" disabled=${busy} onClick=${allow}>Allow access</button></div>`;
 }
 
+/** The big-screen view's focus kept from page to page (big.js). */
+function BigFocus({ route }) {
+  useFocus(route);
+  return null;
+}
+
 export function Shell() {
-  const s = useStore(go, (x) => ({ ready: x.ready, route: x.route, status: x.status, storage: x.storage, dialog: x.dialog, toast: x.toast }));
+  const s = useStore(go, (x) => ({ ready: x.ready, route: x.route, status: x.status, storage: x.storage, dialog: x.dialog, toast: x.toast, view: x.view }));
   if (!s.ready) return html`<p class="go-opening muted">Opening Game Repo Go…</p>`;
   const st = s.status;
   const noEsde = st?.device?.error;
+  const big = s.view === "big";
   return html`
-    <${Bar} status=${st} />
+    ${big ? html`<${BigBar} route=${s.route} status=${st} /><${BigFocus} route=${s.route} />` : html`<${Bar} status=${st} />`}
     <div class="go-body">
-      <${Nav} route=${s.route} status=${st} />
+      ${big ? null : html`<${Nav} route=${s.route} status=${st} />`}
       <main class=${`go-main go-main-${s.route.page}`} id="go-main">
         ${st?.removal ? html`<${PendingRemoval} pending=${st.removal} />` : null}
         ${s.storage.needed && !s.storage.granted ? html`<${StorageNote} />` : null}
         ${noEsde && s.storage.granted && s.route.page !== "settings" ? html`<div class="go-note warn-note" id="go-no-esde" role="alert">
             <span>${noEsde}</span><a class="button ghost" href="#settings">Settings</a></div>` : null}
-        <${Page} route=${s.route} paired=${!!st?.paired} />
+        <${Page} route=${s.route} paired=${!!st?.paired} big=${big} />
       </main>
     </div>
+    ${big ? html`<${Hints} route=${s.route} dialog=${s.dialog} />` : null}
     <${Dialogs} dialog=${s.dialog} />
     ${s.toast ? html`<div class="toast go-toast" role="status" aria-live="polite" id="go-toast"><span>${s.toast.text}</span>
-      ${s.toast.page ? html`<button type="button" class="ghost light" onClick=${() => { go.set({ toast: null }); open({ page: s.toast.page }); }}>${s.toast.page === "queue" ? "See Downloads" : `See the ${s.toast.page}`}</button>` : null}</div>` : null}`;
+      ${s.toast.page ? html`<button type="button" class="ghost light" tabindex=${big ? "-1" : null} onClick=${() => { go.set({ toast: null }); open({ page: s.toast.page }); }}>${s.toast.page === "queue" ? "See Downloads" : `See the ${s.toast.page}`}</button>` : null}</div>` : null}`;
 }
 

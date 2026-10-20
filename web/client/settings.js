@@ -1,13 +1,14 @@
 // Settings (D103): the library paired with, ES-DE's folders found (each can be changed, C3),
 // the media ticked by default, downloads at once, the ES-DE custom collection games go in
 // (C16), what the Library shows, the device's name and screen, the picture cache, the look
-// (Game Repo's skins and themes) and the version; on Windows and Linux, the PC games folder
-// (D111); on Linux, Steam (D107, D109). Each change is kept as it's made.
+// (the view, D113, and Game Repo's skins and themes) and the version; on Windows and
+// Linux, the PC games folder (D111); on Linux, Steam (D107, D109). Each change is kept as
+// it's made.
 import { html, useEffect, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { SKINS, THEMES } from "../ui/state.js";
 import { call, info, pickFolder } from "./backend.js";
-import { go, look, refreshLists, refreshSettings, refreshStatus, say, setLook, showDialog } from "./state.js";
+import { go, look, refreshLists, refreshSettings, refreshStatus, say, setLook, showDialog, usualView } from "./state.js";
 import { ago, bytes, count, KINDS, message } from "./format.js";
 
 function Folder({ id, label, value, fallback, setting, error }) {
@@ -206,6 +207,11 @@ export function SettingsPage() {
 
     <section class="go-set" id="set-look">
       <h2>Look</h2>
+      <label class="field-block"><span>View</span>
+        <select id="set-view" class="compact" value=${lk.view || usualView()} onChange=${(e) => changeLook({ view: e.currentTarget.value })}>
+          <option value="big">Big screen, for a controller</option>
+          <option value="classic">Classic, for a mouse and keyboard</option></select>
+        <small class="muted">The big screen is as Steam's Big Picture: shelves of box fronts, large type, and the controller's buttons shown along the bottom. ${usualView() === "big" ? "It's the usual view on this device." : "The classic view is the usual one on this device."}</small></label>
       <label class="field-block"><span>Skin</span>
         <select id="set-skin" class="compact" value=${lk.skin} onChange=${(e) => changeLook({ skin: e.currentTarget.value })}>
           ${SKINS.map(([k, name]) => html`<option value=${k}>${name}</option>`)}</select></label>

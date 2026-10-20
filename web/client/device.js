@@ -23,6 +23,9 @@ const FROM = {
   partial: ["Files missing", "Some of its files aren't on this device (deleted by hand?). Download it again to put them back, or remove what's left."],
 };
 
+/** The orders (also big screen's Options). */
+export const DEVICE_ORDERS = [["system", "By system"], ["played", "Played longest ago"], ["size", "Largest"], ["name", "Name"]];
+
 /** Played longest ago first, then those never played by when they came (Make room's order). */
 const ORDERS = {
   played: (a, b) => (!a.last_played - !b.last_played) || played(a.last_played) - played(b.last_played) || a.added - b.added || a.name.localeCompare(b.name),
@@ -32,10 +35,11 @@ const ORDERS = {
 };
 
 export function DevicePage() {
-  const s = useStore(go, (x) => ({ rev: x.deviceRev, roomFor: x.roomFor, systems: x.systems, status: x.status }));
+  const s = useStore(go, (x) => ({ rev: x.deviceRev, roomFor: x.roomFor, systems: x.systems, status: x.status, sort: x.deviceSort }));
   const [d, setD] = useState(null);
   const [error, setError] = useState("");
-  const [sort, setSort] = useState("system");
+  const sort = s.sort;
+  const setSort = (deviceSort) => go.set({ deviceSort });
   const [openSys, setOpenSys] = useState(null);
   const [ticked, setTicked] = useState(new Set());
   const [shown, setShown] = useState(null);
@@ -101,10 +105,7 @@ export function DevicePage() {
     ${room ? html`<p class="go-note" id="device-room-note" role="status">${room}</p>` : null}
     ${d.games.length ? html`<label class="go-sort"><span class="muted">Order</span>
       <select id="device-sort" value=${sort} onChange=${(e) => setSort(e.currentTarget.value)}>
-        <option value="system">By system</option>
-        <option value="played">Played longest ago</option>
-        <option value="size">Largest</option>
-        <option value="name">Name</option>
+        ${DEVICE_ORDERS.map(([v, label]) => html`<option value=${v}>${label}</option>`)}
       </select></label>` : html`<p class="empty">ES-DE has no games on this device yet.</p>`}
     ${sort === "system" ? html`<${BySystem} rows=${rows} name=${name} open=${systems.length === 1 ? systems[0] : openSys} setOpen=${setOpenSys} row=${row} removed=${removed} />`
       : html`<ul class="go-rows" id="device-list">${rows.map(row)}</ul>`}
