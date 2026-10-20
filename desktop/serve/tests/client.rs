@@ -391,6 +391,96 @@ fn on_this_device_every_game_is_listed_and_removed_safely() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+const ZETA: &str = "pcgames/zeta";
+const OMEGA: &str = "pcgames/omega";
+
+#[test]
+fn pc_games_are_unpacked_by_the_library_written_whole_given_a_shortcut_and_removed_keeping_saves() {
+    let dir = temp("go-pc");
+    let lib = library(&dir);
+    pc_games(&lib);
+    let s = start(&lib, &dir.join("server"));
+    let d = a_device(&dir);
+    // Windows' Start menu for this test only
+    #[cfg(windows)]
+    std::env::set_var("APPDATA", dir.join("appdata"));
+    #[cfg(windows)]
+    let lnk = |name: &str| dir.join("appdata/Microsoft/Windows/Start Menu/Programs/Game Repo Go").join(format!("{name}.lnk"));
+    let app = open_app(&dir, &d.home);
+    let games = dir.join("Games");
+    call(&app, "set_settings", json!({ "pc_games": games }));
+    pair(&app, &s);
+    let before = snapshot(&lib);
+
+    // PC games are a system of their own for a device that can have them (D110); Lambda,
+    // with only its installer, isn't listed
+    let systems = call(&app, "systems", json!({}));
+    let pc = systems.as_array().unwrap().iter().find(|x| x["id"] == "pcgames").unwrap_or_else(|| panic!("{systems}"));
+    assert_eq!((pc["name"].as_str(), pc["games"].as_u64()), (Some("PC games"), Some(2)), "{systems}");
+    assert_eq!(keys(&call(&app, "games", json!({ "system": "pcgames" }))), [OMEGA, ZETA]);
+    let zeta_size = call(&app, "game", json!({ "key": ZETA }))["game"]["size"].as_u64().unwrap();
+    assert_eq!(zeta_size, 7 + 64 * 1024, "Zeta's size is its unpacked files'");
+
+    // before adding: Zeta's archive starts being unpacked on the library (D111), its size
+    // counted as the list has it; a game with only an installer can't go, nor a patch yet
+    let p = call(&app, "prepare", json!({ "keys": [ZETA, OMEGA, "pcgames/lambda"] }));
+    assert_eq!(p["unpacking"], 1, "{p}");
+    assert!(p["size"].as_u64().unwrap() >= zeta_size + 8 + 16 * 1024, "{p}");
+    let left: Vec<&str> = p["left"].as_array().unwrap().iter().map(|l| l["what"].as_str().unwrap()).collect();
+    assert_eq!(left, ["Omega › its patches (1)", "Lambda"], "{p}");
+    assert!(p["left"][1]["why"].as_str().unwrap().contains("only its installer"), "{p}");
+
+    // added: each game whole in its own `Title (Year)` folder of the PC games folder
+    call(&app, "add", json!({ "keys": [ZETA, OMEGA] }));
+    queue_done(&app);
+    let q = call(&app, "queue", json!({}));
+    for k in [ZETA, OMEGA] {
+        assert_eq!(item(&q, k)["state"], "done", "{q}");
+    }
+    assert_eq!(files_under(&games), ["Omega (2001)/Omega/omega.dat", "Omega (2001)/Omega/omega.exe", "Zeta (1999)/Zeta/data/level1.dat", "Zeta (1999)/Zeta/zeta.exe"]);
+    assert_eq!(std::fs::read(games.join("Zeta (1999)/Zeta/zeta.exe")).unwrap(), b"MZ zeta");
+    // and a shortcut (D112): in Steam on Linux, through Proton, with its cover
+    #[cfg(target_os = "linux")]
+    {
+        let wanted = gamerepo_device::steam::state(&dir.join("go")).wanted;
+        let w = |k: &str| wanted.iter().find(|w| w.key == k).unwrap_or_else(|| panic!("{k} in {wanted:?}")).clone();
+        let (omega, zeta) = (w(OMEGA), w(ZETA));
+        assert_eq!((omega.name.as_str(), omega.args.as_str(), omega.proton), ("Omega", "-windowed", true));
+        assert_eq!((omega.program, omega.start_dir), (games.join("Omega (2001)/Omega/omega.exe").display().to_string(), games.join("Omega (2001)/Omega").display().to_string()));
+        assert!(omega.art.get("cover").is_some_and(|p| Path::new(p).is_file()), "{:?}", omega.art);
+        assert_eq!(zeta.program, games.join("Zeta (1999)/Zeta/zeta.exe").display().to_string());
+    }
+    // in the Start menu on Windows
+    #[cfg(windows)]
+    assert!(lnk("Omega").is_file() && lnk("Zeta").is_file());
+
+    // On this device lists them by their folders
+    let v = call(&app, "on_device", json!({}));
+    let r = row(&v, "pc:Omega (2001)");
+    assert_eq!((r["from"].as_str(), r["key"].as_str(), r["name"].as_str()), (Some("library"), Some(OMEGA), Some("Omega")), "{v}");
+
+    // removed: what came from the library and its shortcut go; a save the game made stays,
+    // with its folder, and is told of
+    std::fs::create_dir_all(games.join("Omega (2001)/Omega/saves")).unwrap();
+    std::fs::write(games.join("Omega (2001)/Omega/saves/slot1.sav"), b"a save").unwrap();
+    let gone = call(&app, "remove", json!({ "asks": [{ "key": OMEGA }] }));
+    assert_eq!(gone["kept_made"], json!([["Omega (2001)", 1]]), "{gone}");
+    assert_eq!(files_under(&games), ["Omega (2001)/Omega/saves/slot1.sav", "Zeta (1999)/Zeta/data/level1.dat", "Zeta (1999)/Zeta/zeta.exe"]);
+    #[cfg(target_os = "linux")]
+    assert!(gamerepo_device::steam::state(&dir.join("go")).wanted.iter().all(|w| w.key != OMEGA));
+    #[cfg(windows)]
+    assert!(!lnk("Omega").exists() && lnk("Zeta").is_file());
+    // Zeta removed too: its folder goes, as nothing's left in it
+    let gone = call(&app, "remove", json!({ "asks": [{ "key": ZETA }] }));
+    assert_eq!(gone["kept_made"], json!([]), "{gone}");
+    assert!(!games.join("Zeta (1999)").exists());
+
+    app.queue.quit();
+    s.stop();
+    assert!(before == snapshot(&lib), "the library as it was");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // The targets of docs/PLAN.md ("Phase 9b design"): the whole catalogue of 100,000 games
 // read over loopback in under 20 s; a page and a search of the device's copy under 50 ms.
 // Run with `cargo test --release -- --ignored timing` (CI does, on Windows).

@@ -3,8 +3,11 @@
 // control, Up and Left to the one before (in a text box Left and Right move in the text,
 // on a list they change it); Enter presses, and ticks a box; Esc or Backspace goes back.
 // A part that moves itself (the Library's games, by rows and columns) says so with
-// data-keys="own" and leaves the key alone at its edges. On Windows the page reads
-// controllers itself (the Gamepad API); Android's plugin turns them into keys (part 3).
+// data-keys="own" and leaves the key alone at its edges. On Windows and Linux the page
+// reads controllers itself (the Gamepad API; on the Steam Deck, the controller Steam Input
+// gives it, D107); Android's plugin turns them into keys (part 3).
+
+import { info, keyboard } from "./backend.js";
 
 const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]';
 
@@ -50,9 +53,10 @@ export function keys(back) {
   });
 }
 
-/** Controllers on Windows (the Gamepad API's standard layout): the D-pad and left stick
- *  as the arrows, A as Enter, B as Back, X ticks a game, the shoulder buttons a page up
- *  or down. Held arrows repeat. */
+/** Controllers on Windows and Linux (the Gamepad API's standard layout): the D-pad and
+ *  left stick as the arrows, A as Enter, B as Back, X selects a game, the shoulder buttons a
+ *  page up or down. Held arrows repeat. In Game Mode, A on a text box brings up Steam's
+ *  on-screen keyboard (D107). */
 export function gamepads() {
   if (!navigator.getGamepads) return;
   let running = false;
@@ -63,6 +67,7 @@ export function gamepads() {
     t?.dispatchEvent(e);
     // a key made here presses nothing itself: Enter clicks what's focused
     if (key === "Enter" && !e.defaultPrevented && !typing(t)) t?.click?.();
+    else if (key === "Enter" && typing(t) && info.game_mode) keyboard();
     if (key === "Escape" && !e.defaultPrevented) document.querySelector(".dialog-backdrop .dialog-head button")?.click();
   };
   const frame = (now) => {

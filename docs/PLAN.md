@@ -4371,6 +4371,188 @@ signing key. Built as D97 says, except where noted.
 - **Release**: the *What passed* job now waits for Windows and Android, so *Already tested*
   publishes the APK with the installers; the notes give the certificate's SHA-256.
 
+### Phase 9c design: the Steam Deck and PC games on devices (written 2026-10-20)
+
+Jerred asked (2026-10-20, after trying Game Repo Go for Android: "The app works and
+connects to the server as it should, go ahead and build phase 9c") for 9c as the roadmap
+has it: Game Repo Go built for Linux and usable with the Steam Deck's controls in Game
+Mode, and PC games on devices, unpacked into a folder that suits the platform (D105).
+D106–D112 are proposed here with the defaults Claude picked; since Jerred asked for it
+to be built, they're followed unless he says otherwise. Two pull requests, as 9b's parts:
+
+1. Game Repo Go for Linux and the Steam Deck (D106–D109).
+2. PC games on devices, for Windows and Linux (D110–D112).
+
+**D106 One AppImage for Linux and the Steam Deck.**
+- `Game Repo Go_<version>_amd64.AppImage` beside the other downloads on each release,
+  built on Ubuntu 22.04 so it runs on SteamOS 3 and on current desktop Linux. An AppImage
+  needs nothing installed, which suits SteamOS's read-only system; no Flatpak or `.deb`
+  for now.
+- On the Deck it's started from Desktop Mode, or from Game Mode once it's in Steam (D107).
+  ES-DE as EmuDeck sets it up is found as on Windows, from `~/ES-DE/settings/es_settings.xml`,
+  whose ROMs folder may be on the SD card.
+- Its data is in `~/.local/share/io.github.drflgd.gamerepo.go/`.
+
+**D107 Game Mode.**
+- Controllers: Steam Input gives a non-Steam app a standard controller, which WebKitGTK
+  hands to the page's Gamepad API, so the Windows code (D103) works as it is: the D-pad
+  and left stick move, A presses, B goes back, X selects a game, the shoulder buttons page.
+- Typing: a text box reached with a controller in Game Mode opens Steam's on-screen
+  keyboard (`steam://open/keyboard`), since nothing else would.
+- Settings › *Steam* › *Add Game Repo Go to Steam* adds the app itself as a non-Steam game
+  (its AppImage and icon), so it's in Game Mode's library. It follows D109.
+- The pages fit the Deck's 1280×800 screen, full screen in Game Mode. Under Game Mode's
+  compositor WebKitGTK's DMA-BUF renderer is turned off, which avoids the blank window some
+  WebKitGTK apps show there.
+
+**D108 The pairing on Linux is kept in a file only its user can read** (`secrets.json`,
+mode 600, in the data folder), as Steam keeps its own sign-in. Not the Secret Service or
+KWallet: Game Mode can't unlock a keyring, and an unanswered prompt would stop pairing.
+
+**D109 Steam's files are written only while Steam is closed.**
+- Steam keeps non-Steam games in `userdata/<id>/config/shortcuts.vdf` and the Proton chosen
+  for each in `config/config.vdf`, and rewrites both itself, so Game Repo Go writes them
+  only while Steam is closed, as Game Repo's Steam export does (D28), backing each up first
+  (the last five kept).
+- While Steam runs (always, in Game Mode) the changes wait, and Settings says so with
+  *Restart Steam*: a small helper that outlives Steam closes it (`steam -shutdown`), writes
+  the changes and starts Steam again (Game Mode brings it back by itself). Otherwise they're
+  written the next time Game Repo Go finds Steam closed.
+- Only the shortcuts tagged *Game Repo Go* are the app's; every other is kept as it was.
+  The Steam user is the one signed in most recently, changeable in Settings.
+- The VDF code moves from the core into a small crate of its own, `gamerepo-steam`, which
+  the core and Game Repo Go's backend share.
+
+**D110 PC games in the catalogue.**
+- The server lists the library's PC games (D25, D55) as one more system, *PC games*
+  (`pcgames`, not ES-DE's `pc`, which is DOS), with each game's title, year, unpacked size
+  and pictures. Only devices that ask for it get it: Game Repo Go on Windows and Linux, from
+  this version. Android doesn't (D105), nor does the earlier Game Repo Go.
+- A game can go on a device when it has an archive of its game (zip, 7z or rar, of the kind
+  *install*) or an `extracted/` folder (D6). One that only has an installer is listed with
+  why it can't go yet; GOG's installers come later with `innoextract` (D14).
+
+**D111 A PC game's plan.**
+- A new place, `pc`: the device's PC games folder (D105: `C:\Games\` on Windows, `~/Games/`
+  on Linux, either changed in Settings). Each file goes to `<Title> (<Year>)/<its path in the
+  archive>`.
+- The server unpacks the archive once, into its data folder beside its made files (the
+  newest kept up to the same limit), and the plan gives each file with its size and SHA-1;
+  until it's unpacked the plan isn't ready, as with made files (D93). An `extracted/` copy is
+  sent as the library has it.
+- Only the game's install archives go in this version; its patches, DLC and extras are
+  listed as left, with why.
+- The device fetches and checks the files as it does every other game's (resumed, written
+  under a temporary name, renamed into place), so it never needs room for the archive too.
+
+**D112 Starting and removing a PC game.**
+- Windows: a Start menu shortcut in a *Game Repo Go* folder, to the game's program
+  (`game.json`'s *launch*, D6).
+- Linux: a Steam shortcut (D109), with Proton for a Windows program (`.exe`, `.bat`; Proton
+  Experimental unless Settings says another), and as it is for a Linux one. Its pictures go
+  in Steam's grid folder when the game has them, as D28 does.
+- A game without a program gets no shortcut, and Game Repo Go says so.
+- *On this device* lists PC games with the others. Removing one takes the files Game Repo
+  Go wrote and its shortcut; files the game made itself in its folder (saves, settings) are
+  kept with the folder, and Game Repo Go says how many (saves are never touched, D88).
+
+### Phase 9c notes, part 1: Game Repo Go for the Steam Deck and Linux (built 2026-10-20)
+
+The first of 9c's pull requests: the AppImage, Game Mode, Settings › *Steam* and the
+Steam helper. Built as D106–D109 say, except where noted.
+
+- **Steam's files** (D109): `desktop/steam/` (`gamerepo-steam`) holds the binary VDF code
+  that was in the core, now with Steam's text VDF (`text.rs`, written back as Steam writes
+  it), the Proton chosen per shortcut in `config.vdf`'s `CompatToolMapping` (name,
+  `config` empty, priority 250, as Steam writes it), Steam's users from `loginusers.vdf`,
+  backups beside each file, and `running()`. Game Repo's Add to Steam uses it unchanged in
+  what it writes; its shortcuts are tagged *Game Repo* and backed up as `.gamerepo-*`, Game
+  Repo Go's tagged *Game Repo Go* and backed up as `.gamerepogo-*` (the last five of each),
+  so neither touches the other's. Steam is found at `~/.steam/steam`,
+  `~/.local/share/Steam` or Flathub's folder, or where Settings says.
+- **Is Steam running**: on Linux, any process named `steam` that isn't a zombie (read from
+  `/proc`; `pgrep` counts zombies, which kept the helper waiting in the test).
+- **What Game Repo Go wants in Steam** is kept in `steam.json` in its data folder
+  (`desktop/device/src/steam.rs`): each shortcut it wants (its key, name, program, folder,
+  icon, Proton or not and pictures) and what it last wrote (Steam's folder and user, the
+  shortcuts' ids, the Protons, the grid files). `apply` writes it only when Steam is
+  closed, and takes out what's no longer wanted, from the previous user's file too when the
+  user changes. Part 2's PC games use the same `want`.
+- **Restart Steam**: Settings asks first (Steam closes with any game it's running, and in
+  Game Mode Game Repo Go too), then starts the helper, the app itself with `--steam-apply
+  <data folder>` (`gamerepo-cli device steam-apply --data` for the tests' stand-in), as a
+  unit of the user's systemd (`systemd-run --user`, `KillMode=process`, with the session's
+  `PATH`, display and bus passed on, since a unit gets the user manager's), else in a
+  session of its own (`setsid`). It runs `steam -shutdown`, waits up to 90 s for Steam to
+  close, writes, and starts Steam again outside Game Mode. What it did goes in
+  `steam-restart.log` in the data folder; Settings looks again every 3 s while something
+  waits.
+- **Settings › Steam** (Linux only): Steam's folder when it isn't found, the user when
+  there are several, *Game Repo Go in Steam's library* (the AppImage, `$APPIMAGE`, with the
+  app's icon written to the data folder as its icon and grid icon), and what waits with
+  *Restart Steam…*, or *Write them now* when Steam is closed.
+- **Game Mode** (D107) is told by `SteamGamepadUI=1`, `XDG_CURRENT_DESKTOP=gamescope` or
+  `GAMESCOPE_WAYLAND_DISPLAY`. There, Enter or A on a text box opens Steam's keyboard
+  (`steam steam://open/keyboard`, the app's `keyboard` command), the DMA-BUF renderer is
+  off, and closing the window quits rather than hiding to the tray, which Game Mode
+  doesn't have.
+- **The pairing** (D108): `secrets.json`, written as a new file with mode 600 and renamed
+  into place; an older one is set to 600 when read.
+- **Words** (Jerred, 2026-10-20: "tick" to change to "queue" or "add to queue", whichever
+  makes more sense): Game Repo Go's ticks pick games to add together, which isn't the
+  queue itself, so the buttons that put games in the queue say *Add to queue…* (they said
+  *Add to device…*) and picking several says *Select* (*Selected*, *Selected games*), on
+  every platform, as does Make room on *On this device*.
+- **CI**: the *Steam Deck app* job (Ubuntu 22.04) runs `gamerepo-steam`'s, the device's and
+  the client's Rust tests and the core's Steam tests, `client_page.py` (Settings › Steam
+  against a stand-in Steam folder and a stand-in `steam` command, Restart Steam closing a
+  running one, A on a text box in Game Mode), builds the AppImage, starts it, runs
+  `tests/steam_helper.py` with it against a stand-in Steam, and drives the built app with
+  `client_ui.py --gamepad`: a virtual Xbox 360 pad made with uinput (as Steam Input gives
+  one) moves between games, opens one with A and comes back with B through WebKitGTK's
+  Gamepad API, and the pairing's file is mode 600. *What passed* and the release wait for
+  it, and *Already tested* needs its AppImage.
+- **Not tried**: a real Steam Deck, Game Mode itself (gamescope, Steam Input, the
+  on-screen keyboard), the Flatpak Steam, and an SD card's ROMs folder.
+
+### Phase 9c notes, part 2: PC games on devices (built 2026-10-20)
+
+The second of 9c's pull requests: D110–D112, built as they say, except where noted.
+
+- **Catalogue (D110).** `catalogue.rs` adds the library's PC games (the `library` rows of
+  kind `pc`) as system `pcgames`, named *PC games*, each keyed `pcgames/<id>` (its Library
+  key `pc/<id>` in `serve_keys`). Its size is its unpacked files': the `extracted/` folder's,
+  else the install archives' members (read from their directories, kept in `serve_sizes`).
+  Only a device that asks (`pc=1` on `/v1/systems`, `/v1/games` and `/v1/changes`) gets
+  them; Game Repo Go asks on Windows and Linux, and reads its list whole again when what it
+  asks for changes. **Changed:** a game with only an installer isn't listed at all, since no
+  size can be known for it; asked for by key, its plan says why it can't go.
+- **Plan (D111).** `plans.rs` splits a plan's PC games from the rest. Each file goes in place
+  `pc` at `<Title> (<Year>)/<path>`, from `extracted/` (`/v1/files/pc/…`) or from the
+  install archives unpacked by `unpacked.rs` (`/v1/files/unpacked/<id>/<path>`, its SHA-1
+  from `files.json`). An archive is known by its paths, sizes and modified times, so a new
+  copy is unpacked again; a game being unpacked is in the plan's `waiting`, and Game Repo Go
+  asks for the plan every 2 seconds until it's empty (its queue item says *Being unpacked on
+  the library first*). Patches, DLC and extras are listed in `left`.
+- **Shortcuts (D112).** The plan's `programs` give each game's program: `game.json`'s launch
+  when it's in `extracted/`, else the likeliest `.exe`, `.bat`, `.cmd` or `.sh` (not a
+  setup or redistributable). On Windows `device/src/pcgames.rs` makes a `.lnk` in the Start
+  menu's *Game Repo Go* folder with WScript.Shell (through PowerShell, paths in the
+  environment, no window); it's one of the game's files in the record, so removing the game
+  takes it. On Linux it's a Steam shortcut through D109's waiting shortcuts, with Proton for
+  a Windows program; the game's cover, banner, hero, logo and icon come with the plan into
+  the app's `pc-media/` for Steam's grid. A Linux program is made executable.
+- **Removing.** Removing takes the record's files as for any game; `after_removal` takes the
+  Steam shortcut out and counts what's left in each game folder (the files the game made),
+  returned as `kept_made` and said in the toast. ES-DE isn't restarted for PC games: they
+  don't count toward *Restart ES-DE*.
+- **Settings.** *PC games* (Windows and Linux): the folder, with *Use the usual folder*; a
+  path that isn't whole is refused.
+- **Tests.** `serve/tests/client.rs` (a PC game unpacked by the server, another sent from
+  `extracted/`, one with only an installer, a patch left; files, the Steam shortcut on Linux
+  and the `.lnk` on Windows, removal keeping a save); `unpacked.rs`'s own test; step 13c of
+  `tests/client_page.py` (the pages on Windows, Linux and the Steam Deck job).
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -4516,7 +4698,7 @@ signing key. Built as D97 says, except where noted.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D106). D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D113). D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 

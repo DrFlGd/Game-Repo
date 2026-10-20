@@ -14,7 +14,7 @@ the library has, renamed, and one it doesn't).
 Checks: Game Repo Go asks to be paired, finds nothing wrong with an address typed in, and
 a wrong code is refused; the code from Game Repo pairs it and the library is read onto
 the device; a system browsed from the picker; a search across every system; three games
-ticked, their size against the free space; Add to device… with the media kinds and their
+ticked, their size against the free space; Add to queue… with the media kinds and their
 sizes, one unticked; the queue watched to the end and "Restart ES-DE"; the games in ES-DE's
 folders and gamelists with the kinds chosen and not the other; On this device with the
 games from the library, the copy recognised and the game from elsewhere; Make room ticking
@@ -165,8 +165,24 @@ port = int(wait_for("at ").split()[1].split(",")[0].rsplit(":", 1)[1])
 wait_for("ready")
 address = f"127.0.0.1:{port}"
 ui_port = free_port()
+# Steam on this "device" (D109): a user's folder, and on Linux a `steam` that closes a
+# stand-in Steam (a program named steam) when told -shutdown, and notes when it's started
+steam_dir, steam_bin = home / "steam" / "Steam", home / "steam" / "bin"
+(steam_dir / "userdata" / "22202" / "config").mkdir(parents=True)
+(steam_dir / "config").mkdir(parents=True)
+(steam_dir / "config" / "loginusers.vdf").write_text('"users"\n{\n\t"76561197960287930"\n\t{\n\t\t"AccountName"\t\t"deck"\n\t\t"PersonaName"\t\t"Deck"\n\t\t"MostRecent"\t\t"1"\n\t}\n}\n')
+steam_bin.mkdir(parents=True)
+(steam_bin / "steam").write_text(f"""#!/bin/sh
+if [ "$1" = "-shutdown" ]; then kill "$(cat '{steam_bin}/running.pid')"; else date > '{steam_bin}/started'; fi
+""")
+(steam_bin / "steam").chmod(0o755)
+go_env = {**os.environ, "PATH": f"{steam_bin}{os.pathsep}{os.environ.get('PATH', '')}"}
+if sys.platform == "win32":  # PC games' Start menu shortcuts (D112) go in the test's own
+    go_env["APPDATA"] = str(home / "appdata")
+for k in ("SteamGamepadUI", "GAMESCOPE_WAYLAND_DISPLAY"):
+    go_env.pop(k, None)
 go = subprocess.Popen([cli, "client-ui", "--ui", str(ui), "--home", str(phone), "--data", str(go_data), "--port", str(ui_port), "--kind", "windows"],
-                      stdout=subprocess.DEVNULL, stderr=open(out / "client-ui.log", "w", encoding="utf-8"))
+                      stdout=subprocess.DEVNULL, stderr=open(out / "client-ui.log", "w", encoding="utf-8"), env=go_env)
 B = f"http://127.0.0.1:{ui_port}/"
 for _ in range(100):
     try:
@@ -221,7 +237,23 @@ async def focus_order(pg, presses, key="ArrowDown"):
     return seen
 
 
+def add_pc_game():
+    """A PC game added to the library (D110): Zeta, only its install archive, which the server
+    unpacks for a device (D111)."""
+    import zipfile
+    game = lib / "PC" / "Zeta (1999)"
+    (game / "install").mkdir(parents=True)
+    with zipfile.ZipFile(game / "install" / "Zeta.zip", "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("Zeta/zeta.exe", b"MZ zeta")
+        z.writestr("Zeta/data/level1.dat", bytes(range(256)) * 256)
+    size = (game / "install" / "Zeta.zip").stat().st_size
+    (game / "game.json").write_text(json.dumps({"id": "zeta", "title": "Zeta", "year": 1999, "source": "other",
+                                                "files": [{"path": "install/Zeta.zip", "kind": "install", "size": size, "crc32": "", "added": ""}]}), encoding="utf-8")
+    run("serve-devices", "changed", "--data", data)
+
+
 async def main():
+    global before
     async with async_playwright() as p:
         b = await p.chromium.launch(executable_path=a.chromium)
         ctx = await b.new_context(viewport=PHONE, device_scale_factor=2, has_touch=True)
@@ -272,12 +304,12 @@ async def main():
             check("three games ticked show their size against the free space", "3 games" in bar and "free" in bar, bar)
             await shot(pg, "03-phone-ticked")
 
-            # 4. Add to device…: the kinds with their sizes, Screenshot unticked
+            # 4. Add to queue…: the kinds with their sizes, Screenshot unticked
             await pg.click("#go-add")
             await pg.wait_for_selector("#add-kinds input[name=cover]")
             kinds = await pg.inner_text("#add-kinds")
             ticked = await pg.eval_on_selector_all("#add-kinds input", "els => els.filter(e => e.checked).map(e => e.name)")
-            check("Add to device… shows the media kinds the library has, with sizes, ticked as Settings says", "Box front" in kinds and "Screenshot" in kinds and "KB" in kinds and "cover" in ticked and "screenshot" in ticked, (kinds, ticked))
+            check("Add to queue… shows the media kinds the library has, with sizes, ticked as Settings says", "Box front" in kinds and "Screenshot" in kinds and "KB" in kinds and "cover" in ticked and "screenshot" in ticked, (kinds, ticked))
             await pg.uncheck("#add-kinds input[name=screenshot]")
             await shot(pg, "04-phone-add")
             label = await pg.inner_text("#add-dialog button[type=submit]")
@@ -452,11 +484,148 @@ async def main():
                   and await pg.evaluate("() => location.hash") == "#library", (from_game, shell()))
             shell(kind="windows")
 
+            # 13b. on Linux and the Steam Deck (D107, D109): Settings › Steam adds Game Repo Go
+            # to Steam's library, written at once while Steam's closed; while it runs the change
+            # waits, and Restart Steam closes it, writes it and starts it again; in Game Mode A
+            # on a text box brings up Steam's keyboard
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#set-version")
+            not_on_windows = await pg.query_selector("#set-steam") is None
+            shell(kind="linux", game_mode=True)
+            await pg.set_viewport_size({"width": 1280, "height": 800})
+            await pg.reload()
+            await pg.wait_for_selector("#set-steam-none")
+            await pg.fill("#set-steam-folder input", str(steam_dir))
+            await pg.click("#set-steam-folder button:has-text('Save')")
+            await pg.wait_for_selector("#set-steam-self")
+            await pg.click("#set-steam-self")
+            await pg.wait_for_selector("#set-steam-done")
+            vdf = (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+            mine = b"Game Repo Go" in vdf and Path(cli).name.encode() in vdf
+            await shot(pg, "16-pc-linux-steam")
+            check("on Linux, Settings adds Game Repo Go to Steam's library, written while Steam's closed",
+                  not_on_windows and mine, (not_on_windows, vdf[:200]))
+            # A on a text box, from a controller, in Game Mode: Steam's keyboard
+            before_kb = shell()["keyboard"]
+            await pg.evaluate("""() => {
+                const pad = { id: "Steam Virtual Gamepad", connected: true, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+                window.__pad = pad;
+                Object.defineProperty(navigator, "getGamepads", { value: () => [pad], configurable: true });
+                document.querySelector("#set-name").focus();
+                dispatchEvent(new Event("gamepadconnected"));
+            }""")
+            await asyncio.sleep(0.3)
+            await pg.evaluate("() => { window.__pad.buttons[0].pressed = true; }")
+            await asyncio.sleep(0.3)
+            await pg.evaluate("() => { window.__pad.buttons[0].pressed = false; }")
+            for _ in range(30):
+                if shell()["keyboard"] > before_kb:
+                    break
+                await asyncio.sleep(0.1)
+            check("in Game Mode, A on a text box brings up Steam's on-screen keyboard", shell()["keyboard"] == before_kb + 1, shell())
+            if sys.platform.startswith("linux"):
+                # Steam running: a program named steam
+                (steam_bin / "run").mkdir(exist_ok=True)
+                shutil.copy("/bin/sleep", steam_bin / "run" / "steam")
+                fake = subprocess.Popen([str(steam_bin / "run" / "steam"), "600"])
+                (steam_bin / "running.pid").write_text(str(fake.pid))
+                await pg.reload()
+                await pg.wait_for_selector("#set-steam-self")
+                await pg.click("#set-steam-self")
+                await pg.wait_for_selector("#set-steam-waiting")
+                waiting = await pg.inner_text("#set-steam-waiting")
+                still = b"Game Repo Go" in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+                await pg.click("#set-steam-restart")
+                await pg.wait_for_selector("#set-steam-sure")
+                await shot(pg, "17-pc-linux-steam-restart")
+                await pg.click("#set-steam-restart-now")
+                log = go_data / "steam-restart.log"
+                for _ in range(300):
+                    if log.exists() and "written" in log.read_text() and (steam_bin / "started").exists():
+                        break
+                    await asyncio.sleep(0.1)
+                fake.wait(timeout=10)
+                gone = b"Game Repo Go" not in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+                await pg.wait_for_selector("#set-steam-waiting", state="detached", timeout=10000)
+                check("while Steam runs a change waits, and Restart Steam closes it, writes the change and starts it again",
+                      "Steam is running" in waiting and still and gone and (steam_bin / "started").exists(),
+                      (waiting, still, gone, log.read_text() if log.exists() else "no log"))
+            shell(kind="windows", game_mode=False)
+            await pg.set_viewport_size(PHONE)
+
+            # 13c. PC games (D110-D112), on Windows and Linux: a system of their own, put in the
+            # PC games folder Settings names, each game in its folder with a shortcut (in the
+            # Start menu on Windows, in Steam on Linux); removed, a save it made stays
+            add_pc_game()
+            before = snapshot(lib, fixtures, phone / "Saves", phone / "ES-DE" / "settings")
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#set-pc-folder")
+            usual = await pg.input_value("#set-pc-folder input")
+            pc_games = home / "pc-games"
+            await pg.fill("#set-pc-folder input", str(pc_games))
+            await pg.click("#set-pc-folder button:has-text('Save')")
+            await pg.wait_for_selector("#set-pc-usual")
+            check("Settings shows the PC games folder, the usual one until another is chosen", usual.endswith("Games"), usual)
+            # the library read again once the server has the game
+            listed = False
+            for _ in range(60):
+                listed = await pg.evaluate("""async () => { const b = await import('./client/backend.js'); await b.call('sync');
+                    for (let i = 0; i < 20 && (await b.call('status')).sync.running; i++) await new Promise((r) => setTimeout(r, 100));
+                    return (await b.call('systems')).some((x) => x.id === 'pcgames'); }""")
+                if listed:
+                    break
+                await asyncio.sleep(0.5)
+            await pg.goto(B + "#library")
+            await pg.reload()
+            await pg.wait_for_selector("#go-place-pick option[value='s:pcgames']", state="attached", timeout=20000)
+            await pg.select_option("#go-place-pick", "s:pcgames")
+            # Zeta is in every system's list too, so wait for the system's own to be shown
+            await settled(pg, "() => document.querySelector('#go-place-name')?.textContent.includes('PC games')"
+                              " && [...document.querySelectorAll('#go-games .go-card[data-key]')].map(e => e.dataset.key).join() === 'pcgames/zeta'", 20000)
+            shown = await cards(pg)
+            check("PC games are a system of their own in the Library", listed and shown == ["pcgames/zeta"], (listed, shown))
+            await pg.click('.go-card[data-key="pcgames/zeta"] .go-tick')
+            await pg.click("#go-add")
+            await pg.wait_for_selector("#add-pc")
+            said = await pg.inner_text("#add-dialog")
+            await shot(pg, "18-phone-add-pc-game")
+            check("Add to queue… says where a PC game goes, and that the library unpacks it first", str(pc_games) in said and "being unpacked on the library first" in said, said)
+            await pg.click("#add-dialog button[type=submit]")
+            await toast(pg, "added to the queue")
+            await pg.click("#go-nav-queue")
+            await pg.wait_for_selector('#queue-done li[data-key="pcgames/zeta"]', timeout=120000)
+            restart = await pg.query_selector("#queue-restart")
+            folder = pc_games / "Zeta (1999)"
+            files = sorted(str(x.relative_to(folder)).replace("\\", "/") for x in folder.rglob("*") if x.is_file()) if folder.is_dir() else []
+            if sys.platform == "win32":
+                shortcut = (home / "appdata" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Game Repo Go" / "Zeta.lnk").is_file()
+            else:
+                shortcut = b"Zeta" in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+            check("a PC game is unpacked into its own folder of the PC games folder, with a shortcut, and no ES-DE restart asked for",
+                  files == ["Zeta/data/level1.dat", "Zeta/zeta.exe"] and shortcut and restart is None, (files, shortcut, restart is None))
+            (folder / "Zeta" / "save1.sav").write_bytes(b"a save")
+            await pg.click("#go-nav-device")
+            await pg.wait_for_selector('[data-id="pc:Zeta (1999)"]')
+            await pg.check('[data-id="pc:Zeta (1999)"] .go-row-tick')
+            await pg.click("#device-remove")
+            await pg.wait_for_selector("#remove-pc")
+            listed = await pg.inner_text("#remove-dialog")
+            await pg.click("#remove-dialog button[type=submit]")
+            said = await toast(pg, "Removed 1 game")
+            if sys.platform == "win32":
+                shortcut = (home / "appdata" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Game Repo Go" / "Zeta.lnk").exists()
+            else:
+                shortcut = b"Zeta" in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+            left = sorted(str(x.relative_to(folder)).replace("\\", "/") for x in folder.rglob("*") if x.is_file()) if folder.is_dir() else []
+            check("removing a PC game takes its files and shortcut, and keeps a save it made, said so",
+                  "Files it made itself" in listed and "stay in Zeta (1999)" in said and left == ["Zeta/save1.sav"] and not shortcut, (listed[-300:], said, left, shortcut))
+
             # 14. away from home: the library's list and a game's details are kept on the device
             server.terminate()
             server.wait(timeout=30)
             await pg.goto(B + "#library")
-            await pg.wait_for_function("() => document.querySelectorAll('#go-games .go-card[data-key]').length === 4", timeout=20000)
+            await pg.select_option("#go-place-pick", "")
+            await pg.wait_for_function("() => document.querySelectorAll('#go-games .go-card[data-key]').length === 5", timeout=20000)
             await pg.goto(B + "#game/" + "gb%2FAlpha%20(USA)")
             await pg.wait_for_selector("#go-game-title")
             check("with the library away the list and a game's details are still here", "Alpha is a game made for this test." in await pg.inner_text("#go-game"))

@@ -1,6 +1,6 @@
 // Game Repo Go's page state: where it is (the address's #page), what the backend last said
 // (status, settings, the library's systems and collections), the Library's place, search
-// and ticks, and the dialog and message showing. The backend's changes ("go-changed")
+// and what's selected, and the dialog and message showing. The backend's changes ("go-changed")
 // bring the parts they touch up to date.
 import { createStore } from "../lib/store.js";
 import { SKINS, THEMES } from "../ui/state.js";
@@ -18,11 +18,11 @@ export const go = createStore({
   q: "",
   sort: "title",
   desc: false,
-  picked: {},                  // the games ticked in the Library: key -> { title, size, system }
+  picked: {},                  // the games selected in the Library: key -> { title, size, system }
   libraryRev: 0,               // counts the catalogue's changes, so lists read again
   deviceRev: 0,                // counts the device's changes (On this device)
   queueRev: 0,
-  roomFor: 0,                  // Make room: the bytes the Library's ticks need
+  roomFor: 0,                  // Make room: the bytes the Library's selected games need
   dialog: null,                // { type: "add" | "remove" | "pair" | …, … }
   toast: null,                 // { text, page? }
 });

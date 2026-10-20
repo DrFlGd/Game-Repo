@@ -186,7 +186,7 @@ async fn run(mut a: Args, data: PathBuf) -> Result<()> {
 
 pub fn device_command(mut a: Args) -> Result<()> {
     if a.rest.is_empty() {
-        bail!("device find|pair|unpair|systems|collections|games|game|add|remove|holdings|app (gamerepo-cli --help says more)");
+        bail!("device find|pair|unpair|systems|collections|games|game|add|remove|holdings|app|steam-apply (gamerepo-cli --help says more)");
     }
     let sub = a.rest.remove(0);
     let json_out = switch(&mut a, "--json");
@@ -203,6 +203,11 @@ pub fn device_command(mut a: Args) -> Result<()> {
             eprintln!("No server answered on this network (a firewall may be keeping it out): give device pair its address.");
         }
         return Ok(());
+    }
+    if sub == "steam-apply" {
+        // Game Repo Go's Steam helper (D109), as `steam_restart` starts it for the stand-in
+        let data = PathBuf::from(a.need("--data").context("--data <folder>: the client's own data folder")?);
+        return device::steam::helper(&data, switch(&mut a, "--game-mode"));
     }
     let to = PathBuf::from(a.need("--to").context("--to <folder>: the stand-in device's folder, holding ES-DE/ and ROMs/")?);
     if sub == "app" {
@@ -338,6 +343,13 @@ pub fn device_command(mut a: Args) -> Result<()> {
     }
 }
 
+/// The stand-in as Game Repo Go: this program, and its Steam helper (`device steam-apply`).
+fn own(data: &std::path::Path) -> device::app::Own {
+    let program = std::env::current_exe().unwrap_or_default();
+    let helper = vec![program.display().to_string(), "device".into(), "steam-apply".into(), "--data".into(), data.display().to_string()];
+    device::app::Own { program, icon: PathBuf::new(), helper }
+}
+
 /// Game Repo Go's backend run as its pages call it (`device app <command> [<args as JSON>]`),
 /// with the stand-in device's folder as the place ES-DE is found and `--data` as the
 /// client's own folder; `--wait` waits for the queue and the jobs in the background.
@@ -351,6 +363,7 @@ fn app_command(mut a: Args, to: &std::path::Path) -> Result<()> {
     };
     let secrets = Box::new(device::app::FileSecrets(data.join("secrets.json")));
     let app = device::app::App::open(&data, vec![to.to_path_buf()], "stand-in", secrets, Box::new(|_| {}))?;
+    app.set_own(own(&data));
     let answer = app.call(&cmd, &args)?;
     if !wait {
         app.queue.quit();
@@ -382,8 +395,9 @@ fn app_command(mut a: Args, to: &std::path::Path) -> Result<()> {
 /// the app's `picture://`, GET /events the backend's changes (server-sent events, the app's
 /// "go-changed"), POST /test/pick the answer to the next folder dialog, POST /test/shell
 /// what the shell says it is ({"kind": "android"}, whether All files access is allowed yet:
-/// {"granted": false}; asked for, it is) and GET /test/shell that and how often Back left
-/// the app ("left"), and the pages from --ui (client.html at /).
+/// {"granted": false}, asked for, it is; {"kind": "linux", "game_mode": true}) and GET
+/// /test/shell that, how often Back left the app ("left") and Steam's keyboard was asked
+/// for ("keyboard"), and the pages from --ui (client.html at /).
 pub fn client_ui(mut a: Args) -> Result<()> {
     use std::io::Write;
     use std::sync::mpsc::{channel, Sender};
@@ -398,8 +412,9 @@ pub fn client_ui(mut a: Args) -> Result<()> {
     let events = Box::new(move |what: &str| tell.lock().unwrap().retain(|l| l.send(what.to_string()).is_ok()));
     let secrets = Box::new(device::app::FileSecrets(data.join("secrets.json")));
     let app = device::app::App::open(&data, vec![home.clone()], &kind, secrets, events)?;
+    app.set_own(own(&data));
     let picks: Arc<Mutex<Vec<String>>> = Arc::default();
-    let shell = Arc::new(Mutex::new(json!({ "kind": kind, "granted": true, "left": 0 })));
+    let shell = Arc::new(Mutex::new(json!({ "kind": kind, "granted": true, "left": 0, "keyboard": 0, "game_mode": false })));
     let listener = std::net::TcpListener::bind(("127.0.0.1", port))?;
     eprintln!("Game Repo Go's pages on http://127.0.0.1:{port}/ (ES-DE looked for in {}, the client's folder {})", home.display(), data.display());
     for conn in listener.incoming() {
@@ -424,8 +439,14 @@ pub fn client_ui(mut a: Args) -> Result<()> {
                             }
                         },
                         "app_info" => {
-                            let kind = shell.lock().unwrap()["kind"].clone();
-                            json(&mut stream, 200, &json!({ "kind": kind, "version": env!("CARGO_PKG_VERSION"), "picture_url": "/picture/" }))
+                            let s = shell.lock().unwrap().clone();
+                            json(&mut stream, 200, &json!({ "kind": s["kind"], "version": env!("CARGO_PKG_VERSION"), "picture_url": "/picture/", "game_mode": s["game_mode"].as_bool().unwrap_or(false) }))
+                        }
+                        "keyboard" => {
+                            let mut s = shell.lock().unwrap();
+                            s["keyboard"] = json!(s["keyboard"].as_u64().unwrap_or(0) + 1);
+                            drop(s);
+                            json(&mut stream, 200, &Value::Null)
                         }
                         "storage" => {
                             let mut s = shell.lock().unwrap();

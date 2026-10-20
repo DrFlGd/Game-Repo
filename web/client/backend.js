@@ -19,8 +19,9 @@ export async function call(cmd, args = {}) {
   }
 }
 
-/** The shell's own: its kind (windows, android), version and where pictures come from. */
-export let info = { kind: "", version: "", picture_url: "picture://localhost/" };
+/** The shell's own: its kind (windows, android, linux), version, where pictures come from,
+ *  and whether it's in the Steam Deck's Game Mode. */
+export let info = { kind: "", version: "", picture_url: "picture://localhost/", game_mode: false };
 
 export async function start() {
   info = { ...info, ...(await tauri.core.invoke("app_info")) };
@@ -41,6 +42,10 @@ export const storage = (ask = false) => tauri.core.invoke("storage", { ask });
 
 /** Game Repo Go to the background (Android's Back with nothing to go back from). */
 export const leave = () => tauri.core.invoke("leave");
+
+/** Steam's on-screen keyboard (the Steam Deck's Game Mode, where nothing else would bring
+ *  one up for a text box). */
+export const keyboard = () => tauri.core.invoke("keyboard").catch(() => {});
 
 /** `fn()` on Android's Back (its button or gesture) instead of Android's own. */
 export function onBack(fn) {

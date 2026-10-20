@@ -1,6 +1,7 @@
 //! A plan's files, fetched (D95): a file in a folder with games
 //! (`/v1/files/roots/<folder's id>/<path>`), a game's media or documents in the library
-//! folder (`/v1/files/library/<path>`), or a made one (`/v1/files/made/<id>`). Nothing
+//! folder (`/v1/files/library/<path>`), a made one (`/v1/files/made/<id>`), a PC game's
+//! from its folder (`/v1/files/pc/<path>`) or unpacked (`/v1/files/unpacked/<id>/<path>`). Nothing
 //! else can be fetched: never `_library/`'s settings, journal or DATs, nothing hidden (the
 //! set-aside folders), nothing outside. One range per request, so a download picks up where
 //! it stopped; a file's ETag is its size and modified time, so resuming a file that changed
@@ -65,8 +66,20 @@ pub fn url_of(lib: &Library, roots: &[Root], path: &Path) -> Option<String> {
     library_allows(rel).then(|| format!("/v1/files/library/{}", http::encode_path(&slashes(rel))))
 }
 
-/// The library file a `/v1/files/library/…` or `/v1/files/roots/…` path names, if it can be fetched.
+/// Where a file in the PC games folder is fetched from (D111; the folder may be outside the
+/// library); None: it can't be.
+pub fn pc_url(lib: &Library, path: &Path) -> Option<String> {
+    let rel = path.strip_prefix(gamerepo_core::pcgames::folder(lib)).ok()?;
+    (!hidden(rel) && rel.components().next().is_some()).then(|| format!("/v1/files/pc/{}", http::encode_path(&slashes(rel))))
+}
+
+/// The library file a `/v1/files/library/…`, `/v1/files/roots/…` or `/v1/files/pc/…` path
+/// names, if it can be fetched.
 pub fn resolve(lib: &Library, roots: &[Root], rest: &str) -> Option<PathBuf> {
+    if let Some(rel) = rest.strip_prefix("pc/") {
+        let rel = rel_inside(rel).ok()?;
+        return (!hidden(&rel)).then(|| gamerepo_core::pcgames::folder(lib).join(rel));
+    }
     if let Some(rel) = rest.strip_prefix("library/") {
         let rel = rel_inside(rel).ok()?;
         return library_allows(&rel).then(|| lib.root().join(rel));

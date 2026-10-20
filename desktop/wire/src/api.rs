@@ -186,6 +186,9 @@ pub struct PlanAsk {
     /// entry are named for the device's file
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub named: Vec<(String, String)>,
+    /// PC games' pictures for Steam's grid too (a device that puts them in Steam, D112)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub steam_art: bool,
 }
 
 /// A media kind's size for the games asked for, asked for or not (C13, D88), so a device

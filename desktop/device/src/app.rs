@@ -6,9 +6,11 @@
 //! settings, kept in its own data folder; the pairing token is kept by [`Secrets`].
 
 use crate::catalogue::{self, Catalogue};
+use crate::pcgames;
 use crate::queue::{self, Ctx, Queue};
 use crate::removing::{self, Ask as RemoveAsk};
 use crate::scan::{self, Found};
+use crate::steam;
 use crate::{client, AddOptions, Device, Server};
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
@@ -29,7 +31,8 @@ pub trait Secrets: Send + Sync {
     fn delete(&self, name: &str) -> Result<()>;
 }
 
-/// Secrets in a file (the stand-in's and the tests'; never a real client's).
+/// Secrets in a file only its user can read: the stand-in's and the tests', and Game Repo
+/// Go's on Linux (D108).
 pub struct FileSecrets(pub PathBuf);
 
 impl FileSecrets {
@@ -46,13 +49,13 @@ impl Secrets for FileSecrets {
     fn set(&self, name: &str, value: &str) -> Result<()> {
         let mut m = self.all();
         m.insert(name.into(), value.into());
-        crate::write_whole(&self.0, &serde_json::to_vec_pretty(&m)?)
+        crate::write_private(&self.0, &serde_json::to_vec_pretty(&m)?)
     }
 
     fn delete(&self, name: &str) -> Result<()> {
         let mut m = self.all();
         if m.remove(name).is_some() {
-            crate::write_whole(&self.0, &serde_json::to_vec_pretty(&m)?)?;
+            crate::write_private(&self.0, &serde_json::to_vec_pretty(&m)?)?;
         }
         Ok(())
     }
@@ -86,6 +89,14 @@ pub struct Settings {
     pub screen: u32,
     /// The library paired with (its name)
     pub library: String,
+    /// Steam's folder, when it isn't where it's found, and the Steam user Game Repo Go's
+    /// shortcuts are for (none: the one signed in most recently) (D109)
+    pub steam: String,
+    pub steam_user: String,
+    /// The Proton a Windows program runs through (Steam's name for it, D112)
+    pub proton: String,
+    /// The PC games folder (empty: `C:\Games` on Windows, `~/Games` on Linux, D111)
+    pub pc_games: String,
 }
 
 impl Default for Settings {
@@ -104,6 +115,10 @@ impl Default for Settings {
             name: String::new(),
             screen: 1280,
             library: String::new(),
+            steam: String::new(),
+            steam_user: String::new(),
+            proton: "proton_experimental".into(),
+            pc_games: String::new(),
         }
     }
 }
@@ -164,6 +179,17 @@ pub struct App {
     me: Weak<App>,
     /// When the library was last looked for at another address
     looked: Mutex<Option<std::time::Instant>>,
+    /// Game Repo Go itself, for its own Steam shortcut (D107)
+    own: Mutex<Own>,
+}
+
+/// Game Repo Go's own program and icon, and the command line of its Steam helper
+/// ([`crate::steam::helper`]), as the app (or the stand-in) gives them.
+#[derive(Clone, Debug, Default)]
+pub struct Own {
+    pub program: PathBuf,
+    pub icon: PathBuf,
+    pub helper: Vec<String>,
 }
 
 /// How often the library is looked for at another address while it can't be reached,
@@ -191,6 +217,7 @@ impl App {
         let settings: Settings = std::fs::read(data.join("settings.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let catalogue = Arc::new(Catalogue::open(data)?);
         catalogue.set_picture_limit(settings.pictures_mb << 20);
+        catalogue.set_pc(kind != "android");
         let app = Arc::new_cyclic(|me: &Weak<App>| {
             let (a, b) = (me.clone(), me.clone());
             let queue = Queue::open(
@@ -202,7 +229,7 @@ impl App {
                     }
                 }),
             );
-            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default() }
+            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default() }
         });
         let me = Arc::downgrade(&app);
         app.queue.on_away(Box::new(move || me.upgrade().is_some_and(|a| a.find_again())));
@@ -215,6 +242,15 @@ impl App {
     pub fn set_homes(&self, homes: Vec<PathBuf>) {
         *self.homes.lock().unwrap_or_else(|e| e.into_inner()) = homes;
         self.changed("device");
+    }
+
+    /// What Game Repo Go is (its program, icon and Steam helper).
+    pub fn set_own(&self, own: Own) {
+        *self.own.lock().unwrap_or_else(|e| e.into_inner()) = own;
+    }
+
+    fn own(&self) -> Own {
+        self.own.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn settings(&self) -> Settings {
@@ -239,7 +275,22 @@ impl App {
         if !s.roms.is_empty() {
             d.places.insert("roms".into(), PathBuf::from(&s.roms));
         }
+        // PC games' folders (D111), on Windows and Linux
+        if self.pc() {
+            let games = if s.pc_games.is_empty() { pcgames::default_folder(&d.home) } else { PathBuf::from(&s.pc_games) };
+            d.places.insert("pc".into(), games);
+            d.places.insert("pcmedia".into(), self.data.join("pc-media"));
+            if let Some(m) = pcgames::start_menu().filter(|_| cfg!(windows)) {
+                d.places.insert("startmenu".into(), m);
+            }
+        }
+        d.data = Some(self.data.clone());
         Ok(d)
+    }
+
+    /// Whether PC games can go on this device (Windows and Linux, not Android, D110).
+    fn pc(&self) -> bool {
+        self.kind != "android"
     }
 
     fn options(&self) -> AddOptions {
@@ -250,6 +301,7 @@ impl App {
             size: s.screen,
             bios: true,
             at_once: s.at_once.clamp(1, api::DOWNLOADS),
+            steam_art: cfg!(target_os = "linux") && self.pc(),
             ..Default::default()
         }
     }
@@ -365,14 +417,18 @@ impl App {
                 }
                 let d = self.device()?;
                 let r = removing::remove(&d, &self.found(&d), &asks)?;
+                let kept = self.after_removal(&d, &r);
                 self.tell_holding(&d);
                 self.changed("device");
-                json!(r)
+                let mut v = json!(r);
+                v["kept_made"] = json!(kept);
+                v
             }
             "pending_removal" => json!(removing::pending(&self.device()?)),
             "finish_removal" => {
                 let d = self.device()?;
                 let r = removing::finish(&d)?;
+                self.after_removal(&d, &r);
                 self.tell_holding(&d);
                 self.changed("device");
                 json!(r)
@@ -383,6 +439,42 @@ impl App {
                 json!(r)
             }
             "add_media" => self.add_media(&arg_or::<String>(args, "id"), &arg_or::<String>(args, "key"), &arg::<Vec<String>>(args, "kinds")?)?,
+            "steam" => steam::status(&self.data),
+            "steam_add_self" => {
+                let own = self.own();
+                let w = if arg_or::<bool>(args, "on") {
+                    if own.program.as_os_str().is_empty() {
+                        bail!("Game Repo Go can't add itself to Steam from here.");
+                    }
+                    let icon = own.icon.display().to_string();
+                    Some(steam::Wanted {
+                        name: "Game Repo Go".into(),
+                        program: own.program.display().to_string(),
+                        start_dir: own.program.parent().map(|p| p.display().to_string()).unwrap_or_default(),
+                        icon: icon.clone(),
+                        art: if icon.is_empty() { BTreeMap::new() } else { BTreeMap::from([("icon".to_string(), icon)]) },
+                        ..Default::default()
+                    })
+                } else {
+                    None
+                };
+                steam::want(&self.data, steam::OWN, w)?;
+                self.changed("settings");
+                steam::status(&self.data)
+            }
+            "steam_apply" => {
+                let r = steam::apply(&self.data)?;
+                self.changed("settings");
+                r
+            }
+            "steam_restart" => {
+                let mut helper = self.own().helper;
+                if steam::game_mode() {
+                    helper.push("--game-mode".into());
+                }
+                steam::restart(&helper)?;
+                json!({})
+            }
             "settings" => json!(self.settings()),
             "set_settings" => {
                 let mut v = serde_json::to_value(self.settings())?;
@@ -398,6 +490,12 @@ impl App {
                 }
                 if !new.roms.is_empty() && !Path::new(&new.roms).is_dir() {
                     bail!("{} isn't a folder.", new.roms);
+                }
+                if !new.pc_games.is_empty() && !Path::new(&new.pc_games).is_absolute() {
+                    bail!("{} isn't a whole folder path (such as {}).", new.pc_games, pcgames::default_folder(Path::new("/home/deck")).display());
+                }
+                if !new.steam.is_empty() && !Path::new(&new.steam).join("userdata").is_dir() {
+                    bail!("{} isn't Steam's folder (it has no userdata folder).", new.steam);
                 }
                 self.update_settings(|s| *s = new.clone())?;
                 self.catalogue.set_picture_limit(new.pictures_mb << 20);
@@ -443,6 +541,7 @@ impl App {
             "checking": self.checking.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "catalogue": { "games": games, "synced": self.catalogue.meta("synced").and_then(|v| v.parse::<i64>().ok()) },
             "pictures": { "kept": pictures, "size": picture_bytes },
+            "pc": self.device().ok().and_then(|d| d.places.get("pc").cloned()).map(|f| json!({ "folder": f, "default": s.pc_games.is_empty() })),
         })
     }
 
@@ -543,6 +642,19 @@ impl App {
         });
     }
 
+    /// After PC games are removed (D112): their Steam shortcuts taken out, and the files
+    /// each game made itself in its folder (saves, settings), which stay, counted.
+    fn after_removal(&self, d: &Device, r: &removing::Removal) -> Vec<(String, usize)> {
+        let mut folders = vec![];
+        for h in r.held.iter().filter(|h| pcgames::is_pc(&h.key) && r.keys.contains(&h.key)) {
+            let _ = pcgames::unshortcut(&self.data, &h.key);
+            if let Some(f) = h.files.iter().find(|f| f.place == "pc").and_then(|f| f.path.split('/').next()) {
+                folders.push(f.to_string());
+            }
+        }
+        pcgames::left_in(d, &folders).into_iter().filter(|(_, n)| *n > 0).collect()
+    }
+
     /// What the library's told the device holds (best done; it's only shown there).
     fn tell_holding(&self, d: &Device) {
         if let Some(s) = self.server() {
@@ -557,7 +669,8 @@ impl App {
         let roms = self.device().ok().map(|d| d.places["roms"].clone());
         let mut out = vec![];
         for x in self.catalogue.systems()?.into_iter().filter(|x| x.games > 0) {
-            let there = roms.as_ref().is_some_and(|r| r.join(&x.folder).is_dir());
+            // PC games go in a folder of their own, made when the first comes
+            let there = x.id == pcgames::SYSTEM || roms.as_ref().is_some_and(|r| r.join(&x.folder).is_dir());
             if every || there || roms.is_none() {
                 out.push(json!({ "id": x.id, "name": x.name, "folder": x.folder, "games": x.games, "size": x.size, "on_device": there }));
             }
@@ -645,8 +758,10 @@ impl App {
             for f in h.files.iter().filter(|f| f.place == "media") {
                 *media.entry(f.role.clone()).or_default() += f.size;
             }
+            // a PC game by its folder in the PC games folder
+            let pc = h.files.iter().find(|f| f.place == "pc").and_then(|f| f.path.split('/').next()).map(|f| format!("pc:{f}"));
             rows.push(OnDevice {
-                id: first.map(|f| f.path.clone()).unwrap_or_default(),
+                id: pc.or_else(|| first.map(|f| f.path.clone())).unwrap_or_default(),
                 key: h.key.clone(),
                 from: "library".into(),
                 name: h.title.clone(),
@@ -728,7 +843,7 @@ impl App {
         });
     }
 
-    /// Before *Add to device* (D99, C9, C22): the games' size, each media kind the library
+    /// Before *Add to queue…* (D99, C9, C22): the games' size, each media kind the library
     /// has for them with its size (those ticked as last time), and the free space.
     fn prepare(&self, keys: &[String], args: &Value) -> Result<Value> {
         let s = self.server().ok_or_else(|| anyhow!("This device isn't paired with a library: pair it in Settings."))?;
@@ -751,8 +866,13 @@ impl App {
             .iter()
             .map(|k| json!({ "kind": k.kind, "name": names.get(k.kind.as_str()).copied().unwrap_or(&k.kind), "games": k.games, "size": k.size, "estimated": k.estimated, "ticked": if k.kind == "manual" { o.manuals } else { o.media.contains(&k.kind) } }))
             .collect();
-        let free = fs4::available_space(crate::existing(&d.places["roms"])).unwrap_or(0);
-        Ok(json!({ "games": keys.len(), "size": games, "kinds": kinds, "to_fetch": to_fetch, "free": free, "left": plan.left, "notes": plan.notes }))
+        // the free space where they go: the PC games folder's for PC games only
+        let place = if !keys.is_empty() && keys.iter().all(|k| pcgames::is_pc(k)) && d.places.contains_key("pc") { "pc" } else { "roms" };
+        let free = fs4::available_space(crate::existing(&d.places[place])).unwrap_or(0);
+        // a PC game being unpacked on the library: its size as the list has it
+        let waiting: u64 = plan.waiting.iter().filter_map(|k| self.catalogue.game(k)).map(|g| g.size).sum();
+        let (games, to_fetch) = (games + waiting, to_fetch + waiting);
+        Ok(json!({ "games": keys.len(), "size": games, "kinds": kinds, "to_fetch": to_fetch, "free": free, "left": plan.left, "notes": plan.notes, "unpacking": plan.waiting.len() }))
     }
 
     /// Games put in the queue with the media kinds chosen, which are remembered (C22).

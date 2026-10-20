@@ -8,7 +8,7 @@
 
 use crate::client::Refused;
 use crate::{add_planned, drop_parts, part_of, to_fetch, AddOptions, Damaged, Device, Server, Stopped, Watch};
-use anyhow::Result;
+use anyhow::{bail, Result};
 use gamerepo_wire::api::HeldFile;
 use gamerepo_wire::Plan;
 use serde::{Deserialize, Serialize};
@@ -68,6 +68,9 @@ pub struct Item {
     /// The plan was asked for again once already (its files changed while they came)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub replanned: bool,
+    /// A PC game the library is unpacking for it (D111), before its files can come
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unpacking: bool,
 }
 
 /// What a game is added with: the server, the device and the options from Settings.
@@ -398,7 +401,10 @@ impl Queue {
                             it.state = State::Done;
                             it.done = it.size;
                             it.plan = None;
-                            inner.added += 1;
+                            // ES-DE doesn't list PC games, so they need no restart of it
+                            if !crate::pcgames::is_pc(&it.key) {
+                                inner.added += 1;
+                            }
                         }
                         Err(e) if e.is::<Stopped>() => {
                             if quitting && it.state == State::Downloading {
@@ -447,6 +453,17 @@ impl Queue {
         }
     }
 
+    fn set_unpacking(&self, id: u64, on: bool) {
+        let mut inner = self.lock();
+        let Some(it) = inner.items.iter_mut().find(|i| i.id == id) else { return };
+        if it.unpacking == on {
+            return;
+        }
+        it.unpacking = on;
+        drop(inner);
+        (self.changed)();
+    }
+
     /// One game: its plan (asked for once and kept), then its files and its entries.
     fn one(&self, item: &Item, stop: &AtomicBool, got: &AtomicU64) -> Result<()> {
         let c = (self.ctx)()?;
@@ -460,7 +477,25 @@ impl Queue {
         let plan = match &item.plan {
             Some(p) => p.clone(),
             None => {
-                let p: Plan = c.server.call("POST", "/v1/plans", Some(&o.ask(&keys)))?;
+                let mut p: Plan = c.server.call("POST", "/v1/plans", Some(&o.ask(&keys)))?;
+                // a PC game's archive being unpacked on the library: its files aren't
+                // listed until it's done, so the plan's asked for again until then
+                while !p.waiting.is_empty() {
+                    self.set_unpacking(item.id, true);
+                    for _ in 0..20 {
+                        if stop.load(Ordering::SeqCst) {
+                            self.set_unpacking(item.id, false);
+                            return Err(Stopped.into());
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                    p = c.server.call("POST", "/v1/plans", Some(&o.ask(&keys))).inspect_err(|_| self.set_unpacking(item.id, false))?;
+                }
+                self.set_unpacking(item.id, false);
+                // nothing of it can go (a PC game whose archive couldn't be unpacked): why
+                if p.files.is_empty() && !p.left.is_empty() {
+                    bail!("{}", p.left.iter().map(|l| format!("{}: {}", l.what, l.why)).collect::<Vec<_>>().join(" "));
+                }
                 let mut inner = self.lock();
                 if let Some(it) = inner.items.iter_mut().find(|i| i.id == item.id) {
                     it.plan = Some(p.clone());

@@ -2,7 +2,8 @@
 //! `library` table) for the DAT games the library has whole (not those had in part, which
 //! an export leaves out), with a game on several discs one
 //! game (D94), kept in the server's index with a change marker so a client that keeps the
-//! catalogue fetches it once and then only what changed.
+//! catalogue fetches it once and then only what changed. The library's PC games are one
+//! more system, `pcgames` (D110), given only to devices that ask for them (`pc=1`).
 
 use anyhow::Result;
 use gamerepo_core::index::Index;
@@ -34,7 +35,58 @@ pub const TABLES: &str = "
     CREATE INDEX IF NOT EXISTS serve_keys_key ON serve_keys (key, disc);
     CREATE TABLE IF NOT EXISTS serve_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
     CREATE TABLE IF NOT EXISTS serve_hashes (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL, sha1 TEXT NOT NULL) STRICT;
+    -- a PC game's archive's unpacked size, by its path, size and modified time
+    CREATE TABLE IF NOT EXISTS serve_sizes (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL, unpacked INTEGER NOT NULL) STRICT;
 ";
+
+/// The catalogue's system for the library's PC games (not ES-DE's `pc`, which is DOS, D110).
+pub const PC: &str = "pcgames";
+
+/// What a PC game's files come to unpacked, by its id: its `extracted/` folder's, else its
+/// install archives' members' (read from their directories, and kept); a game with neither
+/// isn't listed.
+fn pc_sizes(ix: &Index, lib: &Library) -> Result<HashMap<String, u64>> {
+    let conn = ix.conn();
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let mut out = HashMap::new();
+    for e in gamerepo_core::pcgames::list(lib) {
+        let extracted = e.dir.join("extracted");
+        if extracted.is_dir() {
+            let mut files = vec![];
+            crate::plans::walk(&extracted, &mut files);
+            if !files.is_empty() {
+                out.insert(e.game.id.clone(), files.iter().filter_map(|p| std::fs::metadata(p).ok()).map(|m| m.len()).sum());
+                continue;
+            }
+        }
+        let mut total = 0u64;
+        for a in crate::plans::install_archives(&e) {
+            let Some((size, mtime)) = crate::made::stamp(&a) else { continue };
+            let key = a.to_string_lossy().into_owned();
+            let known: Option<i64> = conn
+                .query_row("SELECT unpacked FROM serve_sizes WHERE path = ?1 AND size = ?2 AND mtime = ?3", params![key, size as i64, mtime], |r| r.get(0))
+                .optional()?;
+            let n = match known {
+                Some(n) => n as u64,
+                None => {
+                    let kind = gamerepo_core::archive::kind_of(&key).unwrap_or("zip");
+                    let Ok(l) = gamerepo_core::archive::read(&a, kind, false, &cancel) else { continue };
+                    let n: u64 = l.members.iter().map(|m| m.hashes.size).sum();
+                    conn.execute(
+                        "INSERT INTO serve_sizes (path, size, mtime, unpacked) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime = excluded.mtime, unpacked = excluded.unpacked",
+                        params![key, size as i64, mtime, n as i64],
+                    )?;
+                    n
+                }
+            };
+            total += n;
+        }
+        if total > 0 {
+            out.insert(e.game.id.clone(), total);
+        }
+    }
+    Ok(out)
+}
 
 pub fn ensure_tables(ix: &Index) -> Result<()> {
     ix.conn().execute_batch(TABLES)?;
@@ -85,6 +137,12 @@ fn kind_of(picture: &str) -> Option<String> {
 /// Bring the catalogue up to date with the Library's rows: games changed, added or gone
 /// get the next change marker. Returns how many changed.
 pub fn refresh(ix: &Index) -> Result<usize> {
+    refresh_with(ix, None)
+}
+
+/// [`refresh`], with the library's PC games by their unpacked size when it's given (else
+/// by their files').
+pub fn refresh_with(ix: &Index, lib: Option<&Library>) -> Result<usize> {
     ensure_tables(ix)?;
     let conn = ix.conn();
     let mut by_system: BTreeMap<String, Vec<(String, String, String, String, Option<i64>, i64, String, Option<String>)>> = BTreeMap::new();
@@ -121,6 +179,24 @@ pub fn refresh(ix: &Index) -> Result<usize> {
                 continue;
             }
             rows.push(Row { key: g.0.clone(), system: system.clone(), title: g.2.clone(), sort: g.3.clone(), year: g.4, size: g.5, media: g.6.clone(), picture: g.7.clone(), keys: vec![g.0.clone()] });
+        }
+    }
+    // the PC games (D110), each by its id
+    {
+        let sizes = match lib {
+            Some(l) => pc_sizes(ix, l)?,
+            None => HashMap::new(),
+        };
+        let mut q = conn.prepare("SELECT key, title, sort, year, size, media, picture FROM library WHERE kind = 'pc'")?;
+        let mut found = q.query([])?;
+        while let Some(r) = found.next()? {
+            let key: String = r.get(0)?;
+            let Some(id) = key.strip_prefix("pc/") else { continue };
+            if lib.is_some() && !sizes.contains_key(id) {
+                continue;
+            }
+            let size: i64 = sizes.get(id).map(|&s| s as i64).unwrap_or(r.get(4)?);
+            rows.push(Row { key: format!("{PC}/{id}"), system: PC.into(), title: r.get(1)?, sort: r.get(2)?, year: r.get(3)?, size, media: r.get(5)?, picture: r.get(6)?, keys: vec![key.clone()] });
         }
     }
     let have: HashMap<String, (String, bool)> = conn
@@ -201,6 +277,8 @@ pub struct Ask {
     pub desc: bool,
     pub offset: u64,
     pub limit: u64,
+    /// The PC games too (a device that asks for them, D110)
+    pub pc: bool,
 }
 
 /// The games a page gives unless asked for more.
@@ -228,6 +306,9 @@ pub fn collection_keys(ix: &Index, lib: &Library, id: &str, group: Option<&str>)
 pub fn games(ix: &Index, lib: &Library, a: &Ask) -> Result<api::Page> {
     let mut w = vec!["g.gone = 0".to_string()];
     let mut p: Vec<Sql> = vec![];
+    if !a.pc {
+        w.push(format!("g.system != '{PC}'"));
+    }
     if !a.system.is_empty() {
         w.push("g.system = ?".into());
         p.push(Sql::Text(a.system.clone()));
@@ -262,16 +343,16 @@ pub fn games(ix: &Index, lib: &Library, a: &Ask) -> Result<api::Page> {
 /// Why a change marker can't be followed: the client fetches the whole list again (410).
 pub struct TooOld;
 
-/// The games changed since `since`, and the keys gone, a page at a time.
-pub fn changes(ix: &Index, since: i64, offset: u64) -> Result<std::result::Result<api::Changes, TooOld>> {
+/// The games changed since `since`, and the keys gone, a page at a time (the PC games with `pc`).
+pub fn changes(ix: &Index, since: i64, offset: u64, pc: bool) -> Result<std::result::Result<api::Changes, TooOld>> {
     let (rev, base) = revs(ix)?;
     if since < base || since > rev {
         return Ok(Err(TooOld));
     }
     let conn = ix.conn();
     let rows: Vec<(api::Game, bool)> = conn
-        .prepare(&format!("SELECT {COLS}, g.gone FROM serve_games g WHERE g.rev > ?1 ORDER BY g.rev, g.key LIMIT ?2 OFFSET ?3"))?
-        .query_map(params![since, (PAGE + 1) as i64, offset as i64], |r| Ok((game_of(r)?, r.get::<_, i64>(8)? == 1)))?
+        .prepare(&format!("SELECT {COLS}, g.gone FROM serve_games g WHERE g.rev > ?1 AND (?4 OR g.system != '{PC}') ORDER BY g.rev, g.key LIMIT ?2 OFFSET ?3"))?
+        .query_map(params![since, (PAGE + 1) as i64, offset as i64, pc], |r| Ok((game_of(r)?, r.get::<_, i64>(8)? == 1)))?
         .collect::<rusqlite::Result<_>>()?;
     let more = rows.len() as u64 > PAGE;
     let mut c = api::Changes { rev, more, ..Default::default() };
@@ -307,20 +388,21 @@ pub fn extensions(id: &str) -> Vec<String> {
 /// Each system with games, with its ES-DE folder; with `all`, every system Game Repo knows
 /// besides (none of whose games are in the catalogue), each with the extensions ES-DE lists
 /// as its games, so a device can tell what ES-DE has in a folder the library has nothing
-/// for (D100).
-pub fn systems(ix: &Index, lib: &Library, all: bool) -> Result<Vec<api::System>> {
+/// for (D100). The PC games only with `pc`, with no folder (they go in the device's own).
+pub fn systems(ix: &Index, lib: &Library, all: bool, pc: bool) -> Result<Vec<api::System>> {
     let esde = layout::get(Some(lib), "esde").ok();
     let folder = |id: &str| esde.as_ref().and_then(|l| l.folder(id)).unwrap_or_else(|| id.to_string());
-    let mut q = ix.conn().prepare("SELECT system, COUNT(*), SUM(size) FROM serve_games WHERE gone = 0 GROUP BY system ORDER BY system")?;
+    let mut q = ix.conn().prepare(&format!("SELECT system, COUNT(*), SUM(size) FROM serve_games WHERE gone = 0 AND (?1 OR system != '{PC}') GROUP BY system ORDER BY system"))?;
     let mut v: Vec<api::System> = q
-        .query_map([], |r| {
+        .query_map([pc], |r| {
             let id: String = r.get(0)?;
+            let is_pc = id == PC;
             Ok(api::System {
-                name: platforms::name_of(&id),
-                folder: folder(&id),
+                name: if is_pc { "PC games".into() } else { platforms::name_of(&id) },
+                folder: if is_pc { String::new() } else { folder(&id) },
                 games: r.get::<_, i64>(1)? as u64,
                 size: r.get::<_, i64>(2)? as u64,
-                extensions: if all { extensions(&id) } else { vec![] },
+                extensions: if all && !is_pc { extensions(&id) } else { vec![] },
                 id,
             })
         })?
@@ -471,7 +553,7 @@ mod tests {
         assert_eq!(refresh(&ix).unwrap(), 1_500);
         let again = t.elapsed();
         let (changed, c) = best(&|| {
-            let Ok(Ok(c)) = changes(&ix, rev, 0) else { panic!("the marker is followed") };
+            let Ok(Ok(c)) = changes(&ix, rev, 0, false) else { panic!("the marker is followed") };
             serde_json::to_vec(&c).unwrap();
             c
         });

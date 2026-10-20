@@ -16,7 +16,10 @@ be paired; the code from Game Repo pairs it and the library is read onto the dev
 front comes through the picture protocol; the pairing is kept in Windows Credential
 Manager (a file elsewhere); a game added is downloaded into ES-DE's folder and gamelist;
 Settings shows ES-DE's folder and the version; Unpair forgets the pairing (gone from
-Credential Manager too) and asks to be paired again; no page errors.
+Credential Manager too) and asks to be paired again; no page errors. On Linux the pairing's
+file is readable by its user alone (D108), and with --gamepad a virtual controller (an Xbox
+360 pad made with uinput, as Steam Input's is on the Steam Deck) moves between the games,
+opens one with A and comes back with B, through WebKitGTK's Gamepad API (D107).
 """
 import argparse
 import json
@@ -43,6 +46,7 @@ ap.add_argument("--cli", required=True)
 ap.add_argument("--home", required=True, help="a scratch folder for the library and the server")
 ap.add_argument("--out", default="shots")
 ap.add_argument("--driver", default="http://127.0.0.1:4444")
+ap.add_argument("--gamepad", action="store_true", help="Linux: try a virtual controller (needs /dev/uinput and python-evdev)")
 a = ap.parse_args()
 
 cli = str(Path(a.cli).resolve())
@@ -192,11 +196,55 @@ try:
         check("the pairing is kept in Windows Credential Manager", credentials(), subprocess.run(["cmdkey", "/list"], capture_output=True, text=True).stdout[-800:])
     else:
         kept = list(user.glob(".local/share/io.github.drflgd.gamerepo.go/secrets.json"))
-        check("the pairing is kept in the app's folder (Credential Manager on Windows)", kept and "server" in json.loads(kept[0].read_text(encoding="utf-8")), kept)
+        mode = oct(kept[0].stat().st_mode & 0o777) if kept else None
+        check("the pairing is kept in a file in the app's folder only its user can read", kept and "server" in json.loads(kept[0].read_text(encoding="utf-8")) and mode == "0o600", (kept, mode))
+
+    if a.gamepad and not WINDOWS:
+        # 1b. a controller, as Steam Input gives one to an app on the Steam Deck
+        from evdev import AbsInfo, UInput, ecodes as e
+        stick = AbsInfo(0, -32768, 32767, 16, 128, 0)
+        pad = UInput({e.EV_KEY: [e.BTN_SOUTH, e.BTN_EAST, e.BTN_NORTH, e.BTN_WEST, e.BTN_TL, e.BTN_TR, e.BTN_SELECT, e.BTN_START, e.BTN_MODE, e.BTN_THUMBL, e.BTN_THUMBR],
+                      e.EV_ABS: [(e.ABS_X, stick), (e.ABS_Y, stick), (e.ABS_RX, stick), (e.ABS_RY, stick), (e.ABS_Z, AbsInfo(0, 0, 255, 0, 0, 0)), (e.ABS_RZ, AbsInfo(0, 0, 255, 0, 0, 0)),
+                                     (e.ABS_HAT0X, AbsInfo(0, -1, 1, 0, 0, 0)), (e.ABS_HAT0Y, AbsInfo(0, -1, 1, 0, 0, 0))]},
+                     name="Microsoft X-Box 360 pad", vendor=0x045E, product=0x028E, version=0x110, bustype=e.BUS_USB)
+        try:
+            time.sleep(2)  # for udev and WebKitGTK to see it
+            # the window has the keyboard's focus, as it would on the Deck
+            subprocess.run(["xdotool", "search", "--name", "Game Repo Go", "windowfocus", "--sync"], timeout=20, capture_output=True)
+
+            def tap(code, value=1, kind=e.EV_KEY):
+                pad.write(kind, code, value)
+                pad.syn()
+                time.sleep(0.25)
+                pad.write(kind, code, 0)
+                pad.syn()
+                time.sleep(0.5)
+
+            # the first input makes the pad known to the page (gamepadconnected); then focus Alpha
+            pad.write(e.EV_ABS, e.ABS_Z, 10)
+            pad.syn()
+            time.sleep(1)
+            seen = d.execute_script("return navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean).map(p => p.id + ' ' + p.mapping) : 'no Gamepad API'")
+            # a card's button takes the focus; the card round it has the game's key
+            focused = "return document.activeElement?.closest('.go-card')?.dataset?.key || ''"
+            d.execute_script("document.querySelector('.go-card[data-key=\"gb/Alpha (USA)\"] .go-card-open').focus()")
+            first = d.execute_script(focused)
+            tap(e.ABS_HAT0X, 1, e.EV_ABS)
+            moved = d.execute_script(focused)
+            tap(e.BTN_SOUTH)
+            opened = d.execute_script("return location.hash")
+            tap(e.BTN_EAST)
+            # back where it came from: the Library, at the address it started at (no #library)
+            back = d.execute_script("return document.querySelector('#go-games') && !document.querySelector('#go-game-title') ? 'the Library' : location.hash")
+            shot("02b-controller")
+            check("a controller (as Steam Input gives one) moves between the games, opens one with A and comes back with B",
+                  first and moved and moved != first and opened.startswith("#game") and back == "the Library", (seen, first, moved, opened, back))
+        finally:
+            pad.close()
 
     # 2. a game added is downloaded into ES-DE's folder and gamelist
     click('.go-card[data-key="gb/Alpha (USA)"] .go-tick')
-    wait("document.querySelector('#go-add')", 10, "Add to device…")
+    wait("document.querySelector('#go-add')", 10, "Add to queue…")
     click("#go-add")
     wait("document.querySelector('#add-kinds input[name=cover]')", 30, "the media kinds")
     shot("03-add")

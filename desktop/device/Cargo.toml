@@ -11,6 +11,7 @@ name = "gamerepo_device"
 anyhow = "1"
 base64 = "0.22"
 crc32fast = "1"
+gamerepo-steam = { path = "../steam" }
 gamerepo-wire = { path = "../wire" }
 fs4 = "1"
 hex = "0.4"
