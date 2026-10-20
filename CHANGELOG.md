@@ -88,6 +88,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **For working without crates.io: the vendored crates include the Steam crate again.** The *Vendor crates* workflow (the `crates-vendor` branch) failed after 0.5.33, as it didn't copy `gamerepo-steam`, which the device crate and the core now use.
+
 ## 0.5.33 (2026-10-20)
 
 - **Game Repo Go for the Steam Deck and Linux.** `Game Repo Go_<version>_amd64.AppImage` runs on a Steam Deck or a Linux computer with ES-DE. In its Settings › Steam, tick "Game Repo Go in Steam's library" and it shows in Game Mode's library, where the Deck's buttons and sticks work it and pressing A on a text box brings up Steam's keyboard. Steam's files are only changed while Steam is closed: if it's running, the change waits, and Restart Steam closes Steam, makes the change and starts it again. The pairing is kept in a file only you can read.
