@@ -130,6 +130,17 @@ progress { accent-color: var(--tool); height: 8px; }
 .go-from-library { color: var(--ok); border-color: var(--ok); }
 .go-from-known { color: var(--ink); border-color: var(--tool); }
 .go-from-elsewhere, .go-from-unchecked { color: var(--graphite); border-color: var(--steel-2); }
+.go-systems { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.go-sys { border: 1px solid var(--steel-2); border-radius: var(--radius-m); background: var(--white); }
+.go-sys.is-open { border-color: var(--tool); }
+.go-sys-head { display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; }
+.go-sys-open { flex: 1; min-width: 0; justify-content: flex-start; gap: 10px; padding: 10px; background: transparent; font-weight: 400; text-align: left; }
+.go-sys-what { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; }
+.go-sys-what strong { font-size: 16px; }
+.go-sys-what .muted { font-size: 14px; }
+.go-sys-open svg { flex: none; transition: transform .15s; }
+.go-sys.is-open .go-sys-open svg { transform: rotate(90deg); }
+.go-sys > .go-rows { padding: 0 10px 10px; }
 .go-from-missing { color: var(--warn-ink); border-color: var(--warn-border); background: var(--warn-bg); }
 
 /* ---- Settings and pairing --------------------------------------------------- */
@@ -163,3 +174,5 @@ progress { accent-color: var(--tool); height: 8px; }
   .go-game-pics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .go-toast { bottom: 76px; }
 }
+.go-install { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); }
+.go-install.is-on { border-color: var(--ok); }

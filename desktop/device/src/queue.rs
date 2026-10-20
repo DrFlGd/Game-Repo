@@ -4,7 +4,8 @@
 //! checked), and its gamelist entry and record written only when its last file is in. When
 //! the library can't be reached the queue waits and tries again by itself; a plan whose
 //! files changed in the library since is asked for again. Closing and opening the client
-//! goes on where it stopped.
+//! goes on where it stopped. A game can also be put in the queue *not started* (D114): it
+//! waits there until it's started by hand.
 
 use crate::client::Refused;
 use crate::{add_planned, drop_parts, part_of, to_fetch, AddOptions, Damaged, Device, Server, Stopped, Watch};
@@ -32,6 +33,8 @@ pub enum State {
     Offline,
     Done,
     Failed,
+    /// In the queue, not started: it waits to be started by hand (D114)
+    Queued,
 }
 
 /// A game in the queue.
@@ -115,6 +118,8 @@ pub struct Shown {
     pub size: u64,
     pub done: u64,
     pub speed: u64,
+    /// The games queued, not started
+    pub queued: usize,
 }
 
 pub struct Queue {
@@ -196,17 +201,29 @@ impl Queue {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Games added to the end of the queue (a game there already and not done isn't added
-    /// twice). Their ids.
+    /// Games added to the end of the queue to come now (a game there already and not done
+    /// isn't added twice, and one queued is started). Their ids.
     pub fn add(&self, items: Vec<Item>) -> Vec<u64> {
+        self.put(items, true)
+    }
+
+    /// Games added to the end of the queue, not started (D114): they wait for
+    /// [`start_queued`](Self::start_queued). A game there already isn't added twice.
+    pub fn enqueue(&self, items: Vec<Item>) -> Vec<u64> {
+        self.put(items, false)
+    }
+
+    fn put(&self, items: Vec<Item>, start: bool) -> Vec<u64> {
         let mut inner = self.lock();
         let mut next = inner.items.iter().map(|i| i.id).max().unwrap_or(0) + 1;
         let mut ids = vec![];
         for mut it in items {
             if let Some(there) = inner.items.iter_mut().find(|x| x.key == it.key && x.media_only == it.media_only && x.state != State::Done) {
-                if there.state == State::Failed || there.state == State::Paused {
+                if start && matches!(there.state, State::Failed | State::Paused | State::Queued) {
                     there.state = State::Waiting;
                     there.error.clear();
+                    // what's asked for now, as a queued game's choices were made earlier
+                    (there.media, there.manuals, there.collection) = (it.media, it.manuals, it.collection);
                 }
                 ids.push(there.id);
                 continue;
@@ -214,7 +231,7 @@ impl Queue {
             inner.items.retain(|x| !(x.key == it.key && x.media_only == it.media_only && x.state == State::Done));
             it.id = next;
             next += 1;
-            it.state = State::Waiting;
+            it.state = if start { State::Waiting } else { State::Queued };
             it.added = now();
             ids.push(it.id);
             inner.items.push(it);
@@ -249,7 +266,9 @@ impl Queue {
                 it.done = got.min(it.size);
                 it.speed = speed;
             }
-            if !matches!(it.state, State::Done | State::Failed) {
+            if it.state == State::Queued {
+                s.queued += 1;
+            } else if !matches!(it.state, State::Done | State::Failed) {
                 s.left += 1;
                 s.size += it.size;
                 s.done += it.done;
@@ -280,6 +299,28 @@ impl Queue {
         self.save(&inner);
         drop(inner);
         (self.changed)();
+    }
+
+    /// Games queued, not started, to come now in their order (none named: every one).
+    pub fn start_queued(&self, ids: &[u64]) -> usize {
+        let mut inner = self.lock();
+        let all = ids.is_empty();
+        let mut n = 0;
+        for it in inner.items.iter_mut().filter(|i| i.state == State::Queued && (all || ids.contains(&i.id))) {
+            it.state = State::Waiting;
+            n += 1;
+        }
+        inner.retry_at = None;
+        self.save(&inner);
+        drop(inner);
+        self.wake.notify_all();
+        (self.changed)();
+        n
+    }
+
+    /// The games queued, not started (to show what starting them takes).
+    pub fn queued(&self) -> Vec<Item> {
+        self.lock().items.iter().filter(|i| i.state == State::Queued).map(|i| Item { plan: None, ..i.clone() }).collect()
     }
 
     /// Paused games, and those that went wrong, to go on (none named: every one).

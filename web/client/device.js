@@ -1,14 +1,17 @@
-// On this device (D100–D102): every game ES-DE has on the device, with its size (its media
-// and manual too), when it was last played and where it came from (the library, another
+// On this device (D100–D102, D115): every game ES-DE has on the device, with its size (its
+// media and manual too), when it was last played and where it came from (the library, another
 // computer the library recognises, or elsewhere), the free space at the top, checks to select games,
-// Remove… and Make room…. A game's media can be removed or added on their own. Removing
-// shows what goes and the room it frees first, and sets files aside before deleting them.
+// Remove… and Make room…. By system first: each system with its games and their size, one
+// open at a time, and Remove all… for a system's games. A game's media can be removed or
+// added on their own. Removing shows what goes and the room it frees first, and sets files
+// aside before deleting them.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { call, info } from "./backend.js";
 import { closeDialog, go, open, say, showDialog } from "./state.js";
 import { ago, bytes, count, kindName, message, played, plural } from "./format.js";
 import { Dialog } from "./dialog.js";
+import { Icon } from "../ui/icons.js";
 
 const FROM = {
   library: ["From the library", ""],
@@ -30,7 +33,8 @@ export function DevicePage() {
   const s = useStore(go, (x) => ({ rev: x.deviceRev, roomFor: x.roomFor, systems: x.systems, status: x.status }));
   const [d, setD] = useState(null);
   const [error, setError] = useState("");
-  const [sort, setSort] = useState("played");
+  const [sort, setSort] = useState("system");
+  const [openSys, setOpenSys] = useState(null);
   const [ticked, setTicked] = useState(new Set());
   const [shown, setShown] = useState(null);
   const [room, setRoom] = useState("");
@@ -45,17 +49,43 @@ export function DevicePage() {
   }, [s.roomFor, !!d]);
   const makeRoom = (need) => call("make_room", { need }).then((ids) => {
     setTicked(new Set(ids));
+    // the games ticked in one list, played longest ago first
+    if (ids.length) setSort("played");
     const frees = (d?.games || []).filter((g) => ids.includes(g.id)).reduce((a, g) => a + g.size, 0);
     setRoom(ids.length ? `Selected the ${plural(ids.length, "game")} played longest ago, freeing ${bytes(frees)} of the ${bytes(need)} needed. Change what's selected if you like, then choose Remove….`
       : "There's nothing on this device to remove.");
   }).catch((e) => say(message(e)));
   const name = (id) => s.systems.find((x) => x.id === id)?.name || id;
   if (!d) return html`<section class="go-page go-device">${error ? html`<p class="form-error" role="alert" id="device-error">${error}</p>` : html`<p class="muted">Looking through ES-DE's folders…</p>`}</section>`;
-  const rows = [...d.games].sort(ORDERS[sort]);
+  const rows = [...d.games].sort(ORDERS[sort === "system" ? "played" : sort]);
   const pick = rows.filter((r) => ticked.has(r.id));
   const frees = pick.reduce((a, r) => a + r.size, 0);
   const flip = (id) => setTicked((t) => { const x = new Set(t); x.has(id) ? x.delete(id) : x.add(id); return x; });
   const removed = () => { setTicked(new Set()); setRoom(""); };
+  const systems = [...new Set(rows.map((r) => r.system))];
+  const row = (r, grouped = false) => {
+    const [from, why] = FROM[r.missing ? "missing" : r.from] || [r.from, ""];
+    const open_ = shown === r.id;
+    return html`<li class=${`go-row${ticked.has(r.id) ? " is-ticked" : ""}`} key=${r.id} data-id=${r.id}>
+      <input type="checkbox" class="go-row-tick" aria-label=${`Select ${r.name}`} checked=${ticked.has(r.id)} onChange=${() => flip(r.id)} />
+      <button type="button" class="go-row-open" aria-expanded=${open_ ? "true" : "false"} onClick=${() => setShown(open_ ? null : r.id)}>
+        <strong>${r.name}</strong>
+        <span class="muted">${grouped ? "" : `${name(r.system)} · `}${r.missing ? "its files aren't on this device" : bytes(r.size)} · ${r.last_played ? `played ${ago(played(r.last_played))}` : "never played"}</span>
+      </button>
+      <span class=${`badge go-from go-from-${r.missing ? "missing" : r.from}`} title=${why}>${from}</span>
+      ${open_ ? html`<div class="go-row-more">
+        ${r.media.length ? html`<ul class="go-sizes">${r.media.map(([k, size]) => html`<li key=${k}><span>${kindName(k)}</span><span class="muted">${bytes(size)}</span>
+            <button type="button" class="ghost" onClick=${() => showDialog({ type: "remove", asks: [{ id: r.id, key: r.key, kinds: [k] }], media: true, title: `Remove ${kindName(k).toLowerCase()} of ${r.name}` })}>Remove</button></li>`)}</ul>`
+          : html`<p class="muted">No pictures or manual on this device.</p>`}
+        <div class="go-row-do">
+          ${r.key ? html`<button type="button" class="ghost" onClick=${() => showDialog({ type: "add-media", row: r })}>Add media…</button>
+            <button type="button" class="ghost" onClick=${() => open({ page: "game", key: r.key })}>In the library</button>` : null}
+          <button type="button" class="ghost danger-text" onClick=${() => showDialog({ type: "remove", asks: [{ id: r.id, key: r.key }], title: `Remove ${r.name}`, done: removed })}>Remove…</button>
+        </div>
+        <p class="muted go-row-path">${r.id}${r.files > 1 ? ` and ${plural(r.files - 1, "other file")}` : ""}</p>
+      </div>` : null}
+    </li>`;
+  };
   return html`<section class="go-page go-device" id="go-device">
     <div class="go-page-head">
       <h1>On this device</h1>
@@ -67,36 +97,13 @@ export function DevicePage() {
     ${room ? html`<p class="go-note" id="device-room-note" role="status">${room}</p>` : null}
     ${d.games.length ? html`<label class="go-sort"><span class="muted">Order</span>
       <select id="device-sort" value=${sort} onChange=${(e) => setSort(e.currentTarget.value)}>
+        <option value="system">By system</option>
         <option value="played">Played longest ago</option>
         <option value="size">Largest</option>
         <option value="name">Name</option>
-        <option value="system">System</option>
       </select></label>` : html`<p class="empty">ES-DE has no games on this device yet.</p>`}
-    <ul class="go-rows" id="device-list">
-      ${rows.map((r) => {
-        const [from, why] = FROM[r.missing ? "missing" : r.from] || [r.from, ""];
-        const open_ = shown === r.id;
-        return html`<li class=${`go-row${ticked.has(r.id) ? " is-ticked" : ""}`} key=${r.id} data-id=${r.id}>
-          <input type="checkbox" class="go-row-tick" aria-label=${`Select ${r.name}`} checked=${ticked.has(r.id)} onChange=${() => flip(r.id)} />
-          <button type="button" class="go-row-open" aria-expanded=${open_ ? "true" : "false"} onClick=${() => setShown(open_ ? null : r.id)}>
-            <strong>${r.name}</strong>
-            <span class="muted">${name(r.system)} · ${r.missing ? "its files aren't on this device" : bytes(r.size)} · ${r.last_played ? `played ${ago(played(r.last_played))}` : "never played"}</span>
-          </button>
-          <span class=${`badge go-from go-from-${r.missing ? "missing" : r.from}`} title=${why}>${from}</span>
-          ${open_ ? html`<div class="go-row-more">
-            ${r.media.length ? html`<ul class="go-sizes">${r.media.map(([k, size]) => html`<li key=${k}><span>${kindName(k)}</span><span class="muted">${bytes(size)}</span>
-                <button type="button" class="ghost" onClick=${() => showDialog({ type: "remove", asks: [{ id: r.id, key: r.key, kinds: [k] }], media: true, title: `Remove ${kindName(k).toLowerCase()} of ${r.name}` })}>Remove</button></li>`)}</ul>`
-              : html`<p class="muted">No pictures or manual on this device.</p>`}
-            <div class="go-row-do">
-              ${r.key ? html`<button type="button" class="ghost" onClick=${() => showDialog({ type: "add-media", row: r })}>Add media…</button>
-                <button type="button" class="ghost" onClick=${() => open({ page: "game", key: r.key })}>In the library</button>` : null}
-              <button type="button" class="ghost danger-text" onClick=${() => showDialog({ type: "remove", asks: [{ id: r.id, key: r.key }], title: `Remove ${r.name}`, done: removed })}>Remove…</button>
-            </div>
-            <p class="muted go-row-path">${r.id}${r.files > 1 ? ` and ${plural(r.files - 1, "other file")}` : ""}</p>
-          </div>` : null}
-        </li>`;
-      })}
-    </ul>
+    ${sort === "system" ? html`<${BySystem} rows=${rows} name=${name} open=${systems.length === 1 ? systems[0] : openSys} setOpen=${setOpenSys} row=${row} removed=${removed} />`
+      : html`<ul class="go-rows" id="device-list">${rows.map(row)}</ul>`}
     ${pick.length ? html`<div class="go-picked" id="device-picked" role="region" aria-label="Selected games">
       <span class="go-picked-what"><strong>${plural(pick.length, "game")}</strong> · frees ${bytes(frees)}</span>
       <span class="go-picked-do">
@@ -186,4 +193,32 @@ export function PendingRemoval({ pending }) {
       ${pending.can_put_back ? html`<button type="button" class="ghost" id="pending-back" disabled=${busy} onClick=${() => run("put_back", "Put back as it was.")}>Put back</button>` : null}
     </span>
   </div>`;
+}
+
+/** By system (D115): each system a row with its number of games and their size, one open at
+ *  a time, its games in it played longest ago first, and Remove all… for every one of them. */
+function BySystem({ rows, name, open, setOpen, row, removed }) {
+  const groups = new Map();
+  for (const r of rows) {
+    if (!groups.has(r.system)) groups.set(r.system, []);
+    groups.get(r.system).push(r);
+  }
+  const order = [...groups.keys()].sort((a, b) => name(a).localeCompare(name(b), "en", { sensitivity: "base" }));
+  return html`<ul class="go-systems" id="device-list">
+    ${order.map((id) => {
+      const games = groups.get(id);
+      const size = games.reduce((a, r) => a + r.size, 0);
+      const on = open === id;
+      return html`<li class=${`go-sys${on ? " is-open" : ""}`} key=${id} data-system=${id}>
+        <div class="go-sys-head">
+          <button type="button" class="go-sys-open" aria-expanded=${on ? "true" : "false"} onClick=${() => setOpen(on ? null : id)}>
+            ${Icon.chevron(16)}<span class="go-sys-what"><strong>${name(id)}</strong>
+            <span class="muted">${plural(games.length, "game")} · ${bytes(size)}</span></span>
+          </button>
+          ${on ? html`<button type="button" class="ghost danger-text go-sys-remove" onClick=${() => showDialog({ type: "remove", asks: games.map((r) => ({ id: r.id, key: r.key })), title: `Remove every ${name(id)} game`, done: removed })}>Remove all ${count(games.length)}…</button>` : null}
+        </div>
+        ${on ? html`<ul class="go-rows">${games.map((r) => row(r, true))}</ul>` : null}
+      </li>`;
+    })}
+  </ul>`;
 }

@@ -4664,6 +4664,51 @@ built in PR #54).
   takes it off the list with its gamelist entries and the media still in ES-DE's folders.
   The copies in the old folder are left as they are, as that's no longer ES-DE's.
 
+### Phase 9e notes, part 1: the fix (built 2026-10-20, PR #54)
+
+D117 as it says. `removing.rs`'s `inside()` also accepts the place a first-level link of
+one of the device's places leads to; `missing()` says a game's own files (not its media,
+not files another game needs) are all gone, and `app.rs` leaves such a game out of what's
+on the device, *Make room* and what the Library marks as held. A removal lists the files
+that aren't there as `gone`, and the dialog says they're only taken off the list. Test:
+`serve/tests/client.rs`, `games_left_in_an_old_roms_folder_can_be_added_again_and_removed_through_linked_folders`
+(gamelists linked out, as RetroDECK does); step 9b of `tests/client_page.py`.
+
+### Phase 9e notes, part 2: Download, the queue, by system, RetroDECK and EmuDeck (built 2026-10-20)
+
+D114–D116, built as they say, except where noted.
+
+- **The queue (D114).** `queue.rs` has a fourth state, `Queued`, which the worker passes
+  by; `enqueue` puts games in it, `start_queued` makes them waiting, and *Download* on a
+  queued (or failed, or paused) game starts it with the media now chosen. `add` takes
+  `start: false` for *Add to queue*, which keeps the media kinds last chosen and doesn't
+  change them. `start_summary` asks one plan for each set of media kinds among the queued
+  games and returns each game's size (what's to fetch), the total, and for the ROMs folder
+  and the PC games folders their size and free space (one line when they're on the same
+  drive, `same_drive`); `short` is how much more is needed. The page's *Start downloads…*
+  dialog (`queue.js`'s `StartDialog`) shows it and starts only with room. **Changed:** the
+  summary is one line per drive, not per folder, as that's where the room is.
+- **By system (D115).** `device.js`'s `BySystem`: the rows are those of the other orders,
+  grouped by `system`, each group a button opening it (one at a time; a device with one
+  system opens it) and *Remove all N…*, the D101 removal for the group's games. Systems go
+  by name; the page opens *By system* each time, and *Make room* changes it to *Played
+  longest ago*.
+- **RetroDECK and EmuDeck (D116).** `installs.rs` lists the places each sets ES-DE up
+  under the user's folders (or each Android storage volume) and opens each with
+  `Device::open_esde`, which now accepts ES-DE 2's `es_settings.xml` at the folder's top as
+  well as `settings/es_settings.xml`. `app.rs`'s `device()` uses the folder set in Settings,
+  else the one found, else asks: more than one found is an error naming them, shown in
+  Settings › *ES-DE on this device* with *Use this one* for each (it sets the folder and
+  clears the ROMs folder, so ES-DE's own is used). `status` gives `device.installs`,
+  `device.by` and `device.esde_roms` (ES-DE's ROMs folder when the one set by hand
+  differs), which shows the warning with *Use ES-DE's*. **Changed:** EmuDeck's
+  `settings.sh` and `settings.ps1` aren't read: the ES-DE it sets up names its ROMs and
+  media folders itself, so they're only used to label `~/ES-DE` as EmuDeck's.
+- **Labels.** *Download…* and *Add to queue* on the Picked bar and a game's page; the
+  page is *Downloads*, its nav badge counts what's downloading, else what's queued.
+- **Tests.** `serve/tests/client.rs`, `queued_games_wait_to_be_started_and_retrodeck_and_emudeck_are_found`;
+  steps 3b, 4, 6 and the PC step of `tests/client_page.py`.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
