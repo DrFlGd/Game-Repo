@@ -646,11 +646,16 @@ async def main():
             await pg.wait_for_function("(k) => document.activeElement?.dataset.key === k", arg=target, timeout=5000)
             check("A opens a game's page with Download… focused, and B comes back to the same game", game_focus == "go-game-add", game_focus)
             hashes = []
-            for k in ("PageDown", "PageDown", "PageUp"):
-                await pg.keyboard.press(k)
-                await settled(pg, "() => true", 200)
+            for k in ("PageDown", "PageUp", "twice", "PageUp"):
+                if k == "twice":   # two presses before the page has changed (R1 twice, quickly)
+                    await pg.evaluate("""() => { for (let i = 0; i < 2; i++) (document.activeElement || document.body).dispatchEvent(
+                        new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true, cancelable: true })); }""")
+                else:
+                    await pg.keyboard.press(k)
+                await settled(pg, "() => document.querySelector('.go-tab[aria-current=page]')?.getAttribute('href') === location.hash", 2000)
                 hashes.append(await pg.evaluate("() => location.hash"))
-            check("R1 and L1 (Page Down and Up) go to the page after and the one before", hashes == ["#queue", "#device", "#queue"], hashes)
+            check("R1 and L1 (Page Down and Up) go to the page after and the one before, pressed twice quickly too",
+                  hashes == ["#queue", "#library", "#device", "#queue"], hashes)
             await pg.wait_for_selector("#queue-start")
             await pg.focus("#queue-start")
             await pg.keyboard.press("Enter")

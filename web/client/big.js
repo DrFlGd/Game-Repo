@@ -10,7 +10,7 @@ import { html, useState, useEffect, useRef } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
 import { call, info, keyboard, pictureUrl } from "./backend.js";
-import { back, closeDialog, go, open, say, setLook, showDialog } from "./state.js";
+import { back, closeDialog, go, open, routeOf, say, setLook, showDialog } from "./state.js";
 import { bytes, count, kindName, message, plural } from "./format.js";
 import { Dialog } from "./dialog.js";
 import { enqueue } from "./add.js";
@@ -29,11 +29,13 @@ const SHELF = 15;   // games on a shelf before its All
 
 // ---- the controller's buttons (keys.js calls these) ------------------------------------
 
-/** L1 and R1: the page before or after. */
+/** L1 and R1: the page before or after (from the address, which a press changes at once:
+ *  the route follows on "hashchange", after a second quick press). */
 export function page(by) {
-  const here = TABS.findIndex(([p]) => p === tabOf(go.get().route.page));
+  const now = tabOf(routeOf(location.hash).page);
+  const here = TABS.findIndex(([p]) => p === now);
   const next = TABS[Math.max(0, Math.min(TABS.length - 1, here + by))][0];
-  if (next !== tabOf(go.get().route.page)) open({ page: next });
+  if (next !== now) open({ page: next });
 }
 
 /** Once `sel` is in the page (or after 2 seconds), focus it and run `then`. */
@@ -149,17 +151,21 @@ export function useFocus(route) {
   useEffect(() => {
     if (document.documentElement.dataset.input === "pointer") return undefined;
     const was = kept[location.hash || "#library"];
+    // where it was can come a moment after the page (a shelf loads its games once drawn), so
+    // it's waited for a second before the page's first thing
+    const wait = was ? 60 : 0;
     let n = 0, frame = 0;
     const step = () => {
+      n++;
       const main = document.getElementById("go-main");
       const now = document.activeElement;
       if (!main || document.querySelector(".dialog-backdrop") || (now && now !== document.body && now !== main && now.isConnected)) return;
       let el = was?.key ? main.querySelector(`[data-key="${CSS.escape(was.key)}"]`) : was?.id ? document.getElementById(was.id) : null;
       if (el && !el.matches(FOCUSABLE)) el = el.querySelector(FOCUSABLE);
-      el ||= main.querySelector("[data-first]");
+      if (!el && n > wait) el = main.querySelector("[data-first]");
       if (el) show(el);
-      else if (n++ > 30 && focusFirst()) return;
-      else if (n < 150) frame = requestAnimationFrame(step);
+      else if (n > wait + 30 && focusFirst()) return;
+      else if (n < wait + 150) frame = requestAnimationFrame(step);
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
