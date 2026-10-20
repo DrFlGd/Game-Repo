@@ -181,12 +181,16 @@ function Games({ ask, rev, picked }) {
   const goTo = (j) => {
     j = Math.max(0, Math.min(n - 1, j));
     setCurrent(j);
-    focusTo.current = j;
     const el = scroller.current;
     const y = PAD + Math.floor(j / cols) * rh;
     if (y < el.scrollTop) el.scrollTop = y - PAD;
     else if (y + ch > el.scrollTop + el.clientHeight) el.scrollTop = y + ch - el.clientHeight + PAD;
     setTop(el.scrollTop);
+    // focus moves with the key when the card is drawn already (so a key pressed straight
+    // after acts on it), else once it is
+    const card = el.querySelector(`[data-index="${j}"]`);
+    if (card) card.focus({ preventScroll: true });
+    else focusTo.current = j;
   };
 
   const onKey = (e, i, g) => {

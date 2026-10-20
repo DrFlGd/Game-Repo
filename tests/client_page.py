@@ -196,6 +196,14 @@ async def cards(pg):
     return await pg.eval_on_selector_all("#go-games .go-card[data-key]", "els => els.map(e => e.dataset.key)")
 
 
+async def settled(pg, js, timeout=5000):
+    """Once the page shows it (a render comes after the key that asked for it), or on."""
+    try:
+        await pg.wait_for_function(js, timeout=timeout)
+    except Exception:
+        pass
+
+
 async def focus_order(pg, presses, key="ArrowDown"):
     """What each press of `key` focuses: its id, else its text."""
     seen = []
@@ -390,6 +398,7 @@ async def main():
             right = await pg.evaluate("() => document.activeElement?.dataset.index")
             await pg.keyboard.press("ArrowLeft")
             await pg.keyboard.press("x")
+            await settled(pg, "() => document.querySelectorAll('.go-card.is-ticked').length")
             ticked = await pg.eval_on_selector_all(".go-card.is-ticked", "els => els.map(e => e.dataset.key)")
             await pg.keyboard.press("Enter")
             await pg.wait_for_selector("#go-game-title")
