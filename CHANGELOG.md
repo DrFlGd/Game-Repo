@@ -87,6 +87,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **No more Command Prompt windows flashing up when Settings opens.** Settings › Serve to devices asks Windows which networks this PC is on and whether Game Repo Server starts with Windows; those questions now run without a window, in Game Repo and in Game Repo Server alike.
+
 ## 0.5.32 (2026-10-20)
 
 - **For the Android app's releases: a helper that makes its signing key on your PC.** Double-click `tools/android_signing_key.cmd`: it makes the key with Windows' own tools, keeps it in Documents › Game Repo Go signing key, and adds it to GitHub as the two secrets the release signs the APK with.
