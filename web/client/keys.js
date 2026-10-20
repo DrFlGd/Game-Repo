@@ -122,7 +122,8 @@ export function keys(back, on = {}) {
     } else if (big() && (e.key === "y" || e.key === "Y") && !typing(t) && !dialog && on.search) {
       e.preventDefault();
       on.search();
-    } else if (big() && e.key === "ContextMenu" && !dialog && on.options) {
+    } else if (big() && (e.key === "ContextMenu" || e.key === "F10") && !dialog && on.options) {
+      // (F10 is Start on Android, whose web view keeps the menu key to itself)
       e.preventDefault();
       on.options();
     } else if (e.key === "Enter" && t?.matches?.('input[type="checkbox"], input[type="radio"]')) {

@@ -4745,7 +4745,7 @@ D113, built as it says, except where noted.
   is that way (distance ahead plus twice the distance across), skipping those with
   `tabindex="-1"` (the tabs, the hints, the toast's button, which have their own buttons);
   Up and Down scroll a long text (`.go-scroll`) before leaving it. PageUp and PageDown (L1
-  and R1) change tab; Y searches; ☰ (Start, `ContextMenu`) opens Options; Enter on a list
+  and R1) change tab; Y searches; ☰ (Start, `ContextMenu`; F10 on Android, as its web view keeps the menu key) opens Options; Enter on a list
   opens `ChooseDialog`. `data-input` on the page says whether the last input was a pointer
   or keys: the focus ring and focusing the first thing on a page (`data-first`) are only for
   keys, so touch shows neither. `useFocus` puts the focus back where it was on each page

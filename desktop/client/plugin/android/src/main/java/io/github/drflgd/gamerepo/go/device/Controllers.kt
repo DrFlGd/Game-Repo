@@ -2,8 +2,9 @@
 // into the keys the pages already know (web/client/keys.js), as the Gamepad API does it on
 // Windows: the D-pad and the left stick as the arrows (held, they repeat), A as Enter, B as
 // Esc (back), X as x (ticks a game, or adds it to the queue in the big-screen view), Y as y
-// (search), Start as the menu key (Options), and the shoulder buttons as Page Up and Page
-// Down (the page before and after in the big-screen view).
+// (search), Start as F10 (Options: the web view never passes the menu key to the page), and
+// the shoulder buttons as Page Up and Page Down (the page before and after in the big-screen
+// view).
 // Android sends a D-pad either as keys or as a hat's axes; both end as the arrows here.
 // Keys go to the web view even before it has been touched: with nothing focused, Android
 // would spend the first press giving it focus.
@@ -29,7 +30,7 @@ object Controllers {
         KeyEvent.KEYCODE_BUTTON_B to KeyEvent.KEYCODE_ESCAPE,
         KeyEvent.KEYCODE_BUTTON_X to KeyEvent.KEYCODE_X,
         KeyEvent.KEYCODE_BUTTON_Y to KeyEvent.KEYCODE_Y,
-        KeyEvent.KEYCODE_BUTTON_START to KeyEvent.KEYCODE_MENU,
+        KeyEvent.KEYCODE_BUTTON_START to KeyEvent.KEYCODE_F10,
         KeyEvent.KEYCODE_BUTTON_L1 to KeyEvent.KEYCODE_PAGE_UP,
         KeyEvent.KEYCODE_BUTTON_R1 to KeyEvent.KEYCODE_PAGE_DOWN,
     )
