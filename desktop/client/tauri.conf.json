@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Game Repo Go",
+  "identifier": "io.github.drflgd.gamerepo.go",
+  "build": {
+    "frontendDist": "../../build/desktop/ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Game Repo Go",
+        "url": "client.html",
+        "width": 1180,
+        "height": 800,
+        "minWidth": 360,
+        "minHeight": 480
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Utility",
+    "shortDescription": "Download games from your Game Repo library into ES-DE",
+    "longDescription": "Browse a Game Repo library served on your home network, download games with their pictures and manuals into ES-DE's folders on this device, and remove them again safely.",
+    "icon": [
+      "../src-tauri/icons/32x32.png",
+      "../src-tauri/icons/128x128.png",
+      "../src-tauri/icons/128x128@2x.png",
+      "../src-tauri/icons/icon.png",
+      "../src-tauri/icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

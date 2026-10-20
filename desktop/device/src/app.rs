@@ -162,7 +162,14 @@ pub struct App {
     /// Told what changed (queue, sync, device, settings), for the page
     events: Box<dyn Fn(&str) + Send + Sync>,
     me: Weak<App>,
+    /// When the library was last looked for at another address
+    looked: Mutex<Option<std::time::Instant>>,
 }
+
+/// How often the library is looked for at another address while it can't be reached,
+/// and how long each look lasts at most (it ends once the library answers).
+const FIND_AGAIN: Duration = Duration::from_secs(60);
+const FIND_WAIT: Duration = Duration::from_secs(8);
 
 fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
@@ -195,8 +202,10 @@ impl App {
                     }
                 }),
             );
-            App { data: data.to_path_buf(), kind: kind.into(), homes, secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone() }
+            App { data: data.to_path_buf(), kind: kind.into(), homes, secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default() }
         });
+        let me = Arc::downgrade(&app);
+        app.queue.on_away(Box::new(move || me.upgrade().is_some_and(|a| a.find_again())));
         app.queue.start();
         Ok(app)
     }
@@ -451,6 +460,31 @@ impl App {
         Ok(json!({ "library": info.library, "server": s.server }))
     }
 
+    /// The library looked for on the home network by its id when it can't be reached where
+    /// it was (its computer given another address, its port changed): found, its address is
+    /// kept and the pairing stays as it was, since only the certificate pinned at pairing is
+    /// trusted wherever the library is. At most once a minute; true when it had moved.
+    pub fn find_again(&self) -> bool {
+        let Some(mut s) = self.server() else { return false };
+        {
+            let mut last = self.looked.lock().unwrap_or_else(|e| e.into_inner());
+            if last.is_some_and(|t| t.elapsed() < FIND_AGAIN) {
+                return false;
+            }
+            *last = Some(std::time::Instant::now());
+        }
+        // an address it announces, answering there with the certificate pinned (not only
+        // an announcement, which anyone could make)
+        let answers = |a: &str| a != s.address && client::info(a).is_ok_and(|(i, seen)| i.server == s.server && seen == s.fingerprint);
+        let Ok(Some(address)) = crate::find_server(&s.server, FIND_WAIT, answers) else { return false };
+        s.address = address;
+        if serde_json::to_string(&s).map_err(anyhow::Error::from).and_then(|t| self.secrets.set("server", &t)).is_err() {
+            return false;
+        }
+        self.changed("settings");
+        true
+    }
+
     /// The catalogue brought up to date in the background (D98).
     fn start_sync(&self) {
         {
@@ -462,7 +496,7 @@ impl App {
         }
         let Some(app) = self.me.upgrade() else { return };
         std::thread::spawn(move || {
-            let result = match app.server() {
+            let read = || match app.server() {
                 Some(s) => {
                     let a = app.clone();
                     let r = app.catalogue.sync(&s, &move |done, of| {
@@ -482,6 +516,10 @@ impl App {
                 }
                 None => Err(anyhow!("This device isn't paired with a library.")),
             };
+            let mut result = read();
+            if matches!(&result, Err(e) if queue::is_offline(e)) && app.find_again() {
+                result = read();
+            }
             {
                 let mut w = app.sync.lock().unwrap_or_else(|e| e.into_inner());
                 w.running = false;
