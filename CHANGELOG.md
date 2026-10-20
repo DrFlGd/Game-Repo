@@ -89,6 +89,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.36 (2026-10-20)
+
 - **New icons.** Game Repo, Game Repo Server and Game Repo Go have a new mark: a folder with a controller's d-pad and buttons. Each app has its own colour, so you can tell them apart in the taskbar and by the clock: Game Repo on navy, Game Repo Server on teal with a signal, and Game Repo Go on yellow with a download arrow, on Windows and as Android's launcher icon.
 
 ## 0.5.35 (2026-10-20)
