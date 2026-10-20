@@ -68,7 +68,7 @@ The code started as a trimmed copy of [Model Library](https://github.com/DrFlGd/
 - Renamed files are read again on the next scan (a move to another folder keeps its hashes; the rename can't be told apart from a different file safely).
 - DATs whose platform isn't in `platforms.rs` or the library's systems (TOSEC's names, for one) are asked about once per DAT name; the answer is kept in library.json.
 - A DAT ROM with no CRC32 isn't matched (every Logiqx and ClrMamePro DAT seen so far gives one).
-- Two skins (Drafting Sheet, the default, and Classic). Model Library's Parts Bin and Layer Line were 3D-printing themed and weren't brought across.
+- Six skins: Classic (the default) is `web/styles.css` itself; Neon City, Wasteland Terminal, Adventurer's Tome, Pixel Arcade and Cosy Pastel are in `web/skins.css`, which is read after it and only uses the colour names (`--ink`, `--white`, `--tool`…), so a page built on them (Game Repo Go's too) takes any skin. A new skin is a block there, a line in `SKINS` (`web/ui/state.js`) and its fonts in `FONTS` (`tools/build_desktop.py`); its textures are SVG or gradient backgrounds kept off text that needs reading. Icons and the mark can be drawn per skin (`OWN` in `icons.js`); none is yet, so every skin shows Classic's. Neon City and Wasteland Terminal are dark whatever the theme. Drafting Sheet (the old default) and Clean Slate were dropped as too like Classic (Jerred, 2026-10-20); a saved choice of either opens in Classic.
 - `web/styles.css` still holds some of Model Library's rules that nothing here uses (the grid and the inspector are built; the review's Low "Housekeeping" items list what's left), to be pruned.
 - Installers aren't code-signed, and there's no auto-update.
 - Phase 8a's frontends were written from their documentation and tested against files shaped like theirs, not the programs: RetroArch's playlist names for a few systems (PC Engine, Sega CD, 3DO, PC-FX, FBNeo), LaunchBox's and Playnite's platform names, and Pegasus' picture names are to check against the real thing. Each can be put right in a copy of the layout.
@@ -83,6 +83,9 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 ---
 
 ## Unreleased
+
+- **Five new skins** in Settings › Appearance, each with its own colours, lettering, shapes and textures: *Neon City* (cyberpunk), *Wasteland Terminal* (a green screen in a fallout shelter, amber in the Night theme), *Adventurer's Tome* (a fantasy role-playing game), *Pixel Arcade* (8-bit) and *Cosy Pastel*. Settings says what each one looks like, and their fonts come with the app.
+- **Classic is the default look again.** Drafting Sheet is gone (it was too like Classic); if you had chosen it, the app opens in Classic.
 
 ## 0.5.29 (2026-10-20)
 

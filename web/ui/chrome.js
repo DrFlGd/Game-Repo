@@ -21,7 +21,6 @@ export const NARROW = "(max-width: 900px)";
 export function Mark({ cls = "brand-mark" }) {
   return html`<svg class=${`${cls} icon`} viewBox="0 0 40 40" aria-hidden="true">
     <g data-sk="classic" transform="scale(1.6667)"><path d="M6.5 3.5h11v13.5l-1.5 1.5v2h-8v-2l-1.5-1.5z" /><rect x="8.5" y="6" width="7" height="6" rx=".5" class="accent" /><path d="M9.5 18.5v2M12 18.5v2M14.5 18.5v2" /></g>
-    <g data-sk="drafting" fill="none"><rect x="2.5" y="2.5" width="35" height="35" stroke="var(--ink)" stroke-width="1.5"/><path d="M12 6.5h16v19.5l-2.5 2.5v3h-11v-3L12 26z" stroke="var(--tool)" stroke-width="1.6" stroke-linejoin="miter"/><path d="M15 10h10v8H15z" stroke="var(--tool)" stroke-width="1.6"/><path d="M17 28.5v3M20 28.5v3M23 28.5v3" stroke="var(--tool)" stroke-width="1.2"/><path d="M7 34.5h26M7 33v3M33 33v3" stroke="var(--ink)" stroke-width="1"/></g>
   </svg>`;
 }
 

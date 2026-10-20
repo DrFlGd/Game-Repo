@@ -7,7 +7,7 @@ import { ServePanel } from "./ui/serve.js";
 const call = (cmd, args = {}) => globalThis.__TAURI__.core.invoke("api", { cmd, args });
 
 const root = document.documentElement;
-root.dataset.skin = "drafting";
+root.dataset.skin = "classic";
 const theme = matchMedia("(prefers-color-scheme: dark)");
 const applyTheme = () => { root.dataset.theme = theme.matches ? "dark" : "light"; };
 applyTheme();
