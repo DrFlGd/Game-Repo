@@ -84,6 +84,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.28 (2026-10-20)
+
 - **Game Repo Server, the part that serves your devices**: it serves the library on your home network to devices paired with a code, read-only, so they can browse it and fetch games with their pictures, manuals and ES-DE entries, resuming where a download stopped. A command-line stand-in for a device tries it out until the Android and Windows clients come.
 - **Serve to devices** in Settings: a switch starts Game Repo Server with the open library and shows the address devices see, *Pair a device* shows a code for ten minutes, and the paired devices are listed with what they hold, each with *Remove*. The server stops when Game Repo closes, unless *Keep serving when Game Repo is closed* is ticked; *Start with Windows* starts it on its own with the library it served last. Settings says when Windows treats your network as public, and how to make it private.
 - **Game Repo Server's own program**: installed beside Game Repo, and on the release with an installer of its own for a computer without Game Repo. Alone it sits by the clock, with *Pair a device…*, *Devices…*, *Open the library…*, *Start with Windows* and *Stop*, and a small window with the same panel as Settings. Both installers add a Windows Firewall rule for it on private networks only (Windows asks for an administrator once).
