@@ -1468,8 +1468,9 @@ time, PC or not (D24).
   default) or the files and folders chosen, as a job: each top-level file or folder is an
   item, except that a GOG installer's `setup_<slug>…exe` and its `.bin` parts are one
   item and its `patch_<slug>…` files join it as patches.
-- Each item is classified (GOG installer, installer, MSI, archive, disc image, folder),
-  hashed (CRC32 and SHA1, one read) and identified, best first:
+- Each item is classified (GOG installer, installer, MSI, archive, disc image, folder)
+  and identified (its files' contents read only when it may be in the library already,
+  D133), best first:
   1. a `goggame-<id>.info` file (in a folder or an archive): GOG id, name and the
      program to start;
   2. `innoextract --gog-game-id` on a GOG installer, when innoextract is found (D14);
@@ -5072,6 +5073,58 @@ type to about the classic view's on a phone.
   `tests/desktop_page.py`'s variants part (the roles marked, *Make it the main DAT* kept in
   library.json and shown in Audit's drop-down).
 
+### Reading a big game once on import (built 2026-10-21)
+
+Jerred, 2026-10-21 11:27: importing a PC game, "the process of scanning a larger game can
+take significant time"; 11:32: it was a ZIP, and a fix would probably apply to larger
+console games (PS4) too. The cause: reading the inbox hashed every file whole (CRC32, MD5
+and SHA1, one after another on one thread: about 230 MB/s on the cloud machine) before the
+list showed, so a 50 GB ZIP took minutes; a console Import read each file whole when it
+read the folders, again for its plan, and the copy again to check it; *Add a game…* hashed
+its files before the preview. D133 is Claude's default, followed unless he says otherwise.
+
+**D133 A game is read once on import.**
+
+- **PC games.** Reading the inbox takes each file's size, looks inside (a ZIP's or 7z's
+  list of names, a `goggame-*.info` or `steam_appid.txt`) and identifies it, as before; a
+  file's contents are read only for an item whose every file is as big as one in the
+  library (to tell *In the library already*, by SHA1; a file of theirs that `game.json` has
+  no SHA1 for is read then too, as is one with the same name in the game an item goes
+  into). `game.json` lists a file imported from now on by its size, with its CRC32 and SHA1
+  only when they were read.
+- **Console games.** Import's *Read* hashes a file only when it's as big as a ROM of an
+  audit DAT (or as one with a header taken off: 16, 64, 128 or 512 bytes); a file as big as
+  none is listed as one no system's DAT has without being read (a PS4 package, a Switch
+  game with no DAT). Archives are listed as before (a ZIP's or 7z's recorded CRCs, D16).
+  The import's plan reads nothing, except a game of several files named as its ROMs (a
+  disc's tracks) and a file as big as another being imported (byte-identical copies come
+  in once). *Add a game…* reads nothing before its preview; the scan after it hashes the
+  files for the index, as before.
+- **The copy.** A file with no hashes recorded is copied with its CRC32 worked out as it's
+  read, then the copy is read back and checked against that and its size (one read of the
+  original, not two); one with hashes is checked by its SHA1 (or CRC32). Neither works out
+  an MD5, which only matching a DAT needs. A hardlink, or a move on the same drive, reads
+  nothing, as before. This replaces reading an archive's members back (`check_archive_copy`)
+  for a copy with no hashes.
+- **Hashing.** A file of 16 MB or more has its MD5 and SHA1 worked out on threads of their
+  own while it's read, CRC32 on the reading thread: about twice as fast on the cloud
+  machine (230 to 430 MB/s), wherever files are hashed (a scan, Audit). `hash::read_hashed`
+  and `hash::identity` (CRC32 and SHA1, no MD5) read about 450–500 MB/s there, bound by
+  SHA1 on a processor without SHA instructions and far faster on one with them; CRC32 alone
+  is several GB/s, so a copy's check goes as fast as the drive.
+
+So a 50 GB zipped PC game is listed in seconds; imported onto the same drive (a hardlink)
+it's read not at all, and copied to another drive it's read once, written, and read back.
+
+- **Tests.** `hash`: a big file hashes the same on threads; `read_hashed` hands on every
+  byte, with CRC32 alone or with SHA1, stops when asked and passes on a write's error.
+  `organise`: a file with no hashes is checked by what was read as it was copied (a copy
+  that isn't what's expected never takes its name; the same file there already is done, a
+  different one never replaced). `pcgames`: nothing is read from an inbox with nothing like
+  it in the library, `game.json` lists the imported files by size, a second read finds them
+  all in the library (theirs read then), and a file the same size but different isn't.
+  `subset`: a file as big as no ROM of the DATs isn't read.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -5217,7 +5270,7 @@ type to about the classic view's on a phone.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D133). D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D134). D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 

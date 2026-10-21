@@ -1847,7 +1847,7 @@ impl App {
                 let mode = args["mode"].as_str().unwrap_or("copy").to_string();
                 let always_copy = args["always_copy"].as_bool().unwrap_or(false);
                 j(blocking(Box::new(move || {
-                    let plan = addgame::plan(&lib, &files, &platform, &into, &mode, always_copy, &AtomicBool::new(false))?;
+                    let plan = addgame::plan(&lib, &files, &platform, &into, &mode, always_copy)?;
                     organise::save_pending(&data_dir, &plan)?;
                     Ok(plan.summary())
                 }))
@@ -2217,12 +2217,14 @@ impl App {
                 }
                 self.not_running("Reading folders")?;
                 j(self.spawn_job("Reading folders", move |app, jid, cancel| {
-                    let found = crate::subset::read_folders(&paths, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    // a file as big as no ROM of the audit DATs isn't read (D133)
+                    let sizes = crate::subset::dat_sizes(ix.conn(), &lib)?;
+                    let found = crate::subset::read_folders(&paths, Some(&sizes), &cancel, &mut |p| app.job_progress(&jid, p))?;
                     if cancel.load(Ordering::Relaxed) {
                         bail!("Stopped.");
                     }
                     app.job_progress(&jid, json!({ "text": "Matching them to your audit DATs" }));
-                    let ix = Self::job_index(&data_dir, &lib)?;
                     let mut v = crate::subset::review(&ix, &lib, &found)?;
                     v["made_from"] = json!({ "kind": "folders", "paths": paths, "read": library::now() });
                     Ok(v)

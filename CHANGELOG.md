@@ -89,6 +89,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **Importing a big game no longer reads all of it before showing the list.** A PC game is listed from its files' names and sizes, and a console game is read for its hashes only when it's as big as a game in your DATs, so a large ZIP, or a PS4 or Switch game, shows in seconds. Each file is then read once, as it's copied, and the copy checked against what was read; brought in on the same drive, nothing is read at all. Checking big files elsewhere (a scan, Audit) is about twice as fast.
+
 ## 0.5.39 (2026-10-21)
 
 - **A system's main DAT can be chosen where the DAT files are listed, as well as on the Audit page.** With more than one DAT for a system, the list marks its main DAT and the DATs it's audited with too; *Make it the main DAT* changes it, and *DATs…* beside the system's name opens the same choices as Audit's.

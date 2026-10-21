@@ -7,7 +7,6 @@
 
 use crate::audit;
 use crate::cue;
-use crate::hash;
 use crate::identify;
 use crate::index::Index;
 use crate::library::{now, Library, APP_DIR};
@@ -20,7 +19,6 @@ use rusqlite::params;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 
 /// Where a system's games can be imported to, the best first: a folder with games for
 /// it; the folders its games are in already; then, in a folder with games for every
@@ -142,7 +140,7 @@ pub(crate) fn with_tracks(p: &Path) -> Vec<PathBuf> {
 /// Plan adding these files to `platform`'s games in `into` (a folder with games, or any
 /// folder, which becomes one for the system). `mode`: copy (hardlinked on the same drive
 /// unless `always_copy`) or move.
-pub fn plan(lib: &Library, files: &[PathBuf], platform: &str, into: &Path, mode: &str, always_copy: bool, cancel: &AtomicBool) -> Result<Plan> {
+pub fn plan(lib: &Library, files: &[PathBuf], platform: &str, into: &Path, mode: &str, always_copy: bool) -> Result<Plan> {
     lib.writable()?;
     if platform == "pc" {
         bail!("PC games are added with Import… on the PC games page.");
@@ -190,12 +188,11 @@ pub fn plan(lib: &Library, files: &[PathBuf], platform: &str, into: &Path, mode:
             if !targets.insert(key(&to)) {
                 bail!("Two of the files are called {name}, and only one can go in {}.", into.display());
             }
-            let mut r = std::fs::File::open(&p).with_context(|| format!("couldn't read {}", p.display()))?;
-            let size = r.metadata()?.len();
-            let h = hash::hash_reader(&mut r, size, "", cancel)?;
+            // read only as it's copied, and checked by what was read (D133); the scan after reads its hashes
+            let size = std::fs::metadata(&p).with_context(|| format!("couldn't read {}", p.display()))?.len();
             let src = Src {
                 file_id: 0, root: format!("dir:{}", p.parent().unwrap_or(Path::new(".")).display()), rel: name.clone(), path: p.display().to_string(),
-                member: None, size, crc32: h.crc32, sha1: h.sha1,
+                member: None, size, crc32: String::new(), sha1: None,
             };
             let op = match mode {
                 "move" => "move",
@@ -322,6 +319,7 @@ pub fn identify_rom(lib: &Library, platform: &str, file: &Value, m: &Match) -> R
 mod tests {
     use super::*;
     use crate::library::tests::temp_dir;
+    use std::sync::atomic::AtomicBool;
 
     #[test]
     fn a_system_with_no_folder_gets_one_named_for_it_beside_the_others() {
@@ -356,10 +354,9 @@ mod tests {
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, crate::audit::tests::rom(seed, 1024)).unwrap();
         }
-        let cancel = AtomicBool::new(false);
-        let e = plan(&lib, &[a.clone(), b], "gb", &roms, "move", false, &cancel).unwrap_err();
+        let e = plan(&lib, &[a.clone(), b], "gb", &roms, "move", false).unwrap_err();
         assert!(format!("{e:#}").contains("Two of the files are called Game.gb"), "{e:#}");
-        let e = plan(&lib, &[a], "gb", &dir.join("Drive"), "copy", false, &cancel).unwrap_err();
+        let e = plan(&lib, &[a], "gb", &dir.join("Drive"), "copy", false).unwrap_err();
         assert!(format!("{e:#}").contains("can't go to"), "{e:#}");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -375,7 +372,7 @@ mod tests {
         let roms = dir.join("Roms");
         assert_eq!(places(Some(ix.conn()), &lib, "gb")[0]["dir"].as_str(), Some(roms.to_str().unwrap()));
         let cancel = AtomicBool::new(false);
-        let plan = plan(&lib, &[elsewhere.join("zeta.gb"), elsewhere.join("homebrew.gb")], "gb", &roms, "copy", true, &cancel).unwrap();
+        let plan = plan(&lib, &[elsewhere.join("zeta.gb"), elsewhere.join("homebrew.gb")], "gb", &roms, "copy", true).unwrap();
         assert_eq!((plan.games, plan.ops.len(), plan.kind.as_str()), (2, 2, "add"));
         // review M40: the preview's title says what it will do, History's label what it did
         assert_eq!((plan.title.as_str(), plan.label.as_str()), ("Import 2 games into Game Boy", "Imported 2 games into Game Boy"));
@@ -402,7 +399,7 @@ mod tests {
         let v = identify_rom(&lib, "gb", &files[1], &m2).unwrap();
         assert_eq!((v["title"].as_str(), v["details"]["description"].as_str(), v["details"]["developer"].as_str()), (Some("Homebrew Hero"), Some("Mine."), Some("Hero Co")), "{v}");
         // a file can't go where one of its name is
-        assert!(super::plan(&lib, &[elsewhere.join("zeta.gb")], "gb", &roms, "copy", true, &cancel).is_err());
+        assert!(super::plan(&lib, &[elsewhere.join("zeta.gb")], "gb", &roms, "copy", true).is_err());
         let _ = temp_dir;
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -1650,9 +1650,10 @@ fn there_already(to: &Path, src: &Src, cancel: &AtomicBool) -> Result<bool> {
         return Ok(false);
     }
     let same = if src.member.is_none() && src.sha1.is_none() && src.crc32.is_empty() {
-        check_archive_copy(Path::new(&src.path), to, src, cancel).is_ok()
+        // nothing recorded to check it by (an import's file, D133): the same as the source
+        std::fs::File::open(&src.path).and_then(|mut f| hash::read_hashed(&mut f, false, cancel, &mut |_| Ok(()))).is_ok_and(|h| check_copy(to, &Src { crc32: h.crc32, ..src.clone() }, cancel).is_ok())
     } else {
-        check_file(to, src, cancel).is_ok()
+        check_copy(to, src, cancel).is_ok()
     };
     if cancel.load(Ordering::Relaxed) {
         bail!("stopped");
@@ -1677,18 +1678,21 @@ pub(crate) fn copy_file(from: &Path, to: &Path, cancel: &AtomicBool) -> io::Resu
     Ok(n)
 }
 
-/// Copy `from` to `to` through a temporary file, checked before it takes its name.
+/// Copy `from` to `to` through a temporary file, checked before it takes its name: by the
+/// hashes the change recorded for it, or, with none recorded (an import's file, D133), by
+/// the CRC32 of the original as it was read for the copy, so it's read once.
 fn copy_checked(from: &Path, to: &Path, want: &Src, cancel: &AtomicBool) -> Result<()> {
     let tmp = to.with_file_name(format!("{}.gamerepo-tmp", to.file_name().unwrap_or_default().to_string_lossy()));
     let r = (|| -> Result<()> {
-        copy_file(from, &tmp, cancel).with_context(|| format!("couldn't copy {}", from.display()))?;
+        if want.sha1.is_none() && want.crc32.is_empty() {
+            let read = copy_hashed(from, &tmp, cancel).with_context(|| format!("couldn't copy {}", from.display()))?;
+            check_copy(&tmp, &Src { crc32: read.crc32, ..want.clone() }, cancel)?;
+        } else {
+            copy_file(from, &tmp, cancel).with_context(|| format!("couldn't copy {}", from.display()))?;
+            check_copy(&tmp, want, cancel)?;
+        }
         if let Ok(t) = std::fs::metadata(from).and_then(|m| m.modified()) {
             let _ = std::fs::File::options().write(true).open(&tmp).and_then(|f| f.set_modified(t));
-        }
-        if want.sha1.is_none() && want.crc32.is_empty() {
-            check_archive_copy(from, &tmp, want, cancel)?;
-        } else {
-            check_file(&tmp, want, cancel)?;
         }
         // a file that appeared there since the preview is never replaced (rename would on Windows)
         if to.exists() {
@@ -1703,35 +1707,28 @@ fn copy_checked(from: &Path, to: &Path, want: &Src, cancel: &AtomicBool) -> Resu
     r
 }
 
-/// A copy of a file with no hashes recorded: the same size, and for an archive every member reads back (unpacked, so
-/// each one's CRC32 is checked) as the original records it.
-fn check_archive_copy(from: &Path, copy: &Path, want: &Src, cancel: &AtomicBool) -> Result<()> {
-    let size = std::fs::metadata(copy)?.len();
+/// `copy_file`, the original's CRC32 worked out as it's read.
+fn copy_hashed(from: &Path, to: &Path, cancel: &AtomicBool) -> io::Result<Hashes> {
+    let mut r = std::fs::File::open(from)?;
+    let mut w = std::fs::File::create(to)?;
+    let h = hash::read_hashed(&mut r, false, cancel, &mut |b| w.write_all(b)).and_then(|h| w.flush().map(|_| h)).inspect_err(|_| {
+        let _ = std::fs::remove_file(to);
+    })?;
+    if let Ok(m) = r.metadata() {
+        let _ = w.set_permissions(m.permissions());
+    }
+    Ok(h)
+}
+
+/// A copy checked against what's expected of it: its size, and its SHA1 if one is
+/// expected, else its CRC32 (no MD5, which only a DAT needs: a read as fast as the drive).
+fn check_copy(path: &Path, want: &Src, cancel: &AtomicBool) -> Result<()> {
+    let size = std::fs::metadata(path)?.len();
     if size != want.size {
-        bail!("the copy of {} is {size} bytes, not {}", from.display(), want.size);
+        bail!("{} is {size} bytes after writing it, not {}", path.display(), want.size);
     }
-    let kind = archive::container_of(&from.to_string_lossy());
-    let Some(kind) = kind.filter(|k| !crate::image::KINDS.contains(k)) else {
-        // a disc image, or a plain file (a document, a picture): the same bytes
-        let hash = |p: &Path| -> Result<Option<String>> {
-            Ok(hash::hash_reader(&mut std::fs::File::open(p)?, size, "", cancel)?.sha1)
-        };
-        if hash(from)? != hash(copy)? {
-            bail!("the copy of {} isn't the same", from.display());
-        }
-        return Ok(());
-    };
-    let orig = archive::read(from, kind, false, cancel)?;
-    let back = archive::read(copy, kind, true, cancel).with_context(|| format!("the copy of {} doesn't read back", from.display()))?;
-    let set = |l: &archive::Listing| -> Vec<(String, u64, String)> {
-        let mut v: Vec<_> = l.members.iter().map(|m| (m.name.clone(), m.hashes.size, m.hashes.crc32.clone())).collect();
-        v.sort();
-        v
-    };
-    if set(&orig) != set(&back) {
-        bail!("the copy of {} doesn't hold the same files", from.display());
-    }
-    Ok(())
+    let h = hash::read_hashed(&mut std::fs::File::open(path)?, want.sha1.is_some(), cancel, &mut |_| Ok(()))?;
+    check_hashes(&h, want).with_context(|| format!("{} isn't what was expected after writing it", path.display()))
 }
 
 /// What a step wrote, for the index: a file's hashes, or an archive's (or disc
@@ -1910,7 +1907,7 @@ fn write_sheet(from: &Path, to: &Path, names: &[String], cancel: &AtomicBool) ->
 }
 
 /// An archive as a whole file: its own hashes aren't known (only its members'), so a
-/// copy of it is checked by reading every member back.
+/// copy of it is checked by the CRC32 of the original as it's read for the copy (D133).
 pub(crate) fn whole_archive(member: &Src) -> Src {
     let mut s = member.clone();
     s.member = None;
@@ -2376,6 +2373,40 @@ pub fn empty_set_aside(lib: &Library, id: Option<&str>) -> Result<Value> {
 mod tests {
     use super::*;
     use crate::audit::tests::{fixture, import, names, run_scan, Fixture};
+
+    // D133: an import's file is read once, as it's copied, and its copy checked by that
+    #[test]
+    fn a_file_with_no_hashes_is_checked_by_what_was_read_as_it_was_copied() {
+        let dir = crate::library::tests::temp_dir("copy-unhashed");
+        std::fs::create_dir_all(&dir).unwrap();
+        let from = dir.join("big.bin");
+        let bytes: Vec<u8> = (0..hash::BLOCK * 2 + 5).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&from, &bytes).unwrap();
+        let src = Src { file_id: 0, root: format!("dir:{}", dir.display()), rel: "big.bin".into(), path: from.display().to_string(), member: None, size: bytes.len() as u64, crc32: String::new(), sha1: None };
+        let never = AtomicBool::new(false);
+        let to = dir.join("out/big.bin");
+        make_parent(&to).unwrap();
+        copy_checked(&from, &to, &src, &never).unwrap();
+        assert!(std::fs::read(&to).unwrap() == bytes);
+        assert!(!dir.join("out/big.bin.gamerepo-tmp").exists());
+        // there already: the same bytes are done, others are never replaced
+        assert!(there_already(&to, &src, &never).unwrap());
+        let mut other = bytes.clone();
+        other[hash::BLOCK + 1] ^= 1;
+        std::fs::write(&to, &other).unwrap();
+        assert!(there_already(&to, &src, &never).is_err());
+        // a copy that isn't what's expected never takes its name
+        std::fs::remove_file(&to).unwrap();
+        let e = copy_checked(&from, &to, &Src { size: 3, ..src.clone() }, &never).unwrap_err();
+        assert!(format!("{e:#}").contains("not 3"), "{e:#}");
+        assert!(!to.exists() && !dir.join("out/big.bin.gamerepo-tmp").exists());
+        // with hashes recorded, by them
+        let h = hash::identity(&mut &bytes[..], &never).unwrap();
+        copy_checked(&from, &to, &Src { crc32: h.crc32.clone(), sha1: h.sha1.clone(), ..src.clone() }, &never).unwrap();
+        std::fs::remove_file(&to).unwrap();
+        assert!(copy_checked(&from, &to, &Src { crc32: h.crc32, sha1: Some("0".repeat(40)), ..src }, &never).is_err() && !to.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     // Jerred, 2026-10-20: games an import left where they are are moved into the library
     // later, all at once, without saying where each one is
