@@ -68,9 +68,29 @@ fn walk(paths: &[PathBuf], cancel: &AtomicBool) -> Vec<(PathBuf, String, u64)> {
     out
 }
 
+/// The sizes of the audit DATs' ROMs: a file of none of them (nor of one with a header
+/// taken off) can't be a game of theirs, so it isn't read (D133).
+pub fn dat_sizes(conn: &Connection, lib: &Library) -> Result<HashSet<u64>> {
+    let mut q = conn.prepare("SELECT DISTINCT size FROM dat_roms WHERE dat_id = ?1 AND size IS NOT NULL")?;
+    let mut out = HashSet::new();
+    for id in audit_dats(conn, lib)?.keys() {
+        for s in q.query_map([id], |r| r.get::<_, i64>(0))? {
+            out.insert(s? as u64);
+        }
+    }
+    Ok(out)
+}
+
+/// Whether a file of `size` bytes may be a ROM of these sizes: as it is, or with a header
+/// the DATs leave out (`hash::detect`'s) taken off.
+fn may_be(sizes: &HashSet<u64>, size: u64) -> bool {
+    [0, 16, 64, 128, 512].iter().any(|h| size >= *h && sizes.contains(&(size - h)))
+}
+
 /// What a file holds: an archive's or disc image's members (a ZIP's by the CRCs it
-/// records, D16), else the file itself.
-fn read_one(path: &Path, size: u64, cancel: &AtomicBool) -> std::io::Result<Vec<Hashes>> {
+/// records, D16), else the file itself; a file no ROM of `sizes` is as big as, only its
+/// size (D133).
+fn read_one(path: &Path, size: u64, sizes: Option<&HashSet<u64>>, cancel: &AtomicBool) -> std::io::Result<Vec<Hashes>> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if let Some(kind) = archive::container_of(&name) {
         match archive::read(path, kind, false, cancel) {
@@ -83,12 +103,16 @@ fn read_one(path: &Path, size: u64, cancel: &AtomicBool) -> std::io::Result<Vec<
             Err(_) => {}
         }
     }
+    if sizes.is_some_and(|s| !may_be(s, size)) {
+        return Ok(vec![Hashes { size, ..Default::default() }]);
+    }
     let mut f = std::fs::File::open(path)?;
     Ok(vec![hash::hash_reader(&mut f, size, &name, cancel)?])
 }
 
-/// Read the files under `paths`, several at a time.
-pub fn read_folders(paths: &[PathBuf], cancel: &AtomicBool, progress: &mut (dyn FnMut(Value) + Send)) -> Result<Vec<Found>> {
+/// Read the files under `paths`, several at a time: those that may be ROMs of `sizes` (the
+/// audit DATs', `dat_sizes`; None for every file) for their hashes.
+pub fn read_folders(paths: &[PathBuf], sizes: Option<&HashSet<u64>>, cancel: &AtomicBool, progress: &mut (dyn FnMut(Value) + Send)) -> Result<Vec<Found>> {
     if paths.is_empty() {
         bail!("Choose a folder (or a few) first.");
     }
@@ -113,7 +137,7 @@ pub fn read_folders(paths: &[PathBuf], cancel: &AtomicBool, progress: &mut (dyn 
                 }
                 let (path, shown, size) = &files[i];
                 let mut f = Found { path: path.display().to_string(), shown: shown.clone(), size: *size, ..Default::default() };
-                match read_one(path, *size, cancel) {
+                match read_one(path, *size, sizes, cancel) {
                     Ok(roms) => f.roms = roms,
                     Err(e) => f.error = Some(e.to_string()),
                 }
@@ -167,7 +191,7 @@ fn games_of(conn: &Connection, dats: &HashMap<i64, String>, roms: &[Hashes]) -> 
     let mut count: HashMap<i64, usize> = HashMap::new();
     for h in roms {
         let mut hit: HashSet<i64> = HashSet::new();
-        for x in std::iter::once(h).chain(h.hl.as_deref()) {
+        for x in std::iter::once(h).chain(h.hl.as_deref()).filter(|x| !x.crc32.is_empty()) {
             let mut rows = q.query(rusqlite::params![x.crc32.to_ascii_lowercase(), x.size as i64])?;
             while let Some(r) = rows.next()? {
                 let (game, dat_id, sha1): (i64, i64, Option<String>) = (r.get(0)?, r.get(1)?, r.get(2)?);
@@ -391,10 +415,7 @@ fn holds(p: &Path, roms: &[DatRom], cancel: &AtomicBool) -> bool {
     let have: Vec<Hashes> = if archive::container_of(&name).is_some() {
         archive::members(p, cancel).map(|m| m.into_iter().map(|(_, h)| h).collect()).unwrap_or_default()
     } else {
-        std::fs::File::open(p).and_then(|mut f| {
-            let size = f.metadata()?.len();
-            hash::hash_reader(&mut f, size, "", cancel)
-        }).into_iter().collect()
+        std::fs::File::open(p).and_then(|mut f| hash::read_hashed(&mut f, false, cancel, &mut |_| Ok(()))).into_iter().collect()
     };
     !roms.is_empty() && roms.iter().all(|r| have.iter().any(|h| r.crc32.eq_ignore_ascii_case(&h.crc32) && r.size == h.size))
 }
@@ -453,6 +474,36 @@ fn several(
     Ok(Ok(ops))
 }
 
+/// The files an import brings, by size: a file as big as one of them is read to see if
+/// it's the same, so byte-identical copies are imported once; the rest aren't read (D133).
+#[derive(Default)]
+struct Seen {
+    by_size: HashMap<u64, Vec<(PathBuf, Option<String>)>>,
+}
+
+impl Seen {
+    /// Whether `p` is the first of its bytes.
+    fn first(&mut self, p: &Path, size: u64, cancel: &AtomicBool) -> Result<bool> {
+        let sha1 = |p: &Path| -> Result<Option<String>> { Ok(hash::identity(&mut std::fs::File::open(p)?, cancel).with_context(|| format!("couldn't read {}", p.display()))?.sha1) };
+        let them = self.by_size.entry(size).or_default();
+        if them.is_empty() {
+            them.push((p.to_path_buf(), None));
+            return Ok(true);
+        }
+        let mine = sha1(p)?;
+        for (q, theirs) in them.iter_mut() {
+            if theirs.is_none() {
+                *theirs = sha1(q)?;
+            }
+            if *theirs == mine {
+                return Ok(false);
+            }
+        }
+        them.push((p.to_path_buf(), mine));
+        Ok(true)
+    }
+}
+
 /// What to import (D53, D73): the games found, the files no DAT knows that were given a
 /// system, where each system's games go, and how.
 #[derive(Debug, Default)]
@@ -480,7 +531,7 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
     let conn = ix.conn();
     let mut q = conn.prepare("SELECT g.name, d.platform, (SELECT COUNT(*) FROM dat_roms r WHERE r.game_id = g.id AND COALESCE(r.status, '') <> 'nodump'), (SELECT r.name FROM dat_roms r WHERE r.game_id = g.id LIMIT 1) FROM dat_games g JOIN dats d ON d.id = g.dat_id WHERE g.id = ?1")?;
     let (mut ops, mut left) = (vec![], vec![]);
-    let mut seen = HashSet::new();
+    let mut seen = Seen::default();
     let mut outs: HashSet<String> = HashSet::new();
     let mut count = 0;
     let mut chosen: HashMap<String, Option<PathBuf>> = HashMap::new();
@@ -504,14 +555,18 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
         json!({ "path": format!("{name} › {game}"), "why": format!("Choose where {name}'s games go.") })
     };
     let mut used: Vec<(PathBuf, String)> = vec![];
-    let src_of = |f: &Path, cancel: &AtomicBool| -> Result<organise::Src> {
+    // a file is read as it's copied, and checked by what was read then (D133); it's read
+    // now (`hashed`) only to name a game's files as its ROMs
+    let src_of = |f: &Path, hashed: bool, cancel: &AtomicBool| -> Result<organise::Src> {
         let name = f.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        let mut r = std::fs::File::open(f).with_context(|| format!("couldn't read {}", f.display()))?;
-        let size = r.metadata()?.len();
-        let h = hash::hash_reader(&mut r, size, "", cancel)?;
+        let size = std::fs::metadata(f).with_context(|| format!("couldn't read {}", f.display()))?.len();
+        let h = match hashed {
+            true => Some(hash::identity(&mut std::fs::File::open(f)?, cancel).with_context(|| format!("couldn't read {}", f.display()))?),
+            false => None,
+        };
         Ok(organise::Src {
             file_id: 0, root: format!("dir:{}", f.parent().unwrap_or(Path::new(".")).display()), rel: name, path: f.display().to_string(),
-            member: None, size, crc32: h.crc32, sha1: h.sha1,
+            member: None, size, crc32: h.as_ref().map(|h| h.crc32.clone()).unwrap_or_default(), sha1: h.and_then(|h| h.sha1),
         })
     };
     let items = imp.games.len() + imp.files.iter().map(|(_, f)| f.len()).sum::<usize>();
@@ -539,7 +594,7 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
         let whole = roms <= 1 || files.iter().any(|f| f.file_name().and_then(|n| n.to_str()).is_some_and(|n| archive::container_of(n).is_some()));
         if !whole {
             // review M8: a folder of its own, and all of it or nothing
-            match several(&game, &place, files, &dat_roms, &mut outs, &mut |f| src_of(f, cancel), &|f, p| how(f, p))? {
+            match several(&game, &place, files, &dat_roms, &mut outs, &mut |f| src_of(f, true, cancel), &|f, p| how(f, p))? {
                 Ok(game_ops) => {
                     ops.extend(game_ops);
                     used.push((place.clone(), platform.clone()));
@@ -560,8 +615,8 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
             if roms > 1 && !is_archive {
                 continue;
             }
-            let src = src_of(f, cancel)?;
-            if !seen.insert(src.sha1.clone().unwrap_or_else(|| format!("{}:{}", src.crc32, src.size))) {
+            let src = src_of(f, false, cancel)?;
+            if !seen.first(f, src.size, cancel)? {
                 continue;
             }
             // named as the DAT names it: the game (an archive or image) or its one ROM
@@ -582,7 +637,7 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
                     left.push(json!({ "path": f.display().to_string(), "why": format!("{} in {} is a good copy already.", to.file_name().unwrap_or_default().to_string_lossy(), place.display()) }));
                     continue;
                 }
-                let there = src_of(&to, cancel)?;
+                let there = src_of(&to, false, cancel)?;
                 ops.push(organise::Op { op: "aside".into(), game: game.clone(), to: to.display().to_string(), from: vec![there.clone()], names: vec![], aside: vec![], size: there.size, note: Some("It doesn't match the DAT: set aside for the good copy.".into()) });
                 note = Some(format!("Replaces the {} there, which doesn't match the DAT.", to.file_name().unwrap_or_default().to_string_lossy()));
             }
@@ -618,8 +673,8 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
                     left.push(json!({ "path": p.display().to_string(), "why": format!("There's a file called {name} in {} already.", place.display()) }));
                     continue;
                 }
-                let src = src_of(&p, cancel)?;
-                if !seen.insert(src.sha1.clone().unwrap_or_else(|| format!("{}:{}", src.crc32, src.size))) {
+                let src = src_of(&p, false, cancel)?;
+                if !seen.first(&p, src.size, cancel)? {
                     continue;
                 }
                 let size = src.size;
@@ -690,8 +745,13 @@ mod tests {
         std::fs::write(sub.join("zeta.gb"), rom(10, 1024)).unwrap();
         std::fs::write(sub.join("notes.txt"), b"mine").unwrap();
         let none = AtomicBool::new(false);
-        let found = read_folders(&[sub.clone()], &none, &mut |_| {}).unwrap();
+        let sizes = dat_sizes(ix.conn(), &lib).unwrap();
+        let found = read_folders(&[sub.clone()], Some(&sizes), &none, &mut |_| {}).unwrap();
         assert_eq!(found.len(), 4);
+        // a file as big as no ROM of the DATs isn't read (D133)
+        let notes = found.iter().find(|f| f.shown.ends_with("notes.txt")).unwrap();
+        assert!(notes.roms.len() == 1 && notes.roms[0].crc32.is_empty() && notes.roms[0].size == 4, "{notes:?}");
+        assert!(found.iter().filter(|f| f.shown.ends_with(".gb")).all(|f| !f.roms[0].crc32.is_empty()));
         let r = review(&ix, &lib, &found).unwrap();
         let gb = &r["systems"][0];
         let names: Vec<&str> = gb["games"].as_array().unwrap().iter().map(|g| g["name"].as_str().unwrap()).collect();
@@ -749,7 +809,7 @@ mod tests {
         std::fs::write(sub.join("zeta copy.gb"), rom(10, 1024)).unwrap();
         std::fs::write(sub.join("delta.gb"), rom(8, 1024)).unwrap();
         let none = AtomicBool::new(false);
-        let r = review(&ix, &lib, &read_folders(&[sub.clone()], &none, &mut |_| {}).unwrap()).unwrap();
+        let r = review(&ix, &lib, &read_folders(&[sub.clone()], Some(&dat_sizes(ix.conn(), &lib).unwrap()), &none, &mut |_| {}).unwrap()).unwrap();
         let lacking: Vec<(i64, Vec<PathBuf>)> = r["systems"][0]["games"].as_array().unwrap().iter()
             .filter(|g| g["status"] == "missing")
             .map(|g| (g["id"].as_i64().unwrap(), g["files"].as_array().unwrap().iter().map(|f| PathBuf::from(f.as_str().unwrap())).collect()))
@@ -784,7 +844,7 @@ mod tests {
         std::fs::write(src.join("sonic.gg"), rom(50, 1024)).unwrap();
         std::fs::write(src.join("zeta.gb"), rom(10, 1024)).unwrap();
         std::fs::write(src.join("homebrew.gg"), b"a game nobody listed").unwrap();
-        let r = review(&ix, &lib, &read_folders(&[src.clone()], &none, &mut |_| {}).unwrap()).unwrap();
+        let r = review(&ix, &lib, &read_folders(&[src.clone()], Some(&dat_sizes(ix.conn(), &lib).unwrap()), &none, &mut |_| {}).unwrap()).unwrap();
         let systems: Vec<&str> = r["systems"].as_array().unwrap().iter().map(|x| x["platform"].as_str().unwrap()).collect();
         assert_eq!(systems, ["gb", "gamegear"], "{r}");
         let unknown = &r["unknown"][0];
@@ -846,7 +906,7 @@ mod tests {
         std::fs::write(src.join("t1.bin"), &t1).unwrap();
         std::fs::write(src.join("t2.bin"), &t2).unwrap();
         std::fs::write(src.join("mine.cue"), sheet("t1.bin", "t2.bin")).unwrap();
-        let r = review(&ix, &lib, &read_folders(&[src.clone()], &none, &mut |_| {}).unwrap()).unwrap();
+        let r = review(&ix, &lib, &read_folders(&[src.clone()], Some(&dat_sizes(ix.conn(), &lib).unwrap()), &none, &mut |_| {}).unwrap()).unwrap();
         assert_eq!(r["unknown"], json!([]), "the sheet goes with its tracks: {r}");
         let g = &r["systems"][0]["games"][0];
         assert_eq!(g["files"].as_array().map(Vec::len), Some(3), "{r}");
@@ -873,7 +933,7 @@ mod tests {
         let picks = dir.join("Picks");
         std::fs::create_dir_all(&picks).unwrap();
         std::fs::write(picks.join("zeta.gb"), rom(10, 1024)).unwrap();
-        let r = review(&ix, &lib, &read_folders(&[picks.clone()], &none, &mut |_| {}).unwrap()).unwrap();
+        let r = review(&ix, &lib, &read_folders(&[picks.clone()], None, &none, &mut |_| {}).unwrap()).unwrap();
         let z = &r["systems"][0]["games"][0];
         let imp = Import { games: vec![(z["id"].as_i64().unwrap(), vec![picks.join("zeta.gb")])], ..Default::default() };
         let plan = bring_plan(&ix, &lib, &imp, &none, &mut |_| {}).unwrap();
