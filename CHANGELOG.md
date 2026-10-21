@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.44 (2026-10-21)
+
 - **Updates are on from this version.** It's the first release signed with the update key: install it by hand once, and from then on Game Repo, Game Repo Server and Game Repo Go offer each new release themselves (on Windows, the Steam Deck and Android).
 
 ## 0.5.43 (2026-10-21)
