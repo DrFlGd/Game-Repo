@@ -147,8 +147,8 @@ export function DatsSection({ lib }) {
     ${byPlatform.length ? byPlatform.map((g) => {
       const several = usable(g).length > 1;
       const also = usable(g).filter((d) => d.also).map((d) => d.name);
-      return html`<div class="dat-group" key=${g.platform} data-platform=${g.platform}><h3>${g.name}
-        ${several ? html`${" "}<button type="button" class="ghost compact dat-roles" title="The main DAT and the DATs it's audited with too" disabled=${off} onClick=${() => openDats(g)}>${Icon.stack(14)} DATs…</button>` : null}</h3>
+      return html`<div class="dat-group" key=${g.platform} data-platform=${g.platform}><div class="dat-group-head"><h3>${g.name}</h3>
+        ${several ? html`<button type="button" class="ghost compact dat-roles" title="The main DAT and the DATs it's audited with too" disabled=${off} onClick=${() => openDats(g)}>${Icon.stack(14)} DATs…</button>` : null}</div>
       <ul class="ls-list dat-list">${g.dats.map((d) => html`<li key=${d.id} data-dat=${d.id} data-name=${d.name}>
         <span class="dat-name"><span>${d.name}</span> <span class="muted">${d.version} · ${plural(d.games, "game", "games")}${d.author ? ` · ${d.author}` : ""}</span>
           ${d.current && g.dats.filter((x) => x.name === d.name).length > 1 ? html`<span class="badge" title="The version the audit uses; the others are kept">Version used</span>` : null}
