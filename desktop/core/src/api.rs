@@ -1672,6 +1672,18 @@ impl App {
                 }))
                 .await?)
             }
+            "pc_find_details" => {
+                // Find details… (D138): the PC games matched to no source, asked of the sources
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let label = "Finding details";
+                let running = self.begin_meta(label)?;
+                j(self.spawn_job(label, move |app, jid, cancel| {
+                    let _running = running;
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    crate::pcmeta::find_details(&ix, &lib, &cfg, &data_dir, &cancel, &mut |p| app.job_progress(&jid, p))
+                }))
+            }
             "pc_remove_plan" => {
                 // Remove from the library… (D129): the change's preview, and whether Add to
                 // Steam… wrote its shortcut, which stays until it's run again
@@ -1724,7 +1736,8 @@ impl App {
                 let query = arg(&args, "query").map_err(e2s)?.to_string();
                 let platform = args["platform"].as_str().unwrap_or("pc").to_string();
                 let year = args["year"].as_i64().map(|y| y as i32);
-                j(blocking(Box::new(move || Ok(identify::search(&cfg, &data_dir, &query, &platform, year)))).await?)
+                let only = args["source"].as_str().filter(|s| !s.is_empty()).map(String::from);
+                j(blocking(Box::new(move || Ok(identify::search(&cfg, &data_dir, &query, &platform, year, only.as_deref())))).await?)
             }
             "identify_details" => {
                 let (source, id) = (arg(&args, "source").map_err(e2s)?.to_string(), arg(&args, "id").map_err(e2s)?.to_string());
@@ -1759,6 +1772,8 @@ impl App {
                     .iter()
                     .filter_map(|s| Some(crate::config::SourceSetting { id: s["id"].as_str()?.to_string(), on: s["on"].as_bool().unwrap_or(true) }))
                     .collect();
+                // chosen now, so kept as it is (D138)
+                cfg.sources_rev = 1;
                 cfg.save(&self.config_path()).map_err(e2s)?;
                 j(identify::sources(&cfg, &data_dir))
             }

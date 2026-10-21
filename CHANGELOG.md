@@ -89,6 +89,10 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **PC games that aren't on Steam or GOG find their details more often.** ScreenScraper is now asked first, DOS and Windows 3.x games are searched as well as Windows ones, and a game matches a source's other titles for it (another region's name), not only its main one.
+- **Find details…** in the PC games' ⋯ menu asks the sources about every PC game that isn't matched to one yet, and lists the ones still unmatched with Identify…. A game you said is none of theirs is left alone.
+- **Identify… can search one source.** Choose it beside the year when a game doesn't turn up with every source.
+
 ## 0.5.40 (2026-10-21)
 
 - **Importing a big game no longer reads all of it before showing the list.** A PC game is listed from its files' names and sizes, and a console game is read for its hashes only when it's as big as a game in your DATs, so a large ZIP, or a PS4 or Switch game, shows in seconds. Each file is then read once, as it's copied, and the copy checked against what was read; brought in on the same drive, nothing is read at all. Checking big files elsewhere (a scan, Audit) is about twice as fast.
