@@ -89,6 +89,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.37 (2026-10-21)
+
 - **Import: games can be left where they are, and moved into the library later in one go.** *How* gets a fourth choice, *Leave them where they are*: the folders become folders with games and are scanned, and nothing is copied. Once any folder with games is outside the library folder, the Import page shows *Move into the library…*, which moves every game outside it into the library at once, each system's into its own folder there (the one it already has, else one named for the system), as one change with a preview and Undo.
 - **Stopping an import now stops a large zip part way.** Stop used to wait for the file being copied out of a large zip, or past a file in it not wanted, to finish; it now stops within a moment and removes the part-copied file.
 - **What's running shows how far it has got in the bar at the bottom.** An import, a scan or a scrape now has a progress bar beside its name in the status bar, whether its window is open or it runs in the background, and the list of what's running has one for each.
