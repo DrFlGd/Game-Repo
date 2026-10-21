@@ -1795,7 +1795,7 @@ async def main():
                 await pg.click("#steam-choose")
                 await pg.wait_for_function("(p) => document.querySelector('#steam-path')?.textContent === p", arg=str(steam))
                 check("Settings keeps the PC games inbox and Steam's folder, and lists Identify's sources",
-                      await pg.eval_on_selector_all("#sources > li", "els => els.map(e => e.dataset.source)") == ["steam", "gog", "screenscraper", "igdb", "thegamesdb", "launchbox"] and str(library / "PC") in await pg.inner_text("#pc-folder-path"), await pg.inner_text("#settings-sources"))
+                      await pg.eval_on_selector_all("#sources > li", "els => els.map(e => e.dataset.source)") == ["screenscraper", "steam", "gog", "igdb", "thegamesdb", "launchbox"] and str(library / "PC") in await pg.inner_text("#pc-folder-path"), await pg.inner_text("#settings-sources"))
                 await pg.click("#nav-pc")
                 await pg.click("#pc-first")
                 await pg.wait_for_selector("#pc-items li", timeout=30000)
