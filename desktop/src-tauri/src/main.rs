@@ -2,7 +2,8 @@
 // folder behind web/platform-desktop.js. Nearly every command goes through
 // gamerepo_core::api::App::call (the same table `gamerepo-cli serve` uses for testing);
 // this file adds what needs the window: pick dialogs, the file manager, the
-// library:// protocol, and Game Repo Server beside the app (started and stopped with it).
+// library:// protocol, Game Repo Server beside the app (started and stopped with it), and
+// updates (gamerepo-update: `update_*` through the `api` command).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde_json::{json, Value};
@@ -22,9 +23,13 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-/// One of the app's commands (see gamerepo_core::api), answered as JSON.
+/// One of the app's commands (see gamerepo_core::api), answered as JSON; the updates'
+/// (`update_state`, `update_check`, `update_install`, `update_set`) are the window's own.
 #[tauri::command]
-async fn api(cmd: String, args: Value, state: State<'_, AppState>) -> Result<Value, String> {
+async fn api(app: AppHandle, cmd: String, args: Value, state: State<'_, AppState>) -> Result<Value, String> {
+    if cmd.starts_with("update_") {
+        return gamerepo_update::call(&app, &cmd, &args).await;
+    }
     match state.app.call(&cmd, args).await? {
         Reply::Json(v) => Ok(v),
         Reply::Bytes(b) => Ok(json!({ "bytes": b.len() })),
@@ -132,10 +137,30 @@ fn mime(path: &str) -> &'static str {
     }
 }
 
+/// `game-repo --make-update-key <folder>` (tools/updater_key.cmd, D135): the key that signs
+/// updates, made in that folder with the password in GAMEREPO_UPDATE_KEY_PASSWORD, and
+/// nothing else. Says why on stderr and ends with 1 when it can't.
+fn make_update_key(args: &[String]) -> Option<i32> {
+    let i = args.iter().position(|a| a == "--make-update-key")?;
+    let dir = args.get(i + 1).map(PathBuf::from).unwrap_or_default();
+    let password = std::env::var("GAMEREPO_UPDATE_KEY_PASSWORD").unwrap_or_default();
+    match gamerepo_update::make_key(&dir, &password) {
+        Ok(()) => Some(0),
+        Err(e) => {
+            eprintln!("{e}");
+            Some(1)
+        }
+    }
+}
+
 fn main() {
+    if let Some(code) = make_update_key(&std::env::args().collect::<Vec<_>>()) {
+        std::process::exit(code);
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(gamerepo_update::plugin())
         // library://localhost/<path> (http://library.localhost/<path> on Windows): files in the open library
         .register_asynchronous_uri_scheme_protocol("library", |ctx, request, responder| {
             let app = ctx.app_handle().state::<AppState>().app.clone();
@@ -179,6 +204,16 @@ fn main() {
             };
             let core = App::new(paths)?;
             app.manage(AppState { app: core.clone() });
+            // updates (D134): the server it started stops before the installer replaces it
+            // too, and starts again with Game Repo after
+            gamerepo_update::manage(app.handle(), gamerepo_update::Program {
+                name: "game-repo",
+                title: "Game Repo",
+                systems: &["windows"],
+                not_here: None,
+                before: Box::new(|app| app.state::<AppState>().app.serve_before_update()),
+                changed: Box::new(|_, _| {}),
+            });
             // serving again if it was when the app closed
             std::thread::spawn(move || core.serve_resume());
             // the window (tauri.conf.json, "create": false), made here so that a link in a readme or a

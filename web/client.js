@@ -2,8 +2,9 @@
 // (Preact + htm, no build step, with Game Repo's styles, skins and icons); the backend is
 // reached through client/backend.js.
 import { html, render } from "./lib/html.js";
-import { inApp, leave, onBack, start } from "./client/backend.js";
-import { applyLook, back, closeDialog, go, load, routeOf } from "./client/state.js";
+import { call, inApp, leave, onBack, start } from "./client/backend.js";
+import { applyLook, back, closeDialog, go, load, routeOf, say } from "./client/state.js";
+import { startUpdates } from "./ui/updates.js";
 import { gamepads, keys } from "./client/keys.js";
 import { Shell } from "./client/shell.js";
 import { choose, options, page, search } from "./client/big.js";
@@ -39,6 +40,8 @@ async function main() {
   gamepads();
   await load();
   go.set({ ready: true });
+  // a newer Game Repo Go, found by the check it makes as it starts (D134)
+  startUpdates(call).then((s) => { if (s?.available) say(`Game Repo Go ${s.available.version} is out: update it in Settings.`, "settings"); }).catch(() => {});
 }
 
 main().catch((e) => {

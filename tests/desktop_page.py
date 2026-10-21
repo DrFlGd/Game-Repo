@@ -42,7 +42,9 @@ read back where that frontend looks. In homes of their own: (Phase 7) an arcade 
 with its BIOS set, a device and its set type; (Phase 8c) magazines; (D77) games of two
 systems moved in from a folder, one to a new folder named for its system, and Undo;
 (Phase 9a) Settings › Serve to devices starting Game Repo Server, pairing the stand-in
-device and removing it, and the server stopping with the app.
+device and removing it, and the server stopping with the app; (D134) updates, with the
+CLI's stand-in for the updater: the check as it starts, About, the status bar, Settings ›
+Updates, Update and restart, and Game Repo Server's window.
 Writes <out>/library-info.json and <out>/library.zip for the cross-platform check.
 
 Each part runs as a `Section` (review M44): a timeout or error in it is a FAIL of its
@@ -769,7 +771,79 @@ async def variants(pg, base, home, library):
           (roles, said, meta.get("audit_dats"), meta.get("also_dats"), picked))
 
 
-OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices)]
+def stand_in_update(base, to=None):
+    """The CLI's stand-in for the updater (desktop/cli/src/updates.rs): what a check finds
+    and how this copy stands (`to`), and what the page asked for."""
+    req = urllib.request.Request(base + "test/update", data=None if to is None else json.dumps(to).encode(),
+                                 method="GET" if to is None else "POST", headers={"content-type": "application/json"})
+    return json.loads(urllib.request.urlopen(req, timeout=5).read())
+
+
+async def updates_in_the_app(pg, base, home, library):
+    """In-app updates (D134), with the stand-in for the updater: the check as the app starts,
+    About, the status bar, Settings › Updates, Update and restart, and the server's window."""
+    # 1. the check as it started found nothing newer
+    await pg.click('.sidebar a[href="#/about"]')
+    await pg.wait_for_selector("#about-versions #update-panel[data-state=newest]")
+    newest = await pg.inner_text("#update-state")
+    started = stand_in_update(base)
+    check("the app checks for updates as it starts; About says this version is the newest",
+          started["checks"] == 1 and "is the newest version" in newest and not await pg.query_selector("#status-update"), (started["checks"], newest))
+
+    # 2. Check for updates finds a newer one: what's new since this version, and the status bar says so
+    stand_in_update(base, {"found": {"version": "9.9.9", "date": "2026-10-22T00:00:00Z",
+                                     "notes": "## 9.9.9 (2026-10-22)\n\n- Something **new**.\n\n## 0.0.1 (2020-01-01)\n\n- Something old."}})
+    await pg.click("#update-check")
+    await pg.wait_for_selector("#update-panel[data-state=available] #update-install")
+    state, new = await pg.inner_text("#update-state"), await pg.inner_text("#update-new")
+    await pg.wait_for_selector("#status-update")
+    bar = await pg.inner_text("#status-update")
+    check("Check for updates finds a newer version, with what's new since this one, and the status bar says it's out",
+          "Game Repo 9.9.9 is out" in state and "Something new" in new and "Something old" not in new and "9.9.9 is out" in bar, (state, new, bar))
+    await pg.screenshot(path=str(out / "07-update-found.png"), full_page=True)
+
+    # 3. the status bar opens Settings › Updates; its tick is saved
+    await pg.click("#status-update")
+    await pg.wait_for_selector("#settings-updates #update-at-start")
+    ticked = await pg.is_checked("#settings-updates #update-at-start")
+    await pg.click("#settings-updates #update-at-start")
+    await until(lambda: stand_in_update(base)["check_at_start"] is False)
+    check("the status bar opens Settings › Updates, and \"Check for updates when Game Repo starts\" is saved", ticked and not await pg.is_checked("#settings-updates #update-at-start"))
+
+    # 4. Update and restart
+    await pg.click("#settings-updates #update-install")
+    await pg.wait_for_selector("#settings-updates #update-panel[data-state=busy]")
+    restarting = await pg.inner_text("#settings-updates #update-state")
+    check("Update and restart installs it", stand_in_update(base)["installs"] == 1 and "Starting Game Repo 9.9.9" in restarting
+          and not await pg.query_selector("#status-update"), restarting)
+
+    # 5. not checked as it starts when the tick is off; checked again when it's on
+    stand_in_update(base, {"checked": None, "available": None, "restarting": False})
+    await back_home(pg, base)
+    await pg.wait_for_timeout(500)
+    quiet = await pg.query_selector("#status-update") is None and stand_in_update(base)["checks"] == 2
+    stand_in_update(base, {"check_at_start": True})
+    await back_home(pg, base)
+    await pg.wait_for_selector("#status-update")
+    check("with the tick off it doesn't check as it starts; with it on, the status bar says a newer version is out", quiet and stand_in_update(base)["checks"] == 3)
+
+    # 6. a copy that can't update itself says why, with no buttons
+    why = "This copy of Game Repo isn't installed, so it doesn't update itself."
+    stand_in_update(base, {"can": False, "why_not": why, "available": None})
+    await pg.goto(base + "#/about")
+    await pg.wait_for_selector("#update-panel[data-state=off]")
+    check("a copy that can't update itself says why", why in await pg.inner_text("#update-why") and not await pg.query_selector("#update-check"))
+
+    # 7. Game Repo Server's window has the panel too, with its tick
+    stand_in_update(base, {"can": True, "why_not": None, "checked": None})
+    await pg.goto(base + "server.html")
+    await pg.wait_for_selector("#server-updates #update-panel #update-check")
+    check("Game Repo Server's window has Updates, with Check for updates and the tick", await pg.query_selector("#server-updates #update-at-start") is not None)
+    stand_in_update(base, {"found": None, "available": None})
+
+
+OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
+             ("updates", updates_in_the_app)]
 
 
 async def main():

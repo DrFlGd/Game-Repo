@@ -21,7 +21,7 @@ folders and gamelists with the kinds chosen and not the other; On this device wi
 games from the library, the copy recognised and the game from elsewhere, by system and in
 one list; Make room ticking
 games; a removal shown and done; a game's media removed alone; Settings (Show games on this
-device, the look, each skin); the Library and a game's page kept with the library away; every page
+device, the look, each skin, About and updates with the CLI's stand-in for the updater); the Library and a game's page kept with the library away; every page
 moved through with the keys alone, and the games by rows and columns; no page errors; and
 the library and everything outside ES-DE's folders as they were. Screenshots for each.
 """
@@ -218,6 +218,13 @@ async def cards(pg):
 def shell(**changes):
     """What client-ui's shell says it is (kind, All files access), and how often Back left."""
     req = urllib.request.Request(B + "test/shell", data=json.dumps(changes).encode(), method="POST")
+    return json.loads(urllib.request.urlopen(req, timeout=10).read())
+
+
+def update(**to):
+    """The CLI's stand-in for the updater (desktop/cli/src/updates.rs): what a check finds and
+    how this copy stands, and what the page asked for."""
+    req = urllib.request.Request(B + "test/update", data=json.dumps(to).encode() if to else None, method="POST" if to else "GET")
     return json.loads(urllib.request.urlopen(req, timeout=10).read())
 
 
@@ -435,6 +442,27 @@ async def main():
             await pg.wait_for_selector("#set-theme")
             check("the look is kept", await pg.evaluate("() => document.documentElement.dataset.theme") == "night")
             await pg.select_option("#set-theme", "system")
+
+            # Settings › About and updates (D134): a newer Game Repo Go, what's new in it, Update and
+            # restart; found by the check as it starts, a notice says so
+            started = update()["checks"]
+            update(found={"version": "9.9.9", "notes": "## 9.9.9 (2026-10-22)\n\n- Something new.\n\n## 0.0.1 (2020-01-01)\n\n- Something old."})
+            await pg.click("#go-settings #update-check")
+            await pg.wait_for_selector("#go-settings #update-panel[data-state=available] #update-install")
+            state, new = await pg.inner_text("#update-state"), await pg.inner_text("#update-new")
+            await shot(pg, "10b-phone-update")
+            await pg.click("#update-install")
+            await pg.wait_for_selector("#update-panel[data-state=busy]")
+            check("Settings › About and updates finds a newer Game Repo Go, with what's new since this one, and Update and restart installs it",
+                  started == 1 and "Game Repo Go 9.9.9 is out" in state and "Something new" in new and "Something old" not in new and update()["installs"] == 1, (started, state, new))
+            update(checked=None, available=None, restarting=False)
+            await pg.goto(B + "#library")
+            await pg.reload()
+            said = await toast(pg, "Game Repo Go 9.9.9 is out")
+            check("the check as it starts finds it, and a notice says so", "update it in Settings" in said and update()["checks"] == 3, said)
+            update(found=None, available=None)
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#go-settings #update-panel[data-state=newest]")
 
             # 11. a PC's size: the menu down the side, the systems beside the games, a game's page
             await pg.set_viewport_size(PC)

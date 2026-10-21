@@ -2,7 +2,7 @@
 // the media ticked by default, downloads at once, the ES-DE custom collection games go in
 // (C16), what the Library shows, the device's name and screen, the picture cache, the look
 // (the view, D113, the big screen's size, D132, and Game Repo's skins and themes) and the
-// version; on Windows and Linux, the PC games folder (D111) and full screen (D127); on
+// version with its updates (D134); on Windows and Linux, the PC games folder (D111) and full screen (D127); on
 // Linux, Steam (D107, D109). Each change is kept as it's made.
 import { html, useEffect, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
@@ -10,6 +10,7 @@ import { SKINS, THEMES } from "../ui/state.js";
 import { call, info, pickFolder } from "./backend.js";
 import { go, look, refreshLists, refreshSettings, refreshStatus, say, setLook, showDialog, usualView } from "./state.js";
 import { ago, bytes, count, KINDS, message } from "./format.js";
+import { UpdatePanel } from "../ui/updates.js";
 
 function Folder({ id, label, value, fallback, setting, error }) {
   const [text, setText] = useState(null);
@@ -232,8 +233,9 @@ export function SettingsPage() {
     </section>
 
     <section class="go-set" id="set-about">
-      <h2>About</h2>
+      <h2>About and updates</h2>
       <p>Game Repo Go <span id="set-version">${st.version}</span>${info.kind ? ` for ${info.kind[0].toUpperCase()}${info.kind.slice(1)}` : ""}. Free software under the MIT licence.</p>
+      <${UpdatePanel} call=${call} settings=${true} />
     </section>
   </section>`;
 }
