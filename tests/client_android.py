@@ -317,30 +317,40 @@ def resumed():
     return m.group(1) if m else ""
 
 
+def hung():
+    """The emulator's System UI is slow at times, and Android puts its "isn't responding"
+    dialog in front, where it takes the keys meant for what's under it."""
+    return "Not Responding" in sh("dumpsys window | grep mCurrentFocus", ok=False)
+
+
+def unhang():
+    """That dialog closed with its Wait (Back doesn't close it)."""
+    for _ in range(3):
+        if not hung():
+            return
+        sh("uiautomator dump /sdcard/window.xml", ok=False)
+        m = re.search(r'(?:aerr_wait"|text="Wait")[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', sh("cat /sdcard/window.xml", ok=False))
+        if m:
+            x1, y1, x2, y2 = map(int, m.groups())
+            sh(f"input tap {(x1 + x2) // 2} {(y1 + y2) // 2}")
+        else:
+            sh("am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS", ok=False)
+        time.sleep(1)
+
+
 def key(name):
+    unhang()
     sh(f"input keyevent {name}")
     time.sleep(0.4)
 
 
-def unhang():
-    """The emulator's System UI is slow at times, and Android puts its "isn't responding"
-    dialog over whatever is in front, where it takes the next key: closed with Wait (Back)."""
-    for _ in range(3):
-        if "Not Responding" not in sh("dumpsys window | grep mCurrentFocus", ok=False):
-            return
-        key("KEYCODE_BACK")
-        time.sleep(1)
-
-
 def back_to_go(timeout=30):
     """Back from one of Android's screens to Game Repo Go."""
-    unhang()
     key("KEYCODE_BACK")
     end = time.time() + timeout
     while time.time() < end and resumed() != PKG:
         time.sleep(1)
-        if "Not Responding" in sh("dumpsys window | grep mCurrentFocus", ok=False):
-            unhang()
+        if hung():  # it came up and took the Back
             key("KEYCODE_BACK")
     if resumed() != PKG:
         print(f"note: after Back, {resumed() or 'nothing'} is in front ({sh('dumpsys window | grep mCurrentFocus', ok=False).strip()})", flush=True)
