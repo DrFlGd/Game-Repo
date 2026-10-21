@@ -540,6 +540,18 @@ async def main():
             await pg.set_viewport_size({"width": 1280, "height": 800})
             await pg.reload()
             await pg.wait_for_selector("#set-steam-none")
+            # full screen (D127): in Game Mode by default, or always or never, kept as chosen
+            full = await pg.eval_on_selector_all("#set-full-screen option", "els => els.map(e => [e.value, e.textContent])")
+            await pg.select_option("#set-full-screen", "never")
+            kept = ""
+            for _ in range(30):
+                kept = (await pg.evaluate("() => window.__TAURI__.core.invoke('api', { cmd: 'settings', args: {} })"))["full_screen"]
+                if kept == "never":
+                    break
+                await asyncio.sleep(0.1)
+            await pg.select_option("#set-full-screen", "usual")
+            check("on Linux, Settings › This device › Full screen is in Steam's Game Mode by default, or always or never, and kept",
+                  [v for v, _ in full] == ["usual", "always", "never"] and "Game Mode" in full[0][1] and kept == "never", (full, kept))
             await pg.fill("#set-steam-folder input", str(steam_dir))
             await pg.click("#set-steam-folder button:has-text('Save')")
             await pg.wait_for_selector("#set-steam-self")
@@ -760,20 +772,46 @@ async def main():
             said = await pg.inner_text("#add-dialog")
             await shot(pg, "18-phone-add-pc-game")
             check("Download… says where a PC game goes, and that the library unpacks it first", str(pc_games) in said and "being unpacked on the library first" in said, said)
+            fake = None
+            if sys.platform.startswith("linux"):
+                # Steam running while it downloads (D125): its shortcut waits for Steam to close
+                fake = subprocess.Popen([str(steam_bin / "run" / "steam"), "600"])
+                (steam_bin / "running.pid").write_text(str(fake.pid))
+                (steam_bin / "started").unlink(missing_ok=True)
             await pg.click("#add-dialog button[type=submit]")
             await toast(pg, "Downloading 1 game")
             await pg.click("#go-nav-queue")
             await pg.wait_for_selector('#queue-done li[data-key="pcgames/zeta"]', timeout=120000)
             restart = await pg.query_selector("#queue-restart")
+            if fake:
+                # …and Downloads offers Restart Steam, which writes it
+                shell(kind="linux")
+                await pg.reload()
+                await pg.wait_for_selector("#queue-steam", timeout=10000)
+                note = await pg.inner_text("#queue-steam")
+                await pg.click("#queue-steam-restart")
+                await pg.wait_for_selector("#queue-steam-now")
+                await shot(pg, "18-linux-queue-steam")
+                await pg.click("#queue-steam-now")
+                for _ in range(300):
+                    if (steam_bin / "started").exists():
+                        break
+                    await asyncio.sleep(0.1)
+                fake.wait(timeout=10)
+                await pg.wait_for_selector("#queue-steam", state="detached", timeout=10000)
+                check("on Linux, a PC game in while Steam runs: Downloads offers Restart Steam, which closes it and starts it again",
+                      "Restart Steam" in note and (steam_bin / "started").exists(), note)
+                shell(kind="windows")
             folder = pc_games / "Zeta (1999)"
             files = sorted(str(x.relative_to(folder)).replace("\\", "/") for x in folder.rglob("*") if x.is_file()) if folder.is_dir() else []
             if sys.platform == "win32":
                 shortcut = (home / "appdata" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Game Repo Go" / "Zeta.lnk").is_file()
             else:
                 shortcut = b"Zeta" in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
+            # (zipped as its folder, Zeta: that folder isn't made again inside the game's, D124)
             check("a PC game is unpacked into its own folder of the PC games folder, with a shortcut, and no ES-DE restart asked for",
-                  files == ["Zeta/data/level1.dat", "Zeta/zeta.exe"] and shortcut and restart is None, (files, shortcut, restart is None))
-            (folder / "Zeta" / "save1.sav").write_bytes(b"a save")
+                  files == ["data/level1.dat", "zeta.exe"] and shortcut and restart is None, (files, shortcut, restart is None))
+            (folder / "save1.sav").write_bytes(b"a save")
             await pg.click("#go-nav-device")
             await pg.click('#device-list [data-system="pcgames"] .go-sys-open')
             await pg.wait_for_selector('[data-id="pc:Zeta (1999)"]')
@@ -789,7 +827,7 @@ async def main():
                 shortcut = b"Zeta" in (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
             left = sorted(str(x.relative_to(folder)).replace("\\", "/") for x in folder.rglob("*") if x.is_file()) if folder.is_dir() else []
             check("removing a PC game takes its files and shortcut, and keeps a save it made, said so",
-                  "Files it made itself" in listed and "stay in Zeta (1999)" in said and left == ["Zeta/save1.sav"] and not shortcut, (listed[-300:], said, left, shortcut))
+                  "Files it made itself" in listed and "stay in Zeta (1999)" in said and left == ["save1.sav"] and not shortcut, (listed[-300:], said, left, shortcut))
 
             # 14. away from home: the library's list and a game's details are kept on the device
             server.terminate()

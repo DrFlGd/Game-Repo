@@ -576,15 +576,16 @@ fn pc_games_are_unpacked_by_the_library_written_whole_given_a_shortcut_and_remov
     assert_eq!(left, ["Omega › its patches (1)", "Lambda"], "{p}");
     assert!(p["left"][1]["why"].as_str().unwrap().contains("only its installer"), "{p}");
 
-    // added: each game whole in its own `Title (Year)` folder of the PC games folder
+    // added: each game whole in its own `Title (Year)` folder of the PC games folder, the
+    // one folder its files were all in (Omega's copy, Zeta's archive) left out (D124)
     call(&app, "add", json!({ "keys": [ZETA, OMEGA] }));
     queue_done(&app);
     let q = call(&app, "queue", json!({}));
     for k in [ZETA, OMEGA] {
         assert_eq!(item(&q, k)["state"], "done", "{q}");
     }
-    assert_eq!(files_under(&games), ["Omega (2001)/Omega/omega.dat", "Omega (2001)/Omega/omega.exe", "Zeta (1999)/Zeta/data/level1.dat", "Zeta (1999)/Zeta/zeta.exe"]);
-    assert_eq!(std::fs::read(games.join("Zeta (1999)/Zeta/zeta.exe")).unwrap(), b"MZ zeta");
+    assert_eq!(files_under(&games), ["Omega (2001)/omega.dat", "Omega (2001)/omega.exe", "Zeta (1999)/data/level1.dat", "Zeta (1999)/zeta.exe"]);
+    assert_eq!(std::fs::read(games.join("Zeta (1999)/zeta.exe")).unwrap(), b"MZ zeta");
     // and a shortcut (D112): in Steam on Linux, through Proton, with its cover
     #[cfg(target_os = "linux")]
     {
@@ -592,9 +593,9 @@ fn pc_games_are_unpacked_by_the_library_written_whole_given_a_shortcut_and_remov
         let w = |k: &str| wanted.iter().find(|w| w.key == k).unwrap_or_else(|| panic!("{k} in {wanted:?}")).clone();
         let (omega, zeta) = (w(OMEGA), w(ZETA));
         assert_eq!((omega.name.as_str(), omega.args.as_str(), omega.proton), ("Omega", "-windowed", true));
-        assert_eq!((omega.program, omega.start_dir), (games.join("Omega (2001)/Omega/omega.exe").display().to_string(), games.join("Omega (2001)/Omega").display().to_string()));
+        assert_eq!((omega.program, omega.start_dir), (games.join("Omega (2001)/omega.exe").display().to_string(), games.join("Omega (2001)").display().to_string()));
         assert!(omega.art.get("cover").is_some_and(|p| Path::new(p).is_file()), "{:?}", omega.art);
-        assert_eq!(zeta.program, games.join("Zeta (1999)/Zeta/zeta.exe").display().to_string());
+        assert_eq!(zeta.program, games.join("Zeta (1999)/zeta.exe").display().to_string());
     }
     // in the Start menu on Windows
     #[cfg(windows)]
@@ -607,11 +608,11 @@ fn pc_games_are_unpacked_by_the_library_written_whole_given_a_shortcut_and_remov
 
     // removed: what came from the library and its shortcut go; a save the game made stays,
     // with its folder, and is told of
-    std::fs::create_dir_all(games.join("Omega (2001)/Omega/saves")).unwrap();
-    std::fs::write(games.join("Omega (2001)/Omega/saves/slot1.sav"), b"a save").unwrap();
+    std::fs::create_dir_all(games.join("Omega (2001)/saves")).unwrap();
+    std::fs::write(games.join("Omega (2001)/saves/slot1.sav"), b"a save").unwrap();
     let gone = call(&app, "remove", json!({ "asks": [{ "key": OMEGA }] }));
     assert_eq!(gone["kept_made"], json!([["Omega (2001)", 1]]), "{gone}");
-    assert_eq!(files_under(&games), ["Omega (2001)/Omega/saves/slot1.sav", "Zeta (1999)/Zeta/data/level1.dat", "Zeta (1999)/Zeta/zeta.exe"]);
+    assert_eq!(files_under(&games), ["Omega (2001)/saves/slot1.sav", "Zeta (1999)/data/level1.dat", "Zeta (1999)/zeta.exe"]);
     #[cfg(target_os = "linux")]
     assert!(gamerepo_device::steam::state(&dir.join("go")).wanted.iter().all(|w| w.key != OMEGA));
     #[cfg(windows)]
