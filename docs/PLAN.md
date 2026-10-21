@@ -5212,7 +5212,9 @@ public half they were built with (minisign's Ed25519, as Tauri signs).
 - **Getting started takes two releases.** The release that brings updates (0.5.41) has
   the key maker but no key. Once the secrets are added, the next release is signed and
   built with the key: installed by hand once, as now, every release after it is offered
-  by the programs themselves.
+  by the programs themselves. Jerred added the secrets on 2026-10-21 (after 0.5.43 was
+  out); each build now checks its signatures against the public key as it makes them, so
+  a key that doesn't match fails the pull request rather than the release.
 - **If the key is lost**, a new one can be made, but copies built with the old one won't
   take a release signed with the new one: install that release by hand once on each
   computer and device.
