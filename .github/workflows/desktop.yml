@@ -371,6 +371,9 @@ jobs:
         run: python tests/updater_key.py --app desktop/target/release/game-repo.exe --out "$RUNNER_TEMP/update-key" 2>&1 | tee ci-out/updater-key.log
       - name: Collect bundles
         if: always()
+        env:
+          UPDATER_PUBKEY: ${{ secrets.UPDATER_PUBKEY }}
+          V: ${{ needs.version.outputs.version }}
         run: |
           mkdir -p dist
           # a missing installer fails here, not later in the release (review M46)
@@ -382,6 +385,11 @@ jobs:
           cp desktop/target/release/bundle/nsis/*.sig sigs/ 2>/dev/null || true
           if [ -n "$UPDATER_CONFIG" ]; then
             ls sigs/"Game Repo_"*_x64-setup.exe.sig sigs/"Game Repo Server_"*_x64-setup.exe.sig sigs/"Game Repo Go_"*_x64-setup.exe.sig > /dev/null
+            # each signed with the private key whose public half the programs carry: a key
+            # that doesn't match fails here, not in the release
+            for f in dist/*_x64-setup.exe; do
+              python tools/update_files.py --verify "$f" --signature "sigs/$(basename "$f").sig" --version "$V" | tee -a ci-out/signatures.txt
+            done
           fi
           # Game Repo's installer carries the server, installed beside the app
           if 7z l dist/"Game Repo_"*_x64-setup.exe > ci-out/installer-files.txt 2>&1 && grep -q "game-repo.exe" ci-out/installer-files.txt; then
@@ -549,6 +557,7 @@ jobs:
           ls -la dist | tee ci-out/bundles.txt
       - name: Sign the APK for updates (D139), once the update key is in the secrets
         env:
+          UPDATER_PUBKEY: ${{ secrets.UPDATER_PUBKEY }}
           UPDATER_PRIVATE_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
           UPDATER_KEY_PASSWORD: ${{ secrets.UPDATER_KEY_PASSWORD }}
           V: ${{ needs.version.outputs.version }}
@@ -558,7 +567,8 @@ jobs:
           if [ -n "$UPDATER_CONFIG_ANDROID" ] && [ -f "$apk" ]; then
             (cd desktop/client && npm run tauri -- signer sign -k "$UPDATER_PRIVATE_KEY" -p "$UPDATER_KEY_PASSWORD" --app-version "$V" "../../$apk" > /dev/null)
             mv "$apk.sig" sigs/
-            ls sigs | tee ci-out/signatures.txt
+            # against the public key Game Repo Go carries
+            python tools/update_files.py --verify "$apk" --signature "sigs/$(basename "$apk").sig" --version "$V" | tee ci-out/signatures.txt
           fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: env.UPDATER_CONFIG_ANDROID != ''
@@ -643,6 +653,7 @@ jobs:
           cargo test --release -p gamerepo-client -p gamerepo-update 2>&1 | tee ../../ci-out/client-test.log
       - name: Collect the AppImage
         env:
+          UPDATER_PUBKEY: ${{ secrets.UPDATER_PUBKEY }}
           V: ${{ needs.version.outputs.version }}
         run: |
           mkdir -p dist
@@ -653,7 +664,10 @@ jobs:
           # its signature for updates (D135)
           mkdir -p sigs
           cp desktop/target/release/bundle/appimage/*.AppImage.sig sigs/ 2>/dev/null || true
-          if [ -n "$UPDATER_CONFIG" ]; then ls sigs/"Game Repo Go_${V}_amd64.AppImage.sig" > /dev/null; fi
+          if [ -n "$UPDATER_CONFIG" ]; then
+            # against the public key the AppImage carries
+            python tools/update_files.py --verify dist/"Game Repo Go_${V}_amd64.AppImage" --signature sigs/"Game Repo Go_${V}_amd64.AppImage.sig" --version "$V" | tee ci-out/signatures.txt
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: bundles-deck, path: dist/, retention-days: 3 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
