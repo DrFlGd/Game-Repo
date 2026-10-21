@@ -4,7 +4,8 @@
 // stops when Game Repo ends unless it's kept); started alone (Start with Windows, or from
 // its own installer) it serves the library and port it served last. One runs per computer:
 // a second start shows the first one's window. The window is web/server.html, the panel of
-// Game Repo's Settings › Serve to devices, calling the `api` command below.
+// Game Repo's Settings › Serve to devices, calling the `api` command below. Installed on its
+// own, it updates itself (gamerepo-update, D137); the copy beside Game Repo updates with it.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -62,6 +63,8 @@ struct Serving {
     with_windows: Mutex<Option<bool>>,
     /// The tray menu's Start with Windows tick
     windows_item: Mutex<Option<CheckMenuItem<Wry>>>,
+    /// The tray menu's Check for updates… (Update to <version>… once there's one)
+    update_item: Mutex<Option<MenuItem<Wry>>>,
 }
 
 impl Serving {
@@ -156,9 +159,12 @@ impl Serving {
     }
 }
 
-/// One of the window's commands (web/ui/serve.js).
+/// One of the window's commands (web/ui/serve.js, and web/ui/updates.js's `update_*`).
 #[tauri::command]
 async fn api(app: AppHandle, cmd: String, args: Value) -> Result<Value, String> {
+    if cmd.starts_with("update_") {
+        return gamerepo_update::call(&app, &cmd, &args).await;
+    }
     tauri::async_runtime::spawn_blocking(move || call(&app, &cmd, &args)).await.map_err(|e| e.to_string())?.map_err(|e| format!("{e:#}"))
 }
 
@@ -215,22 +221,56 @@ fn quit(app: &AppHandle) {
     app.exit(0);
 }
 
-/// The icon by the clock: Pair a device…, Devices…, Open the library…, Start with Windows
-/// and Stop; a click shows the window.
+/// Its updates (D137): installed on its own, it checks when it starts and from the tray menu;
+/// the copy beside Game Repo (started by it, or with Windows) is Game Repo's, and updates
+/// with it.
+fn updates(app: &AppHandle) {
+    let ours = std::env::current_exe().is_ok_and(|e| e.with_file_name(if cfg!(windows) { "game-repo.exe" } else { "game-repo" }).is_file());
+    gamerepo_update::manage(app, gamerepo_update::Program {
+        name: "game-repo-server",
+        title: "Game Repo Server",
+        systems: &["windows"],
+        not_here: ours.then(|| "This copy of Game Repo Server is Game Repo's, and updates with Game Repo.".to_string()),
+        before: Box::new(|app| app.state::<Serving>().stop()),
+        // the tray menu says when there's an update
+        changed: Box::new(|app, now| {
+            let text = match now["available"]["version"].as_str() {
+                Some(v) => format!("Update to {v}…"),
+                None => "Check for updates…".to_string(),
+            };
+            if let Some(item) = app.state::<Serving>().update_item.lock().unwrap().as_ref() {
+                let _ = item.set_text(text);
+            }
+        }),
+    });
+}
+
+/// The icon by the clock: Pair a device…, Devices…, Open the library…, Start with Windows,
+/// Check for updates… (when this copy updates itself) and Stop; a click shows the window.
 fn tray(app: &tauri::App) -> Result<()> {
     let pair = MenuItem::with_id(app, "pair", "Pair a device…", true, None::<&str>)?;
     let devices = MenuItem::with_id(app, "devices", "Devices…", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open the library…", true, None::<&str>)?;
     let stop = MenuItem::with_id(app, "stop", "Stop", true, None::<&str>)?;
     let line = PredefinedMenuItem::separator(app)?;
-    let menu = if cfg!(windows) {
-        let sv = app.state::<Serving>();
-        let windows = CheckMenuItem::with_id(app, "windows", "Start with Windows", true, sv.with_windows(), None::<&str>)?;
-        *sv.windows_item.lock().unwrap() = Some(windows.clone());
-        Menu::with_items(app, &[&pair, &devices, &open, &line, &windows, &PredefinedMenuItem::separator(app)?, &stop])?
-    } else {
-        Menu::with_items(app, &[&pair, &devices, &open, &line, &stop])?
-    };
+    let line2 = PredefinedMenuItem::separator(app)?;
+    let sv = app.state::<Serving>();
+    let windows = if cfg!(windows) { Some(CheckMenuItem::with_id(app, "windows", "Start with Windows", true, sv.with_windows(), None::<&str>)?) } else { None };
+    let update = MenuItem::with_id(app, "update", "Check for updates…", true, None::<&str>)?;
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = vec![&pair, &devices, &open, &line];
+    if let Some(w) = &windows {
+        *sv.windows_item.lock().unwrap() = Some(w.clone());
+        items.push(w);
+    }
+    if gamerepo_update::shown(app.handle())["can"] == true {
+        *sv.update_item.lock().unwrap() = Some(update.clone());
+        items.push(&update);
+    }
+    if items.len() > 4 {
+        items.push(&line2);
+    }
+    items.push(&stop);
+    let menu = Menu::with_items(app, &items)?;
     let mut tray = TrayIconBuilder::with_id("main").tooltip("Game Repo Server").menu(&menu).show_menu_on_left_click(false);
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
@@ -260,6 +300,14 @@ fn tray(app: &tauri::App) -> Result<()> {
             if sv.set_with_windows(on).is_err() {
                 show(app);
             }
+        }
+        // the window shows the check and the update
+        "update" => {
+            show(app);
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = gamerepo_update::call(&app, "update_check", &json!({})).await;
+            });
         }
         "stop" => quit(app),
         _ => {}
@@ -338,6 +386,7 @@ fn main() {
         problem: Mutex::new(None),
         with_windows: Mutex::new(None),
         windows_item: Mutex::new(None),
+        update_item: Mutex::new(None),
     };
     // the library asked for, else the one served last
     let library = a.library.clone().or_else(|| gamerepo_serve::last_library(&a.data));
@@ -358,8 +407,10 @@ fn main() {
     let show_now = sv.problem.lock().unwrap().is_some();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(gamerepo_update::plugin())
         .manage(sv)
         .setup(move |app| {
+            updates(app.handle());
             tray(app)?;
             watch(app.handle().clone());
             if show_now {

@@ -471,6 +471,16 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 .serve-more[open] > summary { margin-bottom: 8px; }
 .serve-more > .field-block + .field-block, .serve-more > form + .field-block { margin-top: 10px; }
 .field-block input#serve-port { width: 8em; flex: none; }
+/* Updates (ui/updates.js): this version, a newer one with what's new, and its download */
+.update-panel { display: grid; gap: 10px; }
+.update-state { display: grid; gap: 6px; font-size: 14px; }
+.update-progress { width: min(320px, 100%); height: 8px; }
+.update-new > summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
+.update-new[open] { max-height: 420px; overflow: auto; }
+.update-new[open] > summary { margin-bottom: 6px; }
+.update-release h4 { margin: 8px 0 4px; font-size: 14px; }
+.update-panel .home-actions { margin: 0; }
+.status-update { padding: 2px 10px; font-size: 12.5px; font-weight: 600; background: var(--focus); color: var(--white); border: 0; border-radius: 999px; gap: 6px; }
 /* the server's own window (server.html) */
 .server-main { padding: 8px 20px 20px; overflow: auto; }
 

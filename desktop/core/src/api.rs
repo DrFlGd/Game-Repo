@@ -595,6 +595,15 @@ impl App {
         }
     }
 
+    /// Before an update replaces the app (D137): the server it started stops, kept or not, as
+    /// the installer replaces the server's program beside it too. Game Repo starts it again
+    /// when it opens after the update (`serve_resume`).
+    pub fn serve_before_update(&self) {
+        let Some(child) = self.server.lock().unwrap().take() else { return };
+        let _ = crate::serving::stop(&self.paths.server_data);
+        drop(child);
+    }
+
     /// When the app closes: the server it started stops with it, unless it's kept.
     pub fn serve_exit(&self) {
         let Some(child) = self.server.lock().unwrap().take() else { return };
@@ -654,6 +663,8 @@ impl App {
                     "default_library": crate::config::default_library_path(),
                     "library_url": self.paths.library_url,
                     "recent_libraries": self.config().recent_libraries,
+                    // where releases are published (D136)
+                    "releases": format!("https://github.com/{}/releases", gamerepo_wire::RELEASES),
                 }))
             }
             "prefs_get" => j(self.prefs().get()),

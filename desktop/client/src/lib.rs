@@ -8,7 +8,8 @@
 // icon by the clock with their progress, and it quits when they're done (D99); on Android
 // the downloads' notification does that, and android.rs has the rest of Android's side
 // (D97). On Linux it can add itself to Steam and open Steam's keyboard (D107). It opens full
-// screen in Steam's Game Mode, or as Settings says (D127).
+// screen in Steam's Game Mode, or as Settings says (D127). On Windows and Linux it updates
+// itself (gamerepo-update, D134: `update_*` through the `api` command).
 
 #[cfg(not(target_os = "android"))]
 mod secrets;
@@ -41,9 +42,16 @@ struct Go {
     hidden: AtomicBool,
 }
 
-/// One of the backend's commands (gamerepo_device::app), answered as JSON.
+/// One of the backend's commands (gamerepo_device::app), answered as JSON, or one of the
+/// updates' (`update_state`, `update_check`, `update_install`, `update_set`).
 #[tauri::command]
 async fn api(app: AppHandle, cmd: String, args: Value) -> Result<Value, String> {
+    if cmd.starts_with("update_") {
+        #[cfg(desktop)]
+        return gamerepo_update::call(&app, &cmd, &args).await;
+        #[cfg(mobile)]
+        return android_updates(&app, &cmd);
+    }
     let go = app.state::<Go>().app.clone();
     #[cfg(desktop)]
     let refit = cmd == "set_settings" && args.get("full_screen").is_some();
@@ -53,6 +61,22 @@ async fn api(app: AppHandle, cmd: String, args: Value) -> Result<Value, String> 
         fit(&app, false);
     }
     Ok(got)
+}
+
+/// Updates on Android: a new version is installed from the releases page for now.
+#[cfg(mobile)]
+fn android_updates(app: &AppHandle, cmd: &str) -> Result<Value, String> {
+    let why = "On Android, install a new version from the releases page.";
+    if cmd != "update_state" {
+        return Err(why.into());
+    }
+    Ok(json!({
+        "title": "Game Repo Go",
+        "version": app.package_info().version.to_string(),
+        "can": false,
+        "why_not": why,
+        "releases": format!("https://github.com/{}/releases", gamerepo_device::wire::RELEASES),
+    }))
 }
 
 /// The window fits the screen (D127): full screen in Steam's Game Mode (the Deck's 1280×800
@@ -273,7 +297,7 @@ pub fn run() {
     #[cfg(windows)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show(app)));
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_dialog::init());
+    let builder = builder.plugin(tauri_plugin_dialog::init()).plugin(gamerepo_update::plugin());
     #[cfg(target_os = "android")]
     let builder = builder.plugin(tauri_plugin_gamerepo_device::init());
     let app = builder
@@ -310,6 +334,18 @@ pub fn run() {
                 fit(app.handle(), true);
                 tray(app)?;
                 watch(app.handle().clone());
+                // its updates (D134): the downloads end before the installer replaces it, and go
+                // on when it starts again; the page hears of a check as a "go-changed" "update"
+                gamerepo_update::manage(app.handle(), gamerepo_update::Program {
+                    name: "game-repo-go",
+                    title: "Game Repo Go",
+                    systems: &["windows", "linux"],
+                    not_here: None,
+                    before: Box::new(|app| app.state::<Go>().app.queue.quit()),
+                    changed: Box::new(|app, _| {
+                        let _ = app.emit("go-changed", "update");
+                    }),
+                });
             }
             #[cfg(target_os = "android")]
             android::start(app.handle().clone());

@@ -11,6 +11,15 @@ pub mod plan;
 
 pub use plan::{Entry, File, Left, Lines, List, Plan, Program};
 
+/// The GitHub repository (owner/name) that releases are published to, and where Game Repo,
+/// Game Repo Server and Game Repo Go look for updates (docs/PLAN.md, "In-app updates",
+/// D136). CI builds with `GAMEREPO_RELEASES` set from the repository variable
+/// `RELEASES_REPO`, else this repository, so a separate releases repository is one setting.
+pub const RELEASES: &str = match option_env!("GAMEREPO_RELEASES") {
+    Some(r) if !r.is_empty() => r,
+    _ => "DrFlGd/Game-Repo",
+};
+
 /// The kinds of scraped media a game can have (the library's own, `gamerepo-core`'s
 /// `meta::MEDIA`): (kind, what it's called, ES-DE's folder for it in `downloaded_media`).
 pub const MEDIA: &[(&str, &str, &str)] = &[

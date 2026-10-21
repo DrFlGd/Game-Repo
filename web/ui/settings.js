@@ -4,7 +4,8 @@
 // (Phase 2b), PC games, Identify's sources and Steam (Phase 4), and the sources' accounts and keys
 // (Phase 5) have sections of their own, and so does Metadata (Phase 6b: which source each
 // detail is taken from, and the space the library's metadata takes), and so does Serve to
-// devices (Phase 9a, ui/serve.js: Game Repo Server with the open library). The folders with games and the DAT files are
+// devices (Phase 9a, ui/serve.js: Game Repo Server with the open library), and so do Updates
+// (D134, ui/updates.js). The folders with games and the DAT files are
 // on the Import page and the history of changes on its own (D71), from the sections exported here.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
@@ -19,6 +20,7 @@ import { CommandBar, DayGroups } from "./layout.js";
 import { PcSettings, SourcesSettings, SteamSettings } from "./pcgames.js";
 import { Icon } from "./icons.js";
 import { ServePanel } from "./serve.js";
+import { UpdatePanel } from "./updates.js";
 
 function RenameForm({ lib }) {
   const [name, setName] = useState(lib.name || "");
@@ -461,6 +463,10 @@ export function Settings() {
     <${SourcesSettings} />
     <${SteamSettings} />
     <${ToolsSection} />
+    ${isDesktop() ? html`<section class="ls-section" id="settings-updates">
+      <h2>Updates</h2>
+      <${UpdatePanel} call=${api} settings=${true} />
+    </section>` : null}
     <section class="ls-section" id="settings-appearance">
       <h2>Appearance</h2>
       <label class="field-block"><span>Skin</span>

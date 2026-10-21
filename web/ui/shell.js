@@ -28,6 +28,7 @@ import { listenForDrops } from "./documents.js";
 import { History } from "./history.js";
 import { loadIndex } from "./library.js";
 import { ContextMenu, onWindowKey } from "./actions.js";
+import { startUpdates } from "./updates.js";
 
 function Main() {
   const route = useStore(ui, (s) => s.route);
@@ -67,6 +68,8 @@ export function mountShell(context) {
   // files dropped where no page takes them go to the Import page (D78)
   listenForDrops(dropToImport);
   loadIndex();
+  // what the check made as the app started found (the status bar says when there's a newer version)
+  if (context.platform.kind === "desktop") startUpdates(context.platform.api).catch(() => {});
 }
 
 export { ui };

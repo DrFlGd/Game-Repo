@@ -3,6 +3,7 @@ import { html, useEffect, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui, setPref } from "./state.js";
 import { Icon } from "./icons.js";
+import { updates } from "./updates.js";
 
 export function useMedia(query) {
   const [on, setOn] = useState(() => matchMedia(query).matches);
@@ -45,14 +46,23 @@ function Elapsed({ since }) {
   return html`${Math.round((Date.now() - since) / 1000)} s`;
 }
 
+/** Settings › Updates, scrolled to. */
+function showUpdates() {
+  location.hash = "#/settings";
+  setTimeout(() => document.getElementById("settings-updates")?.scrollIntoView({ block: "start" }), 50);
+}
+
 export function StatusBar() {
   const s = useStore(ui, (st) => ({ jobs: st.jobs, ready: st.ready, library: st.library }));
+  // a newer version found as the app started (D134)
+  const upd = useStore(updates, (x) => (x.state?.available && !x.state.installing && !x.state.restarting ? x.state : null));
   const [open, setOpen] = useState(false);
   if (!s.ready) return null;
   const latest = s.jobs[s.jobs.length - 1];
   return html`<div class="statusbar-inner">
     <span class="status-library" title=${s.library?.path || ""}>${s.library ? s.library.name : "No library open"}</span>
     ${s.library?.read_only ? html`<span>Read-only</span>` : null}
+    ${upd ? html`<button type="button" class="status-update" id="status-update" title="Settings › Updates" onClick=${showUpdates}>${Icon.download(13)} ${upd.title} ${upd.available.version} is out</button>` : null}
     <span class="status-jobs">
       ${latest ? html`<button type="button" class="status-job" id="status-job" aria-expanded=${open ? "true" : "false"} title=${latest.open && s.jobs.length === 1 ? "Show it" : "Show what's running"}
         onClick=${() => (latest.open && s.jobs.length === 1 ? latest.open() : setOpen(!open))}>

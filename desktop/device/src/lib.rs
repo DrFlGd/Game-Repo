@@ -20,6 +20,8 @@ pub mod scan;
 pub mod steam;
 
 pub use client::{Server, Stopped, Watch};
+/// What it and the server say to each other, and where releases are published
+pub use gamerepo_wire as wire;
 
 use anyhow::{anyhow, bail, Context, Result};
 use gamerepo_wire::api::{self, Held, HeldFile, Holding, Info, PlanAsk, Record};

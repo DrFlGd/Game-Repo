@@ -391,7 +391,8 @@ fn app_command(mut a: Args, to: &std::path::Path) -> Result<()> {
 
 /// Game Repo Go's pages and backend over HTTP, for the page test (tests/client_page.py) and
 /// for trying the pages in a browser: POST /invoke/<command> as tests/tauri_shim.js sends
-/// them (`api`, `app_info`, `pick_folder`, `storage`, `leave`), GET /picture/<key>/<kind> as
+/// them (`api`, its `update_*` a stand-in set and read with /test/update as in `serve`,
+/// `app_info`, `pick_folder`, `storage`, `leave`), GET /picture/<key>/<kind> as
 /// the app's `picture://`, GET /events the backend's changes (server-sent events, the app's
 /// "go-changed"), POST /test/pick the answer to the next folder dialog, POST /test/shell
 /// what the shell says it is ({"kind": "android"}, whether All files access is allowed yet:
@@ -415,11 +416,12 @@ pub fn client_ui(mut a: Args) -> Result<()> {
     app.set_own(own(&data));
     let picks: Arc<Mutex<Vec<String>>> = Arc::default();
     let shell = Arc::new(Mutex::new(json!({ "kind": kind, "granted": true, "left": 0, "keyboard": 0, "game_mode": false })));
+    let stand_in = Arc::new(crate::updates::StandIn::new("Game Repo Go"));
     let listener = std::net::TcpListener::bind(("127.0.0.1", port))?;
     eprintln!("Game Repo Go's pages on http://127.0.0.1:{port}/ (ES-DE looked for in {}, the client's folder {})", home.display(), data.display());
     for conn in listener.incoming() {
         let Ok(mut stream) = conn else { continue };
-        let (app, ui, picks, listeners, shell) = (app.clone(), ui.clone(), picks.clone(), listeners.clone(), shell.clone());
+        let (app, ui, picks, listeners, shell, stand_in) = (app.clone(), ui.clone(), picks.clone(), listeners.clone(), shell.clone(), stand_in.clone());
         std::thread::spawn(move || {
             let Ok(req) = crate::read_request(&mut stream) else { return };
             let (path, query) = req.path.split_once('?').unwrap_or((req.path.as_str(), ""));
@@ -427,7 +429,12 @@ pub fn client_ui(mut a: Args) -> Result<()> {
             let r: Result<()> = (|| {
                 if let Some(cmd) = path.strip_prefix("/invoke/") {
                     let args: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
+                    let update = args["cmd"].as_str().filter(|c| cmd == "api" && c.starts_with("update_"));
                     match cmd {
+                        "api" if update.is_some() => match stand_in.call(update.unwrap_or_default(), &args["args"]) {
+                            Ok(v) => json(&mut stream, 200, &v),
+                            Err(e) => crate::respond_with(&mut stream, 200, "application/json", &serde_json::to_vec(&json!(e)).unwrap_or_default(), "x-failed: 1\r\n"),
+                        },
                         "api" => match app.call(args["cmd"].as_str().unwrap_or(""), &args["args"]) {
                             Ok(v) => json(&mut stream, 200, &v),
                             Err(e) => {
@@ -479,6 +486,11 @@ pub fn client_ui(mut a: Args) -> Result<()> {
                     let now = s.clone();
                     drop(s);
                     json(&mut stream, 200, &now)
+                } else if path == "/test/update" {
+                    if req.method == "POST" {
+                        stand_in.set(&serde_json::from_slice(&req.body).unwrap_or(Value::Null));
+                    }
+                    json(&mut stream, 200, &stand_in.read())
                 } else if path == "/test/pick" {
                     let v: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
                     if let Some(p) = v["path"].as_str() {
