@@ -29,6 +29,7 @@
 //! - [`watch`]: noticing changes in the folders with games while the app is open
 //! - [`sources`]: each source's answer kept apart, the pictures' variants, deleting metadata
 //! - [`pcmeta`]: a PC game's details, pictures and documents in the layout every game's has
+//! - [`variants`]: the custom DAT of each system's translations, hacks and prototypes, and their tags
 //! - [`api`]: the commands the page calls
 //!
 //! The layout, the phases and every design decision are in docs/PLAN.md.
@@ -75,6 +76,7 @@ pub mod subset;
 pub mod systems;
 pub mod tools;
 pub mod torrentzip;
+pub mod variants;
 pub mod watch;
 
 pub use library::Library;

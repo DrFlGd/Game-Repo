@@ -201,6 +201,19 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "ALTER TABLE library ADD COLUMN partial INTEGER NOT NULL DEFAULT 0;
          DELETE FROM index_meta WHERE key LIKE 'library:%';",
     ),
+    (
+        "variants",
+        // Phase 10 (D119, D121): a custom DAT's game names its original in the system's main
+        // DAT (`cloneof`, another DAT's game, so not a `parent_id`), and a row has its tags
+        "ALTER TABLE dat_games ADD COLUMN cloneof TEXT;
+         ALTER TABLE library ADD COLUMN tags TEXT NOT NULL DEFAULT '';
+         DELETE FROM index_meta WHERE key LIKE 'library:%';",
+    ),
+    (
+        "also_dats",
+        // D118: a system's DATs ticked *Audit with it too*, from library.json `also_dats`
+        "ALTER TABLE dats ADD COLUMN also INTEGER NOT NULL DEFAULT 0;",
+    ),
 ];
 
 /// How many schema steps this build knows.

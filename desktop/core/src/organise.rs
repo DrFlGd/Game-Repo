@@ -171,6 +171,8 @@ pub struct Options {
     /// For ES-DE (`esde`): the discs of a game on several, by name, each with the folder
     /// they go in together (`<name>.m3u`, D94)
     pub disc_dirs: HashMap<String, String>,
+    /// Only the games with none of their files in the library folder (`gather_plan`)
+    pub outside_library: bool,
 }
 
 // ------------------------------------------------------------ names
@@ -741,6 +743,11 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         let only: HashSet<&str> = only.iter().map(String::as_str).collect();
         games.retain(|g| only.contains(g.fields.name.as_str()));
     }
+    if o.outside_library {
+        // a game with a file in the library already is left as it is (its copies elsewhere
+        // are duplicates, which Set aside duplicates deals with)
+        games.retain(|g| g.roms.iter().chain(&g.disks).flat_map(|r| r.cands.iter()).all(|c| !roots::in_library(lib, Path::new(&c.src.path))));
+    }
     let id = new_id();
     let pname = platforms::name_of(&d.platform);
     let (label, title) = match (o.only_misnamed, mode.as_str()) {
@@ -1005,6 +1012,65 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     p.plan.space = space_needed(&p.plan.ops);
     let _ = p.roots;
     Ok(p.plan)
+}
+
+/// Every game left outside the library folder (in folders with games elsewhere, as an
+/// import that left them where they are makes them), moved into it as one change with the
+/// preview and Undo: each system's games, named as its DAT says, into the place an import
+/// would choose for them inside the library (D77's, else a new folder named for the system
+/// beside the other systems' folders in the library, or at its top). `platform` takes one
+/// system's only. Files no DAT knows stay where they are (Audit › Unknown).
+pub fn gather_plan(ix: &Index, lib: &Library, platform: Option<&str>) -> Result<Plan> {
+    let conn = ix.conn();
+    let away: Vec<Root> = roots::list(lib).into_iter().filter(|r| !roots::in_library(lib, &r.dir)).collect();
+    if away.is_empty() {
+        bail!("Every folder with games is in the library folder already.");
+    }
+    let mut systems: BTreeSet<String> = BTreeSet::new();
+    {
+        let mut q = conn.prepare("SELECT DISTINCT platform FROM files WHERE root_id = ?1 AND platform IS NOT NULL AND missing_since IS NULL")?;
+        for r in &away {
+            for p in q.query_map([&r.id], |x| x.get::<_, String>(0))? {
+                systems.insert(p?);
+            }
+        }
+    }
+    systems.retain(|p| p != "pc" && platform.is_none_or(|only| only == p));
+    let inside: Vec<Root> = roots::list(lib).into_iter().filter(|r| r.found() && roots::in_library(lib, &r.dir)).collect();
+    let base = crate::addgame::systems_parent(&inside).unwrap_or_else(|| lib.root().to_path_buf());
+    let mut all = Plan {
+        id: new_id(), created: now(), kind: "organise".into(), label: String::new(), title: String::new(),
+        dat: Value::Null, platform: platform.unwrap_or_default().to_string(), mode: "move".into(), format: "keep".into(), out: None,
+        ops: vec![], games: 0, in_place: 0, conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, new_roots: vec![],
+        present: vec![], export: None,
+    };
+    for p in &systems {
+        let Some(dat) = audit::primary_dat(conn, lib, p)? else {
+            all.left.push(json!({ "path": platforms::name_of(p), "why": "This system has no DAT, so its games aren't known: import one first." }));
+            continue;
+        };
+        let place = crate::addgame::places(Some(conn), lib, p)
+            .iter()
+            .filter_map(|v| v["dir"].as_str().map(PathBuf::from))
+            .find(|d| roots::in_library(lib, d))
+            .unwrap_or_else(|| base.join(safe_name(&platforms::name_of(p))));
+        let one = plan(ix, lib, &Options { dat_id: dat, mode: "move".into(), out: Some(place), format: "keep".into(), partial: true, outside_library: true, ..Default::default() })?;
+        all.ops.extend(one.ops);
+        all.games += one.games;
+        all.in_place += one.in_place;
+        all.conflicts.extend(one.conflicts);
+        all.duplicates.extend(one.duplicates);
+        all.left.extend(one.left);
+        if let Some(d) = one.new_root {
+            all.new_roots.push([d, p.clone()]);
+        }
+    }
+    let one = all.platform.as_str();
+    let what = if one.is_empty() { "the games".to_string() } else { format!("the {} games", platforms::name_of(one)) };
+    all.label = format!("Moved {what} outside the library into it");
+    all.title = format!("Move {what} outside the library into it");
+    all.space = space_needed(&all.ops);
+    Ok(all)
 }
 
 /// Whether a hardlink can be made on the drive `to` is on: exFAT and many network
@@ -1516,7 +1582,7 @@ fn stage(op: &Op, at: &Path, cancel: &AtomicBool) -> Result<HashMap<(String, Str
                 n += 1;
                 let p = at.join(format!("{n}"));
                 let mut f = std::fs::File::create(&p)?;
-                io::copy(r, &mut f)?;
+                archive::copy_stoppable(r, &mut f, cancel)?;
                 f.sync_all()?;
                 out.insert((archive_path.clone(), name.to_string()), p);
             } else {
@@ -1597,11 +1663,25 @@ fn there_already(to: &Path, src: &Src, cancel: &AtomicBool) -> Result<bool> {
     Ok(true)
 }
 
+/// `std::fs::copy`, but stopping part way when asked (`archive::copy_stoppable`).
+pub(crate) fn copy_file(from: &Path, to: &Path, cancel: &AtomicBool) -> io::Result<u64> {
+    let mut r = std::fs::File::open(from)?;
+    let mut w = std::fs::File::create(to)?;
+    let n = archive::copy_stoppable(&mut r, &mut w, cancel).inspect_err(|_| {
+        // (not a part of a file left behind)
+        let _ = std::fs::remove_file(to);
+    })?;
+    if let Ok(m) = r.metadata() {
+        let _ = w.set_permissions(m.permissions());
+    }
+    Ok(n)
+}
+
 /// Copy `from` to `to` through a temporary file, checked before it takes its name.
 fn copy_checked(from: &Path, to: &Path, want: &Src, cancel: &AtomicBool) -> Result<()> {
     let tmp = to.with_file_name(format!("{}.gamerepo-tmp", to.file_name().unwrap_or_default().to_string_lossy()));
     let r = (|| -> Result<()> {
-        std::fs::copy(from, &tmp).with_context(|| format!("couldn't copy {}", from.display()))?;
+        copy_file(from, &tmp, cancel).with_context(|| format!("couldn't copy {}", from.display()))?;
         if let Ok(t) = std::fs::metadata(from).and_then(|m| m.modified()) {
             let _ = std::fs::File::options().write(true).open(&tmp).and_then(|f| f.set_modified(t));
         }
@@ -1734,7 +1814,7 @@ fn perform(op: &Op, cancel: &AtomicBool) -> Result<(Option<Written>, bool)> {
                     if to.exists() {
                         bail!("{} is there already", to.display());
                     }
-                    std::fs::rename(&p, to).or_else(|_| std::fs::copy(&p, to).map(|_| ()))?;
+                    std::fs::rename(&p, to).or_else(|_| copy_file(&p, to, cancel).map(|_| ()))?;
                     return Ok((Some(Written { members: vec![], file: Some(h), kind: "file" }), true));
                 }
                 let entries: Vec<torrentzip::Entry> = op
@@ -2290,6 +2370,37 @@ pub fn empty_set_aside(lib: &Library, id: Option<&str>) -> Result<Value> {
 mod tests {
     use super::*;
     use crate::audit::tests::{fixture, import, names, run_scan, Fixture};
+
+    // Jerred, 2026-10-20: games an import left where they are are moved into the library
+    // later, all at once, without saying where each one is
+    #[test]
+    fn games_left_outside_the_library_are_moved_into_it_in_one_change() {
+        let (dir, lib, ix) = crate::collection::tests::fixture("gather");
+        let never = AtomicBool::new(false);
+        assert!(roots::list(&lib).iter().all(|r| !roots::in_library(&lib, &r.dir)), "the fixture's Roms are beside the library");
+        // a game in the library already stays where it is
+        let mine = lib.root().join("Mine");
+        std::fs::create_dir_all(&mine).unwrap();
+        std::fs::rename(dir.join("Roms/Delta (World).gb"), mine.join("Delta (World).gb")).unwrap();
+        roots::add(&lib, &mine, Some("gb")).unwrap();
+        crate::scan::scan(&ix, &lib, &crate::scan::Options::default(), &never, &mut |_| {}).unwrap();
+        let plan = gather_plan(&ix, &lib, None).unwrap();
+        let games: BTreeSet<&str> = plan.ops.iter().map(|o| o.game.as_str()).collect();
+        assert_eq!((plan.games, games.len(), games.contains("Delta (World)")), (7, 7, false), "{:?}", plan.ops);
+        assert!(plan.ops.iter().all(|o| o.op == "move" && Path::new(&o.to).starts_with(&mine)), "{:?}", plan.ops);
+        assert_eq!((plan.label.as_str(), plan.new_roots.len()), ("Moved the games outside the library into it", 0));
+        let r = run(&ix, &lib, &plan, &never, &mut |_| {}).unwrap();
+        assert_eq!(r["done"], 7, "{r}");
+        assert!(mine.join("Beta (Japan).gb").is_file() && !dir.join("Roms/Beta (Japan).gb").exists());
+        // nothing's left to move; Undo puts them back where they were
+        assert_eq!(gather_plan(&ix, &lib, Some("gb")).unwrap().ops.len(), 0);
+        undo(&ix, &lib, &plan.id, &never, &mut |_| {}).unwrap();
+        assert!(dir.join("Roms/Beta (Japan).gb").is_file() && !mine.join("Beta (Japan).gb").exists());
+        // with every folder in the library, there's nothing to do
+        let roms = roots::list(&lib).into_iter().find(|r| !roots::in_library(&lib, &r.dir)).unwrap();
+        roots::remove(&lib, &roms.id).unwrap();
+        assert!(gather_plan(&ix, &lib, None).unwrap_err().to_string().contains("in the library folder already"));
+    }
 
     // review M6: a link counts as free only where the drive can hold one, and trying leaves nothing behind
     #[test]

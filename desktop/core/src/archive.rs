@@ -6,7 +6,7 @@
 //! 7z and RAR reading comes from.
 
 use crate::hash::{self, Hashes};
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -297,13 +297,34 @@ pub fn each_wanted(path: &Path, want: &dyn Fn(&str) -> bool, cancel: &AtomicBool
     each_wanted_as(path, container_of(&path.to_string_lossy()).unwrap_or("zip"), want, cancel, f)
 }
 
+/// `io::copy` in pieces, stopping between them once `cancel` is set (an error of kind
+/// `Interrupted` saying "stopped"), so a large file's copy stops part way when asked.
+pub fn copy_stoppable(r: &mut (impl Read + ?Sized), w: &mut (impl Write + ?Sized), cancel: &AtomicBool) -> io::Result<u64> {
+    let mut buf = vec![0u8; 1 << 20];
+    let mut n = 0;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(stopped());
+        }
+        let got = match r.read(&mut buf) {
+            Ok(0) => return Ok(n),
+            Ok(got) => got,
+            // (a read that was interrupted is tried again, as io::copy does)
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        w.write_all(&buf[..got])?;
+        n += got as u64;
+    }
+}
+
 /// The same, for an archive of the kind given whatever its name (a CBZ is a ZIP, a CBR a RAR).
 pub fn each_wanted_as(path: &Path, kind: &str, want: &dyn Fn(&str) -> bool, cancel: &AtomicBool, f: &mut dyn FnMut(&str, u64, &mut dyn Read) -> io::Result<()>) -> io::Result<()> {
     let mut f = |name: &str, size: u64, r: &mut dyn Read| -> io::Result<()> {
         if want(name) {
             f(name, size, r)
         } else {
-            io::copy(r, &mut io::sink()).map(|_| ())
+            copy_stoppable(r, &mut io::sink(), cancel).map(|_| ())
         }
     };
     let f = &mut f;
@@ -385,6 +406,34 @@ pub fn each_wanted_as(path: &Path, kind: &str, want: &dyn Fn(&str) -> bool, canc
 pub(crate) mod tests {
     use super::*;
     use crate::library::tests::temp_dir;
+
+    #[test]
+    fn a_large_copy_stops_part_way_when_asked() {
+        // a reader that asks to stop once it has given its first piece
+        struct Slow<'a>(&'a AtomicBool, u64);
+        impl Read for Slow<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                self.0.store(true, Ordering::Relaxed);
+                self.1 += buf.len() as u64;
+                Ok(buf.len())
+            }
+        }
+        let cancel = AtomicBool::new(false);
+        let mut out = vec![];
+        let e = copy_stoppable(&mut Slow(&cancel, 0), &mut out, &cancel).unwrap_err();
+        assert_eq!((e.kind(), e.to_string().as_str(), out.len()), (io::ErrorKind::Interrupted, "stopped", 1 << 20));
+        // a file's copy stopped leaves nothing behind; one not stopped is whole
+        let dir = temp_dir("copy-stop");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("big.bin"), vec![7u8; 3 << 20]).unwrap();
+        let stop = AtomicBool::new(true);
+        assert!(crate::organise::copy_file(&dir.join("big.bin"), &dir.join("copy.bin"), &stop).is_err());
+        assert!(!dir.join("copy.bin").exists());
+        let go = AtomicBool::new(false);
+        assert_eq!(crate::organise::copy_file(&dir.join("big.bin"), &dir.join("copy.bin"), &go).unwrap(), 3 << 20);
+        assert_eq!(std::fs::read(dir.join("copy.bin")).unwrap(), std::fs::read(dir.join("big.bin")).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// A 7z of these members, written with sevenz-rust2 (LZMA2).
     pub fn write_7z(path: &Path, members: &[(&str, &[u8])]) {

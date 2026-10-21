@@ -42,14 +42,16 @@ const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Se
 export const IMPORT_KINDS = ["bring", "add", "import", "docs", "magazines", "bios"];
 
 /** How an import brings its files in (D79), the same three choices everywhere: "copy"
- *  (hardlinked on the same drive), "always" (a full copy) or "move". */
-export function HowControl({ id, value, onChange, what = "them" }) {
+ *  (hardlinked on the same drive), "always" (a full copy) or "move"; and for games from
+ *  folders (`leave`), "leave": their folders become folders with games, nothing copied. */
+export function HowControl({ id, value, onChange, what = "them", leave = false }) {
   const row = (v, text, note) => html`<label class="check-row" key=${v}><input type="radio" name=${id} value=${v} checked=${value === v} onChange=${() => onChange(v)} /> ${text} <span class="muted">${note}</span></label>`;
   return html`<div class="field-block how-control" role="radiogroup" aria-label="How" id=${id}>
     <span class="field-label">How</span>
     ${row("copy", `Copy ${what}, hardlinked on the same drive`, "(no extra space; the originals stay)")}
     ${row("always", `Copy ${what}, always`, "(a full copy, even on the same drive)")}
     ${row("move", `Move ${what} into the library`, "(Undo puts them back)")}
+    ${leave ? row("leave", `Leave ${what} where they are`, "(their folders become folders with games; Move into the library… brings them in later)") : null}
   </div>`;
 }
 
@@ -66,6 +68,18 @@ const COUNTS = {
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
 export const organiseDialog = (opts) => ui.set({ dialog: { type: "organise", ...opts } });
+
+/** Move into the library…: every game left in a folder with games outside the library
+ *  folder (an import that left them where they were), moved in as one change, each
+ *  system's into its own folder there; the preview first. */
+export async function gatherDialog(platform = "") {
+  try {
+    const plan = await api("organise_gather", { platform });
+    ui.set({ dialog: { type: "organise", plan, platformName: "" } });
+  } catch (e) {
+    toast(e.message || String(e), 8000);
+  }
+}
 
 /** Open the Convert… dialog: `{ dat, platform, platformName, games? }` (games by name; all when left out). */
 export const convertDialog = (opts) => ui.set({ dialog: { type: "convert", ...opts } });
@@ -133,7 +147,7 @@ export async function offerInterrupted() {
 
 /** Run a planned change, then say what it did, with Undo. Resolves with the job's result
  *  (null when it failed). */
-export async function runPlan(plan) {
+export async function runPlan(plan, more = null) {
   try {
     const { job } = await api("organise_run", { id: plan.id });
     const done = await followJob(job, verb(plan.kind));
@@ -144,8 +158,9 @@ export async function runPlan(plan) {
     const failed = r.failed?.length ? ` ${plural(r.failed.length, "step", "steps")} failed: ${r.failed[0].error}` : "";
     const warned = r.warnings?.length ? ` ${plural(r.warnings.length, "file", "files")} will show once the folder is scanned again.` : "";
     const art = r.art?.length ? ` Artwork for ${plural(r.art.length, "game", "games")}.` : "";
-    const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}${warned}${art}`;
-    undoable(text, () => undoChange(r.id), 8000, [{ label: "History", run: () => { location.hash = "#/history"; } }]);
+    // `more`: what's left to do afterwards, with its button (files no DAT knows to review)
+    const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}${warned}${art}${more ? ` ${more.text}` : ""}`;
+    undoable(text, () => undoChange(r.id), more ? 15000 : 8000, [...(more?.actions || []), { label: "History", run: () => { location.hash = "#/history"; } }]);
     return r;
   } catch (e) {
     toast(`Couldn't finish it: ${e.message || e}`, 10000);

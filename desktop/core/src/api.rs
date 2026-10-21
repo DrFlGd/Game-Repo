@@ -700,6 +700,8 @@ impl App {
                         let mut v = r.to_json();
                         let network = r.found() && watch::is_network(&r.dir);
                         v["network"] = json!(network);
+                        // (a folder left where it was: Import's Move into the library… takes its games)
+                        v["outside"] = json!(!roots::in_library(&lib, &r.dir));
                         v["watched"] = json!(on && r.found() && !network);
                         v
                     })
@@ -862,6 +864,8 @@ impl App {
             "audit_summary" => {
                 let lib = self.library()?;
                 let (dat_arg, platform_arg) = (args["dat"].as_i64(), args["platform"].as_str().map(String::from));
+                // `view`: a DAT's lists looked at, not made the system's main DAT (D118)
+                let view = args["view"].as_bool().unwrap_or(false);
                 j(self.with_index(move |ix| {
                     dat::sync_library(ix, &lib)?;
                     let conn = ix.conn();
@@ -871,7 +875,7 @@ impl App {
                     let dat_id = match (dat_arg, platform_arg.as_deref().or(with_dats.first().map(String::as_str))) {
                         (Some(d), _) => {
                             // the DAT picked for a platform stays its DAT
-                            if lib.writable().is_ok() {
+                            if lib.writable().is_ok() && !view {
                                 audit::choose_dat(conn, &lib, d)?;
                             }
                             Some(d)
@@ -887,11 +891,19 @@ impl App {
                     };
                     let summary = audit::summary(conn, dat_id)?;
                     let platform = summary["dat"]["platform"].as_str().unwrap_or("").to_string();
-                    let mut q = conn.prepare("SELECT id, name, version FROM dats WHERE platform = ?1 AND current = 1 ORDER BY name")?;
+                    let mut q = conn.prepare("SELECT id, name, version, also FROM dats WHERE platform = ?1 AND current = 1 AND version != 'custom' ORDER BY name")?;
                     let dats: Vec<Value> = q
-                        .query_map([&platform], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "version": r.get::<_, String>(2)? })))?
+                        .query_map([&platform], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "version": r.get::<_, String>(2)?, "also": r.get::<_, bool>(3)? })))?
                         .collect::<rusqlite::Result<_>>()?;
-                    Ok(json!({ "summary": summary, "platforms": plats, "dats": dats }))
+                    // the main DAT, and the counts of each DAT it's audited with too (D118)
+                    let main = audit::primary_dat(conn, &lib, &platform)?;
+                    let also: Vec<Value> = audit::also_dats(conn, &lib, &platform)?.into_iter().map(|d| audit::summary(conn, d)).collect::<Result<_>>()?;
+                    // its custom DAT's counts, for the Variants tab (D119)
+                    let variants = match crate::variants::custom_dat(conn, &platform)? {
+                        Some(c) => audit::summary(conn, c)?,
+                        None => Value::Null,
+                    };
+                    Ok(json!({ "summary": summary, "platforms": plats, "dats": dats, "variants": variants, "main": main, "also": also }))
                 })
                 .await?)
             }
@@ -904,6 +916,72 @@ impl App {
                 let sort = args["sort"].as_str().unwrap_or("name").to_string();
                 let (offset, limit) = (args["offset"].as_i64().unwrap_or(0).max(0), args["limit"].as_i64().unwrap_or(100));
                 j(self.with_index(move |ix| audit::list_by(ix, &lib, dat_id, &tab, &search, &region, &sort, offset, limit)).await?)
+            }
+            // variants: the custom DAT of each system (docs/PLAN.md, "Phase 10 design", D119–D123)
+            "audit_dats_set" => {
+                // a system's main DAT and the DATs it's audited with too (D118)
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let main = args["main"].as_i64();
+                let also: Vec<String> = serde_json::from_value(args["also"].clone()).map_err(|e| format!("also: {e}"))?;
+                j(self.with_index(move |ix| {
+                    lib.writable()?;
+                    if let Some(m) = main {
+                        audit::choose_dat(ix.conn(), &lib, m)?;
+                    }
+                    audit::set_also(ix.conn(), &lib, &platform, &also)?;
+                    Ok(json!({ "main": audit::primary_dat(ix.conn(), &lib, &platform)?, "also": audit::also_dats(ix.conn(), &lib, &platform)? }))
+                })
+                .await?)
+            }
+            "variants_list" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                j(self.with_index(move |ix| crate::variants::list(ix, &lib, &platform)).await?)
+            }
+            "variants_add" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let adds: Vec<crate::variants::Add> = serde_json::from_value(args["adds"].clone()).map_err(|e| format!("adds: {e}"))?;
+                j(self.with_index(move |ix| crate::variants::add(ix, &lib, &platform, &adds)).await?)
+            }
+            "variants_edit" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let name = arg(&args, "name").map_err(e2s)?.to_string();
+                let new_name = args["new_name"].as_str().unwrap_or(&name).to_string();
+                let original = args["original"].as_str().filter(|o| !o.is_empty()).map(String::from);
+                j(self.with_index(move |ix| crate::variants::edit(ix, &lib, &platform, &name, &new_name, original)).await?)
+            }
+            "variants_remove" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let names: Vec<String> = serde_json::from_value(args["names"].clone()).map_err(|e| format!("names: {e}"))?;
+                j(self.with_index(move |ix| crate::variants::remove(ix, &lib, &platform, &names)).await?)
+            }
+            "variants_undo" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                j(self.with_index(move |ix| crate::variants::undo(ix, &lib, &platform)).await?)
+            }
+            "variants_search" => {
+                let lib = self.library()?;
+                let platform = arg(&args, "platform").map_err(e2s)?.to_string();
+                let text = args["text"].as_str().unwrap_or("").to_string();
+                j(self.with_index(move |ix| crate::variants::search(ix.conn(), &lib, &platform, &text, 50)).await?)
+            }
+            "variants_tags" => {
+                let lib = self.library()?;
+                j(self.with_index(move |ix| Ok(json!(crate::variants::tag_list(ix.conn(), &lib)?))).await?)
+            }
+            "variants_tags_set" => {
+                let lib = self.library()?;
+                let tags: Vec<String> = serde_json::from_value(args["tags"].clone()).map_err(|e| format!("tags: {e}"))?;
+                j(self.with_index(move |ix| {
+                    crate::variants::set_tags(&lib, &tags)?;
+                    Ok(json!(crate::variants::tag_list(ix.conn(), &lib)?))
+                })
+                .await?)
             }
             "audit_overview" => {
                 let lib = self.library()?;
@@ -985,6 +1063,17 @@ impl App {
                 j(self
                     .with_index(move |ix| {
                         let plan = organise::plan(ix, &lib, &o)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            "organise_gather" => {
+                let lib = self.library()?;
+                let platform = args["platform"].as_str().filter(|p| !p.is_empty()).map(String::from);
+                j(self
+                    .with_index(move |ix| {
+                        let plan = organise::gather_plan(ix, &lib, platform.as_deref())?;
                         organise::save_pending(&data_dir, &plan)?;
                         Ok(plan.summary())
                     })

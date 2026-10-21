@@ -401,12 +401,14 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 .statusbar-inner { display: flex; gap: 4px 18px; align-items: center; padding: 3px 14px; flex-wrap: wrap; min-height: 26px; }
 .status-jobs { position: relative; margin-left: auto; }
 .status-job { padding: 2px 8px; font-size: 12.5px; font-weight: 500; background: transparent; border: 0; color: inherit; gap: 0; }
+.status-progress { width: 140px; height: 6px; margin-left: 10px; vertical-align: middle; }
 .status-idle { display: inline-flex; align-items: center; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block; margin-right: 6px; flex: none; }
 .dot.busy { background: var(--focus); animation: pulse 1s infinite; }
 .jobs-panel { position: absolute; bottom: calc(100% + 6px); right: 0; min-width: 320px; background: var(--white); border: 1px solid var(--steel-2); border-radius: var(--radius-s);
   box-shadow: var(--shadow); padding: 8px; display: grid; gap: 6px; color: var(--ink); z-index: 40; }
 .job { display: flex; gap: 10px; align-items: center; }
+.job progress { width: 90px; height: 6px; }
 .job span:first-child { flex: 1; }
 @keyframes pulse { 50% { opacity: .3; } }
 
@@ -1396,6 +1398,19 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 .audit-table .audit-name .audit-needs { display: block; }
 .audit-table .audit-path { max-width: 380px; overflow-wrap: anywhere; }
 .audit-table .audit-acts { white-space: nowrap; text-align: right; }
+/* variants (Phase 10): the Unknown tab's ticks and suggestions, and the tags */
+.audit-table .tick { width: 28px; }
+.unknown-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 6px 0; font-size: 13px; }
+.unknown-original select { max-width: 360px; }
+/* a name breaks between words, and the folder gives way first */
+:is(.unknown-wrap, .variants-wrap) td.audit-name { min-width: 15em; overflow-wrap: break-word; }
+:is(.unknown-wrap, .variants-wrap) td.audit-path { max-width: 16em; }
+.unknown-wrap td.unknown-original, .variants-wrap td:nth-child(3) { min-width: 11em; }
+.variant-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.variant-tag { padding: 1px 7px; border: 1px solid var(--steel-2); border-radius: 99px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.variant-new-tag { display: inline-flex; gap: 6px; }
+#variant-dialog #variant-original { width: 100%; margin-top: 6px; }
+#variant-dialog #variant-tags { align-items: center; }
 .audit-overview tbody tr:hover { background: var(--steel); }
 .audit-bar.small { display: inline-block; width: 70px; height: 6px; vertical-align: middle; }
 .audit-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
@@ -1911,3 +1926,4 @@ html.drop-over-import #main-root { outline: 2px dashed var(--accent-edge); outli
 .import-places li.import-place small { grid-column: 2; }
 .import-places li.import-place small.warn { color: var(--warn, #b45309); }
 .subset-unknown li.import-unknown { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: nowrap; }
+.game-variant-of { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 4px 0; font-weight: 600; }

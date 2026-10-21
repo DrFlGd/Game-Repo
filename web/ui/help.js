@@ -48,7 +48,7 @@ export const TERMS = [
 export const PAGES = [
   ["home", "Home", "Where your library stands: how complete each system is against its DAT, and what to do next.", [
     "Scan, at the top, reads the folders with games for what's new or changed.",
-    "Next: files to put right, games whose details need a look, systems not scraped yet and missing BIOS files, each a link to the page it's done on.",
+    "Next: files that need review, games whose details need a look, systems not scraped yet and missing BIOS files, each a link to the page it's done on.",
     "Systems: how complete each one is against its DAT, with Import DATs… (and Get starter DATs… while you have none) and Open the audit.",
     "Folders with games: how many files were found and when they were last scanned, Add a folder… while there are none, folders not found on this computer (Point it elsewhere…), and files no DAT takes yet. Before any library is open, Home offers Open a library….",
   ]],
@@ -79,6 +79,9 @@ export const PAGES = [
     "A games list can be narrowed to a region and sorted by name, region or year; reports, and Save a list of what's missing.",
     "Organise… sorts, renames and packs a system's games; Rename to the DAT's names…, Set aside duplicates… and Convert… (to CHD, RVZ, CSO, ZIP, or unpacked) are changes too.",
     "For an arcade system (MAME, FinalBurn Neo): how many games are playable, what each needs, its BIOS sets and devices on a tab of their own, and its set type.",
+    "Unknown: each file no DAT knows with the game it's likely a variant of (a translation, a hack, a prototype) and its tags, the parentheticals at the end of its name. Add puts it in the system's custom DAT as that game's variant; Edit… names it, gives it tags from the drop-down (or New tag…) and chooses its original, or none for a game of its own. Until then it stays out of the Library.",
+    "DATs…: the main DAT, whose counts are the totals, and the DATs the system is audited with too (a translation group's, say): the files they know are off Unknown, their games are in the Library, and each has its counts under the totals with Show its lists.",
+    "Variants: the system's custom DAT, each variant with its tags and its original; Rename (its files to their names), Remove and Undo. In the Library a variant shows under its own name with its original's details and pictures, and the Tag filter finds them.",
   ]],
   ["bios", "BIOS files", "Each system's BIOS files: which you have, which are missing, and where they are (under the Audit).", [
     "Every system the BIOS DATs list, the ones you have games for first; search for a system or a file.",

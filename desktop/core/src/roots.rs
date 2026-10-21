@@ -143,6 +143,13 @@ fn check_platform(platform: Option<&str>) -> Result<Option<String>> {
     }
 }
 
+/// Whether `p` is in the library folder (or is it).
+pub fn in_library(lib: &Library, p: &Path) -> bool {
+    let (k, top) = (crate::organise::key(p), crate::organise::key(lib.root()));
+    let top = top.trim_end_matches('/');
+    k == top || k.starts_with(&format!("{top}/"))
+}
+
 /// Whether `dir` could be added as a folder with games (it isn't inside one, nor holds one).
 pub fn check_new(lib: &Library, dir: &Path) -> Result<()> {
     check_place(lib, dir, &list(lib)).map(|_| ())

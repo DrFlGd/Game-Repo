@@ -27,6 +27,7 @@ import { opened, gameHash, systemColour } from "./browse.js";
 import { Icon } from "./icons.js";
 import { Inspector } from "./panels.js";
 import { isVideo, Video } from "./video.js";
+import { variantDialog, undoVariants } from "./variants.js";
 
 const err = (e) => e.message || String(e);
 const PICTURES = { cover: "Box front", back: "Back", box3d: "3D box", screenshot: "Screenshot", titlescreen: "Title screen", marquee: "Logo", fanart: "Fan art", physical: "Cartridge or disc", video: "Video", banner: "Banner", hero: "Hero", logo: "Logo", icon: "Icon" };
@@ -259,6 +260,14 @@ export function GamePage() {
     location.replace(gameHash(r.items[0].key));
   };
   const back = () => (history.length > 1 ? history.back() : (location.hash = routeHash("library")));
+  const removeVariant = async () => {
+    try {
+      await api("variants_remove", { platform: g.platform, names: [g.variant.name] });
+      ui.set((x) => ({ changes: (x.changes || 0) + 1 }));
+      toast(`Took ${g.variant.name} out of the custom DAT: its file is on Audit's Unknown tab again.`, { ms: 10000, actions: [{ label: "Undo", run: () => undoVariants(g.platform) }] });
+      back();
+    } catch (e) { toast(`Couldn't take it out: ${err(e)}`, 8000); }
+  };
   usePageKeys((e) => {
     if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); back(); }
     else if (e.key === "ArrowRight" || e.key === "PageDown") step(1);
@@ -268,6 +277,11 @@ export function GamePage() {
     ...(dat ? [{ id: "game-identify", label: "Identify…", icon: "search", disabled: off, run: () => identifyDialog({ title: `Identify ${g.name}`, query: g.title, platform: g.platform, onPick: async (x) => { setG(await api("meta_pick", { game: g.id, source: x.source, id: x.id }).then(() => api("browse_game", { key }))); } }) }] : []),
     ...(pc ? [{ id: "game-pc", label: "Open in PC games", icon: "monitor", run: () => { location.hash = routeHash("pc"); } }] : []),
     ...(dat ? [{ id: "game-scrape-again", label: "Scrape again…", icon: "scrape", disabled: off, run: () => scrapeDialog({ platform: g.platform, platformName: g.platform_name, games: [g.id], gameName: g.title, again: true }) }] : []),
+    // a variant's own (D123): its name, tags and original; taken out, its file is on Unknown again
+    ...(g?.variant ? [
+      { id: "game-variant-edit", label: "Edit the variant…", icon: "edit", disabled: off, run: () => variantDialog({ platform: g.platform, editing: g.variant.name, was: g.variant, original: g.variant.of?.name || null, onDone: (n) => { if (n !== g.variant.name) location.replace(gameHash(`${g.platform}/${n}`)); } }) },
+      { id: "game-variant-remove", label: "Remove from the custom DAT", icon: "trash", disabled: off, run: removeVariant },
+    ] : []),
     { id: "game-delete-metadata", label: "Delete metadata…", icon: "trash", disabled: off || !g?.folder, run: () => deleteMetadata({ folder: g.folder, gameName: g.title, platformName: g.platform_name, pc }) },
     { sep: true },
     { id: "game-attach", label: "Attach documents…", icon: "file", disabled: off || !isDesktop() || !(dat || pc), run: () => attach() },
@@ -307,6 +321,8 @@ export function GamePage() {
       <${Gallery} g=${g} off=${off || busy} onChoose=${choose} />
       <section class="game-details" id="game-details" aria-busy=${busy ? "true" : "false"}>
         <p class="muted game-sub">${[g.platform_name, g.kind === "dat" ? (g.have ? "in the library" : "not in the library") : g.kind === "pc" ? "a PC game" : "a game no DAT knows", g.name && g.name !== g.title ? g.name : null].filter(Boolean).join(" · ")}</p>
+        ${g.variant ? html`<p class="game-variant-of" id="game-variant-of"><span>${g.variant.of ? html`A variant of <a href=${gameHash(g.variant.of.key)}>${g.variant.of.name}</a>` : "A game of its own, in the system's custom DAT"}</span>${g.variant.tags?.length ? html`<span class="variant-tags">${g.variant.tags.map((t) => html`<span class="variant-tag" key=${t}>${t}</span>`)}</span>` : null}</p>` : null}
+        ${g.variant_games?.length ? html`<p class="muted" id="game-variant-list">${g.variant_games.length === 1 ? "Its variant" : "Its variants"}: ${g.variant_games.map((x, i) => html`${i ? ", " : ""}<a key=${x.key} href=${gameHash(x.key)}>${x.name}</a>`)}</p>` : null}
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
         ${main ? html`<p class="muted game-main-source" id="game-main-source">Details from ${sourceName(main)}, unless a detail says otherwise.</p>` : null}
         <div class="game-fields">${FIELDS.map(([k, l]) => html`<${Detail} key=${k} g=${g} field=${k} label=${l} off=${off || busy} main=${main} onSave=${save} onUnmark=${unmark} onUse=${use} />`)}</div>

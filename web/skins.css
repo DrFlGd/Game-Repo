@@ -274,7 +274,7 @@
 :root[data-skin="terminal"] .statusbar-inner::before { content: "STATUS:"; color: var(--graphite); }
 :root[data-skin="terminal"] .audit-bar { border-radius: 0; background: transparent; border: 1px solid var(--graphite); }
 :root[data-skin="terminal"] .audit-bar > span { background: repeating-linear-gradient(90deg, var(--ink) 0 6px, transparent 6px 8px); }
-:root[data-skin="terminal"] :is(.badge, .chip, .chip-btn, .chip-item) { border-radius: 0; }
+:root[data-skin="terminal"] :is(.badge, .chip, .chip-btn, .chip-item, .variant-tag) { border-radius: 0; }
 /* pictures on the green screen until you point at them */
 :root[data-skin="terminal"] :is(.thumb, .tile-pic, .cover-file, .subcat-pics, .lib-tile-art, .game-strip, .game-variants) img, :root[data-skin="terminal"] :is(img.lib-cover, img.game-hero, img.lib-panel-cover, .lib-cover-none) { filter: var(--tint); transition: filter .2s; }
 :root[data-skin="terminal"] :is(.card, .subcat-tile, .tile, .row, .lib-tile, .lib-line):hover :is(img, .lib-cover-none), :root[data-skin="terminal"] img:is(.game-hero, .lib-panel-cover):hover { filter: none; }
@@ -585,7 +585,7 @@
 :root[data-skin="pixel"] :is(input, select, textarea) { border: 2px solid var(--line); box-shadow: inset 2px 2px 0 rgba(0, 0, 0, .12); }
 :root[data-skin="pixel"] .audit-bar { border-radius: 0; height: 10px; border: 2px solid var(--line); background: var(--white); }
 :root[data-skin="pixel"] .audit-bar > span { background: repeating-linear-gradient(90deg, var(--ok) 0 6px, color-mix(in srgb, var(--ok) 70%, black) 6px 8px); }
-:root[data-skin="pixel"] :is(.badge, .chip, .chip-btn, .chip-item, .sw-chip) { border-radius: 0; border-width: 2px; }
+:root[data-skin="pixel"] :is(.badge, .chip, .chip-btn, .chip-item, .variant-tag, .sw-chip) { border-radius: 0; border-width: 2px; }
 :root[data-skin="pixel"] .sidebar { border-right: var(--px) solid var(--line); }
 :root[data-skin="pixel"] .cmdbar { border-bottom: var(--px) solid var(--line); }
 :root[data-skin="pixel"] .statusbar { border-top: var(--px) solid var(--line); background: var(--chrome); color: var(--chrome-ink); font-family: var(--font-head); font-size: 8.5px; text-transform: uppercase; }

@@ -90,6 +90,8 @@ struct Row {
     best_have: bool,
     /// How many of its updates, DLC and patches you have (D66)
     addons: i64,
+    /// A variant's tags (D121)
+    tags: Vec<String>,
 }
 
 fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
@@ -99,9 +101,9 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
     let mut ins = conn.prepare_cached(
         "INSERT INTO library (key, kind, platform, dat_game, name, title, sort, year, developer, publisher, players, rating, regions, have,
                               folder, picture, media, described, docs, review, size, date, best_all, best_have, genre, genres, languages,
-                              year_sort, rating_sort, size_sort, date_sort, addons, partial)
+                              year_sort, rating_sort, size_sort, date_sort, addons, partial, tags)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27,
-                 ?28, ?29, ?30, ?31, ?32, ?33)",
+                 ?28, ?29, ?30, ?31, ?32, ?33, ?34)",
     )?;
     let mut val = conn.prepare_cached("INSERT INTO library_values (game, field, value) VALUES (?1, ?2, ?3)")?;
     let mut fts = conn.prepare_cached("INSERT INTO library_text (rowid, title, name, body) VALUES (?1, ?2, ?3, ?4)")?;
@@ -126,9 +128,12 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
             description.is_some() as i64, r.docs, r.review as i64, r.size, r.date, r.best_all as i64, r.best_have as i64, genres.first(),
             genres.join(SEP), r.languages.join(","),
             year.unwrap_or(i64::MAX), rating.map(|x| -x).unwrap_or(f64::MAX), -r.size, r.date.map(|d| -d).unwrap_or(i64::MAX), r.addons,
-            r.partial as i64,
+            r.partial as i64, r.tags.join(SEP),
         ])?;
         let id = conn.last_insert_rowid();
+        for t in &r.tags {
+            val.execute(params![id, "tag", t])?;
+        }
         for g in &genres {
             val.execute(params![id, "genre", g])?;
         }
@@ -152,16 +157,22 @@ fn picture_path(folder: &Option<String>, picture: &Option<String>, stamp: i64) -
 }
 
 /// Rebuild a system's rows: every game of the DAT it's audited against but its updates and
-/// DLC (they're counted with their game, D66), then those of the DATs a collection's group
-/// takes its games from in place of it (`others`, D75) that the first hasn't by name, and
-/// the games no DAT knows that Add a game… kept for it.
+/// DLC (they're counted with their game, D66), its variants (its custom DAT's games, D122),
+/// the games of the DATs it's audited with too (D118), then those of the DATs a collection's group takes its games from in place of it
+/// (`others`, D75) that the first hasn't by name, and the games no DAT knows that Add a
+/// game… kept for it.
 fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<i64>, others: &[i64]) -> Result<()> {
     let mut rows: Vec<Row> = vec![];
     let mut used: HashSet<String> = HashSet::new();
     let addons = crate::addons::have_by_base(conn, lib, platform)?;
     let mut named: HashSet<String> = HashSet::new();
-    for (nth, dat) in dat.into_iter().chain(others.iter().copied()).enumerate() {
+    let custom = if dat.is_some() { crate::variants::custom_dat(conn, platform)? } else { None };
+    // and the DATs it's audited with too (D118)
+    let also = if dat.is_some() { audit::also_dats(conn, lib, platform)? } else { vec![] };
+    let more = also.iter().copied().chain(others.iter().copied().filter(|d| Some(*d) != custom && !also.contains(d)));
+    for (nth, dat) in dat.into_iter().chain(custom).chain(more).enumerate() {
         let start = rows.len();
+        let variants = Some(dat) == custom;
         let addon_dat = conn.query_row("SELECT name FROM dats WHERE id = ?1", [dat], |r| r.get::<_, String>(0)).map(|n| crate::addons::is_addon_dat(&n))?;
         let sql = format!(
             "WITH {GAMES},
@@ -215,12 +226,15 @@ fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<
                 parent.unwrap_or(id),
                 (rank(&regions), !flags.is_empty(), std::cmp::Reverse(collection::revision_key(&x.get::<_, String>(5)?)), std::cmp::Reverse(collection::revision_key(&x.get::<_, String>(6)?)), parent.is_some(), name.clone()),
             ));
+            let title = meta_title.filter(|t| !t.is_empty()).or_else(|| Some(dat_title).filter(|t| !t.is_empty())).unwrap_or_else(|| name.clone());
             rows.push(Row {
                 key: format!("{platform}/{name}"),
                 kind: "dat",
                 platform: platform.to_string(),
                 dat_game: Some(id),
-                title: meta_title.filter(|t| !t.is_empty()).or_else(|| Some(dat_title).filter(|t| !t.is_empty())).unwrap_or_else(|| name.clone()),
+                // a variant keeps its tags after the title its original's details give it
+                title: if variants { crate::variants::titled(&title, &name) } else { title },
+                tags: if variants { crate::variants::tags_of(&name) } else { vec![] },
                 name,
                 year: x.get(12)?,
                 facts: serde_json::from_str(&facts).unwrap_or_default(),
@@ -256,7 +270,9 @@ fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<
             }
             let chosen: HashSet<usize> = best.into_values().collect();
             for (i, r) in rows[start..].iter_mut().enumerate() {
-                if have_only { r.best_have = chosen.contains(&i) } else { r.best_all = chosen.contains(&i) }
+                // (a variant is never folded into its original)
+                let best = variants || chosen.contains(&i);
+                if have_only { r.best_have = best } else { r.best_all = best }
             }
         }
         named.extend(rows[start..].iter().map(|r| r.name.clone()));
@@ -398,7 +414,10 @@ fn stamp(conn: &Connection, lib: &Library, platform: &str, named: &[String]) -> 
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     let hand = lib.meta()["addons"][platform].to_string();
-    Ok((format!("{FORMAT}|{dat:?}|{matched:?}|{games:?}|{pics}|{docs:?}|{others:?}|{hand}|{groups:?}"), dat, groups))
+    // its custom DAT, loaded again (so a new id) whenever it changes
+    let custom = crate::variants::custom_dat(conn, platform)?;
+    let also = audit::also_dats(conn, lib, platform)?;
+    Ok((format!("{FORMAT}|{dat:?}|{matched:?}|{games:?}|{pics}|{docs:?}|{others:?}|{hand}|{groups:?}|{custom:?}|{also:?}"), dat, groups))
 }
 
 /// Bring the library's rows up to date: each system whose games, files, game folders or
@@ -461,6 +480,8 @@ pub struct Query {
     pub publisher: Vec<String>,
     pub region: Vec<String>,
     pub language: Vec<String>,
+    /// Variants with these tags (D121)
+    pub tag: Vec<String>,
     /// At least this many players
     pub players: i64,
     /// At least this rating (0 to 1)
@@ -528,7 +549,7 @@ fn where_of(q: &Query, keys: &Option<Vec<String>>, skip: &str) -> (String, Vec<S
     list("platform", "l.platform", &q.platform, &mut w, &mut p);
     list("developer", "l.developer", &q.developer, &mut w, &mut p);
     list("publisher", "l.publisher", &q.publisher, &mut w, &mut p);
-    for (name, v) in [("genre", &q.genre), ("region", &q.region), ("language", &q.language)] {
+    for (name, v) in [("genre", &q.genre), ("region", &q.region), ("language", &q.language), ("tag", &q.tag)] {
         if !v.is_empty() && skip != name {
             w.push(format!("l.id IN (SELECT game FROM library_values WHERE field = '{name}' AND value IN (SELECT value FROM json_each(?)))"));
             p.push(json_list(v));
@@ -743,7 +764,7 @@ struct Counts {
     look: i64,
 }
 
-const FILTERS: [&str; 11] = ["platform", "genre", "decade", "developer", "publisher", "region", "language", "players", "rating", "has", "look"];
+const FILTERS: [&str; 12] = ["platform", "genre", "decade", "developer", "publisher", "region", "language", "tag", "players", "rating", "has", "look"];
 const RATINGS: [f64; 3] = [0.4, 0.6, 0.8];
 
 /// Whether the query uses a filter.
@@ -756,6 +777,7 @@ fn in_use(q: &Query, name: &str) -> bool {
         "publisher" => !q.publisher.is_empty(),
         "region" => !q.region.is_empty(),
         "language" => !q.language.is_empty(),
+        "tag" => !q.tag.is_empty(),
         "players" => q.players > 0,
         "rating" => q.rating > 0.0,
         "has" => !q.has.is_empty(),
@@ -780,7 +802,7 @@ fn facets(conn: &Connection, q: &Query, keys: &Option<Vec<String>>) -> Result<Va
         let (w, p) = where_of(q, keys, skip);
         let mut st = conn.prepare_cached(&format!(
             "SELECT l.platform, l.year, l.developer, l.publisher, l.players, l.rating, l.picture IS NOT NULL, l.described, l.media, l.docs > 0, l.review,
-                    l.genres, l.regions, l.languages, l.addons > 0 FROM library l WHERE {w}"
+                    l.genres, l.regions, l.languages, l.addons > 0, l.tags FROM library l WHERE {w}"
         ))?;
         let mut rows = st.query(params_from_iter(p.iter()))?;
         while let Some(r) = rows.next()? {
@@ -806,7 +828,7 @@ fn facets(conn: &Connection, q: &Query, keys: &Option<Vec<String>>) -> Result<Va
                     }
                 }
             }
-            for (i, f, sep) in [(11, "genre", SEP), (12, "region", ","), (13, "language", ",")] {
+            for (i, f, sep) in [(11, "genre", SEP), (12, "region", ","), (13, "language", ","), (15, "tag", SEP)] {
                 if want(f) {
                     for v in r.get_ref(i)?.as_str()?.split(sep) {
                         add(f, v);
@@ -857,7 +879,7 @@ fn facets(conn: &Connection, q: &Query, keys: &Option<Vec<String>>) -> Result<Va
     decade.sort();
     Ok(json!({
         "platform": top("platform"), "genre": top("genre"), "developer": top("developer"), "publisher": top("publisher"),
-        "region": top("region"), "language": top("language"),
+        "region": top("region"), "language": top("language"), "tag": top("tag"),
         "decade": decade.into_iter().map(|(d, n)| json!({ "value": d, "count": n })).collect::<Vec<_>>(),
         "players": c.players.iter().enumerate().map(|(i, n)| json!({ "value": (i + 1) as f64, "count": n })).collect::<Vec<_>>(),
         "rating": RATINGS.iter().zip(c.rating).map(|(v, n)| json!({ "value": v, "count": n })).collect::<Vec<_>>(),
@@ -918,6 +940,14 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
             v["dat_id"] = json!(conn.query_row("SELECT dat_id FROM dat_games WHERE id = ?1", [id], |r| r.get::<_, i64>(0)).optional()?.or(audit::primary_dat(conn, lib, &platform)?));
             let name: String = conn.query_row("SELECT name FROM library WHERE key = ?1", [key], |r| r.get(0))?;
             v["addons"] = crate::addons::of_game(conn, lib, &platform, &name)?;
+            // a variant's original, or an original's variants (D122)
+            if crate::variants::is_custom(conn, v["dat_id"].as_i64().unwrap_or(-1))? {
+                let original: Option<String> = conn.query_row("SELECT cloneof FROM dat_games WHERE id = ?1", [id], |r| r.get(0))?;
+                v["variant"] = json!({ "name": name, "title": crate::variants::split_name(&name).0, "tags": crate::variants::tags_of(&name), "of": original.map(|o| json!({ "key": format!("{platform}/{o}"), "name": o })) });
+            } else {
+                let vs = crate::variants::variants_of(conn, &platform, &name)?;
+                v["variant_games"] = json!(vs.into_iter().map(|(_, n)| json!({ "key": format!("{platform}/{n}"), "name": n })).collect::<Vec<_>>());
+            }
             v
         }
         ("pc", _) => {

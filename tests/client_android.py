@@ -398,6 +398,8 @@ try:
     pg.wait("document.querySelector('#go-games') && document.documentElement.dataset.view === 'classic'", 15, "the classic view")
 
     # 6. a game added comes into ES-DE's folders and gamelist, with its box front
+    # (the classic view reads its games a page at a time, so its cards come after #go-games)
+    pg.wait("document.querySelector('.go-card[data-key=\"gb/Alpha (USA)\"] .go-tick')", 15, "Alpha's card")
     pg.click('.go-card[data-key="gb/Alpha (USA)"] .go-tick')
     pg.wait("document.querySelector('#go-add')", 10, "Download…")
     pg.click("#go-add")
