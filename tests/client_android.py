@@ -322,6 +322,30 @@ def key(name):
     time.sleep(0.4)
 
 
+def unhang():
+    """The emulator's System UI is slow at times, and Android puts its "isn't responding"
+    dialog over whatever is in front, where it takes the next key: closed with Wait (Back)."""
+    for _ in range(3):
+        if "Not Responding" not in sh("dumpsys window | grep mCurrentFocus", ok=False):
+            return
+        key("KEYCODE_BACK")
+        time.sleep(1)
+
+
+def back_to_go(timeout=30):
+    """Back from one of Android's screens to Game Repo Go."""
+    unhang()
+    key("KEYCODE_BACK")
+    end = time.time() + timeout
+    while time.time() < end and resumed() != PKG:
+        time.sleep(1)
+        if "Not Responding" in sh("dumpsys window | grep mCurrentFocus", ok=False):
+            unhang()
+            key("KEYCODE_BACK")
+    if resumed() != PKG:
+        print(f"note: after Back, {resumed() or 'nothing'} is in front ({sh('dumpsys window | grep mCurrentFocus', ok=False).strip()})", flush=True)
+
+
 def notification():
     return sh("dumpsys notification --noredact", ok=False)
 
@@ -356,7 +380,7 @@ try:
         time.sleep(0.5)
     shot("02-android-access-screen")
     sh(f"appops set --uid {PKG} MANAGE_EXTERNAL_STORAGE allow")
-    key("KEYCODE_BACK")
+    back_to_go()
     pg.wait("!document.querySelector('#go-storage')", 30, "the access note to go")
     st = pg.api("status")
     check("Allow access opens Android's screen for it, and once allowed ES-DE's folder is found",
@@ -536,10 +560,7 @@ try:
         shot("06-update")
         check("the update downloaded and checked brings Android's installer to the front", "packageinstaller" in resumed() and asking,
               (resumed(), pg.eval("document.querySelector('#update-panel').innerText")))
-        key("KEYCODE_BACK")
-        end = time.time() + 30
-        while time.time() < end and resumed() != PKG:
-            time.sleep(1)
+        back_to_go()
         kept = pg.wait("document.querySelector('#update-error')?.innerText.includes(\"The update wasn't installed.\")", 30, soft=True)
         check("backed out of Android's installer, the page says the update wasn't installed", kept and resumed() == PKG
               and pg.api("update_state")["version"] != "9.9.9", (resumed(), pg.eval("document.querySelector('#update-panel').innerText")))
