@@ -142,6 +142,13 @@ fn program_of(g: &pcgames::PcGame, names: &[String]) -> (String, String, String)
     (c.first().map(|(_, n)| n.to_string()).unwrap_or_default(), String::new(), String::new())
 }
 
+/// The one folder every file is in, with its `/` (`Game/` of `Game/game.exe` and
+/// `Game/data/a.pak`), when there's no file beside it.
+fn lone_top(names: &[String]) -> Option<String> {
+    let first = names.first()?.split_once('/')?.0;
+    names.iter().all(|n| n.split_once('/').is_some_and(|(t, rest)| t == first && !rest.is_empty())).then(|| format!("{first}/"))
+}
+
 /// The PC games of a plan: their files in the device's PC games folder, from their unpacked
 /// copy in the library or their install archives unpacked here (a game still being unpacked
 /// is `waiting`), and their programs.
@@ -165,7 +172,8 @@ fn pc_games(ix: &Index, lib: &Library, unpacker: &Unpacker, hashes: &Hashes, ask
             url,
             ..Default::default()
         };
-        let mut names: Vec<String> = vec![];
+        // (its files: path in the game's folder, size, SHA-1 and where it's fetched from)
+        let mut got: Vec<(String, u64, Option<String>, String)> = vec![];
         let extracted = e.dir.join("extracted");
         let mut found = vec![];
         walk(&extracted, &mut found);
@@ -180,8 +188,7 @@ fn pc_games(ix: &Index, lib: &Library, unpacker: &Unpacker, hashes: &Hashes, ask
                 if sha1.is_none() {
                     hash.push(p.clone());
                 }
-                plan.files.push(file(&rel, std::fs::metadata(p).map(|m| m.len()).unwrap_or(0), sha1, url));
-                names.push(rel);
+                got.push((rel, std::fs::metadata(p).map(|m| m.len()).unwrap_or(0), sha1, url));
             }
         } else {
             let archives = install_archives(&e);
@@ -198,8 +205,8 @@ fn pc_games(ix: &Index, lib: &Library, unpacker: &Unpacker, hashes: &Hashes, ask
             match unpacker.status(&uid) {
                 Unpacked::Ready(list) => {
                     for f in list {
-                        plan.files.push(file(&f.path, f.size, Some(f.sha1.clone()), format!("/v1/files/unpacked/{uid}/{}", http::encode_path(&f.path))));
-                        names.push(f.path);
+                        let url = format!("/v1/files/unpacked/{uid}/{}", http::encode_path(&f.path));
+                        got.push((f.path, f.size, Some(f.sha1), url));
                     }
                 }
                 Unpacked::Failed(why) => {
@@ -209,6 +216,9 @@ fn pc_games(ix: &Index, lib: &Library, unpacker: &Unpacker, hashes: &Hashes, ask
                 Unpacked::Pending | Unpacked::Unknown => {
                     unpacker.want(&uid, archives);
                     plan.waiting.push(key.clone());
+                    if let Some((done, size)) = unpacker.progress(&uid) {
+                        plan.unpacking.push(gamerepo_wire::plan::Unpacking { key: key.clone(), done, size });
+                    }
                     continue;
                 }
             }
@@ -220,7 +230,22 @@ fn pc_games(ix: &Index, lib: &Library, unpacker: &Unpacker, hashes: &Hashes, ask
                 plan.left.push(Left { what: format!("{} › its {what} ({n})", g.title), why: "Game Repo Go doesn't add a PC game's patches, DLC or extras yet, only the game itself.".into() });
             }
         }
+        let names: Vec<String> = got.iter().map(|f| f.0.clone()).collect();
         let (path, args, dir) = program_of(g, &names);
+        // a game zipped as its folder: its files go at the top of the game's own folder, not
+        // in that folder again (D124)
+        let top = lone_top(&names);
+        let inside = |p: &str| -> String {
+            match &top {
+                Some(t) if p == t.trim_end_matches('/') => String::new(),
+                Some(t) => p.strip_prefix(t.as_str()).unwrap_or(p).to_string(),
+                None => p.to_string(),
+            }
+        };
+        for (rel, size, sha1, url) in got {
+            plan.files.push(file(&inside(&rel), size, sha1, url));
+        }
+        let (path, dir) = (inside(&path), inside(&dir));
         if path.is_empty() {
             plan.notes.push(format!("{} has no program to start, so it gets no shortcut.", g.title));
         }
@@ -398,4 +423,19 @@ fn games_plan(ix: &Index, lib: &Library, data: &Path, maker: &Maker, hashes: &Ha
     plan.files.retain(|f| !f.url.is_empty());
     plan.left.extend(left);
     Ok(Ok(plan))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lone_top;
+
+    #[test]
+    fn a_game_zipped_as_its_folder_has_that_folder_left_out() {
+        let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(lone_top(&names(&["Game/game.exe", "Game/data/a.pak"])), Some("Game/".into()));
+        assert_eq!(lone_top(&names(&["Game/game.exe", "readme.txt"])), None);
+        assert_eq!(lone_top(&names(&["Game/game.exe", "Other/b.dat"])), None);
+        assert_eq!(lone_top(&names(&["game.exe"])), None);
+        assert_eq!(lone_top(&[]), None);
+    }
 }

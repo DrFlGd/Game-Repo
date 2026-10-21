@@ -4769,6 +4769,49 @@ D113, built as it says, except where noted.
   downloads…* as a panel, Options, a list as a panel, search, the switch to classic);
   step 5 of `tests/client_android.py` presses the controller's buttons on the emulator.
 
+### Jerred's Steam Deck tryout of 0.5.37 (built 2026-10-21)
+
+Jerred, 2026-10-21 01:08, downloading a PC game he'd zipped himself on the Steam Deck: no
+unpacking was shown after the download, the game was two folders deep (he'd zipped its
+folder, not what's in it), no Steam shortcut appeared, and the Deck's 16:10 screen wants
+Game Repo Go fitted to it ("offering some different resolutions or checking the screen for
+different ratios at launch"); he said yes to Restart Steam on Downloads and to unpacking
+progress. The shortcut wasn't lost to the extra folder (the program is looked for at any
+depth): Steam was running, so it waited for Steam to close (D109). D124–D127 are Claude's
+defaults, followed unless Jerred says otherwise.
+
+**D124 A game zipped as its folder isn't put in that folder again.** When every file of a PC
+game (from `extracted/` or its unpacked install archives) is in one top folder, the plan
+leaves that folder out (`plans.rs`'s `lone_top`): the files go straight into
+`<Title> (<Year>)/`, and the program and the folder it starts in with them. A game already on
+a device keeps its paths until it's removed and downloaded again.
+
+**D125 Restart Steam on Downloads.** On Linux, once a PC game is in while Steam's running and
+its shortcut waits, Downloads says *Restart Steam to see the new PC games in it*, with
+*Restart Steam…* (asked first, as Steam closes with what it runs, and in Game Mode with Game
+Repo Go) as Settings › Steam has it (`queue.js`'s `SteamWaiting`, `#queue-steam`). It goes
+once the shortcuts are written.
+
+**D126 How far the library's unpacking has got.** The server's unpacker counts the bytes
+written of the whole (the archives' members' sizes, read from their lists first); a plan's
+`unpacking` gives each waiting game's `done` and `size`, and Game Repo Go's queue item
+(`unpacked`, `unpack_size`) shows *X of Y unpacked* with its bar, or a moving bar while it
+waits its turn. A small archive is unpacked before Game Repo Go first asks for the plan, so
+nothing shows for it: that's what Jerred saw.
+
+**D127 Full screen.** Settings › *This device* › *Full screen* (`full_screen`: `usual`,
+`always`, `never`; on Windows *No* or *Yes*). The usual is full screen in Steam's Game Mode
+(`steam::game_mode`), else a window; a window the screen isn't bigger than (the Deck's
+desktop is 1280×800, the window 1180×800) is maximised when it opens (`lib.rs`'s `fit`, run
+at launch and when the setting changes). The page is laid out for any shape of screen, so a
+16:10 one needs no size of its own; the big-screen view's tests run at 1280×800.
+
+- **Tests.** `serve/tests/client.rs`'s PC games test (no doubled folder) and `plans.rs`'s
+  own test of `lone_top`; `unpacked.rs`'s test of the count; step 13b of
+  `tests/client_page.py` (Full screen's choices, kept) and 13c (Steam running while a PC game
+  downloads: Downloads offers Restart Steam, which closes it and starts it again; the game's
+  files at the top of its folder).
+
 ### Jerred's import notes (built 2026-10-20)
 
 Four of Jerred's notes of 2026-10-20 21:19, built as he asked, in one pull request:
@@ -4963,7 +5006,7 @@ D118, in `audit.rs` (`also_dats`, `set_also`), `dat::update_current` and the Aud
 
 ### Phase 10 notes, part 3: PC games in Game Repo (Jerred's tryout, built 2026-10-21)
 
-D124–D127 are Game Repo Go's Deck fixes. These three are from Jerred trying PC games in
+D124–D127 are Game Repo Go's Deck fixes ("Jerred's Steam Deck tryout of 0.5.37"). These three are from Jerred trying PC games in
 Game Repo: a game no store sells any more couldn't be left unmatched, a PC game couldn't be
 removed, and every import into a game added its files to what it had.
 
@@ -5146,7 +5189,7 @@ removed, and every import into a game added its files to what it had.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D124). D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D131). D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 

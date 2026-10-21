@@ -71,9 +71,18 @@ pub struct Item {
     /// The plan was asked for again once already (its files changed while they came)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub replanned: bool,
-    /// A PC game the library is unpacking for it (D111), before its files can come
+    /// A PC game the library is unpacking for it (D111), before its files can come, and how
+    /// far that's got (D126: bytes of its files written there, of the whole; 0 if not known)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub unpacking: bool,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub unpacked: u64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub unpack_size: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 /// What a game is added with: the server, the device and the options from Settings.
@@ -494,13 +503,14 @@ impl Queue {
         }
     }
 
-    fn set_unpacking(&self, id: u64, on: bool) {
+    fn set_unpacking(&self, id: u64, on: bool, got: Option<(u64, u64)>) {
         let mut inner = self.lock();
         let Some(it) = inner.items.iter_mut().find(|i| i.id == id) else { return };
-        if it.unpacking == on {
+        let (unpacked, unpack_size) = got.filter(|_| on).unwrap_or_default();
+        if (it.unpacking, it.unpacked, it.unpack_size) == (on, unpacked, unpack_size) {
             return;
         }
-        it.unpacking = on;
+        (it.unpacking, it.unpacked, it.unpack_size) = (on, unpacked, unpack_size);
         drop(inner);
         (self.changed)();
     }
@@ -522,17 +532,18 @@ impl Queue {
                 // a PC game's archive being unpacked on the library: its files aren't
                 // listed until it's done, so the plan's asked for again until then
                 while !p.waiting.is_empty() {
-                    self.set_unpacking(item.id, true);
+                    let got = p.unpacking.iter().find(|u| u.key == item.key).map(|u| (u.done, u.size));
+                    self.set_unpacking(item.id, true, got);
                     for _ in 0..20 {
                         if stop.load(Ordering::SeqCst) {
-                            self.set_unpacking(item.id, false);
+                            self.set_unpacking(item.id, false, None);
                             return Err(Stopped.into());
                         }
                         std::thread::sleep(Duration::from_millis(100));
                     }
-                    p = c.server.call("POST", "/v1/plans", Some(&o.ask(&keys))).inspect_err(|_| self.set_unpacking(item.id, false))?;
+                    p = c.server.call("POST", "/v1/plans", Some(&o.ask(&keys))).inspect_err(|_| self.set_unpacking(item.id, false, None))?;
                 }
-                self.set_unpacking(item.id, false);
+                self.set_unpacking(item.id, false, None);
                 // nothing of it can go (a PC game whose archive couldn't be unpacked): why
                 if p.files.is_empty() && !p.left.is_empty() {
                     bail!("{}", p.left.iter().map(|l| format!("{}: {}", l.what, l.why)).collect::<Vec<_>>().join(" "));

@@ -3,10 +3,12 @@
 // not started, with Remove from queue and Start downloads…, which shows their size on disc
 // against the free space first; and, once games are in, "Restart ES-DE to see the new
 // games" (C17), as ES-DE reads its gamelists when it starts (not for PC games, which ES-DE
-// doesn't list); a PC game waits while the library unpacks it (D111).
+// doesn't list); a PC game waits while the library unpacks it (D111), showing how far
+// that's got (D126); on Linux, once a PC game's in while Steam's running, Restart Steam…,
+// as its shortcut is written only while Steam's closed (D109, D125).
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
-import { call } from "./backend.js";
+import { call, info } from "./backend.js";
 import { closeDialog, go, open, say, showDialog } from "./state.js";
 import { bytes, message, plural } from "./format.js";
 import { Dialog } from "./dialog.js";
@@ -19,6 +21,44 @@ const STATE = {
   done: "Done",
   failed: "Didn't finish",
 };
+
+/** A PC game in on Linux, its Steam shortcut waiting while Steam runs (D125): Restart
+ *  Steam… here, as in Settings › Steam, asked first since Steam closes with what it runs. */
+function SteamWaiting({ rev }) {
+  const [st, setSt] = useState(null);
+  const [sure, setSure] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const read = () => call("steam").then(setSt).catch(() => setSt(null));
+  useEffect(() => { read(); }, [rev]);
+  // while they wait, Steam may close (or be restarted) at any time
+  useEffect(() => {
+    if (!st?.waiting) return undefined;
+    const t = setInterval(read, 3000);
+    return () => clearInterval(t);
+  }, [st?.waiting]);
+  if (!st?.waiting || !st.running) return null;
+  const restart = async () => {
+    setBusy(true);
+    try {
+      await call("steam_restart");
+      say("Restarting Steam: Game Repo Go's shortcuts are written while it's closed.");
+      await read();
+    } catch (e) {
+      say(message(e));
+    } finally {
+      setBusy(false);
+      setSure(false);
+    }
+  };
+  return html`<div class="go-note" id="queue-steam" role="status">
+    <span><strong>Restart Steam to see the new PC games in it.</strong>${" "}${sure
+      ? `Steam closes, with any game it's running${st.game_mode ? " and Game Repo Go" : ""}, their shortcuts are written, and Steam starts again.`
+      : "Their shortcuts are added while Steam is closed."}</span>
+    ${sure ? html`<span class="go-set-do"><button type="button" class="primary" id="queue-steam-now" disabled=${busy} onClick=${restart}>Restart Steam now</button>
+        <button type="button" class="ghost" id="queue-steam-not-now" onClick=${() => setSure(false)}>Not now</button></span>`
+      : html`<button type="button" class="ghost" id="queue-steam-restart" onClick=${() => setSure(true)}>Restart Steam…</button>`}
+  </div>`;
+}
 
 export function QueuePage() {
   const rev = useStore(go, (x) => x.queueRev);
@@ -48,14 +88,16 @@ export function QueuePage() {
         <span><strong>Restart ES-DE to see the new games.</strong> ES-DE reads its game lists when it starts.</span>
         <button type="button" class="ghost" onClick=${() => run("clear_done")}>OK</button>
       </div>` : null}
+    ${info.kind === "linux" && done.some((i) => i.key.startsWith("pcgames/")) ? html`<${SteamWaiting} rev=${`${rev}-${done.length}`} />` : null}
     ${q.offline ? html`<p class="warn-note" id="queue-offline" role="status">Waiting for the library: it can't be reached from here. The queue goes on by itself once it can.</p>` : null}
     ${going.length ? html`<p class="muted" id="queue-sum">${plural(q.left, "game")} to come · ${bytes(q.done)} of ${bytes(q.size)}${q.speed ? ` · ${bytes(q.speed)}/s` : ""}</p>` : null}
     ${!q.items.length ? html`<p class="empty" id="queue-empty">Nothing to download. Choose Download… on a game to download it now, or Add to queue to start it later with others.</p>` : null}
     <ul class="go-queue-list" id="queue-list">
       ${going.map((i) => html`<li class=${`go-q go-q-${i.state}`} key=${i.id} data-key=${i.key}>
         <div class="go-q-what"><strong>${i.title}</strong><span class="muted">${i.media_only ? "Media only · " : ""}${i.unpacking ? "Being unpacked on the library first" : STATE[i.state] || i.state}${i.state === "downloading" && i.speed ? ` · ${bytes(i.speed)}/s` : ""}</span></div>
-        ${i.size ? html`<progress max=${i.size} value=${i.done} aria-label=${`${i.title}: ${bytes(i.done)} of ${bytes(i.size)}`}></progress>` : html`<progress aria-label=${i.title}></progress>`}
-        <span class="muted go-q-size">${i.size ? `${bytes(i.done)} of ${bytes(i.size)}` : ""}</span>
+        ${i.unpacking && i.unpack_size ? html`<progress class="go-q-unpack" max=${i.unpack_size} value=${i.unpacked || 0} aria-label=${`${i.title}: ${bytes(i.unpacked || 0)} of ${bytes(i.unpack_size)} unpacked`}></progress>`
+          : i.size && !i.unpacking ? html`<progress max=${i.size} value=${i.done} aria-label=${`${i.title}: ${bytes(i.done)} of ${bytes(i.size)}`}></progress>` : html`<progress aria-label=${i.title}></progress>`}
+        <span class="muted go-q-size">${i.unpacking && i.unpack_size ? `${bytes(i.unpacked || 0)} of ${bytes(i.unpack_size)} unpacked` : i.size && !i.unpacking ? `${bytes(i.done)} of ${bytes(i.size)}` : ""}</span>
         ${i.error ? html`<p class="form-error go-q-error">${i.error}</p>` : null}
         <span class="go-q-do">
           ${i.state === "paused" || i.state === "failed"

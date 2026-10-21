@@ -29,6 +29,19 @@ pub struct Plan {
     /// them yet: asking for it again gives them once they're unpacked
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub waiting: Vec<String>,
+    /// How far each of those has got (D126); none while one waits its turn
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unpacking: Vec<Unpacking>,
+}
+
+/// A PC game being unpacked on the library (D126): its catalogue key, and the bytes of its
+/// files written so far of all of them.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Unpacking {
+    pub key: String,
+    pub done: u64,
+    pub size: u64,
 }
 
 /// A PC game's program (D112), for its Start menu or Steam shortcut.

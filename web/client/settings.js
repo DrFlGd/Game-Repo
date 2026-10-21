@@ -2,8 +2,8 @@
 // the media ticked by default, downloads at once, the ES-DE custom collection games go in
 // (C16), what the Library shows, the device's name and screen, the picture cache, the look
 // (the view, D113, and Game Repo's skins and themes) and the version; on Windows and
-// Linux, the PC games folder (D111); on Linux, Steam (D107, D109). Each change is kept as
-// it's made.
+// Linux, the PC games folder (D111) and full screen (D127); on Linux, Steam (D107, D109).
+// Each change is kept as it's made.
 import { html, useEffect, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { SKINS, THEMES } from "../ui/state.js";
@@ -201,6 +201,11 @@ export function SettingsPage() {
           ${[100, 250, 500, 1000, 2000, 5000].map((n) => html`<option value=${String(n)}>Up to ${bytes(n * 1024 * 1024)}</option>`)}
         </select>
         <small class="muted" id="set-pictures-kept">${count(st.pictures?.kept)} kept, ${bytes(st.pictures?.size)}. The least recently shown go first.</small></label>
+      ${info.kind === "linux" || info.kind === "windows" ? html`<label class="field-block"><span>Full screen</span>
+        <select id="set-full-screen" class="compact" value=${v.full_screen} onChange=${(e) => set({ full_screen: e.currentTarget.value })}>
+          ${(info.kind === "linux" ? [["usual", "In Steam's Game Mode (the usual)"], ["always", "Always"], ["never", "Never"]] : [["usual", "No (the usual)"], ["always", "Yes"]]).map(([n, t]) => html`<option value=${n}>${t}</option>`)}
+        </select>
+        <small class="muted">Otherwise it opens as a window, as big as the screen when the screen is small.</small></label>` : null}
     </section>
 
     ${info.kind === "linux" ? html`<${SteamSettings} rev=${v} />` : null}

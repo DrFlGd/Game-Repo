@@ -98,6 +98,8 @@ pub struct Settings {
     pub proton: String,
     /// The PC games folder (empty: `C:\Games` on Windows, `~/Games` on Linux, D111)
     pub pc_games: String,
+    /// Full screen (D127): usual (in Steam's Game Mode, else a window), always or never
+    pub full_screen: String,
 }
 
 impl Default for Settings {
@@ -120,6 +122,7 @@ impl Default for Settings {
             steam_user: String::new(),
             proton: "proton_experimental".into(),
             pc_games: String::new(),
+            full_screen: "usual".into(),
         }
     }
 }
@@ -512,6 +515,9 @@ impl App {
                 }
                 if !new.pc_games.is_empty() && !Path::new(&new.pc_games).is_absolute() {
                     bail!("{} isn't a whole folder path (such as {}).", new.pc_games, pcgames::default_folder(Path::new("/home/deck")).display());
+                }
+                if !["usual", "always", "never"].contains(&new.full_screen.as_str()) {
+                    bail!("Full screen is usual, always or never, not {}.", new.full_screen);
                 }
                 if !new.steam.is_empty() && !Path::new(&new.steam).join("userdata").is_dir() {
                     bail!("{} isn't Steam's folder (it has no userdata folder).", new.steam);

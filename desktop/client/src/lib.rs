@@ -7,7 +7,8 @@
 // events. On Windows and Linux, closing the window while games are downloading leaves an
 // icon by the clock with their progress, and it quits when they're done (D99); on Android
 // the downloads' notification does that, and android.rs has the rest of Android's side
-// (D97). On Linux it can add itself to Steam and open Steam's keyboard (D107).
+// (D97). On Linux it can add itself to Steam and open Steam's keyboard (D107). It opens full
+// screen in Steam's Game Mode, or as Settings says (D127).
 
 #[cfg(not(target_os = "android"))]
 mod secrets;
@@ -44,7 +45,35 @@ struct Go {
 #[tauri::command]
 async fn api(app: AppHandle, cmd: String, args: Value) -> Result<Value, String> {
     let go = app.state::<Go>().app.clone();
-    tauri::async_runtime::spawn_blocking(move || go.call(&cmd, &args)).await.map_err(|e| e.to_string())?.map_err(|e| format!("{e:#}"))
+    #[cfg(desktop)]
+    let refit = cmd == "set_settings" && args.get("full_screen").is_some();
+    let got = tauri::async_runtime::spawn_blocking(move || go.call(&cmd, &args)).await.map_err(|e| e.to_string())?.map_err(|e| format!("{e:#}"))?;
+    #[cfg(desktop)]
+    if refit {
+        fit(&app, false);
+    }
+    Ok(got)
+}
+
+/// The window fits the screen (D127): full screen in Steam's Game Mode (the Deck's 1280×800
+/// shows it edge to edge rather than as a window in the middle) or when Settings says always;
+/// else a window, made as big as the screen when the screen's no bigger than it is.
+#[cfg(desktop)]
+fn fit(app: &AppHandle, first: bool) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    let full = match app.state::<Go>().app.settings().full_screen.as_str() {
+        "always" => true,
+        "never" => false,
+        _ => cfg!(target_os = "linux") && gamerepo_device::steam::game_mode(),
+    };
+    let _ = w.set_fullscreen(full);
+    if !full && first {
+        if let (Ok(Some(m)), Ok(size)) = (w.current_monitor(), w.outer_size()) {
+            if size.width >= m.size().width || size.height >= m.size().height {
+                let _ = w.maximize();
+            }
+        }
+    }
 }
 
 /// What the page needs to know about the shell: what it runs on and where pictures come from.
@@ -278,6 +307,7 @@ pub fn run() {
             app.manage(Go { app: go, hidden: AtomicBool::new(false) });
             #[cfg(desktop)]
             {
+                fit(app.handle(), true);
                 tray(app)?;
                 watch(app.handle().clone());
             }
