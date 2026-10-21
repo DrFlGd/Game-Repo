@@ -2,7 +2,8 @@
 // or Game Repo Go is out, what's new in it, and Update and restart. One panel for Game Repo's
 // Settings and About, the server's window and Game Repo Go's Settings, each passing how to
 // reach its program: `call(cmd, args)` runs update_state, update_check, update_install or
-// update_set (desktop/update, through the program's own `api` command). Like serve.js it
+// update_set (desktop/update, or on Android desktop/client/src/android_updates.rs, D139,
+// through the program's own `api` command). Like serve.js it
 // imports nothing of the app's, so the server's window loads only these.
 import { html, useEffect } from "../lib/html.js";
 import { createStore, useStore } from "../lib/store.js";
@@ -66,11 +67,14 @@ export function UpdatePanel({ call, settings = false }) {
   }, [busy, call]);
   if (!s) return html`<div class="update-panel" id="update-panel"><p class="muted">${error || "Asking about updates…"}</p></div>`;
   const title = s.title || "Game Repo";
+  // on Android, its installer asks and the app is opened again by hand (D139)
+  const installLabel = s.android ? "Download and install" : "Update and restart";
   const got = s.available;
   const notes = got ? whatsNew(got.notes, s.version) : [];
   const pct = s.installing?.size ? Math.min(100, Math.round((s.installing.done / s.installing.size) * 100)) : null;
   let line;
   if (!s.can) line = html`<span class="muted" id="update-why">${s.why_not}</span>`;
+  else if (s.restarting && s.android) line = html`<span>Android is asking to install ${title} ${got?.version}: choose Update there, then open ${title} again.</span>`;
   else if (s.restarting) line = html`<span>Starting ${title} ${got?.version}: ${title} closes, and opens again once it's in place.</span>`;
   else if (s.installing) line = html`<span>Downloading ${title} ${got?.version}${pct != null ? ` (${pct}%)` : ""}…</span>
     <progress class="update-progress" id="update-progress" max="100" value=${pct ?? undefined}></progress>`;
@@ -83,14 +87,14 @@ export function UpdatePanel({ call, settings = false }) {
     ${s.error && !busy ? html`<p class="warn-note" role="alert" id="update-error">${s.error}</p>` : null}
     ${error && !s.error ? html`<p class="form-error" role="alert">${error}</p>` : null}
     ${s.can ? html`<div class="home-actions">
-      ${got ? html`<button type="button" class="primary" id="update-install" disabled=${busy} onClick=${() => ask("update_install")}>Update and restart</button>` : null}
+      ${got ? html`<button type="button" class="primary" id="update-install" disabled=${busy} onClick=${() => ask("update_install")}>${installLabel}</button>` : null}
       <button type="button" class="ghost" id="update-check" disabled=${busy} onClick=${() => ask("update_check")}>${s.error ? "Check again" : "Check for updates"}</button>
     </div>` : null}
     ${notes.length ? html`<details class="update-new" id="update-new" open=${!busy}><summary>What's new</summary>
       ${notes.map((r) => html`<div class="update-release" key=${r.version}><h4>${r.title}</h4><${Markdown} text=${r.body} /></div>`)}</details>` : null}
     ${settings && s.can ? html`<label class="check-row"><input type="checkbox" id="update-at-start" checked=${s.check_at_start}
         onChange=${(e) => ask("update_set", { check_at_start: e.target.checked })} /> Check for updates when ${title} starts</label>
-      <small class="muted">Nothing is installed until you choose Update and restart. Each update is checked against the key ${title} was built with before it runs.</small>` : null}
+      <small class="muted">Nothing is installed until you choose ${installLabel}. Each update is checked against the key ${title} was built with before it runs.</small>` : null}
     ${s.releases ? html`<p class="muted"><a href=${s.releases} target="_blank" rel="noopener noreferrer">All releases on GitHub</a></p>` : null}
   </div>`;
 }

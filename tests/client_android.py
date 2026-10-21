@@ -4,7 +4,8 @@
 view's debugging socket (the Chrome DevTools Protocol), files checked with adb.
 
     python3 tests/client_android.py --apk app-x86_64-debug.apk \\
-        --cli desktop/target/release/gamerepo-cli --home /tmp/go-android --out shots
+        --cli desktop/target/release/gamerepo-cli --home /tmp/go-android --out shots \\
+        [--update "Game Repo Go_9.9.9_x86_64.apk"]
 
 The emulator is running already (CI starts one, x86_64 with Android 14), with nothing of
 Game Repo Go's on it. The library is the fixtures' Game Boy games, one with a box front,
@@ -20,7 +21,11 @@ between games, X ticks one, A opens it and B comes back; a game added is downloa
 ES-DE's folders and gamelist; while the library can't be reached a game queued shows the
 downloads' notification from its foreground service, its Pause pauses the queue, and once
 the library's back the game comes and the notification goes; a game removed goes from the
-device; Back on the Library sends the app to the background; no page errors.
+device; with --update (the same APK signed as 9.9.9 with the key the debug build was made
+with, its .sig beside it, D139), the check as it starts finds nothing newer, Settings › Check
+for updates finds 9.9.9, an APK changed after signing is refused before Android sees it, the
+right one brings Android's installer to the front and backing out of it says the update
+wasn't installed; Back on the Library sends the app to the background; no page errors.
 
     python3 tests/client_android.py --smoke --apk "Game Repo Go_<v>_arm64.apk" --out shots
 
@@ -30,6 +35,7 @@ plugin's commands to have come through minifying, and doesn't crash.
 """
 import argparse
 import base64
+import http.server
 import json
 import queue
 import re
@@ -55,6 +61,7 @@ ap.add_argument("--home", help="a scratch folder for the library and the server"
 ap.add_argument("--out", default="shots")
 ap.add_argument("--adb", default="adb")
 ap.add_argument("--smoke", action="store_true", help="the release APK: it starts, and its plugin answers")
+ap.add_argument("--update", help="the update to offer: this APK signed as 9.9.9 (its .sig beside it)")
 a = ap.parse_args()
 if not a.smoke and not (a.cli and a.home):
     ap.error("--cli and --home are needed, except with --smoke")
@@ -201,6 +208,41 @@ settings = work / "es_settings.xml"
 settings.write_text(f'<?xml version="1.0"?>\n<string name="ROMDirectory" value="{SD}/ROMs" />\n', encoding="utf-8")
 sh(f"rm -rf {SD}/ES-DE {SD}/ROMs; mkdir -p {SD}/ES-DE/settings {SD}/ROMs/gb")
 adb("push", settings, f"{SD}/ES-DE/settings/es_settings.xml")
+
+# ---- the update the test offers (D139), where the debug build looks for it --------------
+UPDATE_FILE = "/latest-game-repo-go.json"
+
+
+class Offered(http.server.BaseHTTPRequestHandler):
+    files, hits = {}, {}
+
+    def do_GET(self):
+        Offered.hits[self.path] = Offered.hits.get(self.path, 0) + 1
+        body = Offered.files.get(self.path)
+        if body is None:
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+def offer(version="9.9.9", changed=False):
+    """The update file announcing `version`, and the APK (`changed`: a byte added after it was signed)."""
+    Offered.files["/go.apk"] = Path(a.update).read_bytes() + (b"!" if changed else b"")
+    sig = Path(a.update + ".sig").read_text(encoding="ascii").strip()
+    Offered.files[UPDATE_FILE] = json.dumps({"version": version, "notes": f"## {version} (2026-10-22)\n\n- What's new in it.", "pub_date": "2026-10-22T00:00:00Z",
+                                             "platforms": {"android-x86_64": {"url": "http://10.0.2.2:8797/go.apk", "signature": sig}}}).encode()
+
+
+if a.update:
+    offer("0.0.1")
+    threading.Thread(target=http.server.ThreadingHTTPServer(("127.0.0.1", 8797), Offered).serve_forever, daemon=True).start()
+
 adb("uninstall", PKG, ok=False)
 adb("install", "-r", "-g", Path(a.apk).resolve(), timeout=300)
 sh(f"appops set --uid {PKG} MANAGE_EXTERNAL_STORAGE default", ok=False)
@@ -468,13 +510,47 @@ try:
     pg.api("remove", {"asks": [{"id": alpha}]})
     check("a game removed goes from the device", alpha and not there(rom) and there(beta), rows)
 
-    # 9. Back on the Library sends Game Repo Go to the background
+    # 9. updates (D139): Settings › Check for updates finds 9.9.9; an APK changed after it
+    # was signed is refused before Android sees it; the right one brings Android's installer
+    # to the front, and backed out of there, the page says it wasn't installed
+    if a.update:
+        check("it checked for updates as it started", Offered.hits.get(UPDATE_FILE, 0) >= 1, Offered.hits)
+        offer(changed=True)
+        pg.eval("location.hash = '#settings'")
+        pg.wait("document.querySelector('#go-settings #update-check')", 30, "Settings › About and updates")
+        pg.click("#go-settings #update-check")
+        pg.wait("document.querySelector('#update-panel[data-state=available] #update-install')", 60, "Game Repo Go 9.9.9 found")
+        said = pg.eval("document.querySelector('#update-panel').innerText")
+        check("Settings › Check for updates finds Game Repo Go 9.9.9, to download and install", "Game Repo Go 9.9.9 is out" in said and "Download and install" in said, said)
+        pg.click("#update-install")
+        refused = pg.wait("document.querySelector('#update-error')?.innerText.includes(\"doesn't match its signature\")", 120, soft=True)
+        check("an APK changed after it was signed is refused", refused and resumed() == PKG, pg.eval("document.querySelector('#update-panel').innerText"))
+        offer()
+        # allowed to install apps, so Android's own question is the one shown
+        sh(f"appops set {PKG} REQUEST_INSTALL_PACKAGES allow", ok=False)
+        pg.click("#update-install")
+        end = time.time() + 120
+        while time.time() < end and "packageinstaller" not in resumed():
+            time.sleep(1)
+        asking = pg.wait("document.querySelector('#update-state')?.innerText.includes('Android is asking to install Game Repo Go 9.9.9')", 15, soft=True)
+        shot("06-update")
+        check("the update downloaded and checked brings Android's installer to the front", "packageinstaller" in resumed() and asking,
+              (resumed(), pg.eval("document.querySelector('#update-panel').innerText")))
+        key("KEYCODE_BACK")
+        end = time.time() + 30
+        while time.time() < end and resumed() != PKG:
+            time.sleep(1)
+        kept = pg.wait("document.querySelector('#update-error')?.innerText.includes(\"The update wasn't installed.\")", 30, soft=True)
+        check("backed out of Android's installer, the page says the update wasn't installed", kept and resumed() == PKG
+              and pg.api("update_state")["version"] != "9.9.9", (resumed(), pg.eval("document.querySelector('#update-panel').innerText")))
+
+    # 10. Back on the Library sends Game Repo Go to the background
     pg.eval("location.hash = '#library'")
     pg.wait("document.querySelector('#go-games')", 15, "the Library")
     key("KEYCODE_BACK")
     time.sleep(1.5)
     check("Back on the Library sends the app to the background", resumed() not in (PKG, ""), resumed())
-    shot("06-left")
+    shot("07-left")
     errors = pg.eval("(window.__errors || []).slice(0, 20)")
     check("no page errors", not errors, errors)
 except Exception as e:  # a step that timed out is a failure of its own

@@ -18,6 +18,7 @@ pub mod queue;
 pub mod removing;
 pub mod scan;
 pub mod steam;
+pub mod update;
 
 pub use client::{Server, Stopped, Watch};
 /// What it and the server say to each other, and where releases are published

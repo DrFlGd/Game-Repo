@@ -5154,8 +5154,8 @@ update themselves with Tauri's updater (tauri-plugin-updater, `desktop/update`).
 - **A copy that can't update itself says why** and offers only the releases page: one
   built without the key; one not put there by its installer (no `uninstall.exe` beside it
   on Windows, not an AppImage on Linux, a `.deb` included); and the Game Repo Server that
-  sits beside Game Repo, which updates with Game Repo (D137). On Android, part 2; until
-  then Settings links to the releases page.
+  sits beside Game Repo, which updates with Game Repo (D137). On Android, Game Repo Go
+  hands the update to Android's installer (D139).
 
 **D135 The signing key.** The programs install only an update signed with the key whose
 public half they were built with (minisign's Ed25519, as Tauri signs).
@@ -5222,6 +5222,48 @@ window and its tray menu.
   the updater (`/test/update`): the check as it starts, About, the status bar, Settings ›
   Updates with its tick, Update and restart, a copy that can't, the server's window, and
   Game Repo Go's Settings and its notice.
+
+### Game Repo Go's updates on Android (built 2026-10-21, D139)
+
+Part 2 of Jerred's ask for updates (D134–D137). D139 is Claude's default, followed unless
+he says otherwise.
+
+**D139 On Android, Android's installer.** Tauri's updater has no Android side, so Game
+Repo Go does the same with Android's own pieces: the same panel, setting and notice as on
+Windows and the Steam Deck (D134).
+- **The check.** As D134: a few seconds after it starts unless Settings says not to, and
+  Settings › About and updates › *Check for updates*. Its update file,
+  `latest-game-repo-go.json`, has an `android-aarch64` entry: the release's APK and its
+  signature. A release without a published APK has none, and the panel says the new
+  version isn't out for this device.
+- **Download and install.** The button says *Download and install*. Game Repo Go
+  downloads the APK into its cache with the progress shown and checks it against the
+  update key's public half it was built with and the version it was signed as (the
+  updater's check, in `gamerepo_device::update`); one that doesn't match is deleted and
+  never reaches Android. Then Android's package installer asks (the first time, it asks
+  to allow Game Repo Go to install apps), checks the APK is signed with the same Android
+  key as the copy installed (`tools/android_signing_key.cmd`), and replaces Game Repo Go,
+  which is then opened again by hand. Backed out of, the panel says the update wasn't
+  installed; refused because the copy installed was signed with another key, it says to
+  install it from the releases page.
+- **Two signatures.** The APK carries Android's (checked by Android) and the update
+  key's (checked by Game Repo Go first), so only an APK CI built and signed is offered.
+- **Getting started.** As D135: the first release built with the update key is installed
+  by hand once; every one after it is offered in the app. A copy built without the key
+  says so and links to the releases page.
+- **Where.** `desktop/device/src/update.rs` (the update file, the signature check with
+  minisign-verify), `desktop/client/src/android_updates.rs` (the commands, the setting, the
+  check as it starts), `Updates.kt` in the Kotlin plugin (Android's HTTPS for the file and
+  the APK, the PackageInstaller session and its answer) and the `REQUEST_INSTALL_PACKAGES`
+  permission. CI signs the published APK with the update key (`signatures-android`), and
+  `tools/update_files.py` puts it in Go's update file when it's there.
+- **Tests.** `gamerepo-device`: the update file names this device's APK; an APK changed,
+  signed with another key or as another version is refused. `tests/update_files.py`: the
+  APK in Go's update file with its address, refused without its signature, left out when
+  there's no APK. On the emulator, `tests/client_android.py --update` (the debug build made
+  with a test key and looking at the test's update file): the check as it starts, *Check
+  for updates* finds 9.9.9, an APK changed after signing is refused, the right one brings
+  Android's installer to the front, and backed out of, the page says it wasn't installed.
 
 ## 8. Working in a cloud session
 
@@ -5368,7 +5410,7 @@ window and its tray menu.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D138). D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D140). D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -5426,6 +5468,6 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     with variants everywhere games show (built, "Phase 10 notes, part 1"), then several
     DATs per system on the Audit page (built, "Phase 10 notes, part 2"). Later: Android games (APKs), added to the roadmap
     by Jerred, 2026-10-20.
-16. In-app updates ("In-app updates", D134–D137): Windows and the Steam Deck built (part
-    1); Jerred makes the signing key once with `tools/updater_key.cmd`. Part 2 is Game Repo
-    Go on Android.
+16. In-app updates ("In-app updates", D134–D137; "Game Repo Go's updates on Android",
+    D139): Windows, the Steam Deck and Android built; Jerred makes the signing key once
+    with `tools/updater_key.cmd`.
