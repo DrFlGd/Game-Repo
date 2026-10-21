@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.42 (2026-10-21)
+
 - **PC games that aren't on Steam or GOG find their details more often.** ScreenScraper is now asked first, DOS and Windows 3.x games are searched as well as Windows ones, and a game matches a source's other titles for it (another region's name), not only its main one.
 - **Find details…** in the PC games' ⋯ menu asks the sources about every PC game that isn't matched to one yet, and lists the ones still unmatched with Identify…. A game you said is none of theirs is left alone.
 - **Identify… can search one source.** Choose it beside the year when a game doesn't turn up with every source.
