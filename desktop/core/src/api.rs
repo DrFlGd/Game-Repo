@@ -773,7 +773,9 @@ impl App {
                 let lib = self.library()?;
                 j(self.with_index(move |ix| {
                     dat::sync_library(ix, &lib)?;
-                    dat::list(ix)
+                    let mut rows = dat::list(ix)?;
+                    audit::mark_roles(ix.conn(), &lib, &mut rows)?;
+                    Ok(rows)
                 })
                 .await?)
             }

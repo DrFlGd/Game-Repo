@@ -112,7 +112,21 @@ function ScanSection({ lib }) {
   </section>`;
 }
 
-/** The DAT files imported into the library, by platform and version. */
+/** A system's main DAT, chosen here as on the Audit page (D131): the DATs it's audited with
+ *  too stay ticked, less the new main one. */
+async function makeMain(d, also) {
+  try {
+    await api("audit_dats_set", { platform: d.platform, main: d.id, also: also.filter((n) => n !== d.name) });
+    ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
+    await refreshGames();
+    toast(`${d.name} is ${d.platform_name}'s main DAT now: Audit's totals are its counts.`);
+  } catch (e) {
+    toast(`Couldn't change the main DAT: ${e.message || e}`, 8000);
+  }
+}
+
+/** The DAT files imported into the library, by platform and version; with more than one
+ *  for a system, which is its main DAT and which it's audited with too (D118, D131). */
 export function DatsSection({ lib }) {
   const dats = useStore(ui, (st) => st.dats) || [];
   const off = !!lib.read_only;
@@ -123,19 +137,31 @@ export function DatsSection({ lib }) {
     g.dats.push(d);
   }
   byPlatform.sort((a, b) => a.name.localeCompare(b.name));
+  // the DATs a system can be audited against: each one's version in use, not its custom DAT
+  const usable = (g) => g.dats.filter((d) => d.current && d.version !== "custom");
+  const openDats = (g) => ui.set({ dialog: { type: "audit-dats", platform: g.platform, platformName: g.name, dats: usable(g), main: usable(g).find((d) => d.main)?.id,
+    custom: g.dats.find((d) => d.version === "custom")?.name, onDone: () => refreshGames() } });
   return html`<section class="ls-section" id="settings-dats">
     <h2>DAT files</h2>
-    <p class="muted">The DATs your sets are audited against. Each is copied into the library (<code>_library/dats</code>); importing a newer version keeps the older one, and the newest is used unless you choose another.</p>
-    ${byPlatform.length ? byPlatform.map((g) => html`<div class="dat-group" key=${g.platform}><h3>${g.name}</h3>
-      <ul class="ls-list dat-list">${g.dats.map((d) => html`<li key=${d.id} data-dat=${d.id}>
+    <p class="muted">The DATs your sets are audited against. Each is copied into the library (<code>_library/dats</code>); importing a newer version keeps the older one, and the newest is used unless you choose another. A system with several DATs has a main one, whose counts are Audit's totals.</p>
+    ${byPlatform.length ? byPlatform.map((g) => {
+      const several = usable(g).length > 1;
+      const also = usable(g).filter((d) => d.also).map((d) => d.name);
+      return html`<div class="dat-group" key=${g.platform} data-platform=${g.platform}><h3>${g.name}
+        ${several ? html`${" "}<button type="button" class="ghost compact dat-roles" title="The main DAT and the DATs it's audited with too" disabled=${off} onClick=${() => openDats(g)}>${Icon.stack(14)} DATs…</button>` : null}</h3>
+      <ul class="ls-list dat-list">${g.dats.map((d) => html`<li key=${d.id} data-dat=${d.id} data-name=${d.name}>
         <span class="dat-name"><span>${d.name}</span> <span class="muted">${d.version} · ${plural(d.games, "game", "games")}${d.author ? ` · ${d.author}` : ""}</span>
-          ${d.current && g.dats.filter((x) => x.name === d.name).length > 1 ? html`<span class="badge" title="The version the audit uses; the others are kept">Version used</span>` : null}</span>
+          ${d.current && g.dats.filter((x) => x.name === d.name).length > 1 ? html`<span class="badge" title="The version the audit uses; the others are kept">Version used</span>` : null}
+          ${several && d.main ? html`<span class="badge dat-main" title="Audit's totals are this DAT's counts">Main DAT</span>` : null}
+          ${several && d.also ? html`<span class="badge dat-also" title="Its games are audited too, and are in the Library beside the main DAT's">Audited with it too</span>` : null}</span>
         ${d.current ? null : html`<button type="button" class="ghost" data-action="use-dat" disabled=${off} onClick=${() => useDat(d)}>Use this version</button>`}
+        ${several && d.current && !d.main && d.version !== "custom" ? html`<button type="button" class="ghost" data-action="main-dat" disabled=${off} onClick=${() => makeMain(d, also)}>Make it the main DAT</button>` : null}
         ${isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label="Show in folder" onClick=${() => reveal(`${lib.path}/${d.path}`)}>${Icon.folder(14)}</button>` : null}
         <button type="button" class="ghost" data-action="remove-dat" disabled=${off} onClick=${() => confirmDialog({
           title: "Remove this DAT?", text: `${d.name} (${d.version}) and its copy in the library are removed, with what was matched to it. Your ROMs aren't touched; you can import it again.`,
           button: "Remove", run: () => removeDat(d) })}>Remove…</button>
-      </li>`)}</ul></div>`) : html`<p id="dats-none">No DATs yet.</p>`}
+      </li>`)}</ul></div>`;
+    }) : html`<p id="dats-none">No DATs yet.</p>`}
     <div class="home-actions">
       ${isDesktop() ? html`<button type="button" class="ghost" id="import-dats" disabled=${off} onClick=${() => importDats()}>Import DATs…</button>` : null}
       <button type="button" class="ghost" id="starter-dats" disabled=${off} title="No-Intro's and Redump's DATs, from libretro's public copy" onClick=${() => starterDats()}>Get starter DATs…</button>

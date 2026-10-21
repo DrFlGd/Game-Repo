@@ -527,6 +527,27 @@ async def main():
                 await asyncio.sleep(0.1)
             check("on Android, Back goes back a page, and from the Library leaves the app", from_game == "#settings" and shell()["left"] == left_before + 1
                   and await pg.evaluate("() => location.hash") == "#library", (from_game, shell()))
+            # the big screen's size (D132): Smaller draws it all smaller, kept on the device,
+            # with the pages still along the bottom
+            def tile():
+                return pg.evaluate("() => Math.round(document.querySelector('#go-shelves .go-tile[data-key]').getBoundingClientRect().height)")
+            await pg.wait_for_selector("#go-shelves .go-tile[data-key]")
+            usual = await tile()
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#set-size")
+            sizes = await pg.eval_on_selector_all("#set-size option", "els => els.map(e => e.value)")
+            await pg.select_option("#set-size", "smaller")
+            await pg.goto(B + "#library")
+            await pg.wait_for_selector("#go-shelves .go-tile[data-key]")
+            smaller = await tile()
+            frame = await pg.evaluate("""() => { const t = document.querySelector('.go-tabs').getBoundingClientRect();
+                return [document.documentElement.dataset.size, t.bottom >= innerHeight - 1, JSON.parse(localStorage.getItem('go-look')).size]; }""")
+            await shot(pg, "15c-phone-big-smaller")
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#set-size")
+            await pg.select_option("#set-size", "")
+            check("Settings › Look › Size draws the big screen smaller, kept on the device, the pages still along the bottom",
+                  sizes == ["smaller", "", "larger"] and abs(smaller - usual * .8) <= 2 and frame == ["smaller", True, "smaller"], (sizes, usual, smaller, frame))
             shell(kind="windows")
 
             # 13b. on Linux and the Steam Deck (D107, D109): Settings › Steam adds Game Repo Go
