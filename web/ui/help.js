@@ -61,7 +61,8 @@ export const PAGES = [
     "Import… from the inbox, or Import files… and Import a game's folder… (each opens Import › PC games); Unpack GOG installers and archives; choose the program it starts with.",
     "On the import's list, No match keeps a game no source has (one a search took for another) as a game of its own, under the title you give it. An installer or unpacked copy that goes into a game you have replaces its own (Replaces its installer): the old one is set aside, and Undo brings it back. Patches, DLC and extras add up.",
     "Remove from the library… (in its panel, or its page's ⋯ menu) sets aside its folder and its details, pictures and documents, with the preview first and Undo after. A Steam shortcut Add to Steam… made stays until Add to Steam… is run again.",
-    "Identify… finds the game on Steam, GOG or LaunchBox; each source's details and pictures are kept apart, as for every other game.",
+    "Identify… finds the game at the sources (ScreenScraper, Steam, GOG, IGDB, TheGamesDB, LaunchBox), every one in the order Settings › Sources gives, or just the one picked beside the year; each source's details and pictures are kept apart, as for every other game.",
+    "Find details… (in the ⋯ menu) asks the sources about every PC game not matched to one yet, as an import does: a game a source has under the same title (or another of its titles) takes its details and pictures; the rest are listed for Identify…. DOS and Windows 3.x games are searched as well as Windows ones.",
     "Open its page: the same page as any game, with a PC game section for its program, Unpack and its folder; Add to Steam… makes the games Steam shortcuts with their artwork.",
   ]],
   ["magazines", "Magazines", "Your magazines, each issue by its cover, readable here (under the Library).", [

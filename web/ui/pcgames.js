@@ -8,8 +8,9 @@
 // panel here, and that page's PC section (`PcParts`), set the program that starts it,
 // unpack an installer or archive, and show its folder. Add to Steam… writes the games
 // as non-Steam shortcuts with their artwork. Remove from the library… sets a game aside as
-// a change with Undo (D129). Identify… and Add a game… (any other system) are here too, as
-// dialogs the other pages open.
+// a change with Undo (D129). Find details… asks the sources about the games matched to none
+// (D138). Identify… and Add a game… (any other system) are here too, as dialogs the other
+// pages open.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -62,12 +63,16 @@ export function IdentifyDialog({ title, query = "", year = null, platform = "pc"
   const [r, setR] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const search = async () => {
+  // which source to ask: every one in order, or one of them (D138)
+  const [source, setSource] = useState("");
+  const [sources, setSources] = useState([]);
+  useEffect(() => { api("sources").then((v) => setSources(v.filter((x) => !x.pc_only || platform === "pc"))).catch(() => {}); }, []);
+  const search = async (only = source) => {
     if (!q.trim()) return;
     setBusy(true);
     setError("");
     try {
-      setR(await api("identify_search", { query: q.trim(), platform, year: yearOf(y) }));
+      setR(await api("identify_search", { query: q.trim(), platform, year: yearOf(y), source: only }));
     } catch (e) {
       setError(err(e));
     } finally {
@@ -87,13 +92,18 @@ export function IdentifyDialog({ title, query = "", year = null, platform = "pc"
       setBusy(false);
     }
   };
-  return html`<${Dialog} title=${title || "Identify"} id="identify-dialog" wide=${true} onSubmit=${search} busy=${busy || !q.trim()} error=${error} submitLabel=${busy ? "Searching…" : "Search"} cancelLabel=${back ? "Back" : "Close"} onCancel=${leave} onDismiss=${leave}>
+  return html`<${Dialog} title=${title || "Identify"} id="identify-dialog" wide=${true} onSubmit=${() => search()} busy=${busy || !q.trim()} error=${error} submitLabel=${busy ? "Searching…" : "Search"} cancelLabel=${back ? "Back" : "Close"} onCancel=${leave} onDismiss=${leave}>
     <div class="pick-row identify-query">
       <input type="search" id="identify-query" placeholder="The game's title" aria-label="The game's title" value=${q} onInput=${(e) => setQ(e.target.value)} />
       <input type="text" id="identify-year" class="year-box" inputmode="numeric" maxlength="4" placeholder="Year" aria-label="Year (optional)" value=${y} onInput=${(e) => setY(e.target.value)} />
+      <select id="identify-source" class="compact" aria-label="Which source to search" title="Search every source in the order Settings › Sources gives, or just one" value=${source}
+        onChange=${(e) => { setSource(e.target.value); search(e.target.value); }}>
+        <option value="">Every source</option>
+        ${sources.map((x) => html`<option key=${x.id} value=${x.id} disabled=${!!x.needs}>${x.name}${x.needs ? " (not set up)" : x.on ? "" : " (off)"}</option>`)}
+      </select>
     </div>
     ${r ? html`
-      ${!r.results.length ? html`<p class="muted" id="identify-none">Nothing found. Try fewer words, or the title as the store writes it.</p>` : null}
+      ${!r.results.length ? html`<p class="muted" id="identify-none">Nothing found${source ? ` at ${sources.find((x) => x.id === source)?.name || source}` : ""}. Try fewer words, the title as the store writes it, or another source.</p>` : null}
       <ul class="ls-list identify-list" id="identify-results">${r.results.map((x) => html`<li key=${`${x.source}-${x.id}`} data-source=${x.source} data-id=${x.id}>
         ${x.cover ? html`<img class="identify-cover" src=${x.cover} alt="" loading="lazy" />` : html`<span class="identify-cover pc-cover-none" aria-hidden="true">${x.title.slice(0, 1)}</span>`}
         <span class="identify-label"><span><b>${x.title}</b>${x.year ? ` (${x.year})` : ""}</span>
@@ -101,7 +111,7 @@ export function IdentifyDialog({ title, query = "", year = null, platform = "pc"
         <button type="button" class="ghost" data-action="pick" disabled=${busy} onClick=${() => pick(x)}>This one</button>
       </li>`)}</ul>
       ${r.errors?.map((e) => html`<p class="warn-note identify-error" key=${e.source} data-source=${e.source}>${e.name || e.source}: ${e.error}</p>`)}
-      ${r.needs?.length ? html`<p class="muted identify-needs" id="identify-needs" title=${r.needs.map((e) => `${e.name}: ${e.text}`).join("\n")}>${r.needs.length === 1 ? `${r.needs[0].name} isn't set up` : `${r.needs.length} sources aren't set up (${r.needs.map((e) => e.name).join(", ")})`}, so ${r.needs.length === 1 ? "it wasn't" : "they weren't"} asked. <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a></p>` : null}` : html`<p class="muted">The sources are asked in the order Settings › Sources gives. Picking one keeps its id and details with the game and gets its artwork.</p>`}
+      ${r.needs?.length ? html`<p class="muted identify-needs" id="identify-needs" title=${r.needs.map((e) => `${e.name}: ${e.text}`).join("\n")}>${r.needs.length === 1 ? `${r.needs[0].name} isn't set up` : `${r.needs.length} sources aren't set up (${r.needs.map((e) => e.name).join(", ")})`}, so ${r.needs.length === 1 ? "it wasn't" : "they weren't"} asked. <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a></p>` : null}` : html`<p class="muted">The sources are asked in the order Settings › Sources gives, or just the one chosen beside the year. Picking a result keeps its id and details with the game and gets its artwork.</p>`}
     ${onNone ? html`<p class="muted" id="identify-none-row">Not one of these, and in no source at all?${" "}<button type="button" class="linkish" id="identify-none-of-these" disabled=${busy} onClick=${() => pick(null)}>None of these</button>:${" "}${noneNote}</p>` : null}
   <//>`;
 }
@@ -425,10 +435,50 @@ function AddResultsDialog({ added }) {
 
 export const addGameDialog = (opts = {}) => ui.set({ dialog: { type: "add-game", ...opts } });
 
+// ------------------------------------------------------------ Find details…
+
+/** Find details… (D138): every PC game matched to no source yet is asked of the sources in
+ *  order, as an import's item is; what it found, and Identify… for the rest. */
+async function findDetails() {
+  try {
+    const { job } = await api("pc_find_details");
+    const done = await followJob(job, "Finding details");
+    if (done.error) throw new Error(done.error);
+    again();
+    ui.set({ dialog: { type: "pc-found", result: done.result } });
+  } catch (e) {
+    toast(err(e), 8000);
+  }
+}
+
+function FoundDialog({ result }) {
+  const [none, setNone] = useState(result.none);
+  const identify = (g) => identifyDialog({
+    title: `Identify ${g.title}`, query: g.title, year: g.year, platform: "pc", back: { type: "pc-found", result: { ...result, none } },
+    onPick: async (x) => {
+      await api("identify_pick", { source: x.source, id: x.id, game: g.id, retitle: true });
+      again();
+      const rest = none.filter((o) => o.id !== g.id);
+      return { type: "pc-found", result: { ...result, none: rest, found: [...result.found, { ...g, source: x.source_name }] } };
+    },
+  });
+  return html`<${Dialog} title="Find details" id="pc-found-dialog" wide=${true} onSubmit=${close} submitLabel="Done" cancelLabel=${null}>
+    ${!result.games ? html`<p id="pc-found-all">Every PC game is matched to a source already (or you said it's none of theirs).</p>` : html`
+      <p id="pc-found-summary">${plural(result.found.length, "game", "games")} found${result.stopped ? " before it was stopped" : ""}${none.length ? `; ${plural(none.length, "game", "games")} no source has under the same title` : ""}.</p>
+      ${result.found.length ? html`<ul class="ls-list" id="pc-found-list">${result.found.map((g) => html`<li key=${g.id} data-id=${g.id}>
+        <span class="identify-label"><span><b>${g.title}</b>${g.year ? ` (${g.year})` : ""}</span><span class="muted">${g.source}</span></span></li>`)}</ul>` : null}
+      ${none.length ? html`<p class="muted">Identify… searches by another title, or one source at a time.</p>
+        <ul class="ls-list" id="pc-found-none">${none.map((g) => html`<li key=${g.id} data-id=${g.id}>
+        <span class="identify-label"><span><b>${g.title}</b>${g.year ? ` (${g.year})` : ""}</span></span>
+        <button type="button" class="ghost" data-action="identify" onClick=${() => identify(g)}>Identify…</button></li>`)}</ul>` : null}`}
+  <//>`;
+}
+
 export function PcDialogs({ dialog }) {
   if (dialog.type === "identify") return html`<${IdentifyDialog} key=${dialog.title} ...${dialog} />`;
   if (dialog.type === "pc-import") return html`<${ImportDialog} key=${dialog.restore ? "back" : "new"} ...${dialog} />`;
   if (dialog.type === "steam") return html`<${SteamDialog} />`;
+  if (dialog.type === "pc-found") return html`<${FoundDialog} key=${dialog.result.none.map((g) => g.id).join("|")} ...${dialog} />`;
   if (dialog.type === "add-game") return html`<${AddGameDialog} ...${dialog} />`;
   if (dialog.type === "add-results") return html`<${AddResultsDialog} key=${dialog.added.files.map((f) => f.identity?.title || "").join("|")} ...${dialog} />`;
   return null;
@@ -558,6 +608,7 @@ export function PcGames() {
   const menu = () => [
     { id: "pc-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => importFrom("import-pc", () => importPc("files")) },
     { id: "pc-import-folder", label: "Import a game's folder…", icon: "folder", disabled: off || !isDesktop(), run: () => importFrom("import-pc", () => importPc("folder")) },
+    { id: "pc-find-details", label: "Find details…", icon: "search", disabled: off || !games.length, run: findDetails },
     { sep: true },
     { id: "pc-settings", label: "Settings › PC games", icon: "cog", run: () => { location.hash = "#/settings"; setTimeout(() => document.getElementById("settings-pc")?.scrollIntoView(), 200); } },
   ];
@@ -566,7 +617,7 @@ export function PcGames() {
     primary=${html`<span class="cmd-buttons">
       <button type="button" class="ghost compact" id="pc-steam" disabled=${!games.length} title="Your PC games as non-Steam games, with their artwork" onClick=${() => ui.set({ dialog: { type: "steam" } })}>${Icon.gamepad(15)} Add to Steam…</button>
       <button type="button" class="primary compact" id="pc-import" disabled=${off} title=${data?.inbox ? `Read the inbox (${data.inbox}${data.inbox_waiting ? `: ${plural(data.inbox_waiting, "thing", "things")} in it` : ""})` : "Choose what to import"} onClick=${() => importFrom("import-pc", () => importPc(data?.inbox ? "inbox" : "files"))}>${Icon.inbox(15)} Import…</button></span>`}
-    more=${{ id: "pc-menu", title: "Import files or a folder, settings", items: menu }} />`;
+    more=${{ id: "pc-menu", title: "Import files or a folder, find details, settings", items: menu }} />`;
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   if (!data) return html`${head}<div class="pages"><p class="muted">Reading the PC games…</p></div>`;
   if (data.error) return html`${head}<div class="pages"><p class="warn-note" role="alert">${data.error}</p></div>`;

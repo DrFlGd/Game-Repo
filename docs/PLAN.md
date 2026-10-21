@@ -195,7 +195,8 @@ called.*
   | 7 | MobyGames | every system | an API key; no longer free | dropped (Jerred, 2026-10-18) |
 
   The order a user sees is a Settings choice (D8); a source without its key is offered
-  greyed out with a link to Settings.
+  greyed out with a link to Settings. Since D138 ScreenScraper comes first in the default
+  order, before Steam and GOG.
 - Organised into a common structure (decision D6):
 
   ```
@@ -5125,6 +5126,43 @@ it's read not at all, and copied to another drive it's read once, written, and r
   all in the library (theirs read then), and a file the same size but different isn't.
   `subset`: a file as big as no ROM of the DATs isn't read.
 
+### More from the sources for PC games (built 2026-10-21, D138)
+
+Jerred, 2026-10-21 13:24: "Games that aren't listed on GOG or Steam currently have no way to
+sync metadata. Mobygames, IGDB, others?" The comparison of sources (IGDB, MobyGames,
+PCGamingWiki, LaunchBox, TheGamesDB, SteamGridDB, Wikidata, RAWG, Epic, itch.io) is in the
+project's files (`metadata-sources/pc-metadata-sources.md`): Game Repo already asked
+ScreenScraper, IGDB, TheGamesDB and LaunchBox about PC games, but behind Steam and GOG,
+for Windows games only, by the exact title, and one game at a time. MobyGames stays
+dropped (its API key hasn't been free since September 2024). Jerred, 13:41: the issue was
+that ScreenScraper wasn't put first; fix those gaps, and let Identify search a source of
+your choosing when a game doesn't match with the default search. No new source for now
+(SteamGridDB for artwork and PCGamingWiki were offered).
+
+**D138 PC games get more from the sources there are.**
+
+- **ScreenScraper first.** The default order is ScreenScraper, Steam, GOG, IGDB,
+  TheGamesDB, LaunchBox. An order saved in config.json before (`sources`) that is still
+  the old default (Steam, GOG, ScreenScraper…, on or off as it was) is read with
+  ScreenScraper first; one chosen in Settings › Sources since (`sources_rev` 1) or of its
+  own is kept as it is.
+- **DOS and Windows 3.x too.** ScreenScraper is searched for a PC game among its Windows
+  (138), DOS (135) and Windows 3.x (136) games, each answer once; IGDB among PC (6) and DOS
+  (13). LaunchBox already searched Windows, MS-DOS and Windows 3.X; TheGamesDB's PC has
+  them.
+- **Other titles.** A source's other titles for a game (ScreenScraper's names by region,
+  IGDB's alternative names, LaunchBox's alternate names) are kept with its answer (`also`),
+  and an import's search, or Find details…, takes a game whose title is the same as any of
+  them, the year agreeing as before.
+- **Find details…** (PC games' ⋯ menu) asks the sources, as an import's search does, about
+  every PC game matched to no source yet; one found takes that source's details and artwork
+  (its title stays its own), and the rest are listed with Identify…. A game said to be no
+  source's (None of these, or No match on an import's list) is marked `unmatched` in its
+  `game.json` and left alone; Identify takes the mark off.
+- **Identify… asks one source.** Beside the year, *Every source* (in order, as before) or
+  one source; one chosen is asked even when it's off in Settings, and one not set up is
+  shown but can't be chosen.
+
 ### In-app updates (built 2026-10-21, D134–D137)
 
 Jerred asked (2026-10-21) whether Game Repo and Game Repo Go could update themselves, and
@@ -5368,7 +5406,7 @@ window and its tray menu.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D138). D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D139). D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 

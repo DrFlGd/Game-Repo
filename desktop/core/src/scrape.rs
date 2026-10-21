@@ -193,7 +193,7 @@ fn ask(cfg: &AppConfig, data_dir: &Path, o: &Options, g: &DatGame, off: &mut Has
                         None,
                         found
                             .into_iter()
-                            .map(|m| Candidate { score: launchbox::score(&g.title, &m.title), cover: m.art.get("cover").cloned(), url: None, source: m.source, platform: g.platform.clone(), id: m.id, title: m.title, year: m.year })
+                            .map(|m| Candidate { score: launchbox::score(&g.title, &m.title), cover: m.art.get("cover").cloned(), url: None, source: m.source, platform: g.platform.clone(), id: m.id, title: m.title, year: m.year, also: m.also })
                             .filter(|c| c.score >= 50)
                             .take(3)
                             .collect(),
@@ -222,7 +222,7 @@ fn ask(cfg: &AppConfig, data_dir: &Path, o: &Options, g: &DatGame, off: &mut Has
                             .take(3)
                             .map(|c| Candidate {
                                 source: "launchbox".into(), id: c.id.to_string(), title: c.name.clone(), year: c.year, platform: g.platform.clone(), cover: None,
-                                url: Some(format!("https://gamesdb.launchbox-app.com/games/details/{}", c.id)), score: c.score,
+                                url: Some(format!("https://gamesdb.launchbox-app.com/games/details/{}", c.id)), score: c.score, also: c.also.clone(),
                             })
                             .collect(),
                     )),

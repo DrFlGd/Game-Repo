@@ -790,6 +790,8 @@ pub struct Match {
     pub year: Option<i32>,
     pub details: Map<String, Value>,
     pub art: BTreeMap<String, String>,
+    /// The source's other titles for it (another region's, a short name), for matching
+    pub also: Vec<String>,
 }
 
 /// Read the paths into items: grouped, looked inside and identified, then checked against
@@ -1053,6 +1055,8 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
                     ids: it.ids.clone(),
                     details: it.details.clone(),
                     imported: stamp.clone(),
+                    // No match: Find details… leaves it alone (D138)
+                    extra: if it.status == "own" { [("unmatched".to_string(), json!(true))].into_iter().collect() } else { Default::default() },
                     ..Default::default()
                 };
                 targets.push(Target { dir: root.join(name), game, old: None, ops: vec![], aside: vec![], replaced: HashSet::new(), freed: HashSet::new() });
@@ -1649,7 +1653,7 @@ pub(crate) mod tests {
         std::fs::create_dir_all(&inbox).unwrap();
         zip_of(&inbox.join("Zeta Quest (1999).zip"), &[("zq.exe", b"another game")]);
         let search = |_: &str, _: Option<i32>| {
-            Some(Match { source: "steam".into(), id: "4000".into(), title: "Zeta Quest Deluxe".into(), year: Some(2005),
+            Some(Match { source: "steam".into(), id: "4000".into(), title: "Zeta Quest Deluxe".into(), year: Some(2005), also: vec![],
                 details: serde_json::from_value(json!({ "developer": "Other Soft" })).unwrap(), art: [("cover".to_string(), "http://127.0.0.1:9/c.jpg".to_string())].into() })
         };
         let mut items = read_items(&lib, &inbox_paths(&inbox).unwrap(), &search, &cancel, &mut |_| {}).unwrap();
