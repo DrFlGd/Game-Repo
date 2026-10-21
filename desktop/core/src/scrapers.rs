@@ -132,6 +132,15 @@ pub fn searches_system(source: &str, platform: &str) -> bool {
     }
 }
 
+/// The other ids a system's games may have at ScreenScraper and IGDB: a PC game may be a
+/// DOS or Windows 3.x game there, which they keep apart from Windows games.
+fn also_ids(platform: &str) -> (&'static [u32], &'static [u32]) {
+    match platform {
+        "pc" => (&[135, 136], &[13]),
+        _ => (&[], &[]),
+    }
+}
+
 fn ids_of(platform: &str) -> (Option<u32>, Option<u32>, Option<&'static str>) {
     SYSTEM_IDS.iter().find(|s| s.0 == platform).map(|s| (s.1, s.2, s.3)).unwrap_or((None, None, None))
 }
@@ -541,7 +550,13 @@ fn ss_match(jeu: &Value, regions: &[String], lang: &str) -> Option<Match> {
             art.insert(kind.to_string(), m["url"].as_str().unwrap_or("").to_string());
         }
     }
-    Some(Match { source: "screenscraper".into(), id, title, year: date.as_deref().and_then(year_of), details, art })
+    let mut also: Vec<String> = vec![];
+    for n in jeu["noms"].as_array().into_iter().flatten().filter_map(|x| text(&x["text"])).map(|t| unescape(&t)) {
+        if n != title && !also.contains(&n) {
+            also.push(n);
+        }
+    }
+    Some(Match { source: "screenscraper".into(), id, title, year: date.as_deref().and_then(year_of), details, art, also })
 }
 
 /// The ScreenScraper region codes for a DAT game's regions, then the preferred ones.
@@ -603,17 +618,27 @@ fn ss_search(cfg: &AppConfig, data_dir: &Path, query: &str, platform: &str) -> R
         // ScreenScraper won't search for fewer than four letters
         return Ok(vec![]);
     }
-    let mut p = vec![("recherche", q.clone())];
-    if let (Some(s), _, _) = ids_of(platform) {
-        p.push(("systemeid", s.to_string()));
+    // a PC game may be ScreenScraper's DOS or Windows 3.x game as well as its Windows one
+    let systems: Vec<Option<u32>> = match ids_of(platform) {
+        (Some(s), _, _) => std::iter::once(s).chain(also_ids(platform).0.iter().copied()).map(Some).collect(),
+        _ => vec![None],
+    };
+    let mut jeux: Vec<Value> = vec![];
+    for sys in systems {
+        let mut p = vec![("recherche", q.clone())];
+        if let Some(s) = sys {
+            p.push(("systemeid", s.to_string()));
+        }
+        let Some(v) = ss_get(cfg, data_dir, "jeuRecherche.php", &p)? else { continue };
+        for j in v["response"]["jeux"].as_array().into_iter().flatten() {
+            if j.as_object().is_some_and(|o| !o.is_empty()) && !jeux.iter().any(|x| text(&x["id"]) == text(&j["id"])) {
+                jeux.push(j.clone());
+            }
+        }
     }
-    let Some(v) = ss_get(cfg, data_dir, "jeuRecherche.php", &p)? else { return Ok(vec![]) };
     let regions: Vec<String> = ["us", "wor", "eu", "jp"].map(String::from).to_vec();
-    Ok(v["response"]["jeux"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|j| j.as_object().is_some_and(|o| !o.is_empty()))
+    Ok(jeux
+        .iter()
         .filter_map(|j| ss_match(j, &regions, "en"))
         .map(|m| Candidate {
             score: crate::launchbox::score(&q, &m.title),
@@ -624,6 +649,7 @@ fn ss_search(cfg: &AppConfig, data_dir: &Path, query: &str, platform: &str) -> R
             id: m.id,
             title: m.title,
             year: m.year,
+            also: m.also,
         })
         .collect())
 }
@@ -752,14 +778,16 @@ fn igdb_match(cfg: &AppConfig, g: &Value) -> Option<Match> {
     if let Some(a) = [2, 1, 3].iter().find_map(|t| arts.iter().find(|a| a["artwork_type"].as_u64() == Some(*t))).or(arts.first()).and_then(|a| a["image_id"].as_str()) {
         art.insert("fanart".into(), igdb_image(cfg, a, "1080p"));
     }
-    Some(Match { source: "igdb".into(), id, title, year, details, art })
+    let also = g["alternative_names"].as_array().into_iter().flatten().filter_map(|n| n["name"].as_str()).filter(|n| *n != title).map(String::from).collect();
+    Some(Match { source: "igdb".into(), id, title, year, details, art, also })
 }
 
 pub fn igdb_search(cfg: &AppConfig, data_dir: &Path, query: &str, platform: &str) -> Result<Vec<Match>> {
     let q = query.replace('"', "").replace('\\', "");
     let mut body = format!("search \"{q}\"; fields {IGDB_FIELDS};");
     if let (_, Some(p), _) = ids_of(platform) {
-        body.push_str(&format!(" where platforms = ({p});"));
+        let all: Vec<String> = std::iter::once(p).chain(also_ids(platform).1.iter().copied()).map(|p| p.to_string()).collect();
+        body.push_str(&format!(" where platforms = ({});", all.join(",")));
     }
     body.push_str(" limit 15;");
     let v = igdb_post(cfg, data_dir, "games", &body)?;
@@ -858,7 +886,7 @@ fn tgdb_match(cfg: &AppConfig, data_dir: &Path, g: &Value, images: &Value, base:
             art.insert(kind.to_string(), u);
         }
     }
-    Some(Match { source: "thegamesdb".into(), id, title, year: year_of(date), details, art })
+    Some(Match { source: "thegamesdb".into(), id, title, year: year_of(date), details, art, also: vec![] })
 }
 
 fn base_url(v: &Value) -> String {
@@ -891,7 +919,7 @@ fn candidate(m: Match, query: &str, platform: &str) -> Candidate {
         "igdb" => None,
         _ => Some(format!("https://thegamesdb.net/game.php?id={}", m.id)),
     };
-    Candidate { score: crate::launchbox::score(query, &m.title), cover: m.art.get("cover").cloned(), url, source: m.source, platform: platform.into(), id: m.id, title: m.title, year: m.year }
+    Candidate { score: crate::launchbox::score(query, &m.title), cover: m.art.get("cover").cloned(), url, source: m.source, platform: platform.into(), id: m.id, title: m.title, year: m.year, also: m.also }
 }
 
 /// A source's search, for Identify.

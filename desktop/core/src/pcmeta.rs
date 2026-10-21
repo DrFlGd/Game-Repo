@@ -260,7 +260,10 @@ pub fn identify(ix: &Index, lib: &Library, id: &str, m: &Match, retitle: bool) -
             patch["year"] = json!(m.year);
         }
     }
-    let e = pcgames::update(lib, id, &patch)?;
+    let mut e = pcgames::update(lib, id, &patch)?;
+    if e.game.extra.remove("unmatched").is_some() {
+        pcgames::write_manifest(&e.dir, &e.game)?;
+    }
     let d = ensure(ix, lib, &e)?;
     let fields: Vec<String> = FIELDS.iter().map(|(k, _)| k.to_string()).collect();
     sources::keep(&d, m, &fields, true)?;
@@ -270,6 +273,35 @@ pub fn identify(ix: &Index, lib: &Library, id: &str, m: &Match, retitle: bool) -
     make(lib, &d, &mut v);
     meta::write_game(ix, lib, &d, &v)?;
     pcgames::get(lib, id)
+}
+
+/// Find details… (D138): each PC game matched to no source yet asked of the sources in
+/// order by its title and year, as an import's item is (`identify::best`); one a source has
+/// under the same title, or one of its other titles, takes that source's details and
+/// artwork and keeps its own title. A game said to be no source's (None of these, No match)
+/// is left alone. Those still unmatched are listed, for Identify….
+pub fn find_details(ix: &Index, lib: &Library, cfg: &crate::config::AppConfig, data_dir: &Path, cancel: &AtomicBool, progress: &mut dyn FnMut(Value)) -> Result<Value> {
+    lib.writable()?;
+    let games: Vec<pcgames::Entry> = pcgames::list(lib).into_iter().filter(|e| e.game.ids.is_empty() && e.game.extra.get("unmatched") != Some(&json!(true))).collect();
+    let (mut found, mut none, mut stopped) = (vec![], vec![], false);
+    for (i, e) in games.iter().enumerate() {
+        if cancel.load(Ordering::Relaxed) {
+            stopped = true;
+            break;
+        }
+        progress(json!({ "item": i, "items": games.len(), "name": e.game.title }));
+        let shown = json!({ "id": e.game.id, "title": e.game.title, "year": e.game.year });
+        match crate::identify::best(cfg, data_dir, &e.game.title, e.game.year) {
+            Some(m) => {
+                identify(ix, lib, &e.game.id, &m, false)?;
+                let mut v = shown;
+                v["source"] = json!(crate::identify::source_name(&m.source));
+                found.push(v);
+            }
+            None => none.push(shown),
+        }
+    }
+    Ok(json!({ "games": games.len(), "found": found, "none": none, "stopped": stopped }))
 }
 
 /// None of these (Identify…, D128): a PC game that's no source's game. Its ids go from
@@ -288,6 +320,8 @@ pub fn unmatch(ix: &Index, lib: &Library, id: &str) -> Result<Entry> {
     for k in ["art", "art_from"] {
         e.game.extra.remove(k);
     }
+    // Find details… leaves it alone (D138)
+    e.game.extra.insert("unmatched".into(), json!(true));
     e.game.modified = now();
     pcgames::write_manifest(&e.dir, &e.game)?;
     for (s, mut a) in sources::answers(&d) {
@@ -384,6 +418,41 @@ mod tests {
         ensure(&ix, &lib, &e).unwrap();
         assert_eq!(std::fs::read(d.join("game.json")).unwrap(), before);
         assert_eq!(view(&lib, &e)["details"]["description"], "Quest on.");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_details_asks_about_the_games_matched_to_no_source() {
+        let (dir, lib, ix, _) = from_before("pcmeta-find");
+        let base = crate::identify::tests::serve(crate::identify::tests::answers());
+        let cfg = crate::identify::tests::config_at(&base);
+        let add = |id: &str, title: &str, unmatched: bool| {
+            let d = pcgames::folder(&lib).join(id);
+            std::fs::create_dir_all(&d).unwrap();
+            let mut g = PcGame { id: id.into(), title: title.into(), year: Some(1999), source: "other".into(), ..Default::default() };
+            if unmatched {
+                g.extra.insert("unmatched".into(), json!(true));
+            }
+            pcgames::write_manifest(&d, &g).unwrap();
+        };
+        add("pc-2", "zeta quest", false);
+        add("pc-3", "Nothing Like It", false);
+        add("pc-4", "Zeta Quest", true);
+        let r = find_details(&ix, &lib, &cfg, &dir, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        // the GOG game has a source already, and pc-4 was said to be none of theirs
+        assert_eq!(r["games"], 2, "{r}");
+        assert_eq!((r["found"][0]["id"].as_str(), r["found"][0]["source"].as_str()), (Some("pc-2"), Some("Steam")));
+        assert_eq!(r["none"][0]["id"], "pc-3");
+        let e = pcgames::get(&lib, "pc-2").unwrap();
+        // its details and artwork are Steam's, its title its own
+        assert_eq!((e.game.ids["steam"].as_str(), e.game.title.as_str()), ("4000", "zeta quest"));
+        assert_eq!(meta::read_game(&dir_of(&lib, "pc-2"))["details"]["developer"], "Zeta Soft");
+        assert!(pcgames::get(&lib, "pc-4").unwrap().game.ids.is_empty());
+        // None of these marks it to be left alone; Identify takes the mark off
+        assert_eq!(unmatch(&ix, &lib, "pc-2").unwrap().game.extra["unmatched"], true);
+        assert_eq!(find_details(&ix, &lib, &cfg, &dir, &AtomicBool::new(false), &mut |_| {}).unwrap()["games"], 1);
+        let m = crate::identify::details(&cfg, &dir, "steam", "4000").unwrap();
+        assert!(!identify(&ix, &lib, "pc-2", &m, false).unwrap().game.extra.contains_key("unmatched"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

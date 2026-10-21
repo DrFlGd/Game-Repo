@@ -60,6 +60,9 @@ pub struct AppConfig {
     /// The sources Identify asks, in order, and which are on (Settings › Sources; crate::identify)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<SourceSetting>,
+    /// 1 once `sources` was chosen with ScreenScraper first in the default order (D138)
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sources_rev: u32,
     /// A source's address, when not its own (crate::identify::URLS)
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub source_urls: std::collections::BTreeMap<String, String>,
@@ -124,6 +127,10 @@ pub struct ScanSettings {
 
 fn two() -> usize {
     2
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 fn yes() -> bool {

@@ -296,6 +296,8 @@ pub struct Found {
     pub platform: String,
     pub year: Option<i32>,
     pub score: u32,
+    /// The other names it was found by (another region's)
+    pub also: Vec<String>,
 }
 
 /// How well a name answers a search, 0–100: the same words 100, then by the words shared.
@@ -361,8 +363,11 @@ pub fn search(data_dir: &Path, query: &str, platform: Option<&str>, limit: usize
         let id: i64 = r.get(0)?;
         let matched: String = r.get(4)?;
         let s = score(query, &matched);
-        let e = best.entry(id).or_insert_with(|| Found { id, name: r.get(1).unwrap_or_default(), platform: r.get(2).unwrap_or_default(), year: r.get::<_, Option<i64>>(3).ok().flatten().map(|y| y as i32), score: 0 });
+        let e = best.entry(id).or_insert_with(|| Found { id, name: r.get(1).unwrap_or_default(), platform: r.get(2).unwrap_or_default(), year: r.get::<_, Option<i64>>(3).ok().flatten().map(|y| y as i32), score: 0, also: vec![] });
         e.score = e.score.max(s);
+        if matched != e.name && !e.also.contains(&matched) {
+            e.also.push(matched);
+        }
     }
     let mut v: Vec<Found> = best.into_values().collect();
     v.sort_by(|a, b| b.score.cmp(&a.score).then(a.name.len().cmp(&b.name.len())).then(a.name.cmp(&b.name)));
@@ -384,11 +389,14 @@ pub fn details(data_dir: &Path, id: i64) -> Result<(Found, Map<String, Value>, B
                         d.insert(k.to_string(), if *k == "genres" { json!(v.split(';').map(str::trim).filter(|g| !g.is_empty()).collect::<Vec<_>>()) } else { json!(v) });
                     }
                 }
-                Ok((Found { id: r.get(0)?, name: r.get(1)?, platform: r.get(2)?, year: r.get::<_, Option<i64>>(3)?.map(|y| y as i32), score: 0 }, d))
+                Ok((Found { id: r.get(0)?, name: r.get(1)?, platform: r.get(2)?, year: r.get::<_, Option<i64>>(3)?.map(|y| y as i32), score: 0, also: vec![] }, d))
             },
         )
         .optional()?
         .ok_or_else(|| anyhow!("LaunchBox has no game {id}."))?;
+    let mut found = found;
+    let mut q = c.prepare("SELECT name FROM names WHERE game_id = ?1")?;
+    found.also = q.query_map([id], |r| r.get::<_, String>(0))?.filter_map(|n| n.ok()).filter(|n| *n != found.name).collect();
     let mut q = c.prepare("SELECT file, type, COALESCE(region, '') FROM images WHERE game_id = ?1")?;
     let imgs: Vec<(String, String, String)> = q.query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
     let mut art = BTreeMap::new();
@@ -425,6 +433,7 @@ pub(crate) mod tests {
   <Game><Name>Zeta Quest</Name><ReleaseYear>1999</ReleaseYear><DatabaseID>12</DatabaseID><Platform>Windows</Platform><Developer>Zeta Soft</Developer></Game>
   <Game><Name>Zeta Quest II</Name><DatabaseID>13</DatabaseID><Platform>Windows</Platform></Game>
   <GameAlternateName><AlternateName>Arufa Kuesuto</AlternateName><DatabaseID>11</DatabaseID><Region>Japan</Region></GameAlternateName>
+  <GameAlternateName><AlternateName>Zeta Saga</AlternateName><DatabaseID>13</DatabaseID><Region>Europe</Region></GameAlternateName>
   <GameImage><DatabaseID>11</DatabaseID><FileName>aaa-01.jpg</FileName><Type>Box - Front</Type><Region>Japan</Region></GameImage>
   <GameImage><DatabaseID>11</DatabaseID><FileName>aaa-02.jpg</FileName><Type>Box - Front</Type><Region>North America</Region></GameImage>
   <GameImage><DatabaseID>11</DatabaseID><FileName>aaa-03.png</FileName><Type>Clear Logo</Type></GameImage>

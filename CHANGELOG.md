@@ -92,6 +92,12 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 - **Game Repo Go updates itself on Android too.** It looks for a newer version as it starts (Settings › About and updates turns that off) or when you choose *Check for updates*, shows what's new, and with *Download and install* downloads it, checks it against the key Game Repo Go was built with, and hands it to Android, which asks you to install it (the first time, it asks to let Game Repo Go install apps). Open Game Repo Go again afterwards. As on Windows and the Steam Deck, this starts with the first release built with the update key.
 
+## 0.5.42 (2026-10-21)
+
+- **PC games that aren't on Steam or GOG find their details more often.** ScreenScraper is now asked first, DOS and Windows 3.x games are searched as well as Windows ones, and a game matches a source's other titles for it (another region's name), not only its main one.
+- **Find details…** in the PC games' ⋯ menu asks the sources about every PC game that isn't matched to one yet, and lists the ones still unmatched with Identify…. A game you said is none of theirs is left alone.
+- **Identify… can search one source.** Choose it beside the year when a game doesn't turn up with every source.
+
 ## 0.5.41 (2026-10-21)
 
 - **Game Repo, Game Repo Server and Game Repo Go can update themselves, on Windows and the Steam Deck.** Each looks for a newer version as it starts (Settings › Updates turns that off) or when you choose *Check for updates* (in About and Settings in Game Repo, the server's window and tray menu, and Game Repo Go's Settings), shows what's new, and installs it only when you choose *Update and restart*. Every update is checked against the key the programs were built with before it runs. Updating starts with the first release built with that key, once it's set up (`tools\updater_key.cmd`); install that one by hand, and the programs update themselves from then on.

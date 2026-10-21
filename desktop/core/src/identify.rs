@@ -17,11 +17,12 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// The sources, in their default order: id, name, the systems they know (None: all).
+/// The sources, in their default order: id, name, whether they know only PC games.
+/// ScreenScraper first (Jerred, 2026-10-21, D138): it knows the games no store sells.
 pub const SOURCES: &[(&str, &str, bool)] = &[
+    ("screenscraper", "ScreenScraper", false),
     ("steam", "Steam", true),
     ("gog", "GOG", true),
-    ("screenscraper", "ScreenScraper", false),
     ("igdb", "IGDB", false),
     ("thegamesdb", "TheGamesDB", false),
     ("launchbox", "LaunchBox Games DB", false),
@@ -48,9 +49,24 @@ pub const URLS: &[(&str, &str)] = &[
     ("launchbox_images", launchbox::IMAGES),
 ];
 
+/// The default order before D138.
+const OLD_ORDER: &[&str] = &["steam", "gog", "screenscraper", "igdb", "thegamesdb", "launchbox"];
+
 /// The sources as this computer has them: (id, on), in order.
 pub fn order(cfg: &AppConfig) -> Vec<(String, bool)> {
     let mut v: Vec<(String, bool)> = cfg.sources.iter().filter(|s| SOURCES.iter().any(|(id, _, _)| *id == s.id)).map(|s| (s.id.clone(), s.on)).collect();
+    // an order saved before D138 that's still the old default: ScreenScraper goes first, as
+    // it does now; one chosen since is left as it is
+    if cfg.sources_rev < 1 {
+        let ids: Vec<&str> = v.iter().map(|(id, _)| id.as_str()).collect();
+        let old: Vec<&str> = OLD_ORDER.iter().copied().filter(|id| ids.contains(id)).collect();
+        if ids == old {
+            if let Some(i) = v.iter().position(|(id, _)| id == "screenscraper") {
+                let ss = v.remove(i);
+                v.insert(0, ss);
+            }
+        }
+    }
     for (id, _, _) in SOURCES {
         if !v.iter().any(|(x, _)| x == id) {
             v.push((id.to_string(), true));
@@ -137,12 +153,14 @@ pub struct Candidate {
     pub cover: Option<String>,
     pub url: Option<String>,
     pub score: u32,
+    /// Its other titles at the source, for matching
+    pub also: Vec<String>,
 }
 
 impl Candidate {
     pub fn to_json(&self) -> Value {
         json!({ "source": self.source, "source_name": SOURCES.iter().find(|s| s.0 == self.source).map(|s| s.1), "id": self.id, "title": self.title,
-                "year": self.year, "platform": self.platform, "cover": self.cover, "url": self.url, "score": self.score })
+                "year": self.year, "platform": self.platform, "cover": self.cover, "url": self.url, "score": self.score, "also": self.also })
     }
 }
 
@@ -171,6 +189,7 @@ fn steam_search(cfg: &AppConfig, query: &str) -> Result<Vec<Candidate>> {
                 id,
                 title,
                 year: None,
+                also: vec![],
             })
         })
         .collect())
@@ -215,7 +234,7 @@ fn steam_details(cfg: &AppConfig, id: &str) -> Result<Match> {
     // newer games keep their library art under a hashed folder, which the store's
     // browse service names; the fixed names above are the fallback
     art.extend(steam_assets(cfg, id).unwrap_or_default());
-    Ok(Match { source: "steam".into(), id: id.to_string(), title: d["name"].as_str().unwrap_or("").to_string(), year: year_of(date), details, art })
+    Ok(Match { source: "steam".into(), id: id.to_string(), title: d["name"].as_str().unwrap_or("").to_string(), year: year_of(date), details, art, also: vec![] })
 }
 
 /// A Steam app's library artwork as the store's browse service names it (no key needed).
@@ -259,6 +278,7 @@ fn gog_search(cfg: &AppConfig, query: &str) -> Result<Vec<Candidate>> {
                 platform: "pc".into(),
                 id,
                 title,
+                also: vec![],
             })
         })
         .collect())
@@ -296,7 +316,7 @@ fn gog_details(cfg: &AppConfig, id: &str) -> Result<Match> {
             art.insert("cover".into(), c);
         }
     }
-    Ok(Match { source: "gog".into(), id: id.to_string(), title, year: year_of(date), details, art })
+    Ok(Match { source: "gog".into(), id: id.to_string(), title, year: year_of(date), details, art, also: vec![] })
 }
 
 /// A date as Steam writes it ("24 Feb, 1999" or "Feb 24, 1999") as the other sources do
@@ -346,7 +366,7 @@ fn strip_tags(s: &str) -> String {
 fn launchbox_search(data_dir: &Path, query: &str, platform: Option<&str>) -> Result<Vec<Candidate>> {
     Ok(launchbox::search(data_dir, query, platform, 20)?
         .into_iter()
-        .map(|f| Candidate { source: "launchbox".into(), id: f.id.to_string(), title: f.name, year: f.year, platform: f.platform, cover: None, url: Some(format!("https://gamesdb.launchbox-app.com/games/details/{}", f.id)), score: f.score })
+        .map(|f| Candidate { source: "launchbox".into(), id: f.id.to_string(), title: f.name, year: f.year, platform: f.platform, cover: None, url: Some(format!("https://gamesdb.launchbox-app.com/games/details/{}", f.id)), score: f.score, also: f.also })
         .collect())
 }
 
@@ -355,14 +375,15 @@ fn launchbox_details(cfg: &AppConfig, data_dir: &Path, id: &str) -> Result<Match
     let (f, details, files) = launchbox::details(data_dir, n)?;
     let base = url(cfg, "launchbox_images");
     let art = files.into_iter().map(|(k, f)| (k, format!("{base}/{}", f.split('/').map(encode).collect::<Vec<_>>().join("/")))).collect();
-    Ok(Match { source: "launchbox".into(), id: id.to_string(), title: f.name, year: f.year, details, art })
+    Ok(Match { source: "launchbox".into(), id: id.to_string(), title: f.name, year: f.year, details, art, also: f.also })
 }
 
 // ------------------------------------------------------------ all of them
 
-/// Search every source that's on (and knows the system), in order. A source that fails
-/// says why; the others still answer.
-pub fn search(cfg: &AppConfig, data_dir: &Path, query: &str, platform: &str, year: Option<i32>) -> Value {
+/// Search every source that's on (and knows the system), in order, or just `only` (Identify's
+/// choice of source, which asks it even when it's off). A source that fails says why; the
+/// others still answer.
+pub fn search(cfg: &AppConfig, data_dir: &Path, query: &str, platform: &str, year: Option<i32>, only: Option<&str>) -> Value {
     let query = query.trim();
     let mut results = vec![];
     let mut errors = vec![];
@@ -370,6 +391,10 @@ pub fn search(cfg: &AppConfig, data_dir: &Path, query: &str, platform: &str, yea
     let mut needs = vec![];
     for (id, on) in order(cfg) {
         let (pc_only, name) = SOURCES.iter().find(|s| s.0 == id).map_or((false, ""), |s| (s.2, s.1));
+        let on = match only {
+            Some(o) => o == id,
+            None => on,
+        };
         if !on || query.is_empty() || (pc_only && platform != "pc") {
             continue;
         }
@@ -424,9 +449,14 @@ pub fn best(cfg: &AppConfig, data_dir: &Path, title: &str, year: Option<i32>) ->
     if title.trim().is_empty() {
         return None;
     }
-    let found = search(cfg, data_dir, title, "pc", year);
+    let found = search(cfg, data_dir, title, "pc", year, None);
     let agrees = |y: Option<i64>| year.is_none() || y.is_none() || y == year.map(i64::from);
-    for r in found["results"].as_array()?.iter().filter(|r| norm_title(r["title"].as_str().unwrap_or("")) == norm_title(title) && agrees(r["year"].as_i64())).take(3) {
+    // its title, or one of the source's other titles for it (another region's, D138)
+    let named = |r: &Value| {
+        let want = norm_title(title);
+        std::iter::once(&r["title"]).chain(r["also"].as_array().into_iter().flatten()).any(|t| norm_title(t.as_str().unwrap_or("")) == want)
+    };
+    for r in found["results"].as_array()?.iter().filter(|r| named(r) && agrees(r["year"].as_i64())).take(3) {
         // a search may not give the year: the details do
         if let Ok(m) = details(cfg, data_dir, r["source"].as_str()?, r["id"].as_str()?) {
             if agrees(m.year.map(i64::from)) {
@@ -568,7 +598,7 @@ pub(crate) mod tests {
         let cfg = config_at(&base);
         crate::launchbox::tests::metadata_zip(&dir.join("Metadata.zip"));
         crate::launchbox::build(&dir, &dir.join("Metadata.zip"), "test", &std::sync::atomic::AtomicBool::new(false), &mut |_| {}).unwrap();
-        let r = search(&cfg, &dir, "zeta quest", "pc", Some(1999));
+        let r = search(&cfg, &dir, "zeta quest", "pc", Some(1999), None);
         assert!(r["errors"].as_array().unwrap().is_empty(), "{r}");
         let res = r["results"].as_array().unwrap();
         let sources: Vec<&str> = res.iter().map(|x| x["source"].as_str().unwrap()).collect();
@@ -576,7 +606,7 @@ pub(crate) mod tests {
         assert_eq!((res[0]["id"].as_str(), res[0]["score"].as_u64()), (Some("4000"), Some(100)));
         assert_eq!(res[2]["cover"], "https://img/zeta_v.jpg");
         // not PC: only LaunchBox answers
-        let r = search(&cfg, &dir, "alpha quest", "gb", None);
+        let r = search(&cfg, &dir, "alpha quest", "gb", None, None);
         assert_eq!(r["results"].as_array().unwrap().len(), 1);
         let s = details(&cfg, &dir, "steam", "4000").unwrap();
         assert_eq!((s.title.as_str(), s.year, s.details["developer"].as_str()), ("Zeta Quest", Some(1999), Some("Zeta Soft")));
@@ -593,6 +623,13 @@ pub(crate) mod tests {
         // the best answer for an import: the same title and year
         assert_eq!(best(&cfg, &dir, "Zeta Quest", Some(1999)).map(|m| (m.source, m.id)), Some(("steam".into(), "4000".into())));
         assert!(best(&cfg, &dir, "Zeta Quest", Some(2005)).is_none(), "a different year");
+        // or a source's other title for it (D138)
+        assert_eq!(best(&cfg, &dir, "Zeta Saga", None).map(|m| (m.source, m.id, m.title)), Some(("launchbox".into(), "13".into(), "Zeta Quest II".into())));
+        // one source asked, even one that's off (Identify's choice, D138)
+        let mut steam_off = cfg.clone();
+        steam_off.sources = vec![crate::config::SourceSetting { id: "steam".into(), on: false }];
+        let r = search(&steam_off, &dir, "zeta quest", "pc", None, Some("steam"));
+        assert!(r["results"].as_array().unwrap().iter().all(|x| x["source"] == "steam") && r["results"].as_array().unwrap().len() == 2, "{r}");
         // artwork: what the source has is kept, what it hasn't is skipped
         let media = dir.join("media");
         let got = fetch_art(&media, &s.art, true);
@@ -602,9 +639,26 @@ pub(crate) mod tests {
         let mut off = cfg.clone();
         off.sources = vec![crate::config::SourceSetting { id: "steam".into(), on: false }];
         off.source_urls.insert("gog_catalog".into(), "http://127.0.0.1:9".into());
-        let r = search(&off, &dir, "zeta quest", "pc", None);
+        let r = search(&off, &dir, "zeta quest", "pc", None, None);
         assert!(r["results"].as_array().unwrap().iter().all(|x| x["source"] == "launchbox"));
         assert_eq!(r["errors"][0]["source"], "gog");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn screenscraper_comes_first_unless_another_order_was_chosen() {
+        let ids = |c: &AppConfig| order(c).into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+        let mut cfg = AppConfig::default();
+        assert_eq!(ids(&cfg), ["screenscraper", "steam", "gog", "igdb", "thegamesdb", "launchbox"]);
+        // saved before D138 in the old default order: ScreenScraper goes first, on or off kept
+        let set = |v: &[(&str, bool)]| v.iter().map(|(id, on)| crate::config::SourceSetting { id: id.to_string(), on: *on }).collect::<Vec<_>>();
+        cfg.sources = set(&[("steam", true), ("gog", false), ("screenscraper", true), ("igdb", true), ("thegamesdb", true), ("launchbox", true)]);
+        assert_eq!(order(&cfg)[..3], [("screenscraper".to_string(), true), ("steam".to_string(), true), ("gog".to_string(), false)]);
+        // one of its own is kept, and so is any chosen since
+        cfg.sources = set(&[("gog", true), ("steam", true), ("screenscraper", true)]);
+        assert_eq!(ids(&cfg)[..3], ["gog", "steam", "screenscraper"]);
+        cfg.sources = set(&[("steam", true), ("gog", true), ("screenscraper", true)]);
+        cfg.sources_rev = 1;
+        assert_eq!(ids(&cfg)[..3], ["steam", "gog", "screenscraper"]);
     }
 }

@@ -1869,7 +1869,7 @@ async def main():
                 await pg.click("#steam-choose")
                 await pg.wait_for_function("(p) => document.querySelector('#steam-path')?.textContent === p", arg=str(steam))
                 check("Settings keeps the PC games inbox and Steam's folder, and lists Identify's sources",
-                      await pg.eval_on_selector_all("#sources > li", "els => els.map(e => e.dataset.source)") == ["steam", "gog", "screenscraper", "igdb", "thegamesdb", "launchbox"] and str(library / "PC") in await pg.inner_text("#pc-folder-path"), await pg.inner_text("#settings-sources"))
+                      await pg.eval_on_selector_all("#sources > li", "els => els.map(e => e.dataset.source)") == ["screenscraper", "steam", "gog", "igdb", "thegamesdb", "launchbox"] and str(library / "PC") in await pg.inner_text("#pc-folder-path"), await pg.inner_text("#settings-sources"))
                 await pg.click("#nav-pc")
                 await pg.click("#pc-first")
                 await pg.wait_for_selector("#pc-items li", timeout=30000)
@@ -1938,6 +1938,15 @@ async def main():
                       and zeta_gog.get("details", {}).get("description", "").startswith("Quest") and zeta_shared.get("details", {}).get("description", "").startswith("Quest")
                       and zeta_shared.get("identified_by") == "gog" and "cover.png" in zeta_media and "hero.png" in zeta_media,
                       (sources, zeta_json.get("details"), zeta_shared.get("details"), zeta_media))
+                # one source at a time (D138): the choice beside the year searches just it
+                await pg.click("#pc-identify")
+                await pg.wait_for_selector('#identify-results li[data-source="gog"]')
+                await pg.select_option("#identify-source", "gog")
+                await pg.wait_for_function("() => [...document.querySelectorAll('#identify-results li')].every(e => e.dataset.source === 'gog')")
+                only = await pg.eval_on_selector_all("#identify-results li", "els => els.map(e => e.dataset.source)")
+                await pg.click("#identify-dialog-cancel")
+                await pg.wait_for_selector("#identify-dialog", state="detached")
+                check("Identify can search one source, chosen beside the year", only == ["gog"], only)
                 await pg.click("#pc-steam")
                 await pg.wait_for_selector("#steam-preview")
                 preview = await pg.inner_text("#steam-preview")
@@ -2083,6 +2092,18 @@ async def main():
                 check("Identify…'s None of these on a game you have takes away its ids at the sources, and keeps its title and what they said",
                       alpha.get("ids") == {} and alpha.get("title") == "Alpha Strike" and answers and all("id" not in a for a in answers.values())
                       and "identified_by" not in shared and "Delete metadata" in said and (alpha_meta / "media").is_dir(), (said, alpha.get("ids"), answers, shared.get("identified_by")))
+                # Find details… (D138) asks about the games matched to no source, and leaves alone
+                # one said to be none of theirs
+                await pg.click("#pc-menu")
+                await pg.click('#context-menu [data-action="pc-find-details"]')
+                await pg.wait_for_selector("#pc-found-dialog")
+                listed = await pg.eval_on_selector_all("#pc-found-dialog li b", "els => els.map(e => e.textContent)")
+                found_text = await pg.inner_text("#pc-found-dialog")
+                await pg.screenshot(path=str(out / "26c-find-details.png"))
+                await pg.click("#pc-found-dialog button[type=submit]")
+                await pg.wait_for_selector("#pc-found-dialog", state="detached")
+                check("Find details… leaves a game said to be no source's alone",
+                      "Alpha Strike" not in listed and json.loads((alpha_dir / "game.json").read_text()).get("ids") == {}, (listed, found_text))
                 # and on a game's page, in its ⋯ menu; once it's run, back to PC games
                 await pg.click('#pc-list .pc-row:has-text("Zeta Quest Lost")')
                 await pg.click("#pc-open")
