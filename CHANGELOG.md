@@ -89,6 +89,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.38 (2026-10-21)
+
 - **Game Repo Go: a PC game zipped as its folder isn't two folders deep any more.** Its files go straight into the game's own folder. A game already downloaded keeps its old folders until it's removed and downloaded again.
 - **Game Repo Go on Linux and the Steam Deck: Downloads offers Restart Steam once a PC game is in.** Steam's shortcuts can only be added while Steam is closed, so a new game's shortcut waits while Steam runs; Downloads now says so and restarts Steam when asked, as Settings › Steam does.
 - **Game Repo Go shows how far the library has got unpacking a PC game.** While the library unpacks a game's install archive, its download shows "X of Y unpacked" with a progress bar.
