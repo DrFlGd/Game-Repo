@@ -1,12 +1,15 @@
 // PC games (docs/PLAN.md, "Phase 4 design", D25–D28): the games in the PC games folder,
 // each in its own folder with its game.json; Import… reads the inbox (or files picked)
 // into a review list, where each item can be identified, retitled or left out, then
-// imports them as a change with a preview and Undo. A game's details, pictures and
+// imports them as a change with a preview and Undo; No match keeps one no source has as a
+// game of its own, and an installer or unpacked copy brought into a game there replaces its
+// own (D128, D130). A game's details, pictures and
 // documents are on its page, as every game's are ("PC game page design", D55); the
 // panel here, and that page's PC section (`PcParts`), set the program that starts it,
 // unpack an installer or archive, and show its folder. Add to Steam… writes the games
-// as non-Steam shortcuts with their artwork. Identify… and Add a game… (any other
-// system) are here too, as dialogs the other pages open.
+// as non-Steam shortcuts with their artwork. Remove from the library… sets a game aside as
+// a change with Undo (D129). Identify… and Add a game… (any other system) are here too, as
+// dialogs the other pages open.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -28,6 +31,7 @@ const STATUS = {
   look: ["Needs a look", "Nothing inside named the game: check its title, or Identify it"],
   have: ["Have it", "Every file is in the library already"],
   update: ["Goes into", "The same game is in the library: these files join it"],
+  own: ["Its own game", "Not matched to any source: kept under the title you give it"],
 };
 const FOUND = { goggame: "its goggame file", innoextract: "innoextract (the installer's GOG id)", steam: "steam_appid.txt", name: "its name", search: "a search of the sources", you: "you" };
 const PARTS = [["install", "Installer or archive"], ["extracted", "The game's files (ready to play)"], ["patch", "Patch"], ["dlc", "DLC"], ["extra", "Extra (manual, soundtrack…)"]];
@@ -47,10 +51,11 @@ const yearOf = (v) => {
 
 // ------------------------------------------------------------ Identify
 
-/** Identify…: `{ title, query, year, platform, onPick(result), back }`. A search across the
- *  sources (Settings › Sources) by title; a result picked is handed to onPick, which may
- *  return the dialog to show next. `back` is the dialog it goes back to (else it closes). */
-export function IdentifyDialog({ title, query = "", year = null, platform = "pc", onPick, back = null }) {
+/** Identify…: `{ title, query, year, platform, onPick(result), onNone, back }`. A search across
+ *  the sources (Settings › Sources) by title; a result picked is handed to onPick, which may
+ *  return the dialog to show next. With `onNone`, None of these says it's none of them, nor
+ *  any source's (D128), the same way. `back` is the dialog it goes back to (else it closes). */
+export function IdentifyDialog({ title, query = "", year = null, platform = "pc", onPick, onNone = null, noneNote = "it's kept matched to no source, under its own title.", back = null }) {
   const leave = () => (back ? ui.set({ dialog: back }) : close());
   const [q, setQ] = useState(query);
   const [y, setY] = useState(year ? String(year) : "");
@@ -74,7 +79,7 @@ export function IdentifyDialog({ title, query = "", year = null, platform = "pc"
     setBusy(true);
     setError("");
     try {
-      const next = await onPick(x);
+      const next = await (x ? onPick(x) : onNone());
       if (next) ui.set({ dialog: next });
       else leave();
     } catch (e) {
@@ -97,6 +102,7 @@ export function IdentifyDialog({ title, query = "", year = null, platform = "pc"
       </li>`)}</ul>
       ${r.errors?.map((e) => html`<p class="warn-note identify-error" key=${e.source} data-source=${e.source}>${e.name || e.source}: ${e.error}</p>`)}
       ${r.needs?.length ? html`<p class="muted identify-needs" id="identify-needs" title=${r.needs.map((e) => `${e.name}: ${e.text}`).join("\n")}>${r.needs.length === 1 ? `${r.needs[0].name} isn't set up` : `${r.needs.length} sources aren't set up (${r.needs.map((e) => e.name).join(", ")})`}, so ${r.needs.length === 1 ? "it wasn't" : "they weren't"} asked. <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a></p>` : null}` : html`<p class="muted">The sources are asked in the order Settings › Sources gives. Picking one keeps its id and details with the game and gets its artwork.</p>`}
+    ${onNone ? html`<p class="muted" id="identify-none-row">Not one of these, and in no source at all?${" "}<button type="button" class="linkish" id="identify-none-of-these" disabled=${busy} onClick=${() => pick(null)}>None of these</button>:${" "}${noneNote}</p>` : null}
   <//>`;
 }
 
@@ -135,6 +141,17 @@ function ImportDialog({ paths, restore }) {
     return () => { gone = true; };
   }, []);
   const set = (key, patch) => setItems((all) => all.map((it) => (it.key === key ? { ...it, ...patch } : it)));
+  // No match (D128): matched to no source, a game of its own under the title you give it
+  const unmatched = (it) => api("pc_item_unmatch", { item: it });
+  const noMatch = async (it) => {
+    setError("");
+    try {
+      const next = await unmatched(it);
+      setItems((all) => all.map((o) => (o.key === it.key ? next : o)));
+    } catch (e) {
+      setError(err(e));
+    }
+  };
   // Identify takes this dialog's place while it's open, then comes back to the list
   const identify = (it) => identifyDialog({
     title: `Identify ${it.name}`, query: it.title, year: it.year, platform: "pc", back: { type: "pc-import", paths, restore: true },
@@ -142,6 +159,11 @@ function ImportDialog({ paths, restore }) {
       const next = await api("pc_item_match", { item: it, source: x.source, id: x.id });
       review.items = review.items.map((o) => (o.key === it.key ? next : o));
     },
+    onNone: async () => {
+      const next = await unmatched(it);
+      review.items = review.items.map((o) => (o.key === it.key ? next : o));
+    },
+    noneNote: "it comes in as a game of its own, under the title you give it.",
   });
   const preview = async () => {
     setBusy(true);
@@ -170,6 +192,8 @@ function ImportDialog({ paths, restore }) {
       <ul class="ls-list pc-items" id="pc-items">${items.map((it) => {
         const [badge, why] = STATUS[it.status] || [it.status, ""];
         const where = it.status === "update" || it.status === "have" ? ` ${it.game_title || ""}` : "";
+        const swap = replaces(it);
+        const matched = it.status !== "have" && it.status !== "own" && (["search", "name", "you"].includes(it.found) || it.status === "update");
         return html`<li key=${it.key} class="pc-item" data-key=${it.key} data-status=${it.status} data-include=${it.include ? "yes" : "no"}>
           <label class="check-row pc-item-include"><input type="checkbox" data-action="include" checked=${it.include} disabled=${it.status === "have"} onChange=${(e) => set(it.key, { include: e.target.checked })} /></label>
           <div class="pc-item-main">
@@ -182,9 +206,13 @@ function ImportDialog({ paths, restore }) {
             </span>
             <span class="muted pc-item-meta"><span class=${`pc-badge pc-badge-${it.status}`} title=${why}>${badge}${where}</span>
               ${[size(it.files.reduce((n, f) => n + (f.size || 0), 0)), it.version ? `version ${it.version}` : null, idsLine(it.ids), it.found ? `found by ${FOUND[it.found] || it.found}` : null].filter(Boolean).join(" · ")}</span>
+            ${swap ? html`<span class="muted pc-item-replaces" data-replaces=${it.part} title=${`What ${it.game_title || "the game"} has now is set aside, and Undo brings it back. Patches, DLC and extras add up.`}>${swap}</span>` : null}
             ${it.note ? html`<span class="muted">${it.note}</span>` : null}
           </div>
-          ${it.status !== "have" ? html`<button type="button" class="ghost compact" data-action="identify" onClick=${() => identify(it)}>Identify…</button>` : null}
+          ${it.status !== "have" ? html`<span class="pc-item-actions">
+            <button type="button" class="ghost compact" data-action="identify" onClick=${() => identify(it)}>Identify…</button>
+            ${matched ? html`<button type="button" class="ghost compact" data-action="no-match" title="Not matched to any source: it comes in as a game of its own, under the title you give it" onClick=${() => noMatch(it)}>No match</button>` : null}
+          </span>` : null}
         </li>`;
       })}</ul>
       ${games.length ? html`<${HowControl} id="pc-import-mode" value=${how} onChange=${setHow} />
@@ -194,6 +222,11 @@ function ImportDialog({ paths, restore }) {
 
 /** The review list and how it comes in, kept while Identify has the dialog's place. */
 const review = { items: null, how: "copy" };
+
+/** What an item brought into a game there replaces (D130): one install and one unpacked
+ *  copy a game, so its installer or its unpacked copy is set aside for this one. */
+const replaces = (it) => (it.include && it.status === "update" && (it.game_parts || []).includes(it.part)
+  ? ({ install: "Replaces its installer", extracted: "Replaces its unpacked copy" })[it.part] || null : null);
 
 /** Start Import…: the inbox, files or a folder picked, or `given` paths ("paths", dropped). */
 export async function importPc(how = "inbox", given = []) {
@@ -211,6 +244,31 @@ export async function importPc(how = "inbox", given = []) {
   review.items = null;
   review.how = "copy";
   ui.set({ dialog: { type: "pc-import", paths } });
+}
+
+// ------------------------------------------------------------ a game there
+
+/** Remove from the library… (D129): a change that sets aside the game's folder and its
+ *  details, pictures and documents, shown with the usual preview, then run with Undo.
+ *  `onRun` as it starts, so what shows the game closes first (its page goes to PC games,
+ *  its panel to none picked). */
+export async function removePc(id, onRun = null) {
+  try {
+    const plan = await api("pc_remove_plan", { id });
+    ui.set({ dialog: { type: "organise", plan, onRun } });
+  } catch (e) {
+    toast(`Couldn't plan it: ${err(e)}`, 8000);
+  }
+}
+
+/** None of these, for a game there (D128): matched to no source, its ids gone; what the
+ *  sources said stays in its details and pictures until Delete metadata… takes it away. */
+export async function unmatchPc(g) {
+  await api("pc_unmatch", { id: g.id });
+  again();
+  toast(`${g.title} is matched to no source now: its ids are gone. What the sources said stays in its details and pictures; Delete metadata… takes it away.`, {
+    ms: 12000, actions: [{ label: "Delete metadata…", run: () => ui.set({ dialog: { type: "meta-delete", folder: `_library/games/pc/${g.id}`, gameName: g.title, platformName: "PC", pc: true } }) }],
+  });
 }
 
 // ------------------------------------------------------------ Steam
@@ -449,7 +507,7 @@ export const pcLine = (g) => [g.source && g.source !== "other" ? g.source.toUppe
 
 /** A game's panel on this page: its cover and title, the way to its page (its details,
  *  pictures and documents are there, D55), Identify…, and what only a PC game has. */
-function GamePanel({ id, off, onChange, version }) {
+function GamePanel({ id, off, onChange, onRemove, version }) {
   const [g, setG] = useState(null);
   const [error, setError] = useState("");
   const load = () => api("pc_get", { id }).then(setG).catch((e) => setError(err(e)));
@@ -457,6 +515,7 @@ function GamePanel({ id, off, onChange, version }) {
   const identify = () => identifyDialog({
     title: `Identify ${g.title}`, query: g.title, year: g.year, platform: "pc",
     onPick: async (x) => { await api("identify_pick", { source: x.source, id: x.id, game: id, retitle: true }); onChange(); },
+    onNone: async () => { await unmatchPc(g); onChange(); }, noneNote: "its ids at the sources go, and its title stays.",
   });
   if (error && !g) return html`<aside class="pc-panel" id="pc-panel"><p class="warn-note" role="alert">${error}</p></aside>`;
   if (!g) return html`<aside class="pc-panel" id="pc-panel"><p class="muted">Reading…</p></aside>`;
@@ -472,6 +531,7 @@ function GamePanel({ id, off, onChange, version }) {
     <div class="home-actions">
       <a class="primary compact lib-open" id="pc-open" href=${gameHash(`pc/${g.id}`)}>Open its page</a>
       <button type="button" class="ghost compact" id="pc-identify" disabled=${off} onClick=${identify}>${Icon.search(14)} Identify…</button>
+      <button type="button" class="ghost compact" id="pc-remove" disabled=${off} title="Its folder and its details are set aside, with a preview first and Undo after" onClick=${() => removePc(g.id, onRemove)}>${Icon.trash(14)} Remove from the library…</button>
     </div>
     <p class="muted">Its details, pictures and documents are on its page, where they're changed as any game's are.</p>
     <${PcParts} g=${g} off=${off} onChange=${async () => { await load(); onChange(); }} />
@@ -533,7 +593,7 @@ export function PcGames() {
               <span class="muted pc-row-meta">${[g.source && g.source !== "other" ? g.source.toUpperCase() : null, size(g.size), g.launch ? null : "no program yet"].filter(Boolean).join(" · ")}</span></span>
           </button></li>`)}</ul>
       </div>
-      ${current ? html`<${GamePanel} key=${current} id=${current} off=${off} version=${`${tick}-${s.changes}`} onChange=${() => setTick((t) => t + 1)} />` : html`<aside class="pc-panel pc-panel-empty"><p class="muted">Pick a game to see its details, set the program that starts it, or unpack it.</p></aside>`}
+      ${current ? html`<${GamePanel} key=${current} id=${current} off=${off} version=${`${tick}-${s.changes}`} onChange=${() => setTick((t) => t + 1)} onRemove=${() => setSel(null)} />` : html`<aside class="pc-panel pc-panel-empty"><p class="muted">Pick a game to see its details, set the program that starts it, or unpack it.</p></aside>`}
     </div>
   </div>`;
 }

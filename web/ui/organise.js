@@ -36,7 +36,7 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing PC games", add: "Importing a game", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", bios: "Importing BIOS files", metadata: "Deleting metadata" })[kind] || "Organising";
+const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing PC games", add: "Importing a game", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", bios: "Importing BIOS files", metadata: "Deleting metadata", pc_remove: "Removing a PC game" })[kind] || "Organising";
 
 /** The changes that bring files into the library (the Import page's Recent imports, D78). */
 export const IMPORT_KINDS = ["bring", "add", "import", "docs", "magazines", "bios"];
@@ -64,6 +64,7 @@ const COUNTS = {
   docs: ["document", "documents", "import"], magazines: ["issue", "issues", "import"], bios: ["system's BIOS files", "systems' BIOS files", "import"],
   convert: ["game", "games", "convert"], extract: ["game", "games", "unpack"], folders: ["game's folder", "games' folders", "rename"],
   metadata: ["game's metadata", "games' metadata", "delete"], aside: ["game", "games", "set extra copies aside for"],
+  pc_remove: ["PC game", "PC games", "remove from the library"],
 };
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
@@ -237,8 +238,10 @@ export function ChangeSteps({ id }) {
 }
 
 /** Organise…: the choices, then the preview; Run starts the change. Opened with a
- *  `plan` it goes straight to the preview (Rename these, Set aside duplicates). */
-export function OrganiseDialog({ dat, platform, platformName, plan: given }) {
+ *  `plan` it goes straight to the preview (Rename these, Set aside duplicates, Remove from
+ *  the library…), and `onRun` is called as it starts (a removed game's page or panel closes
+ *  before the pages are refreshed). */
+export function OrganiseDialog({ dat, platform, platformName, plan: given, onRun = null }) {
   const disc = !!ui.get().platforms?.find((p) => p.id === platform)?.disc;
   const saved = ctx.platform?.store?.prefs?.get("gr-organise", {}) || {};
   const [mode, setMode] = useState(saved.mode || "copy");
@@ -267,12 +270,14 @@ export function OrganiseDialog({ dat, platform, platformName, plan: given }) {
   };
   if (plan) {
     const nothing = !plan.ops;
-    return html`<${Dialog} title=${plan.title || plan.label} id="organise-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "OK" : plan.kind === "aside" ? "Set them aside" : "Run"}
+    return html`<${Dialog} title=${plan.title || plan.label} id="organise-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) { onRun?.(); runPlan(plan); } }} busy=${plan.short} submitLabel=${nothing ? "OK" : plan.kind === "aside" ? "Set them aside" : plan.kind === "pc_remove" ? "Remove it" : "Run"}
       cancelLabel=${given ? "Cancel" : "Back"} onCancel=${given ? close : () => setPlan(null)}>
       <${Preview} plan=${plan} />
       ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.kind === "folders" ? "no game's library folder can be renamed (the preview says why)." : plan.kind === "metadata" ? "there's none of that to delete." : plan.in_place ? "everything is in place already." : "no files match this DAT yet."}</p>`
         : plan.kind === "metadata" ? html`<p class="muted">The files are set aside in the library, not deleted, and the games' details are made again from what's left. Your own documents and what you've written yourself stay. The change can be undone from the message afterwards or from History, which also empties what was set aside.</p>`
         : plan.kind === "folders" ? html`<p class="muted">Each game's folder in the library is renamed where it is, with what's in it (details, pictures, documents). The change can be undone from the message afterwards or from History.</p>`
+        : plan.kind === "pc_remove" ? html`<p class="muted" id="pc-remove-note">Every file in its folder, and its details, pictures and documents in the library, are set aside, not deleted: it goes from PC games and the Library, and Undo (from the message afterwards, or History) brings it all back. History empties what was set aside.</p>
+          ${plan.steam ? html`<p class="muted" id="pc-remove-steam">Add to Steam… made it a Steam shortcut, which stays in Steam until you run Add to Steam… again.</p>` : null}`
         : html`<p class="muted">Every file written is read back and checked before anything is set aside. The change can be undone from the message afterwards or from History.</p>`}
     <//>`;
   }

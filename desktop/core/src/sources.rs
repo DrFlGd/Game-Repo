@@ -57,7 +57,7 @@ pub fn answers(dir: &Path) -> BTreeMap<String, Value> {
     m
 }
 
-fn write_answer(dir: &Path, source: &str, v: &Value) -> Result<()> {
+pub(crate) fn write_answer(dir: &Path, source: &str, v: &Value) -> Result<()> {
     if !valid_source(source) {
         bail!("{source} isn't a source.");
     }

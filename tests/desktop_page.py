@@ -1902,6 +1902,108 @@ async def main():
                 await pg.locator("#game-pc").scroll_into_view_if_needed()
                 await pg.screenshot(path=str(out / "26d-pc-game-section.png"))
 
+                # Jerred's tryout (D128–D130): a newer zip of Alpha Strike goes into it and replaces
+                # its installer; a game no store has, which a search took for Zeta Quest, is kept as
+                # a game of its own with No match; then Remove from the library…, with Undo
+                with zipfile.ZipFile(inbox / "Alpha Strike (2001).zip", "w") as z:
+                    z.writestr("Alpha Strike/alpha.exe", b"MZ alpha, a newer one")
+                with zipfile.ZipFile(inbox / "Zeta Quest (1999).zip", "w") as z:
+                    z.writestr("zq.exe", b"MZ a game no store has")
+                await pg.click("#nav-pc")
+                await pg.click("#pc-import")
+                await pg.wait_for_selector('#pc-items li[data-status="update"]', timeout=30000)
+                rows_js = """els => els.map(e => ({ key: e.dataset.key, name: e.querySelector('.pc-item-name').textContent, status: e.dataset.status, title: e.querySelector('.pc-item-title').value,
+                    year: e.querySelector('.pc-item-year').value, edit: !e.querySelector('.pc-item-title').disabled, meta: e.querySelector('.pc-item-meta').textContent,
+                    replaces: e.querySelector('.pc-item-replaces')?.textContent || '', unmatch: !!e.querySelector('[data-action=no-match]') }))"""
+                rows = {r["name"]: r for r in await pg.eval_on_selector_all("#pc-items li", rows_js)}
+                newer, lost = rows.get("Alpha Strike (2001).zip", {}), rows.get("Zeta Quest (1999).zip", {})
+                check("the review list says an installer that goes into a game you have replaces its own (D130), and offers No match on what a search matched",
+                      newer.get("status") == "update" and newer.get("replaces") == "Replaces its installer" and newer.get("unmatch")
+                      and lost.get("status") == "update" and "Zeta Quest" in lost.get("meta", "") and not lost.get("replaces") and lost.get("unmatch")
+                      and all(not r["unmatch"] for r in rows.values() if r["status"] == "have"), rows)
+                await pg.click(f'#pc-items li[data-key="{lost.get("key")}"] [data-action="no-match"]')
+                await pg.wait_for_selector(f'#pc-items li[data-key="{lost.get("key")}"][data-status="own"]')
+                own = {r["name"]: r for r in await pg.eval_on_selector_all("#pc-items li", rows_js)}.get("Zeta Quest (1999).zip", {})
+                badge = await pg.inner_text(f'#pc-items li[data-key="{lost.get("key")}"] .pc-badge')
+                check("No match keeps it as a game of its own (D128): the search's id and match go, its title and year are what its name said, and can be changed",
+                      badge == "Its own game" and own.get("title") == "Zeta Quest" and own.get("year") == "1999" and own.get("edit") and "Steam app" not in own.get("meta", "")
+                      and "search" not in own.get("meta", "") and not own.get("unmatch"), (badge, own))
+                await pg.fill(f'#pc-items li[data-key="{lost.get("key")}"] .pc-item-title', "Zeta Quest Lost")
+                await pg.screenshot(path=str(out / "26e-pc-no-match.png"))
+                await pg.click("#pc-import-dialog button[type=submit]")
+                await pg.wait_for_selector("#organise-list li")
+                aside_rows = await pg.eval_on_selector_all('#organise-list li[data-op="aside"]', "els => els.map(e => e.textContent)")
+                await pg.click("#pc-import-dialog button[type=submit]")
+                said = await toast_text(pg, "Imported 2 PC games", timeout=30000)
+                alpha = json.loads((alpha_dir / "game.json").read_text())
+                held = list((library / "PC/.gamerepo-set-aside").glob("*/Alpha Strike (2001)/install/Alpha Strike.zip"))
+                lost_dir = library / "PC/Zeta Quest Lost (1999)"
+                lost_json = json.loads((lost_dir / "game.json").read_text()) if (lost_dir / "game.json").exists() else {}
+                zeta_now = json.loads((library / "PC/Zeta Quest (1999)/game.json").read_text())
+                check("the import sets the installer it replaces aside, shown in its preview, and the unmatched game comes in under its own title with no ids",
+                      len(aside_rows) == 1 and "Alpha Strike (2001)/install/Alpha Strike.zip" in aside_rows[0] and "its installer, replaced by Alpha Strike (2001).zip" in aside_rows[0]
+                      and [f["path"] for f in alpha["files"] if f["kind"] == "install"] == ["install/Alpha Strike (2001).zip"] and len(held) == 1 and not (alpha_dir / "install/Alpha Strike.zip").exists()
+                      and lost_json.get("title") == "Zeta Quest Lost" and not lost_json.get("ids") and (lost_dir / "install/Zeta Quest (1999).zip").is_file()
+                      and not any(f["kind"] == "install" for f in zeta_now["files"]), (said, aside_rows, alpha["files"], held, lost_json, zeta_now["files"]))
+
+                # Remove from the library… on Alpha Strike's panel: the preview, gone, then Undo
+                alpha_meta = library / f"_library/games/pc/{alpha['id']}"
+                tree = lambda d: {str(p.relative_to(d)): p.read_bytes() for p in d.rglob("*") if p.is_file() and not any(x.startswith(".gamerepo") for x in p.relative_to(d).parts)} if d.is_dir() else {}
+                alpha_before, alpha_meta_before = tree(alpha_dir), tree(alpha_meta)
+                pc_keys = """async () => { const inv = (cmd, args = {}) => window.__TAURI__.core.invoke('api', { cmd, args }); await inv('browse');
+                    return (await inv('browse_query', { query: { platform: ['pc'], limit: 50 } })).items.map((i) => i.key); }"""
+                await pg.click("#nav-pc")
+                await pg.click('#pc-list .pc-row:has-text("Alpha Strike")')
+                await pg.wait_for_selector("#pc-remove")
+                await pg.click("#pc-remove")
+                await pg.wait_for_selector("#organise-dialog #organise-list li")
+                removing = await pg.evaluate("""() => [document.querySelector('#organise-dialog h2')?.textContent || '', document.querySelector('#organise-list')?.dataset.total,
+                    [...document.querySelectorAll('#organise-list li')].map((e) => e.dataset.op), [...document.querySelectorAll('#organise-list li .op-to')].pop()?.textContent || '',
+                    document.querySelector('#pc-remove-steam')?.textContent || '', document.querySelector('#organise-dialog button[type=submit]')?.textContent || '']""")
+                await pg.screenshot(path=str(out / "26f-pc-remove.png"))
+                await pg.click("#organise-dialog button[type=submit]")
+                said = await toast_text(pg, "Removed Alpha Strike from the library", timeout=30000)
+                await pg.wait_for_function("() => document.querySelector('#pc-list') && ![...document.querySelectorAll('#pc-list .pc-row')].some((e) => e.textContent.includes('Alpha Strike'))")
+                keys = await pg.evaluate(pc_keys)
+                check("Remove from the library… (D129) previews every file of its folder and its details set aside, game.json last, and says its Steam shortcut stays",
+                      removing[0] == "Remove Alpha Strike from the library" and int(removing[1] or 0) == len(alpha_before) + len(alpha_meta_before) and set(removing[2]) == {"aside"}
+                      and removing[3] == "Alpha Strike (2001)/game.json" and "Add to Steam" in removing[4] and removing[5] == "Remove it", (removing, len(alpha_before), len(alpha_meta_before)))
+                check("once it's run the game is gone from PC games, the Library and its folders, set aside",
+                      not alpha_dir.exists() and not alpha_meta.exists() and f"pc/{alpha['id']}" not in keys and f"pc/{zeta_json['id']}" in keys
+                      and list((library / "PC/.gamerepo-set-aside").glob("*/Alpha Strike (2001)/game.json")), (said, keys))
+                await pg.click("#toast .toast-action")
+                await toast_text(pg, "Undone", timeout=30000)
+                await pg.wait_for_selector('#pc-list .pc-row:has-text("Alpha Strike")')
+                keys = await pg.evaluate(pc_keys)
+                check("Undo brings the removed game back as it was, in PC games and the Library",
+                      tree(alpha_dir) == alpha_before and tree(alpha_meta) == alpha_meta_before and f"pc/{alpha['id']}" in keys, (sorted(tree(alpha_dir)), keys))
+                # Identify…'s None of these on a game you have (D128): its ids go, its title and details stay
+                await pg.click('#pc-list .pc-row:has-text("Alpha Strike")')
+                await pg.click("#pc-identify")
+                await pg.wait_for_selector("#identify-results li")
+                await pg.click("#identify-none-of-these")
+                said = await toast_text(pg, "is matched to no source now")
+                await pg.wait_for_selector("#identify-dialog", state="detached")
+                alpha = json.loads((alpha_dir / "game.json").read_text())
+                answers = {p.stem: json.loads(p.read_text()) for p in (alpha_meta / "sources").glob("*.json")}
+                shared = json.loads((alpha_meta / "game.json").read_text())
+                check("Identify…'s None of these on a game you have takes away its ids at the sources, and keeps its title and what they said",
+                      alpha.get("ids") == {} and alpha.get("title") == "Alpha Strike" and answers and all("id" not in a for a in answers.values())
+                      and "identified_by" not in shared and "Delete metadata" in said and (alpha_meta / "media").is_dir(), (said, alpha.get("ids"), answers, shared.get("identified_by")))
+                # and on a game's page, in its ⋯ menu; once it's run, back to PC games
+                await pg.click('#pc-list .pc-row:has-text("Zeta Quest Lost")')
+                await pg.click("#pc-open")
+                await pg.wait_for_selector(f'#game-page[data-key="pc/{lost_json.get("id")}"]')
+                await pg.click("#game-menu")
+                await pg.click('#context-menu [data-action="game-pc-remove"]')
+                await pg.wait_for_selector("#organise-dialog #organise-list li")
+                from_page = await pg.evaluate("() => [document.querySelector('#organise-dialog h2')?.textContent || '', !!document.querySelector('#pc-remove-steam')]")
+                await pg.click("#organise-dialog button[type=submit]")
+                said = await toast_text(pg, "Removed Zeta Quest Lost from the library", timeout=30000)
+                await pg.wait_for_function("() => location.hash.startsWith('#/pc')")
+                check("a PC game's page has Remove from the library… in its menu, and goes to PC games once it's removed",
+                      from_page == ["Remove Zeta Quest Lost from the library", False] and not lost_dir.exists(), (from_page, said))
+
                 # Add a game… (a system's ROM from outside its folders), scanned and checked against its DAT
                 downloads = home / "Downloads"
                 downloads.mkdir()

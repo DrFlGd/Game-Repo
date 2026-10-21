@@ -11,7 +11,7 @@ use sha1::Digest;
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -32,10 +32,14 @@ pub enum Unpacked {
     Unknown,
 }
 
+/// How far an unpacking has got: the bytes written, of its files' whole size (0 until
+/// the archives' lists are read)
+type Progress = Arc<(AtomicU64, AtomicU64)>;
+
 #[derive(Clone)]
 enum Job {
     Waiting(Vec<PathBuf>),
-    Unpacking,
+    Unpacking(Progress),
     Failed(String),
 }
 
@@ -89,10 +93,18 @@ impl Unpacker {
         }
     }
 
+    /// How far it's got while it's being unpacked (D126): bytes written, of the whole.
+    pub fn progress(&self, id: &str) -> Option<(u64, u64)> {
+        match self.state.lock().unwrap().jobs.get(id) {
+            Some(Job::Unpacking(p)) => Some((p.0.load(Ordering::Relaxed), p.1.load(Ordering::Relaxed))),
+            _ => None,
+        }
+    }
+
     /// Unpack these archives if they aren't (or are being).
     pub fn want(&self, id: &str, archives: Vec<PathBuf>) {
         let mut s = self.state.lock().unwrap();
-        if matches!(s.jobs.get(id), Some(Job::Waiting(_) | Job::Unpacking)) {
+        if matches!(s.jobs.get(id), Some(Job::Waiting(_) | Job::Unpacking(_))) {
             return;
         }
         s.jobs.insert(id.to_string(), Job::Waiting(archives));
@@ -111,6 +123,7 @@ impl Unpacker {
 
     fn work(&self) {
         while !self.stop.load(Ordering::Relaxed) {
+            let progress: Progress = Arc::default();
             let (id, archives) = {
                 let mut s = self.state.lock().unwrap();
                 loop {
@@ -119,7 +132,7 @@ impl Unpacker {
                     }
                     if let Some(id) = s.queue.pop_front() {
                         if let Some(Job::Waiting(a)) = s.jobs.get(&id).cloned() {
-                            s.jobs.insert(id.clone(), Job::Unpacking);
+                            s.jobs.insert(id.clone(), Job::Unpacking(progress.clone()));
                             break (id, a);
                         }
                         continue;
@@ -127,7 +140,7 @@ impl Unpacker {
                     s = self.cv.wait_timeout(s, Duration::from_millis(500)).unwrap().0;
                 }
             };
-            let r = self.unpack(&id, &archives);
+            let r = self.unpack(&id, &archives, &progress);
             let mut s = self.state.lock().unwrap();
             match r {
                 Ok(()) => {
@@ -142,7 +155,15 @@ impl Unpacker {
         }
     }
 
-    fn unpack(&self, id: &str, archives: &[PathBuf]) -> Result<()> {
+    fn unpack(&self, id: &str, archives: &[PathBuf], progress: &Progress) -> Result<()> {
+        // the whole, from the archives' lists (quick: no file is unpacked to read them)
+        let whole: u64 = archives
+            .iter()
+            .filter_map(|a| archive::read(a, archive::kind_of(&a.to_string_lossy()).unwrap_or("zip"), false, &self.stop).ok())
+            .flat_map(|l| l.members)
+            .map(|m| m.hashes.size)
+            .sum();
+        progress.1.store(whole, Ordering::Relaxed);
         let staging = self.dir.join(".unpacking").join(id);
         let _ = std::fs::remove_dir_all(&staging);
         std::fs::create_dir_all(staging.join("files"))?;
@@ -168,6 +189,7 @@ impl Unpacker {
                         h.update(&buf[..n]);
                         w.write_all(&buf[..n])?;
                         size += n as u64;
+                        progress.0.fetch_add(n as u64, Ordering::Relaxed);
                     }
                     // a later archive's file of the same name takes its place (a second part)
                     list.retain(|f| f.path != path);
@@ -266,6 +288,26 @@ mod tests {
         std::thread::sleep(Duration::from_millis(20));
         zip(&a, &[("Zeta/zeta.exe", b"MZ program 2")]);
         assert_ne!(Unpacker::id_of(&[a]), id);
+        stop.store(true, Ordering::Relaxed);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn how_far_it_has_got_is_counted_in_bytes_of_the_whole() {
+        let dir = std::env::temp_dir().join(format!("gamerepo-unpack-progress-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("Omega.zip");
+        zip(&a, &[("Omega/omega.exe", &[7u8; 3000]), ("Omega/omega.dat", &[1u8; 5000])]);
+        let stop = Arc::new(AtomicBool::new(false));
+        let u = Unpacker::new(dir.join("unpacked"), 1 << 30, stop.clone());
+        let id = Unpacker::id_of(&[a.clone()]);
+        assert_eq!(u.progress(&id), None);
+        let p: Progress = Arc::default();
+        u.unpack(&id, &[a], &p).unwrap();
+        assert_eq!((p.0.load(Ordering::Relaxed), p.1.load(Ordering::Relaxed)), (8000, 8000));
+        // only while it's being unpacked
+        assert!(matches!(u.status(&id), Unpacked::Ready(_)) && u.progress(&id).is_none());
         stop.store(true, Ordering::Relaxed);
         let _ = std::fs::remove_dir_all(&dir);
     }

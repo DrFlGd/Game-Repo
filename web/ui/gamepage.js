@@ -9,6 +9,7 @@
 // opened from. A PC game's page is the same, its details and pictures kept as any game's,
 // with a PC section for what only a PC game has: the program, Unpack, its folder and files
 // ("PC game page design", D55); its title and year name its folder, so they're its own.
+// Its menu has Remove from the library… (D129), and Identify… None of these (D128).
 // Along its right edge, a ribbon that folds (]): every kind of picture it has, each
 // source's, larger, with Use this (D69).
 import { html, useState, useEffect, useLayoutEffect } from "../lib/html.js";
@@ -21,7 +22,7 @@ import { CommandBar } from "./layout.js";
 import { usePageKeys } from "./actions.js";
 import { scrapeDialog, deleteMetadata } from "./metadata.js";
 import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
-import { identifyDialog, PcParts, pcLine } from "./pcgames.js";
+import { identifyDialog, PcParts, pcLine, removePc, unmatchPc } from "./pcgames.js";
 import { convertDialog } from "./organise.js";
 import { opened, gameHash, systemColour } from "./browse.js";
 import { Icon } from "./icons.js";
@@ -211,6 +212,7 @@ export function GamePage() {
   const identifyPc = () => identifyDialog({
     title: `Identify ${g.title}`, query: g.title, year: g.year, platform: "pc",
     onPick: async (x) => { await api("identify_pick", { source: x.source, id: x.id, game: g.pc_id, retitle: true }); await api("browse"); await reload(); },
+    onNone: async () => { await unmatchPc({ id: g.pc_id, title: g.title }); await api("browse"); await reload(); }, noneNote: "its ids at the sources go, and its title stays.",
   });
   useDroppedFiles((paths) => {
     if (!g || off) return false;
@@ -283,6 +285,8 @@ export function GamePage() {
       { id: "game-variant-remove", label: "Remove from the custom DAT", icon: "trash", disabled: off, run: removeVariant },
     ] : []),
     { id: "game-delete-metadata", label: "Delete metadata…", icon: "trash", disabled: off || !g?.folder, run: () => deleteMetadata({ folder: g.folder, gameName: g.title, platformName: g.platform_name, pc }) },
+    // the game itself, its folder and its details set aside as a change with Undo (D129)
+    ...(pc ? [{ id: "game-pc-remove", label: "Remove from the library…", icon: "trash", disabled: off, run: () => removePc(g.pc_id, () => { location.hash = routeHash("pc"); }) }] : []),
     { sep: true },
     { id: "game-attach", label: "Attach documents…", icon: "file", disabled: off || !isDesktop() || !(dat || pc), run: () => attach() },
     // a PC game's own folder (PC/<Title> (<Year>)), else where its metadata is kept

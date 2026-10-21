@@ -79,7 +79,7 @@ pub struct Op {
 pub struct Plan {
     pub id: String,
     pub created: String,
-    /// organise | aside (duplicates set aside)
+    /// organise | aside (duplicates set aside) | import | pc_remove | metadata | …
     pub kind: String,
     pub label: String,
     /// What the preview is headed with, in the present tense (the label says what was done)
@@ -2135,6 +2135,9 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
     if plan.kind == "metadata" {
         crate::sources::after(ix, lib, plan)?;
     }
+    if plan.kind == "pc_remove" {
+        crate::pcgames::after_remove(ix, lib, plan, false)?;
+    }
     audit::match_files(conn)?;
     audit::changed(conn)?;
     if !warnings.is_empty() {
@@ -2326,6 +2329,9 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
     }
     if plan.kind == "metadata" {
         crate::sources::after(ix, lib, &plan)?;
+    }
+    if plan.kind == "pc_remove" {
+        crate::pcgames::after_remove(ix, lib, &plan, true)?;
     }
     audit::match_files(conn)?;
     audit::changed(conn)?;
