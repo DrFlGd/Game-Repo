@@ -3,7 +3,8 @@
 // never by the page. All files access (D87), the device's storage volumes (C3, C9), a folder
 // chosen with Android's own picker, the pairing token in the Android Keystore, the multicast
 // lock while the library is looked for, the downloads' foreground service and its
-// notification (C10), and controllers turned into keys (Controllers.kt).
+// notification (C10), controllers turned into keys (Controllers.kt), and Game Repo Go's
+// updates (Updates.kt, D139).
 package io.github.drflgd.gamerepo.go.device
 
 import android.Manifest
@@ -54,6 +55,12 @@ class DownloadsArgs {
     // 0 to 100, or -1 while there's nothing to measure yet
     var percent: Int = -1
     var paused: Boolean = false
+}
+
+@InvokeArg
+class UpdateArgs {
+    var url: String = ""
+    var path: String = ""
 }
 
 @TauriPlugin
@@ -241,6 +248,26 @@ class DevicePlugin(private val activity: Activity) : Plugin(activity) {
      *  side asks again after each). */
     @Command
     fun waitAction(invoke: Invoke) = Actions.wait(invoke)
+
+    /** Game Repo Go's updates (D139, Updates.kt): the update file, the APK and how far it's
+     *  come, and Android's installer for it. */
+    @Command
+    fun updateFetch(invoke: Invoke) {
+        Updates.fetch(invoke, invoke.parseArgs(UpdateArgs::class.java).url)
+    }
+
+    @Command
+    fun updateDownload(invoke: Invoke) {
+        Updates.download(activity, invoke, invoke.parseArgs(UpdateArgs::class.java).url)
+    }
+
+    @Command
+    fun updateProgress(invoke: Invoke) = Updates.progress(invoke)
+
+    @Command
+    fun updateInstall(invoke: Invoke) {
+        Updates.install(activity, invoke, invoke.parseArgs(UpdateArgs::class.java).path)
+    }
 
     /** Game Repo Go to the background (Back on the Library with nothing to go back from). */
     @Command

@@ -116,7 +116,8 @@ Notes.
 written = uf.write(V, dist, sigs, "DrFlGd/Game-Repo", pubkey, changelog, dist, today="2026-10-22")
 check("three update files are written", sorted(p.name for p in written) == ["latest-game-repo-go.json", "latest-game-repo-server.json", "latest-game-repo.json"])
 go = json.loads((dist / "latest-game-repo-go.json").read_text(encoding="utf-8"))
-check("Game Repo Go's has Windows and the Steam Deck", sorted(go["platforms"]) == ["linux-x86_64", "windows-x86_64"])
+check("Game Repo Go's has Windows, the Steam Deck and Android", sorted(go["platforms"]) == ["android-aarch64", "linux-x86_64", "windows-x86_64"])
+check("Android's is the APK in the release", go["platforms"]["android-aarch64"]["url"].endswith(f"/v{V}/Game.Repo.Go_{V}_arm64.apk"))
 check("each installer's address is in this version's release, its spaces as dots",
       go["platforms"]["linux-x86_64"]["url"] == f"https://github.com/DrFlGd/Game-Repo/releases/download/v{V}/Game.Repo.Go_{V}_amd64.AppImage")
 check("with the signature the CLI made", go["platforms"]["windows-x86_64"]["signature"] == (sigs / f"Game Repo Go_{V}_x64-setup.exe.sig").read_text())
@@ -156,6 +157,23 @@ refused("one signed with another key is refused", lambda: (sigs / f"{server}.sig
 refused("one signed for another version is refused", lambda: (sigs / f"{server}.sig").write_text(sign_file(key_seed, keynum, dist / server, "0.5.41")))
 refused("one signed as another file is refused", lambda: (sigs / f"{server}.sig").write_text(sign_file(key_seed, keynum, dist / server, V, name="Game Repo_0.5.42_x64-setup.exe")))
 refused("an installer without its signature is refused", lambda: (sigs / f"{server}.sig").unlink())
+apk = f"Game Repo Go_{V}_arm64.apk"
+refused("an APK without its signature is refused", lambda: (sigs / f"{apk}.sig").unlink())
+
+
+def without_apk():
+    (dist / apk).unlink()
+    (sigs / f"{apk}.sig").unlink()
+    out = work / "no-apk"
+    out.mkdir(exist_ok=True)
+    uf.write(V, dist, sigs, "DrFlGd/Game-Repo", pubkey, changelog, out, today="2026-10-22")
+    return json.loads((out / "latest-game-repo-go.json").read_text(encoding="utf-8"))
+
+
+saved_apk = ((dist / apk).read_bytes(), (sigs / f"{apk}.sig").read_bytes())
+check("with no APK in the release (no Android signing key yet) Game Repo Go's leaves Android out", sorted(without_apk()["platforms"]) == ["linux-x86_64", "windows-x86_64"])
+(dist / apk).write_bytes(saved_apk[0])
+(sigs / f"{apk}.sig").write_bytes(saved_apk[1])
 
 
 def change_trusted():

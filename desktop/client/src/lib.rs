@@ -8,14 +8,17 @@
 // icon by the clock with their progress, and it quits when they're done (D99); on Android
 // the downloads' notification does that, and android.rs has the rest of Android's side
 // (D97). On Linux it can add itself to Steam and open Steam's keyboard (D107). It opens full
-// screen in Steam's Game Mode, or as Settings says (D127). On Windows and Linux it updates
-// itself (gamerepo-update, D134: `update_*` through the `api` command).
+// screen in Steam's Game Mode, or as Settings says (D127). It updates itself: on Windows and
+// Linux with gamerepo-update (D134), on Android with android_updates.rs (D139), `update_*`
+// through the `api` command.
 
 #[cfg(not(target_os = "android"))]
 mod secrets;
 
 #[cfg(target_os = "android")]
 mod android;
+#[cfg(target_os = "android")]
+mod android_updates;
 
 use gamerepo_device::app::App;
 use serde_json::{json, Value};
@@ -49,8 +52,8 @@ async fn api(app: AppHandle, cmd: String, args: Value) -> Result<Value, String> 
     if cmd.starts_with("update_") {
         #[cfg(desktop)]
         return gamerepo_update::call(&app, &cmd, &args).await;
-        #[cfg(mobile)]
-        return android_updates(&app, &cmd);
+        #[cfg(target_os = "android")]
+        return tauri::async_runtime::spawn_blocking(move || android_updates::call(&app, &cmd, &args)).await.map_err(|e| e.to_string())?;
     }
     let go = app.state::<Go>().app.clone();
     #[cfg(desktop)]
@@ -61,22 +64,6 @@ async fn api(app: AppHandle, cmd: String, args: Value) -> Result<Value, String> 
         fit(&app, false);
     }
     Ok(got)
-}
-
-/// Updates on Android: a new version is installed from the releases page for now.
-#[cfg(mobile)]
-fn android_updates(app: &AppHandle, cmd: &str) -> Result<Value, String> {
-    let why = "On Android, install a new version from the releases page.";
-    if cmd != "update_state" {
-        return Err(why.into());
-    }
-    Ok(json!({
-        "title": "Game Repo Go",
-        "version": app.package_info().version.to_string(),
-        "can": false,
-        "why_not": why,
-        "releases": format!("https://github.com/{}/releases", gamerepo_device::wire::RELEASES),
-    }))
 }
 
 /// The window fits the screen (D127): full screen in Steam's Game Mode (the Deck's 1280×800
@@ -348,7 +335,11 @@ pub fn run() {
                 });
             }
             #[cfg(target_os = "android")]
-            android::start(app.handle().clone());
+            {
+                android::start(app.handle().clone());
+                // its updates (D139), as on Windows and the Steam Deck
+                android_updates::manage(app.handle());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![api, app_info, pick_folder, storage, leave, keyboard]);

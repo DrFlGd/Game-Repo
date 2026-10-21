@@ -1579,6 +1579,8 @@ dependencies = [
  "gamerepo-wire",
  "hex",
  "mdns-sd",
+ "minisign",
+ "minisign-verify",
  "ring",
  "rusqlite",
  "rustls",

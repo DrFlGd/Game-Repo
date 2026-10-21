@@ -24,7 +24,9 @@ Tauri CLI's signer with it), and
 
 writes the Tauri config that has a build sign its installer and carry the public key
 (when UPDATER_PUBKEY is set and is a key) and prints UPDATER_CONFIG=--config FILE for
-the build steps; with no key, UPDATER_CONFIG= and the builds are as before.
+the build steps; with no key, UPDATER_CONFIG= and the builds are as before. With
+--android, the config has only the public key (Tauri's Android build makes no updater
+files; CI signs the APK itself once apksigner has) and the line is UPDATER_CONFIG_ANDROID.
 """
 import argparse
 import base64
@@ -43,8 +45,12 @@ PROGRAMS = {
     "game-repo-go": {
         "windows-x86_64": "Game Repo Go_{v}_x64-setup.exe",
         "linux-x86_64": "Game Repo Go_{v}_amd64.AppImage",
+        "android-aarch64": "Game Repo Go_{v}_arm64.apk",
     },
 }
+# published only once its own signing key is in the secrets (tools/android_signing_key.cmd):
+# left out of the update file until then
+OPTIONAL = {"android-aarch64"}
 # the releases before this one whose notes go in too
 EARLIER = 20
 
@@ -200,6 +206,8 @@ def write(version, dist, sigs, repo, pubkey, changelog, out, today=None):
             name = pattern.format(v=version)
             file = Path(dist) / name
             if not file.is_file():
+                if system in OPTIONAL:
+                    continue
                 raise SystemExit(f"update_files: {name} isn't in {dist}")
             sig = find_sig(name, [sigs, dist])
             if not sig:
@@ -239,19 +247,23 @@ def main(argv=None):
     a.add_argument("--verify", help="a file to check against --signature")
     a.add_argument("--signature")
     a.add_argument("--build-config", help="where to write the builds' Tauri config")
+    a.add_argument("--android", action="store_true", help="with --build-config: Game Repo Go's Android build's")
     args = a.parse_args(argv)
     if args.build_config:
+        var = "UPDATER_CONFIG_ANDROID" if args.android else "UPDATER_CONFIG"
         if not args.pubkey.strip():
-            print("UPDATER_CONFIG=")
+            print(f"{var}=")
             print("update_files: no update key in the secrets: the programs are built without updates", file=sys.stderr)
             return
         try:
             public_key(args.pubkey)
         except BadSignature as e:
             raise SystemExit(f"update_files: UPDATER_PUBKEY: {e}")
-        config = {"bundle": {"createUpdaterArtifacts": True}, "plugins": {"updater": {"pubkey": args.pubkey.strip()}}}
+        config = {"plugins": {"updater": {"pubkey": args.pubkey.strip()}}}
+        if not args.android:
+            config["bundle"] = {"createUpdaterArtifacts": True}
         Path(args.build_config).write_text(json.dumps(config), encoding="utf-8")
-        print(f"UPDATER_CONFIG=--config {args.build_config}")
+        print(f"{var}=--config {args.build_config}")
         return
     if not args.pubkey.strip():
         raise SystemExit("update_files: no public key (UPDATER_PUBKEY)")

@@ -16,6 +16,8 @@ gamerepo-wire = { path = "../wire" }
 fs4 = "1"
 hex = "0.4"
 mdns-sd = "=0.21.4"
+# Game Repo Go's updates on Android checked as the updater checks them (D139)
+minisign-verify = "0.3"
 ring = "0.17"
 rusqlite = { version = "0.40", features = ["bundled"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
@@ -23,3 +25,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha1 = "0.10"
 sha2 = "0.10"
+
+[dev-dependencies]
+# signs as the Tauri CLI signs, for the update tests
+minisign = "0.9"

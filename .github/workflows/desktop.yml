@@ -123,8 +123,8 @@ jobs:
             # once the update key is in the secrets, only a run that signed its installers with it
             if [ "$UPDATE_KEY" = true ]; then
               sigs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
-                --jq '[.artifacts[] | select((.name == "signatures-windows" or .name == "signatures-deck") and (.expired | not))] | length')
-              [ "$sigs" = 2 ] || { echo "run $run didn't sign its installers for updates: not using it"; continue; }
+                --jq '[.artifacts[] | select((.name == "signatures-windows" or .name == "signatures-deck" or .name == "signatures-android") and (.expired | not))] | length')
+              [ "$sigs" = 3 ] || { echo "run $run didn't sign its installers for updates: not using it"; continue; }
             fi
             echo "run=$run" >> "$GITHUB_OUTPUT"
             echo "::notice title=Already tested::run $run built and tested these files as $V: publishing its installer"
@@ -470,6 +470,10 @@ jobs:
       - name: Game Repo's command line (it serves the library to the emulator)
         working-directory: desktop
         run: cargo build -p gamerepo-cli 2>&1 | tee ../ci-out/cli-build.log
+      - name: The update key's public half, for the build below (D139)
+        env:
+          UPDATER_PUBKEY: ${{ secrets.UPDATER_PUBKEY }}
+        run: python tools/update_files.py --build-config "$RUNNER_TEMP/updater-android.json" --android >> "$GITHUB_ENV"
       - name: Build Game Repo Go for Android (arm64 for devices; x86_64 with debugging for the emulator)
         working-directory: desktop/client
         run: |
@@ -484,9 +488,16 @@ jobs:
           # the launcher icon (written into gen/android's res folders): the mark on a yellow
           # adaptive background, from tools/make_icons.py
           tauri icon icons/android.json 2>&1 | tail -3
-          tauri android build --ci --apk --split-per-abi --target aarch64 2>&1 | tee ../../ci-out/android-build.log
-          # the emulator's: a debug build, so its web view can be driven (no debug info, smaller)
-          CARGO_PROFILE_DEV_DEBUG=false tauri android build --ci --apk --split-per-abi --target x86_64 --debug 2>&1 | tee ../../ci-out/android-build-debug.log
+          tauri android build --ci --apk --split-per-abi --target aarch64 $UPDATER_CONFIG_ANDROID 2>&1 | tee ../../ci-out/android-build.log
+          # the emulator's: a debug build, so its web view can be driven (no debug info, smaller),
+          # with a key of its own for updates and its update file from the test (D139)
+          test_pass=$(openssl rand -hex 16)
+          echo "UPDATE_TEST_PASS=$test_pass" >> "$GITHUB_ENV"
+          tauri signer generate --ci -p "$test_pass" -w "$RUNNER_TEMP/update-test.key" > /dev/null
+          python -c 'import json, sys; json.dump({"plugins": {"updater": {"pubkey": open(sys.argv[1]).read().strip()}}}, open(sys.argv[2], "w"))' \
+            "$RUNNER_TEMP/update-test.key.pub" "$RUNNER_TEMP/updater-test.json"
+          GAMEREPO_UPDATE_FILE=http://10.0.2.2:8797/latest-game-repo-go.json CARGO_PROFILE_DEV_DEBUG=false \
+            tauri android build --ci --apk --split-per-abi --target x86_64 --debug --config "$RUNNER_TEMP/updater-test.json" 2>&1 | tee ../../ci-out/android-build-debug.log
           find gen/android/app/build/outputs/apk -name '*.apk' -exec ls -la {} \; | tee ../../ci-out/apks.txt
       - name: Game Repo Go on the emulator, against Game Repo Server
         run: |
@@ -499,8 +510,14 @@ jobs:
           adb shell getprop ro.product.cpu.abilist | tee ci-out/emulator-abis.txt
           pip install websocket-client==1.8.0
           apk=$(find desktop/client/gen/android/app/build/outputs/apk -path '*x86_64*' -name '*debug.apk' | head -1)
+          # the update the test offers (D139): this same APK, signed as 9.9.9 with the test's key
+          mkdir -p "$RUNNER_TEMP/update"
+          cp "$apk" "$RUNNER_TEMP/update/Game Repo Go_9.9.9_x86_64.apk"
+          (cd desktop/client && npm run tauri -- signer sign -f "$RUNNER_TEMP/update-test.key" -p "$UPDATE_TEST_PASS" --app-version 9.9.9 \
+            "$RUNNER_TEMP/update/Game Repo Go_9.9.9_x86_64.apk" > /dev/null)
           timeout 900 python tests/client_android.py --apk "$apk" --cli desktop/target/debug/gamerepo-cli \
-            --home "$RUNNER_TEMP/go-android" --out ci-out/go-android 2>&1 | tee ci-out/client-android.log
+            --home "$RUNNER_TEMP/go-android" --out ci-out/go-android --update "$RUNNER_TEMP/update/Game Repo Go_9.9.9_x86_64.apk" \
+            2>&1 | tee ci-out/client-android.log
       - name: Sign the APK (with the key from tools/android_signing_key.cmd)
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -530,6 +547,22 @@ jobs:
           "$bt/apksigner" verify --print-certs "$RUNNER_TEMP/game-repo-go.apk" | tee ci-out/apk-certificate.txt
           [ -z "$published" ] || cp "$RUNNER_TEMP/game-repo-go.apk" "$published"
           ls -la dist | tee ci-out/bundles.txt
+      - name: Sign the APK for updates (D139), once the update key is in the secrets
+        env:
+          UPDATER_PRIVATE_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
+          UPDATER_KEY_PASSWORD: ${{ secrets.UPDATER_KEY_PASSWORD }}
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir -p sigs
+          apk="dist/Game Repo Go_${V}_arm64.apk"
+          if [ -n "$UPDATER_CONFIG_ANDROID" ] && [ -f "$apk" ]; then
+            (cd desktop/client && npm run tauri -- signer sign -k "$UPDATER_PRIVATE_KEY" -p "$UPDATER_KEY_PASSWORD" --app-version "$V" "../../$apk" > /dev/null)
+            mv "$apk.sig" sigs/
+            ls sigs | tee ci-out/signatures.txt
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: env.UPDATER_CONFIG_ANDROID != ''
+        with: { name: signatures-android, path: sigs/, retention-days: 3, if-no-files-found: ignore }
       - name: The signed APK starts (arm64, where the emulator can run it)
         run: |
           if grep -q arm64-v8a ci-out/emulator-abis.txt; then
