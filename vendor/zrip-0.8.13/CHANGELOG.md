@@ -1,0 +1,734 @@
+# Changelog
+
+## [Unreleased]
+
+## [0.8.13] - 2026-10-20
+
+### Added
+
+- `zrip::adaptive::AdaptiveLevel` walks the compression level toward ratio
+  or speed. The caller reports each window's `CompressStats` and what
+  limited it: `Bottleneck::Output`, `Cpu`, or `Input`.
+- `CompressContext::set_level()` and `CompressContext::level()`. A context
+  with a dictionary prepares it again for the new level.
+
+### Changed
+
+- Faster encoding of compressible blocks with Huffman literals. The
+  incompressibility probe stops at the first byte value past its bound, and
+  the literal histogram reuses the density sample's counts. Output is
+  unchanged.
+- Bump the JSR and npm packages to `0.5.14`.
+
+### Fixed
+
+- Dictionaries at levels -7 to 2 no longer cost ratio. Inputs up to 16 KiB
+  used a weaker match finder than inputs without a dictionary, and larger
+  inputs never matched the dictionary. Both now use the regular match
+  finder, with dictionary matches of the level's minimum length. Inputs up
+  to 8 KiB keep the dictionary in a separate table.
+
+## [0.8.12] - 2026-10-19
+
+### Changed
+
+- All crates now enforce `#![forbid(unsafe_code)]`. The `paranoid` feature
+  remains available and has no effect today.
+- Faster decoding and encoding.
+- Retuned levels. L-7 targets LZ4's niche with raw literals and long
+  matches only; level -8 runs as L-7. L-6 to L-4 encode faster. L3 and L4
+  use a match finder modeled on C zstd's: faster, with better ratios.
+- Bump the JSR and npm packages to `0.5.12`.
+
+### Fixed
+
+- A sequences bitstream that runs out of bits early fails with
+  `CorruptSequences`, as in C zstd, instead of returning wrong bytes.
+
+## [0.8.11] - 2026-09-27
+
+### Changed
+
+- A frame that declares its content size may not write past it. A raw or
+  RLE block past the declared size fails with `FrameSizeMismatch` before it
+  is copied. A compressed block past it fails with `CorruptSequences`, as it
+  already did for the caller's output limit. Both used to fail with
+  `FrameSizeMismatch` after the last block.
+- Bump the JSR and npm packages to `0.5.11`.
+
+### Fixed
+
+- A frame that declares a content size of up to 128 MiB decodes into one
+  allocation of that size plus 64 bytes. Each block reserved 128 KiB past
+  its start, so near the end of the frame the output doubled and was
+  copied: a 1 MB frame decoded into a 2 MB buffer and a 2 KB frame into a
+  128 KiB buffer. This affected `decompress`, `decompress_into` and a
+  `DecompressContext` decoding into a new `Vec`.
+
+## [0.8.10] - 2026-09-26
+
+### Changed
+
+- `DecompressContext` is available with the `alloc` feature in `no_std`
+  builds. It no longer requires `std`.
+- Bump the JSR and npm packages to `0.5.10`.
+
+### Fixed
+
+- `DecompressContext` and `FrameDecoder` no longer decode a frame with stale
+  sequence tables from the previous frame. After a failed frame, a reused
+  context could accept a malformed frame or reject a valid one, and
+  `FrameDecoder` could reject valid concatenated frames whose first block
+  repeats the previous frame's table header.
+- `FrameDecoder` with a dictionary no longer reuses the previous frame's
+  cached Huffman header after installing the dictionary's table, which made
+  valid concatenated dictionary frames fail with `BadHuffmanStream`.
+
+## [0.8.9] - 2026-09-25
+
+### Added
+
+- Added caller-owned output methods to `DecompressContext` for pipelines that
+  need decoded buffers to outlive the next context call without copying.
+- Added `CompressContext::compress_into`, which writes a frame into a
+  caller-owned slice while reusing the context's tables.
+
+### Fixed
+
+- `CompressContext::with_dict` no longer panics when an input that restores
+  the prepared hash table snapshot follows one that took the per-call
+  dictionary path, such as a small then a large input at L3.
+- `compress_bound` now covers frames with a dictionary ID and an 8-byte
+  content size.
+- Huffman literal compression no longer silently falls back to raw literals.
+  Code lengths are limited to 11 bits instead of rejecting deeper trees, and
+  literals with byte values above 128 use FSE-compressed Huffman weights.
+  Compressed output is up to 23% smaller on Silesia text at negative levels.
+- Reuse of the previous block's Huffman table is now chosen by estimated size
+  against a fresh table, not only against raw literals.
+- Blocks without usable matches are Huffman-coded as literal-only blocks
+  instead of being stored raw.
+- A block that falls back to raw storage no longer leaves its Huffman table
+  available for reuse by the next block, which could reference a table the
+  decoder never received.
+- Huffman literal headers with more than 255 explicit weights are rejected,
+  as in C zstd.
+
+### Changed
+
+- The encoder selects AVX2/BMI2 code paths at runtime through
+  `fearless_simd`. Builds without `target-cpu=native` now run the match
+  finders and block encoder with BMI2 on supporting CPUs. Upgraded
+  `fearless_simd` to 1.0.
+- Faster encoding: word-wise backward match extension, fixed-width literal
+  copies, and a Huffman encoder that writes four symbols per flush.
+- The encoder's bit writers no longer use `unsafe`.
+- Faster decoding: literal runs copy a fixed 16 bytes when the source allows
+  it (no length-dependent branches), and the 4-stream Huffman decoder runs a
+  precomputed number of check-free rounds. Up to 25% faster on text and
+  literal-heavy input, 14-20% in `paranoid` builds.
+- Retuned the fast levels now that Huffman literals work. L-8 to L-1 hash
+  6 bytes instead of 5, L1 and L2 hash 6 bytes with larger tables and more
+  aggressive skip acceleration. Geomean over 14 Silesia and web files:
+  L-8 to L2 encode 25-50% faster, L-7 to L2 compress 6-17% smaller, L-8
+  compresses 1.3% larger.
+- L-8 is now L-7 with a larger step and faster skip acceleration. It keeps
+  Huffman literals and no longer gives up on blocks with few matches.
+  Geomean over Silesia: 508 MB/s at ratio 2.02, against L-7 at 468 MB/s
+  and 2.06. The old L-8 reached 576 MB/s at 1.75.
+- Small inputs on the negative levels skip Huffman literals up to a
+  per-level size: 2 KiB at L-1, growing 1.5x or 1.33x per level to 24 KiB
+  at L-8. At 2 KiB and below every negative level skips Huffman, for hot
+  loops over small messages.
+- On those inputs the negative levels search for matches more densely
+  (smaller step, 5-byte minimum match), so they still compress: on a 2 KiB
+  slice of dickens, 1.08 at L-8, 1.13 at L-7, up to 1.31 at L-1.
+- Inputs in that raw-literal range skip the incompressibility sampling. It
+  cost about as much as their match search. L-8 encodes 1-2 KiB text inputs
+  about 2x faster.
+- `force_raw_literals` parameters no longer give up on blocks with few
+  matches.
+- The streaming encoder no longer switches to raw literals because a flushed
+  block is small.
+- Faster Huffman table setup for small blocks: Huffman weights use FSE table
+  log 5 only, as C zstd does, and the literal entropy check reuses the
+  literal histogram.
+- L-8 to L-1 keep dense literals raw (sampled entropy above 6.25 bits per
+  byte). Low-compressibility input encodes at over 500 MiB/s on these
+  levels.
+- Faster decoding of small blocks. Custom FSE sequence tables are built in
+  place, Huffman weights decode four per refill, and Huffman table setup no
+  longer branches on zero weights. Decoding 512 B to 2 KiB slices of C zstd
+  L3 output is 1.15x to 1.8x faster.
+- Faster decoding of blocks that carry their own FSE tables, common from
+  1 KiB up. FSE decode tables spread without per-symbol branches, table
+  descriptions parse from a bit window, cached sequence tables copy only
+  their used entries, and the last symbols of each Huffman stream decode
+  without per-symbol refills. Decoding 1 to 2 KiB slices of C zstd L3
+  output is 1.24x to 1.30x faster, 512 B slices 1.07x to 1.09x.
+- Benchmark charts compare against lz4rip 0.11.7, `small_decode.svg` covers
+  512 B to 1 MiB like `small_encode.svg`, and the outdated aarch64 charts are
+  removed.
+- Bump `zrip-core` to `0.11.0`, `zrip-encode` to `0.9.0`, and `zrip-decode`
+  to `0.8.8`.
+- Bump `@paddor/zrip` to `0.5.9` on JSR and npm.
+
+## [0.8.8] - 2026-09-10
+
+### Added
+
+- Added reusable-context control over the standard frame content checksum for
+  formats that already authenticate decoded content.
+- Added npm package metadata, Node-compatible WASM initialization, and a dry
+  pack/test path for `@paddor/zrip`.
+- Added an npm release workflow that builds, smokes, and publishes
+  `@paddor/zrip` from GitHub Actions with OIDC provenance.
+
+### Fixed
+
+- Fix JSR package initialization after `deno bundle` by importing WASM and
+  its generated bindings through the module graph.
+- Accept explicitly encoded dictionary ID zero without requiring a dictionary.
+- Ignore the unused frame descriptor bit while retaining reserved-bit checks.
+- Correct `FrameDecoder` skippable-frame lengths and reject truncated payloads.
+- Reject incomplete streaming frame headers, including after a complete frame.
+- Discard failed decoder output and require `FrameDecoder::reset` after decoding
+  or reader errors, preventing later reads from returning rejected block data.
+- Keep `FrameEncoder` failed after write, flush, or finalization errors,
+  including partial writes and `WouldBlock`. Discard incomplete output and
+  create a new encoder after an error.
+
+### Changed
+
+- Bump `zrip-core` to `0.10.1` and `zrip-encode`/`zrip-decode` to `0.8.7`.
+- Bump `@paddor/zrip` to `0.5.8` on JSR and npm.
+
+## [0.8.7]
+
+### Changed
+
+- Accelerated repeated no-match scanning in the fast and dfast encoders.
+- Refreshed benchmark charts and updated their codec ordering and summary
+  geomean calculation.
+- Bumped JSR package `@paddor/zrip` to 0.5.7.
+
+## [0.8.6]
+
+### Changed
+
+- Bumped JSR package `@paddor/zrip` to 0.5.6.
+- Bumped `fearless_simd` to 0.7.0 and simplified runtime SIMD dispatch to use
+  the upstream cached level detection.
+- Replaced the published `zrip-core` CPU tier helper with a narrower BMI2
+  feature predicate.
+- Refreshed x86_64 benchmark charts.
+
+### Fixed
+
+- Emit explicit bounded window descriptors for large, dictionary, and
+  no-content-size zstd frames instead of deriving unbounded decode windows from
+  content size.
+
+## [0.8.5]
+
+### Added
+
+- Added JSR decompression options for maximum decompressed size limits.
+
+### Changed
+
+- Bumped JSR package `@paddor/zrip` to 0.5.5.
+
+### Fixed
+
+- The JSR package now ships scalar WASM as `zrip_wasm_bg.wasm`, matching
+  wasm-bindgen glue while keeping `zrip_simd.wasm` for SIMD auto-detection.
+- Enforce decompression output limits across concatenated zstd frames instead
+  of applying the limit independently to each frame.
+
+## [0.8.4]
+
+### Added
+
+- Added Kani proof harnesses for unsafe encoder and decoder primitive bounds.
+
+### Changed
+
+- Updated the JSR publish workflow to run `jsr publish` from GitHub Actions
+  for provenance-backed CI publishing.
+- Bumped JSR package `@paddor/zrip` to 0.5.3.
+- Bumped `fearless_simd` to 0.6 and the MSRV to Rust 1.89.
+- Replaced the Python chart scripts with the Rust Plotters chart generator.
+- Reworked benchmark corpus bootstrap and removed the `binggan` benchmark.
+- Refreshed x86_64 benchmark charts.
+- Marked helper functions with caller-upheld safety preconditions as
+  `unsafe fn`.
+
+### Fixed
+
+- Made `compress_into` write directly into the caller-provided output buffer.
+
+## [0.8.3]
+
+### Added
+
+- Added Miri regression coverage for unsafe-boundary failures and
+  adversarial malformed inputs found during the safety audit.
+- Added `scripts/overnight_memory_audit.sh`, a pre-release Miri and ASAN fuzz
+  audit harness that records per-phase logs and summaries while reusing the
+  bounded unsafe-primitives Miri helper.
+- Bumped JSR package `@paddor/zrip` to 0.5.2 for the current Rust codec.
+
+### Changed
+
+- Tightened safe API boundary validation before unsafe codec primitives run.
+- Moved bitstream and Huffman unsafe operations behind narrower scratch and
+  primitive adapters, reducing duplicated unsafe surface area.
+- Fixed reverse bitstream fast-refill bounds and documented the pointer
+  invariant used by the optimized path.
+- Removed unused bitstream and sequence helpers after the boundary cleanup.
+- Moved sequence table masks into `SeqTable` and avoided mask reloads in the
+  decode hot path.
+- Kept `paranoid` primitive loads in safe Rust while reducing redundant
+  bounds checks with fixed-size slice chunks.
+- Documented the chart refresh workflow and refreshed x86_64 and wasm32
+  benchmark charts.
+- Bumped the internal `zrip-core` crate to 0.9.0 for its internal API cleanup;
+  `zrip`, `zrip-encode`, and `zrip-decode` remain patch releases.
+
+## [0.8.2]
+
+### Added
+
+- Added decode APIs for zstd frames whose 4-byte magic number is stored out
+  of band, matching OpenZL transform payloads.
+- Added `scripts/miri_unsafe_primitives.sh`, a bounded parallel Miri runner
+  for the unsafe encode and decode primitive tests.
+- Added `release-plz` automation for release PRs, tags, crates.io
+  publishing, and GitHub releases.
+
+### Changed
+
+- Avoid repeated predefined LL/OF/ML sequence table clones when compressed
+  blocks keep using predefined sequence tables.
+- Specialized one-sequence decode execution and wide match copies for tiny
+  OpenZL-style zstd frames.
+- Unrolled the multi-sequence decode loop when the reverse bit reader can use
+  its fast refill path.
+- Reuse identical explicit Huffman decode tables across frames.
+- Folded Huffman weight max scanning into the weight-sum pass.
+- Tuned encoder levels L-7 through L4 for smoother speed and ratio spacing,
+  including the small-input curves.
+- Simplified and documented unsafe primitive boundaries in the encode,
+  decode, and core crates.
+- Updated README, DESIGN, SAFETY, and DEVELOPMENT docs for level 0 behavior,
+  all-level decode support, current unsafe boundaries, and release audit
+  workflow.
+- Updated JSR package docs and tests for L-8 encode support and all-level
+  decode compatibility.
+- Bumped benchmark comparison dependencies, including structured-zstd 0.0.48.
+- Refreshed x86_64 and wasm32 benchmark charts.
+
+## [0.8.1]
+
+### Changed
+
+- Reused Huffman decode tables and `MaybeUninit` FSE sequence table storage
+  to remove per-block decode allocations.
+- Specialized decoder no-history execution and sequence table reads to
+  reduce decode hot-loop work.
+- Specialized DFast MLS4, Fast L1 hash-log, and rare Fast MLS7 encode hot
+  paths.
+- Preserved copied `MaybeUninit` sequence entries for the default path while
+  borrowing sequence table entries in `paranoid` builds, recovering
+  `paranoid` decode throughput.
+- Refreshed x86_64 benchmark charts after rebenchmarking `zrip` and
+  `zrip paranoid` with performance governor and turbo off.
+- JSR package `@paddor/zrip` bumped to 0.5.1 for the current Rust codec.
+
+## [0.8.0]
+
+### Added
+
+- Level -8 (zrip-only): same parameters as old L-7 but with
+  `force_raw_literals`, extending the level range from [-7, 4] to [-8, 4].
+  Old L-7 now gets Huffman-compressed literals while L-8 trades ratio for
+  maximum encode throughput.
+- 3-tier dictionary setup in `CompressContext` adapts hash table
+  initialization to input size: micro inputs use a linear-scan attached
+  match finder with raw literals, small inputs add Huffman from dict
+  tables, large inputs copy the full hash snapshot.
+- Decode-side dictionary FSE/Huffman caching: pre-promotes dict tables at
+  construction time so each frame clones promoted tables instead of
+  rebuilding from raw dictionary entries.
+### Changed
+
+- L2 `hash_log` raised from 16 (256 KB) to 17 (512 KB) for better ratio.
+- `huf_worth_trying` minimum gain threshold raised from n/256 (~0.4%) to
+  n/32 (~3%) to skip Huffman table builds on marginally compressible
+  blocks.
+- Per-level raw literals size ramp skips Huffman for tiny blocks.
+- Decode doctests changed to `no_run` so Miri does not attempt
+  `fearless_simd::dispatch!` AVX2 paths it cannot emulate.
+
+## [0.7.3]
+
+### Fixed
+
+- Three UB vulnerabilities found by miri:
+  - `ReverseBitReader::refill_fast` could underflow `ptr` and read out of
+    bounds on short streams. Now returns early instead of relying on
+    `debug_assert!`.
+  - Huffman decode functions trusted `table_log` without checking that the
+    table had enough entries, allowing out-of-bounds `get_unchecked`.
+    All entry points now validate `table.len() >= 1 << table_log`.
+  - Sequence execution did not check trailing-literal length against the
+    block-size limit, allowing `fast_extend_from_slice` to write past the
+    reserved capacity.
+- `compress_with_params` and `level_params_for_size` now clamp `hash_log`
+  and `chain_log` to [6, 30], preventing out-of-bounds hash table access
+  when callers supply extreme values.
+
+## [0.7.2]
+
+### Fixed
+
+- README: corrected "Safe decoder" claim. The decode crate has unsafe in
+  `fast_vec.rs`; only the `paranoid` feature makes it fully safe.
+- Regenerated small-input benchmark chart with structured-zstd 0.0.45.
+
+## [0.7.1]
+
+### Fixed
+
+- Excluded `jsr/` directory from the published crate package.
+
+## [0.7.0]
+
+### Changed
+
+- Decoder SIMD dispatch replaced with `fearless_simd::dispatch!`. Removed
+  the entire `simd_decode/` directory (3 platform-specific fused decode
+  loops, ~1300 lines) and all platform SIMD primitives in `core/simd/`
+  (~800 lines). A single safe Rust implementation in `exec.rs` now handles
+  all platforms; `fearless_simd` compiles it with the appropriate target
+  features at build time.
+- FSE sequence decode tables changed from `Vec` + raw-pointer
+  `FseSeqTableView` to fixed-size `[FseSeqDecodeEntry; 512]` arrays with
+  `state & 511` indexing. LLVM proves the index is always in bounds,
+  eliminating bounds checks and all associated unsafe. Smaller stack frame
+  (232 bytes vs 296 bytes).
+- Decoder literal and match copies use wild-copy functions in `fast_vec.rs`:
+  16-byte unaligned load/store loops for non-overlapping copies, pattern
+  stamping for small overlapping offsets, `write_bytes` for RLE. Under
+  `paranoid`, these fall back to `extend_from_slice` and
+  `extend_from_within`.
+- `paranoid` feature now gets full SIMD multiversioning via `fearless_simd`
+  (no unsafe needed). Only Huffman BMI2 dispatch and wild-copy are gated
+  out. Paranoid decode throughput improved significantly compared to 0.6.0
+  where SIMD dispatch was unavailable.
+- Bumped structured-zstd bench dependency to 0.0.45 and regenerated all
+  benchmark charts (x86_64, wasm32).
+- Updated DEVELOPMENT.md with paranoid bench instructions and full chart
+  workflow.
+
+### Removed
+
+- `crates/decode/src/simd_decode/` (x86_64, aarch64, wasm32 fused decode).
+- `crates/core/src/simd/` platform modules (avx2, sse2, bmi2, neon,
+  simd128, scalar, copy). Only `CpuTier` enum and `cpu_tier()` remain for
+  Huffman BMI2 dispatch.
+
+## [0.6.0]
+
+### Added
+
+- WASM SIMD128 decode path: fused FSE decode+execute loop
+  (`simd_decode/wasm32/decode.rs`) and core SIMD primitives (wildcopy,
+  copy_match, common_prefix_len) in `simd/wasm32/simd128.rs`. Dispatched
+  via `CpuTier::Wasm32Simd128` at compile time when
+  `target_feature = "simd128"` is enabled.
+- Long distance matching (LDM) encoder (`ldm.rs`): gear hash scan with
+  gap fill via Fast/DFast strategy. Controlled via `Options::ldm(true)`
+  and `Options::window_log(n)`. Enabled by default via the `ldm` feature
+  flag, with zero runtime cost when not activated.
+- Cross-block match references in streaming encoder: matches can now
+  reference data from prior blocks within the window, improving
+  compression ratio on multi-block inputs.
+- `Options` API for configuring `window_log` and `ldm` on
+  `compress_opts()` and `FrameEncoder::with_options()`.
+- wasm32 benchmark charts (`doc/charts/wasm32/`) comparing zrip
+  (SIMD128), zrip paranoid (no SIMD), C zstd (libzstd via wasi-sdk),
+  and structured-zstd.
+- `--profile` flag for plot scripts (`scripts/profiles.py`) enabling
+  per-target chart generation with consistent codec colors and labels.
+- Streaming, LDM, and cross-block matching tests in
+  `tests/streaming.rs`.
+
+### Fixed
+
+- 32-bit overflow in `parse_compressed_header` format-3 branch
+  (`literals.rs`): `(data[4] as usize) << 28` overflows on wasm32
+  where usize is 32 bits. Fixed by accumulating into u64.
+- `cpu_tier()` now returns `Scalar` under Miri to avoid UB from CPUID
+  intrinsics.
+- Unused variable warning on targets without prefetch support.
+
+### Changed
+
+- Bench cache layout restructured to per-target directories
+  (`~/.cache/zrip/{arch}/L{level}/{codec}.jsonl`).
+- Corpus paths resolved via `CARGO_MANIFEST_DIR` so bench downloads
+  land in `bench/corpus/` regardless of working directory.
+- JSR package `@paddor/zrip` bumped to 0.3.0.
+
+## [0.5.1]
+
+### Fixed
+
+- Decoder now enforces per-table accuracy log limits: literal lengths
+  and match lengths max 9, offsets max 8 (RFC 8878 section 3.1.1.3.2.1).
+- Decoder rejects Huffman weight FSE tables with accuracy log > 6
+  (RFC 8878 section 4.2.1).
+- Decoder rejects Huffman streams with leftover bits after decoding.
+- Decoder validates match offset does not exceed total output produced
+  so far (current block + previous blocks + dictionary).
+- Decoder validates sequence execution does not consume more literals
+  than available, and that the last sequence uses all remaining literals.
+- Decoder validates cooked match length and literal length values are
+  within bounds.
+- Decoder rejects Repeat_Mode on first block when no prior FSE table
+  exists.
+
+### Added
+
+- `tests/spec_conformance.rs`: comprehensive test suite covering all
+  new decoder validation paths and existing error paths.
+- JSR publish workflow (`.github/workflows/jsr.yml`) with provenance
+  via OIDC. Builds WASM and publishes `@paddor/zrip` on push to main.
+
+### Changed
+
+- JSR package `@paddor/zrip` bumped to 0.2.0: added package description,
+  JSDoc on all exported symbols (`Compressor`, `Decompressor`,
+  `Dictionary`), and rebuilt WASM artifacts.
+- Bumped structured-zstd bench dependency to 0.0.44 and regenerated
+  benchmark charts.
+
+## [0.5.0]
+
+### Added
+
+- `paranoid` feature: compiles pure safe Rust with zero unsafe code.
+  `#![forbid(unsafe_code)]` enforced on all four crate roots. Every
+  unchecked operation has a safe alternative behind `#[cfg(feature =
+  "paranoid")]`. SIMD modules gated out entirely; `cpu_tier()` returns
+  `Scalar`. Even with paranoid, zrip L1 encode is >2x faster than
+  ruzstd.
+- CI job for `--features paranoid`: test + clippy.
+- WebAssembly package published as
+  [`@paddor/zrip`](https://jsr.io/@paddor/zrip) on JSR. Scalar and
+  SIMD128 variants with auto-detection. 15% faster encode and 14%
+  faster decode than C zstd compiled to WASM.
+
+### Changed
+
+- Replaced pointer-based `exec.rs` (scalar sequence decoder) with safe
+  index-based implementation using `Vec<u8>` operations. Zero
+  performance impact on default builds (SIMD handles all decode on
+  AVX2/NEON hardware). Deleted `decode/src/primitives.rs` (dead code
+  after this change).
+- Regenerated x86_64 benchmark charts with paranoid data.
+
+## [0.4.0]
+
+### Added
+
+- `PreparedDict` for hot-loop dictionary compression: pre-computes hash
+  tables and entropy tables once, amortizing setup across many small
+  compress calls.
+- `decompress_with_limit(input, max_output_size)` and
+  `SAFE_DECOMPRESS_LIMIT` constant for bounded decompression that
+  rejects frames claiming unreasonable output sizes.
+- Dict entropy table reuse and small-input optimizations for Fast
+  strategy: skips redundant Huffman/FSE table construction when
+  dictionary tables can be reused, improving throughput on small inputs.
+
+### Fixed
+
+- Integer overflow in `compress_bound` for near-`usize::MAX` inputs.
+
+### Changed
+
+- Split `CorruptSequences` error into specific variants
+  (`CorruptLiteralLength`, `CorruptMatchLength`, `CorruptOffset`) for
+  better diagnostics.
+- Restricted internal types from leaking through `pub use` of
+  sub-crates.
+- Deduplicated `parse_fse_table_description`, `build_decode_table`,
+  `write_seq_count`, and `write_frame_header` helpers across encode and
+  decode paths.
+- Replaced `assert_unchecked` with cold-path panic in
+  `assert_rep_valid` for safer debug builds.
+- Added `debug_assert` guards for Huffman table and unsafe invariants.
+- Gated std-only tests and examples behind `feature = "std"`.
+- Updated benchmark charts with structured-zstd 0.0.42 results and
+  added L-3/L-1 lines to small-input chart.
+- Added codebase size note to README.
+
+## [0.3.4]
+
+### Added
+
+- SECURITY.md with private vulnerability reporting instructions.
+
+## [0.3.3]
+
+### Fixed
+
+- Bump sub-crate versions to allow publishing on crates.io (0.3.2
+  sub-crates were never published).
+
+## [0.3.2]
+
+### Added
+
+- DESIGN.md: encode/decode pipeline, SIMD dispatch, compile-time
+  specialization, level parameters, and divergences from C zstd.
+- SAFETY.md: catalogs 17 verified C zstd memory safety bugs that Rust
+  prevents by construction (CVEs, OSS-Fuzz findings, AFL reports).
+- Per-file pipeline chart (`plot_pipeline.py` and `pipeline.svg`).
+- aarch64 benchmark charts behind collapsible in README.
+- Dictionary training example in README (`train_dict_fastcover`).
+
+### Changed
+
+- Replaced stale README performance tables with auto-generated charts.
+- Chart legend label changed from "safe API" to "encapsulated unsafe".
+- Fixed README Levels table: min-match was wrong for L1 (said 7, is 4)
+  and L2 (said 6, is 4).
+- `detect_hardware()` in plot scripts now supports `ZRIP_CPU` env var
+  for macOS/aarch64 chart subtitle.
+- Added `include` field to Cargo.toml for crates.io packaging.
+
+## [0.3.1]
+
+### Fixed
+
+- UB in SIMD decode: `wildcopy_neon_write32` computed an out-of-bounds pointer
+  before checking if the fast path applies, triggering UB even when `len < 32`.
+- Removed dead `decode_sequences_neon` that referenced undefined variables and
+  would fail to compile on aarch64.
+- Fixed `eprintln!("")` clippy warning in decode_compare example.
+
+### Changed
+
+- Split monolithic 3k-line test file into focused modules (`roundtrip`,
+  `interop`, `streaming`, `dict`, `adversarial`, `proptest_tests`).
+- Made tests Miri-compatible: avoid C zstd FFI and SIMD paths under Miri,
+  use pure-Rust scalar fallbacks.
+- Removed stale version badge from README.
+
+## [0.3.0]
+
+### Added
+
+- Streaming dictionary compression: `FrameEncoder::with_dict()`,
+  `FrameDecoder::with_dict()`, and `reset_with_dict()` for buffer-reusing
+  streaming with trained dictionaries.
+- `CompressContext::with_dict()` and `DecompressContext::with_dict()` for
+  reusable one-shot dictionary compression.
+
+### Changed
+
+- Encapsulated all unsafe behind `primitives.rs` modules with safe
+  `pub(crate)` signatures. Every algorithm module now enforces
+  `#![forbid(unsafe_code)]`. Unsafe confined to primitives, SIMD intrinsics,
+  and the 4-stream Huffman decoder.
+
+## [0.2.1]
+
+### Fixed
+
+- Sub-crate feature flags: `std` now correctly enables `alloc` in zrip-encode
+  and zrip-decode, fixing compilation when published to crates.io.
+- Added version specifiers to workspace path dependencies for crates.io
+  publishing.
+
+## [0.2.0]
+
+### Changed
+
+- Split into workspace crates (zrip-core, zrip-encode, zrip-decode). Public API
+  unchanged.
+- Encode throughput improved 4-17% across all levels:
+  - Reduced instruction count 9.6% via gather loop and stack-allocated FSE
+    tables in the block encoder.
+  - Likely/unlikely branch hints on encode and decode fast paths.
+  - Inlined DFast rep offsets and hash helpers to eliminate aliasing barriers.
+  - Switched DFast short hash to h5 for +5% encode speed.
+  - Fixed DFast `rep_match_loop` to avoid redundant hash lookups.
+  - Reduced match finder register pressure by eliminating ip3 and deferring
+    hash computation.
+- Decode throughput improved 5-24% across all levels:
+  - Reduced decode instruction count via inline rep offsets and no-history
+    specialization.
+  - Likely/unlikely branch hints on decode fast paths.
+- Switched negative levels to 5-byte hash for fewer false collisions.
+- Fixed L1/L2 accidentally using hash5 when min_match >= 5.
+- Removed dead code and unused unchecked modules across workspace.
+- Updated dev-dependency structured-zstd to 0.0.40.
+
+## [0.1.4]
+
+### Changed
+
+- Split README benchmark table by compressible/incompressible corpus.
+
+## [0.1.3]
+
+### Changed
+
+- Level 0 now maps to the library default (level 1) instead of returning an
+  error. Exported `DEFAULT_LEVEL` constant.
+- L-7 now emits raw literals and uses predefined FSE tables only, skipping
+  Huffman encoding and custom FSE table construction. Lower ratio, higher
+  throughput.
+
+## [0.1.2]
+
+### Changed
+
+- Aligned negative-level params to C zstd 1.5.7: window_log 14->19,
+  hash_log 14->13. The larger window improves ratio at negative levels
+  (L-7: 2.19x -> 2.39x geomean) and the smaller hash table (32KB, fits L1
+  cache) keeps encode speed competitive.
+- Updated dev-dependency structured-zstd to 0.0.37.
+
+### Added
+
+- Encode speed vs compression ratio scatter chart showing all levels L-7..L4.
+
+## [0.1.1]
+
+### Changed
+
+- Aligned L1 and L2 compression parameters to C zstd 1.5.7 defaults
+  (hash_log 17->14 at L1, 18->16 at L2), reducing hash table pressure on L1
+  cache and improving encode throughput on all data.
+- L1 encode throughput improved ~18% (193->228 MB/s geomean).
+- L1 decode throughput improved ~18% (566->667 MB/s geomean).
+- L3 DFast window_log increased from 20 to 21 to match C zstd.
+
+### Added
+
+- Mid-block match ratio bail-out in the Fast encoder: blocks with poor match
+  rates are detected and emitted as raw blocks early, avoiding wasted work on
+  incompressible data.
+- Encoder pre-check in block_encoder that skips FSE/Huffman encoding when
+  total match bytes cannot beat a raw block.
+
+## [0.1.0]
+
+- Initial release: Fast/DFast encode (levels -7..4), decode, streaming,
+  dictionary compression (COVER/FastCOVER), SIMD-dispatched hot paths, no_std.

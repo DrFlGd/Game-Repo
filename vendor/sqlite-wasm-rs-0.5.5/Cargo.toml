@@ -1,0 +1,48 @@
+[build-dependencies.bindgen]
+optional = true
+version = "0.72"
+
+[build-dependencies.cc]
+version = "1"
+
+[dependencies.js-sys]
+default-features = false
+version = "0.3.81"
+
+[dependencies.rsqlite-vfs]
+version = "0.1.0"
+
+[dependencies.wasm-bindgen]
+default-features = false
+version = "0.2.104"
+
+[dev-dependencies.wasm-bindgen-test]
+version = "0.3.54"
+
+[features]
+sqlite3mc = []
+
+[lib]
+path = "src/lib.rs"
+
+[package]
+authors = ["Spxg <unsafe@outlook.es>"]
+autobenches = false
+autobins = false
+autoexamples = false
+autolib = false
+autotests = false
+categories = ["development-tools::ffi", "wasm", "database"]
+description = "`wasm32-unknown-unknown` bindings to the libsqlite3 library."
+edition = "2021"
+include = ["src/**/*.rs", "build.rs", "sqlite3/**/*.c", "sqlite3/**/*.h", "sqlite3mc/**/*.c", "sqlite3mc/**/*.h", "shim/**/*.h", "shim/**/*.c", "Cargo.toml", "/README.md", "LICENSE"]
+keywords = ["sqlite", "sqlite-wasm", "wasm", "webassembly", "javascript"]
+license = "MIT"
+name = "sqlite-wasm-rs"
+readme = "README.md"
+repository = "https://github.com/Spxg/sqlite-wasm-rs"
+rust-version = "1.81.0"
+version = "0.5.5"
+
+[package.metadata.docs.rs]
+targets = ["wasm32-unknown-unknown"]

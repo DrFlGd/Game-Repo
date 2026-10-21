@@ -1,0 +1,54 @@
+# Changelog
+
+## [Unreleased]
+
+## [0.8.11] - 2026-10-19
+
+- Enforce `#![forbid(unsafe_code)]` for every build. The `paranoid` feature
+  remains available and has no effect today.
+- Faster sequence and literal decoding with safe output copies and
+  two-symbol Huffman tables for dense literal sections.
+- Reject sequence bitstreams that run out of bits early with
+  `CorruptSequences` instead of returning incorrect output.
+
+## [0.8.10] - 2026-09-27
+
+- Use a frame's declared content size as its output limit. Up to 128 MiB,
+  the output is allocated once at that size plus 64 bytes instead of
+  doubling near the end of the frame. A compressed block past the declared
+  size fails with `CorruptSequences`, and a raw or RLE block with
+  `FrameSizeMismatch`.
+
+## [0.8.9] - 2026-09-26
+
+- Make `DecompressContext` available with the `alloc` feature. It no longer
+  requires `std`.
+- Mark the live sequence tables as no longer matching the table cache
+  whenever they are replaced: when a failed frame dropped them and when the
+  streaming decoder starts or resets a frame. Stale tables had made a reused
+  context accept malformed frames and reject valid ones.
+- Invalidate the cached Huffman header and weights when the streaming
+  decoder installs a dictionary's Huffman table, as the one-shot decoder
+  already did.
+
+## [0.8.8] - 2026-09-25
+
+- Add caller-owned output methods to `DecompressContext`, retaining reusable
+  decoder workspace without requiring decoded buffers to be copied.
+- Upgrade `fearless_simd` to 1.0.
+- Copy literal runs with a fixed 16-byte copy when enough source remains,
+  including a safe variant for `paranoid` builds.
+- Fill custom LL/ML/OF sequence tables in place instead of building and
+  moving a new table per block.
+- Copy only the used entries of sequence tables when caching them or
+  restoring predefined and dictionary tables, and refresh the table cache
+  in place instead of allocating a new one per block.
+- Update `zrip-core` to `0.11.0`.
+
+## [0.8.7] - 2026-09-10
+
+- Correct `FrameDecoder` skippable-frame lengths and reject truncated payloads.
+- Reject incomplete streaming frame headers, including after a complete frame.
+- Discard failed output and require `FrameDecoder::reset` after decoding or
+  reader errors.
+- Update `zrip-core` to `0.10.1`.
