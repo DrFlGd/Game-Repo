@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.41 (2026-10-21)
+
 - **Game Repo, Game Repo Server and Game Repo Go can update themselves, on Windows and the Steam Deck.** Each looks for a newer version as it starts (Settings › Updates turns that off) or when you choose *Check for updates* (in About and Settings in Game Repo, the server's window and tray menu, and Game Repo Go's Settings), shows what's new, and installs it only when you choose *Update and restart*. Every update is checked against the key the programs were built with before it runs. Updating starts with the first release built with that key, once it's set up (`tools\updater_key.cmd`); install that one by hand, and the programs update themselves from then on.
 
 ## 0.5.40 (2026-10-21)
