@@ -1570,6 +1570,9 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 .pc-badge-ready { border-color: var(--accent-edge); }
 .pc-badge-look { border-color: var(--danger); color: var(--danger); }
 .pc-badge-update { border-color: var(--focus); }
+.pc-badge-own { border-color: var(--accent-edge); border-style: dashed; }
+.pc-item-replaces { font-size: 12.5px; }
+.pc-item-actions { display: flex; flex-direction: column; gap: 4px; flex: none; }
 .identify-query { display: flex; gap: 6px; }
 .identify-query input[type="search"] { flex: 1; }
 .identify-list { max-height: 50vh; overflow: auto; }

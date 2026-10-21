@@ -272,6 +272,39 @@ pub fn identify(ix: &Index, lib: &Library, id: &str, m: &Match, retitle: bool) -
     pcgames::get(lib, id)
 }
 
+/// None of these (Identify…, D128): a PC game that's no source's game. Its ids go from
+/// `PC/…/game.json` with what else tied it to a source (a GOG slug, the source it was
+/// identified by, artwork still to fetch), and the sources' answers stop naming a game of
+/// theirs (their ids go); its title and year stay. What the sources said stays in its
+/// details and pictures, for Delete metadata… to take away with Undo.
+pub fn unmatch(ix: &Index, lib: &Library, id: &str) -> Result<Entry> {
+    lib.writable()?;
+    let d = ensure(ix, lib, &pcgames::get(lib, id)?)?;
+    let mut e = pcgames::get(lib, id)?;
+    e.game.ids.clear();
+    for k in ["gog_slug", "identified_by"] {
+        e.game.details.remove(k);
+    }
+    for k in ["art", "art_from"] {
+        e.game.extra.remove(k);
+    }
+    e.game.modified = now();
+    pcgames::write_manifest(&e.dir, &e.game)?;
+    for (s, mut a) in sources::answers(&d) {
+        if let Some(o) = a.as_object_mut().filter(|o| o.contains_key("id")) {
+            o.remove("id");
+            sources::write_answer(&d, &s, &a)?;
+        }
+    }
+    let mut v = meta::read_game(&d);
+    if let Some(o) = v.as_object_mut() {
+        o.remove("identified_by");
+    }
+    make(lib, &d, &mut v);
+    meta::write_game(ix, lib, &d, &v)?;
+    pcgames::get(lib, id)
+}
+
 /// After an import: each game it wrote (`games`, their `PC/…` folders) has its details kept
 /// as the answer of the source that found it, and the artwork that source offered (kept in
 /// `game.json` until now) fetched as its pictures. The titles that got some.

@@ -561,17 +561,32 @@ pub struct Item {
     pub details: Map<String, Value>,
     /// How it was identified: goggame | innoextract | steam | name | search | you
     pub found: String,
-    /// ready | look (needs a look) | have (in the library already) | update (goes into a game there)
+    /// ready | look (needs a look) | have (in the library already) | update (goes into a game
+    /// there) | own (matched to no source, a game of its own: No match, D128)
     pub status: String,
     /// The PC game it goes into (or is in already), or "item:<key>" for another item's new game
     pub game: Option<String>,
     pub game_title: Option<String>,
+    /// The parts that game has already (install, extracted…): an installer or unpacked copy
+    /// brought into it replaces its own (D130)
+    pub game_parts: Vec<String>,
+    /// What its files and name said, before a source's answer: what No match puts back
+    pub read: Option<AsRead>,
     /// install | patch | extra | dlc | extracted
     pub part: String,
     pub include: bool,
     pub note: Option<String>,
     /// Artwork a source offered, fetched once the import has run: kind → URL
     pub art: BTreeMap<String, String>,
+}
+
+/// An item's title, year and source as its files and name gave them.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct AsRead {
+    pub title: String,
+    pub year: Option<i32>,
+    pub source: String,
 }
 
 /// The items in an inbox folder: what's in it, without the app's own folders.
@@ -808,6 +823,7 @@ pub fn read_items(
             done += size;
         }
         identify_item(it, cancel);
+        it.read = Some(AsRead { title: it.title.clone(), year: it.year, source: it.source.clone() });
     }
     // what's in the library already
     let games = list(lib);
@@ -846,6 +862,7 @@ pub fn read_items(
                 it.status = "update".into();
                 it.game = Some(e.game.id.clone());
                 it.game_title = Some(e.game.title.clone());
+                it.game_parts = PARTS.iter().map(|(k, _)| k.to_string()).filter(|k| has_part(e, k)).collect();
             }
             None => {
                 it.status = if it.found == "name" || it.found.is_empty() || it.kind == "other" || it.kind == "patch" { "look" } else { "ready" }.into();
@@ -876,6 +893,27 @@ pub fn apply_match(it: &mut Item, m: &Match) {
     if it.source.is_empty() && (m.source == "gog" || m.source == "steam") {
         it.source = m.source.clone();
     }
+}
+
+/// No match (D128): an item no source has, kept as a game of its own. What a source's answer
+/// put in goes (its ids, details and artwork, a search's or yours), and with them what tied it
+/// to a source or a game there (its files' own ids, a GOG slug); its title, year and source
+/// are what its files and name said again, for you to change.
+pub fn unmatch(it: &mut Item) {
+    if let Some(r) = &it.read {
+        it.title = r.title.clone();
+        it.year = r.year;
+        it.source = r.source.clone();
+    }
+    it.ids.clear();
+    it.details.clear();
+    it.art.clear();
+    it.found.clear();
+    it.status = "own".into();
+    it.game = None;
+    it.game_title = None;
+    it.game_parts.clear();
+    it.include = true;
 }
 
 /// What the item's files and name say about it.
@@ -928,6 +966,11 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
         game: PcGame,
         old: Option<PathBuf>,
         ops: Vec<Op>,
+        /// A game there's own install or unpacked copy, set aside for the new one (D130)
+        aside: Vec<Op>,
+        replaced: HashSet<String>,
+        /// The paths in its folder those leave free (lower case)
+        freed: HashSet<String>,
     }
     let mut targets: Vec<Target> = vec![];
     let mut by_item: HashMap<String, usize> = HashMap::new();
@@ -948,7 +991,7 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
                 Some(&t) => t,
                 None => {
                     let e = existing.remove(g).unwrap();
-                    targets.push(Target { old: Some(e.dir.join(MANIFEST)), dir: e.dir, game: e.game, ops: vec![] });
+                    targets.push(Target { old: Some(e.dir.join(MANIFEST)), dir: e.dir, game: e.game, ops: vec![], aside: vec![], replaced: HashSet::new(), freed: HashSet::new() });
                     by_game.insert(g.to_string(), targets.len() - 1);
                     targets.len() - 1
                 }
@@ -975,13 +1018,33 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
                     imported: stamp.clone(),
                     ..Default::default()
                 };
-                targets.push(Target { dir: root.join(name), game, old: None, ops: vec![] });
+                targets.push(Target { dir: root.join(name), game, old: None, ops: vec![], aside: vec![], replaced: HashSet::new(), freed: HashSet::new() });
                 targets.len() - 1
             }
         };
         by_item.insert(it.key.clone(), t);
         let target = &mut targets[t];
         let part = PARTS.iter().find(|(k, _)| *k == it.part).map(|(_, d)| *d).unwrap_or("install");
+        // one install and one unpacked copy a game (D130): an installer (or unpacked copy)
+        // brought into a game there takes the place of the one it has, which is set aside so
+        // Undo brings it back. Every item this import brings is the new one together (discs,
+        // parts), and patches, DLC and extras add up as before.
+        if target.old.is_some() && (it.part == "install" || it.part == "extracted") && !it.files.is_empty() && target.replaced.insert(it.part.clone()) {
+            let gone = part_files(&target.dir, &target.game, &it.part);
+            let what = if it.part == "install" { "its installer" } else { "its unpacked copy" };
+            for (rel, p) in &gone {
+                let op = aside_op(&root, p, &target.game.title, Some(format!("{what}, replaced by {}", it.name)));
+                target.aside.push(op);
+                target.freed.insert(rel.to_lowercase());
+            }
+            target.game.files.retain(|f| f.kind != it.part);
+            if it.part == "extracted" {
+                target.game.extra.remove("unpacked");
+                if target.game.launch.as_ref().is_some_and(|l| l.program.starts_with("extracted/")) {
+                    target.game.launch = None;
+                }
+            }
+        }
         if target.game.launch.is_none() {
             target.game.launch = it.launch.clone().filter(|_| part == "extracted");
         }
@@ -1003,7 +1066,7 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
             }
             let mut rel = rel;
             let mut n = 2;
-            while target.game.files.iter().any(|x| x.path.eq_ignore_ascii_case(&rel)) || (target.old.is_some() && rel_path(&target.dir, &rel).exists()) {
+            while target.game.files.iter().any(|x| x.path.eq_ignore_ascii_case(&rel)) || (target.old.is_some() && !target.freed.contains(&rel.to_lowercase()) && rel_path(&target.dir, &rel).exists()) {
                 let p = Path::new(&f.rel);
                 let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
                 let ext = p.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
@@ -1059,14 +1122,15 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
         t.game.modified = stamp.clone();
         let text = manifest_text(&t.game)?;
         let to = t.dir.join(MANIFEST);
+        // the one it replaces is set aside at the top of the PC games folder, as what else
+        // the change sets aside is, so the game's own folder holds only the game
         let from = match &t.old {
-            Some(old) => vec![Src {
-                file_id: 0, root: format!("dir:{}", t.dir.display()), rel: MANIFEST.into(), path: old.display().to_string(), member: None,
-                size: std::fs::metadata(old).map(|m| m.len()).unwrap_or(0), crc32: String::new(), sha1: None,
-            }],
+            Some(old) => vec![aside_src(&root, old)],
             None => vec![],
         };
         let title = t.game.title.clone();
+        // what's set aside first, so the new files take their places
+        ops.extend(t.aside);
         ops.extend(t.ops);
         ops.push(Op { op: "text".into(), game: title, to: to.display().to_string(), from, names: vec![text.clone()], aside: vec![], size: text.len() as u64, note: Some("game.json".into()) });
     }
@@ -1097,6 +1161,117 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
 
 fn rel_path(dir: &Path, rel: &str) -> PathBuf {
     rel.split('/').filter(|p| !p.is_empty() && *p != "." && *p != "..").fold(dir.to_path_buf(), |p, part| p.join(safe_name(part)))
+}
+
+/// What of a part a game has in its folder, by its path there and on disk: the files
+/// `game.json` lists as that part and, for its unpacked copy, everything in `extracted/`
+/// (Unpack's files aren't listed).
+fn part_files(dir: &Path, g: &PcGame, part: &str) -> Vec<(String, PathBuf)> {
+    let mut v: Vec<(String, PathBuf)> = g.files.iter().filter(|f| f.kind == part).map(|f| (f.path.clone(), rel_path(dir, &f.path))).collect();
+    if part == "extracted" {
+        let base = dir.join("extracted");
+        let mut files = vec![];
+        walk(&base, &mut files);
+        v.extend(files.into_iter().map(|p| (format!("extracted/{}", rel_of(&base, &p)), p)));
+    }
+    let mut seen = HashSet::new();
+    v.retain(|(_, p)| p.is_file() && seen.insert(key(p)));
+    v
+}
+
+/// Whether a game has a part in its folder already (an installer, an unpacked copy…).
+pub fn has_part(e: &Entry, part: &str) -> bool {
+    !part_files(&e.dir, &e.game, part).is_empty()
+}
+
+/// A file a change sets aside: in the `.gamerepo-set-aside` folder at the top of `base` (the
+/// PC games folder, or `_library/games` for a game's details), at its place below it (D20).
+fn aside_src(base: &Path, p: &Path) -> Src {
+    Src {
+        file_id: 0, root: format!("dir:{}", base.display()), rel: rel_of(base, p), path: p.display().to_string(), member: None,
+        size: std::fs::metadata(p).map(|m| m.len()).unwrap_or(0), crc32: String::new(), sha1: None,
+    }
+}
+
+fn aside_op(base: &Path, p: &Path, game: &str, note: Option<String>) -> Op {
+    let src = aside_src(base, p);
+    Op { op: "aside".into(), game: game.to_string(), to: src.path.clone(), size: src.size, from: vec![src], names: vec![], aside: vec![], note }
+}
+
+// ------------------------------------------------------------ removing a game
+
+/// Remove from the library… (D129): a change that sets aside every file of a game's folder
+/// and its details, pictures and documents in `_library/games/pc/<id>/`, with the preview and
+/// Undo. Its `game.json` goes last, so a step that fails leaves the game listed.
+pub fn remove_plan(lib: &Library, id: &str) -> Result<Plan> {
+    lib.writable()?;
+    let e = get(lib, id)?;
+    let root = folder(lib);
+    let games = crate::meta::games_root(lib);
+    let title = e.game.title.clone();
+    let manifest = e.dir.join(MANIFEST);
+    let mut ops = vec![];
+    let mut files = vec![];
+    walk(&e.dir, &mut files);
+    for p in files.iter().filter(|p| key(p) != key(&manifest)) {
+        ops.push(aside_op(&root, p, &title, None));
+    }
+    let mut kept = vec![];
+    walk(&crate::pcmeta::dir(lib, id), &mut kept);
+    for p in &kept {
+        ops.push(aside_op(&games, p, &title, Some("its details, pictures and documents in the library".into())));
+    }
+    if manifest.is_file() {
+        ops.push(aside_op(&root, &manifest, &title, None));
+    }
+    Ok(Plan {
+        id: organise::new_id(),
+        created: now(),
+        kind: "pc_remove".into(),
+        label: format!("Removed {title} from the library"),
+        title: format!("Remove {title} from the library"),
+        dat: Value::Null,
+        platform: "pc".into(),
+        mode: "aside".into(),
+        format: "keep".into(),
+        out: None,
+        ops,
+        games: 1,
+        in_place: 0,
+        conflicts: vec![],
+        duplicates: vec![],
+        left: vec![],
+        space: vec![],
+        new_root: None, new_roots: vec![],
+        present: vec![],
+        export: None,
+    })
+}
+
+/// After a removal ran (`undone`: or was undone): the folders it left empty go (the game's
+/// own and its metadata folder, never the PC games folder), and the index has the game again
+/// or forgets it (its details, documents and Library row), as after an import.
+pub fn after_remove(ix: &crate::index::Index, lib: &Library, plan: &Plan, undone: bool) -> Result<()> {
+    if !undone {
+        let games = crate::meta::games_root(lib);
+        let stops = [folder(lib), games.join("pc"), games];
+        let below = |d: &Path| !stops.iter().any(|s| key(d) == key(s)) && stops.iter().any(|s| Path::new(&key(d)).starts_with(key(s)));
+        let mut dirs: Vec<PathBuf> = plan.ops.iter().filter_map(|o| Path::new(&o.to).parent().map(Path::to_path_buf)).collect();
+        dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+        dirs.dedup();
+        for d in dirs {
+            let mut at = Some(d.as_path());
+            while let Some(dir) = at.filter(|d| below(d)) {
+                if std::fs::remove_dir(dir).is_err() {
+                    break;
+                }
+                at = dir.parent();
+            }
+        }
+    }
+    crate::meta::sync(ix, lib)?;
+    crate::browse::refresh(ix, lib)?;
+    Ok(())
 }
 
 // ------------------------------------------------------------ unpacking, the program
@@ -1342,7 +1517,8 @@ pub(crate) mod tests {
         // read again: all in the library already
         let again = read_items(&lib, &paths, &no_search, &cancel, &mut |_| {}).unwrap();
         assert!(again.iter().all(|i| i.status == "have" && !i.include), "{again:#?}");
-        // a newer installer of the same GOG game joins it
+        // a newer installer of the same GOG game joins it, in place of the one it had (its
+        // installer and .bin part set aside, D130); its patch stays
         let newer = dir.join("newer");
         std::fs::create_dir_all(&newer).unwrap();
         std::fs::write(newer.join("setup_hollow_knight_1.6_(64bit)_(60000).exe"), b"installer two").unwrap();
@@ -1352,12 +1528,14 @@ pub(crate) mod tests {
         let plan2 = plan_import(&lib, &items, "move", false).unwrap();
         organise::run(&ix, &lib, &plan2, &cancel, &mut |_| {}).unwrap();
         let hk2 = get(&lib, &hk.game.id).unwrap();
-        assert_eq!((hk2.game.files.len(), hk2.game.version.as_str()), (4, "1.6"));
+        assert_eq!((hk2.game.files.iter().map(|f| f.kind.as_str()).collect::<Vec<_>>(), hk2.game.version.as_str()), (vec!["patch", "install"], "1.6"));
         assert!(!newer.join("setup_hollow_knight_1.6_(64bit)_(60000).exe").exists(), "moved");
-        // Undo puts the old game.json back and the installer back in the inbox
+        assert!(!hk.dir.join("install/setup_hollow_knight_1.5_(64bit)_(51439)-1.bin").exists());
+        // Undo puts the old game.json and installer back, and the new installer back in the inbox
         organise::undo(&ix, &lib, &plan2.id, &cancel, &mut |_| {}).unwrap();
         assert_eq!(get(&lib, &hk.game.id).unwrap().game.files.len(), 3);
         assert!(newer.join("setup_hollow_knight_1.6_(64bit)_(60000).exe").is_file());
+        assert!(hk.dir.join("install/setup_hollow_knight_1.5_(64bit)_(51439)-1.bin").is_file());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1385,6 +1563,189 @@ pub(crate) mod tests {
         remove_unpacked(&lib, &id).unwrap();
         let e = get(&lib, &id).unwrap();
         assert!(!e.dir.join("extracted").exists() && e.game.launch.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Every file under a folder, by its path there, with its bytes.
+    fn files_of(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+        let mut v = vec![];
+        walk(dir, &mut v);
+        v.into_iter().map(|p| (rel_of(dir, &p), std::fs::read(&p).unwrap())).collect()
+    }
+
+    #[test]
+    fn no_match_makes_an_item_a_game_of_its_own_and_none_of_these_clears_a_games_match() {
+        let dir = temp_dir("pc-no-match");
+        let lib = Library::open(dir.join("lib")).unwrap();
+        let ix = crate::index::Index::open(&dir.join("index.sqlite"), &lib.id().unwrap()).unwrap();
+        let cancel = AtomicBool::new(false);
+        // a game there, which a store has under Steam app 4000
+        let there = folder(&lib).join("Zeta Quest (1999)");
+        std::fs::create_dir_all(there.join("install")).unwrap();
+        std::fs::write(there.join("install/zeta.zip"), b"the game there").unwrap();
+        let g = PcGame { id: "pc-z".into(), title: "Zeta Quest".into(), year: Some(1999), source: "other".into(), ids: [("steam".to_string(), "4000".to_string())].into(),
+            files: vec![PcFile { path: "install/zeta.zip".into(), kind: "install".into(), size: 14, ..Default::default() }], ..Default::default() };
+        write_manifest(&there, &g).unwrap();
+        // a game no store sells any more, which a search takes for that one
+        let inbox = dir.join("in");
+        std::fs::create_dir_all(&inbox).unwrap();
+        zip_of(&inbox.join("Zeta Quest (1999).zip"), &[("zq.exe", b"another game")]);
+        let search = |_: &str, _: Option<i32>| {
+            Some(Match { source: "steam".into(), id: "4000".into(), title: "Zeta Quest Deluxe".into(), year: Some(2005),
+                details: serde_json::from_value(json!({ "developer": "Other Soft" })).unwrap(), art: [("cover".to_string(), "http://127.0.0.1:9/c.jpg".to_string())].into() })
+        };
+        let mut items = read_items(&lib, &inbox_paths(&inbox).unwrap(), &search, &cancel, &mut |_| {}).unwrap();
+        let it = &items[0];
+        assert_eq!((it.found.as_str(), it.status.as_str(), it.game.as_deref(), it.title.as_str(), it.year), ("search", "update", Some("pc-z"), "Zeta Quest Deluxe", Some(2005)), "{it:#?}");
+        assert_eq!((it.game_parts.clone(), it.part.as_str()), (vec!["install".to_string()], "install"), "it would replace its installer");
+        // No match: what it read, a game of its own, nothing of the source's
+        unmatch(&mut items[0]);
+        let it = &items[0];
+        assert_eq!((it.title.as_str(), it.year, it.status.as_str(), it.game.as_deref(), it.found.as_str()), ("Zeta Quest", Some(1999), "own", None, ""));
+        assert!(it.ids.is_empty() && it.details.is_empty() && it.art.is_empty() && it.game_parts.is_empty() && it.include, "{it:#?}");
+        // it keeps a title of your own, and the game there is left as it was
+        items[0].title = "Zeta Quest Lost".into();
+        let plan = plan_import(&lib, &items, "copy", true).unwrap();
+        assert!(!plan.ops.iter().any(|o| o.op == "aside" || o.to.starts_with(&there.display().to_string())), "{:#?}", plan.ops);
+        organise::run(&ix, &lib, &plan, &cancel, &mut |_| {}).unwrap();
+        let lost = list(&lib).into_iter().find(|e| e.game.title == "Zeta Quest Lost").unwrap();
+        assert_eq!((lost.dir.file_name().unwrap().to_str(), lost.game.ids.len(), lost.game.details.len(), lost.game.extra.get("art")), (Some("Zeta Quest Lost (1999)"), 0, 0, None));
+        assert_eq!(get(&lib, "pc-z").unwrap().game.files.len(), 1);
+        // None of these, for the game there: Identify kept Steam's answer, which stops naming it
+        let m = Match { source: "steam".into(), id: "4000".into(), title: "Zeta Quest Deluxe".into(), year: Some(2005), details: serde_json::from_value(json!({ "developer": "Other Soft" })).unwrap(), ..Default::default() };
+        crate::pcmeta::identify(&ix, &lib, "pc-z", &m, false).unwrap();
+        let md = crate::pcmeta::dir(&lib, "pc-z");
+        assert_eq!(crate::meta::read_game(&md)["ids"]["steam"], "4000");
+        let e = crate::pcmeta::unmatch(&ix, &lib, "pc-z").unwrap();
+        let v = crate::meta::read_game(&md);
+        assert!(e.game.ids.is_empty() && e.game.title == "Zeta Quest" && e.game.year == Some(1999), "{:?}", e.game);
+        assert!(v["ids"].as_object().unwrap().is_empty() && v["identified_by"].is_null() && crate::sources::answers(&md)["steam"]["id"].is_null(), "{v}");
+        assert_eq!(v["details"]["developer"], "Other Soft", "what the source said stays, for Delete metadata…");
+        assert!(crate::pcmeta::page(&lib, &e)["ids"].as_object().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_pc_game_is_removed_as_a_change_and_undo_brings_it_all_back() {
+        let dir = temp_dir("pc-remove");
+        let lib = Library::open(dir.join("lib")).unwrap();
+        let ix = crate::index::Index::open(&dir.join("index.sqlite"), &lib.id().unwrap()).unwrap();
+        let cancel = AtomicBool::new(false);
+        let inbox = dir.join("in");
+        std::fs::create_dir_all(&inbox).unwrap();
+        zip_of(&inbox.join("Zeta Quest.zip"), &[("Zeta/zeta.exe", b"exe"), ("Zeta/data/level.dat", b"level")]);
+        zip_of(&inbox.join("Beta Thing.zip"), &[("beta.exe", b"beta")]);
+        let items = read_items(&lib, &inbox_paths(&inbox).unwrap(), &no_search, &cancel, &mut |_| {}).unwrap();
+        organise::run(&ix, &lib, &plan_import(&lib, &items, "copy", true).unwrap(), &cancel, &mut |_| {}).unwrap();
+        let id = list(&lib).into_iter().find(|e| e.game.title == "Zeta Quest").unwrap().game.id;
+        // unpacked (files game.json doesn't list), with its details, a picture and a document
+        unpack(&lib, &id, None, &cancel, &mut |_| {}).unwrap();
+        let e = get(&lib, &id).unwrap();
+        let md = crate::pcmeta::ensure(&ix, &lib, &e).unwrap();
+        save_media(&lib, &id, "cover", "png", b"a cover").unwrap();
+        std::fs::create_dir_all(md.join("docs")).unwrap();
+        std::fs::write(md.join("docs/Map.txt"), b"a map").unwrap();
+        crate::meta::sync(&ix, &lib).unwrap();
+        crate::browse::refresh(&ix, &lib).unwrap();
+        let (game_files, meta_files) = (files_of(&e.dir), files_of(&md));
+        let rows = |ix: &crate::index::Index| -> (i64, i64) {
+            let c = ix.conn();
+            (c.query_row("SELECT COUNT(*) FROM meta_games WHERE folder = ?1", [format!("_library/games/pc/{id}")], |r| r.get(0)).unwrap(),
+             c.query_row("SELECT COUNT(*) FROM library WHERE key = ?1", [format!("pc/{id}")], |r| r.get(0)).unwrap())
+        };
+        assert_eq!(rows(&ix), (1, 1));
+        let plan = remove_plan(&lib, &id).unwrap();
+        assert_eq!((plan.title.as_str(), plan.label.as_str(), plan.kind.as_str(), plan.games), ("Remove Zeta Quest from the library", "Removed Zeta Quest from the library", "pc_remove", 1));
+        // every file of its folder and of its metadata folder, game.json last
+        assert!(plan.ops.iter().all(|o| o.op == "aside"));
+        assert_eq!(plan.ops.len(), game_files.len() + meta_files.len(), "{:#?}", plan.ops);
+        assert!(game_files.keys().any(|k| k.starts_with("extracted/")) && meta_files.contains_key("docs/Map.txt"));
+        assert_eq!(plan.ops.last().unwrap().to, e.dir.join(MANIFEST).display().to_string());
+        let r = organise::run(&ix, &lib, &plan, &cancel, &mut |_| {}).unwrap();
+        assert_eq!(r["failed"].as_array().unwrap().len(), 0, "{r}");
+        // gone: from the list, its folders, the index; the PC games folder and the other game stay
+        assert!(get(&lib, &id).is_err() && !e.dir.exists() && !md.exists());
+        assert_eq!(list(&lib).iter().map(|e| e.game.title.as_str()).collect::<Vec<_>>(), ["Beta Thing"]);
+        assert_eq!(rows(&ix), (0, 0));
+        let held = folder(&lib).join(organise::SET_ASIDE).join(&plan.id).join("Zeta Quest");
+        assert!(held.join(MANIFEST).is_file() && crate::meta::games_root(&lib).join(organise::SET_ASIDE).join(&plan.id).join(format!("pc/{id}/docs/Map.txt")).is_file());
+        // Undo: every file back as it was, listed again, in the index again
+        let u = organise::undo(&ix, &lib, &plan.id, &cancel, &mut |_| {}).unwrap();
+        assert_eq!(u["problems"].as_array().unwrap().len(), 0, "{u}");
+        assert_eq!((files_of(&e.dir), files_of(&md)), (game_files, meta_files));
+        assert_eq!(get(&lib, &id).unwrap().game.title, "Zeta Quest");
+        crate::browse::refresh(&ix, &lib).unwrap();
+        assert_eq!(rows(&ix), (1, 1));
+        assert!(!folder(&lib).join(organise::SET_ASIDE).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_installer_replaces_the_one_a_game_has_while_a_patch_adds_up() {
+        let dir = temp_dir("pc-replace");
+        let lib = Library::open(dir.join("lib")).unwrap();
+        let ix = crate::index::Index::open(&dir.join("index.sqlite"), &lib.id().unwrap()).unwrap();
+        let cancel = AtomicBool::new(false);
+        // a GOG installer in two parts with a patch, and the game's files beside it
+        let one = dir.join("one");
+        std::fs::create_dir_all(one.join("Zeta Files")).unwrap();
+        std::fs::write(one.join("setup_zeta_quest_1.0_(1).exe"), b"installer one").unwrap();
+        std::fs::write(one.join("setup_zeta_quest_1.0_(1)-1.bin"), b"part one").unwrap();
+        std::fs::write(one.join("patch_zeta_quest_0.9_(0)_to_1.0_(1).exe"), b"patch one").unwrap();
+        std::fs::write(one.join("Zeta Files/zeta.exe"), b"old exe").unwrap();
+        let mut items = read_items(&lib, &inbox_paths(&one).unwrap(), &no_search, &cancel, &mut |_| {}).unwrap();
+        let key = items.iter().find(|i| i.kind == "gog").unwrap().key.clone();
+        for it in items.iter_mut() {
+            if it.kind == "gog" {
+                it.ids.insert("gog".into(), "1207658930".into());
+            } else {
+                it.game = Some(format!("item:{key}"));
+            }
+        }
+        organise::run(&ix, &lib, &plan_import(&lib, &items, "copy", true).unwrap(), &cancel, &mut |_| {}).unwrap();
+        let e = list(&lib).remove(0);
+        let kinds = |g: &PcGame| g.files.iter().map(|f| format!("{} {}", f.kind, f.path)).collect::<Vec<_>>();
+        assert_eq!(kinds(&e.game), ["install install/setup_zeta_quest_1.0_(1).exe", "install install/setup_zeta_quest_1.0_(1)-1.bin", "patch patches/patch_zeta_quest_0.9_(0)_to_1.0_(1).exe", "extracted extracted/zeta.exe"]);
+        // a newer installer (three parts, one install), its patch, and its files
+        let two = dir.join("two");
+        std::fs::create_dir_all(two.join("Zeta Files 2")).unwrap();
+        std::fs::write(two.join("setup_zeta_quest_2.0_(2).exe"), b"installer two").unwrap();
+        std::fs::write(two.join("setup_zeta_quest_2.0_(2)-1.bin"), b"part two a").unwrap();
+        std::fs::write(two.join("setup_zeta_quest_2.0_(2)-2.bin"), b"part two b").unwrap();
+        std::fs::write(two.join("patch_zeta_quest_1.0_(1)_to_2.0_(2).exe"), b"patch two").unwrap();
+        std::fs::write(two.join("Zeta Files 2/zeta.exe"), b"new exe").unwrap();
+        std::fs::write(two.join("Zeta Files 2/data.pak"), b"data").unwrap();
+        let mut items = read_items(&lib, &inbox_paths(&two).unwrap(), &no_search, &cancel, &mut |_| {}).unwrap();
+        for it in items.iter_mut() {
+            it.game = Some(e.game.id.clone());
+        }
+        let plan = plan_import(&lib, &items, "copy", true).unwrap();
+        // only the installer and the unpacked copy it has are set aside, before the new files come
+        let aside: Vec<(String, String)> = plan.ops.iter().filter(|o| o.op == "aside").map(|o| (o.from[0].rel.clone(), o.note.clone().unwrap_or_default())).collect();
+        assert_eq!(aside.iter().map(|a| a.0.as_str()).collect::<Vec<_>>(), ["Zeta Quest/install/setup_zeta_quest_1.0_(1).exe", "Zeta Quest/install/setup_zeta_quest_1.0_(1)-1.bin", "Zeta Quest/extracted/zeta.exe"], "{aside:?}");
+        assert!(aside[0].1.starts_with("its installer, replaced by setup_zeta_quest_2.0") && aside[2].1.starts_with("its unpacked copy, replaced by Zeta Files 2"), "{aside:?}");
+        let first_copy = plan.ops.iter().position(|o| o.op != "aside").unwrap();
+        assert!(plan.ops[first_copy..].iter().all(|o| o.op != "aside"));
+        organise::run(&ix, &lib, &plan, &cancel, &mut |_| {}).unwrap();
+        let g = get(&lib, &e.game.id).unwrap();
+        assert_eq!(kinds(&g.game), [
+            "patch patches/patch_zeta_quest_0.9_(0)_to_1.0_(1).exe",
+            "install install/setup_zeta_quest_2.0_(2).exe", "install install/setup_zeta_quest_2.0_(2)-1.bin", "install install/setup_zeta_quest_2.0_(2)-2.bin",
+            "patch patches/patch_zeta_quest_1.0_(1)_to_2.0_(2).exe", "extracted extracted/data.pak", "extracted extracted/zeta.exe",
+        ]);
+        assert_eq!(g.game.version, "2.0");
+        // the new one has the old one's place; the old one is set aside, at the top of the PC games folder
+        assert_eq!(std::fs::read(g.dir.join("extracted/zeta.exe")).unwrap(), b"new exe");
+        assert!(!g.dir.join("install/setup_zeta_quest_1.0_(1).exe").exists() && !g.dir.join(organise::SET_ASIDE).exists());
+        let held = folder(&lib).join(organise::SET_ASIDE).join(&plan.id).join("Zeta Quest");
+        assert_eq!(std::fs::read(held.join("install/setup_zeta_quest_1.0_(1).exe")).unwrap(), b"installer one");
+        assert!(held.join(MANIFEST).is_file() && held.join("extracted/zeta.exe").is_file());
+        // Undo: the old installer and unpacked copy are back, the new ones gone
+        organise::undo(&ix, &lib, &plan.id, &cancel, &mut |_| {}).unwrap();
+        let g = get(&lib, &e.game.id).unwrap();
+        assert_eq!(kinds(&g.game), kinds(&e.game));
+        assert_eq!(std::fs::read(g.dir.join("extracted/zeta.exe")).unwrap(), b"old exe");
+        assert!(g.dir.join("install/setup_zeta_quest_1.0_(1).exe").is_file() && !g.dir.join("install/setup_zeta_quest_2.0_(2).exe").exists() && !g.dir.join("extracted/data.pak").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

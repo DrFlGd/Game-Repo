@@ -4961,6 +4961,46 @@ D118, in `audit.rs` (`also_dats`, `set_also`), `dat::update_current` and the Aud
   its main DAT, its custom DAT, then the DATs ticked, a game once by name (`browse::
   rebuild_system`, `collection::dats_of`; not for a collection of variants only).
 
+### Phase 10 notes, part 3: PC games in Game Repo (Jerred's tryout, built 2026-10-21)
+
+D124–D127 are Game Repo Go's Deck fixes. These three are from Jerred trying PC games in
+Game Repo: a game no store sells any more couldn't be left unmatched, a PC game couldn't be
+removed, and every import into a game added its files to what it had.
+
+- **D128 No match.** The review list has *No match* on an item a search, its name or you
+  matched (and on one going into a game there): `pcgames::unmatch` takes away what the
+  answer put in (ids, details, artwork, how it was found) and gives back the title, year
+  and source its files and name gave (the item's `read`, kept when it's read), as a new game
+  of its own (status `own`, "Its own game", never an update), its title and year for you to
+  change. Identify… has *None of these* (`onNone`) for the same. On a game in the library,
+  `pcmeta::unmatch` empties `game.json`'s ids, drops its GOG slug, `identified_by` and
+  artwork still to fetch, and takes the `id` out of each source's answer; its title stays,
+  and so do the details and pictures the sources gave (the message offers *Delete
+  metadata…*, which has Undo). It isn't a change of its own: Identify… again puts the ids
+  back. Commands `pc_item_unmatch` and `pc_unmatch`.
+- **D129 Remove a PC game.** *Remove from the library…*, in the PC games panel and in a PC
+  game's page's ⋯ menu, is an Organise change of kind `pc_remove` (`pcgames::remove_plan`,
+  `pc_remove_plan`), with the usual preview, History and Undo; as it starts, the panel or
+  page showing the game closes (OrganiseDialog's `onRun`). It sets aside each file on
+  its own (Undo doesn't put a whole folder back where one's been made again): every file of
+  `PC/<Title> (<Year>)/`, then `_library/games/pc/<id>/`, and `game.json` last, so a step
+  that fails leaves the game listed. Its folder's files go to the set-aside folder at the
+  top of the PC games folder, its details' to `_library/games/`'s. `after_remove` takes away
+  the folders it left empty (never the PC games folder or `games/pc`) and makes the index
+  forget the game, or know it again after Undo (`meta::sync`, `browse::refresh`). A Steam
+  shortcut is left: changing `shortcuts.vdf` needs Steam closed and can't be undone with the
+  rest, so the preview says it stays until Add to Steam… is run again (`steam::added`).
+- **D130 One install and one unpacked copy a game.** An item of part *install* or
+  *extracted* going into a game that has that part already sets the old one aside first
+  (its files in `game.json`, and for an unpacked copy everything in `extracted/`, with the
+  program if it was in there) and records the new; the review list says "Replaces its
+  installer" or "Replaces its unpacked copy" (from the item's `game_parts`), and the preview
+  lists what's set aside with why. Patches, DLC and extras add up as before. It's once per
+  game per import, so the items of one import that are the same part (an installer's
+  `.bin`s, discs) are the new one together, and replacing the installer leaves the unpacked
+  copy as it is. The `game.json` it replaces is set aside at the top of the PC games
+  folder too, so a game's folder holds only the game.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been

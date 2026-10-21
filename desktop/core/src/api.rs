@@ -1172,6 +1172,7 @@ impl App {
                     "magazines" => "Importing magazines",
                     "bios" => "Importing BIOS files",
                     "metadata" => "Deleting metadata",
+                    "pc_remove" => "Removing a PC game",
                     _ => "Organising",
                 };
                 let running = self.begin_change(&plan.id)?;
@@ -1644,11 +1645,42 @@ impl App {
                     let m = identify::details(&cfg, &data_dir, &source, &id)?;
                     pcgames::apply_match(&mut it, &m);
                     it.found = "you".into();
-                    if it.status == "look" {
+                    if it.status == "look" || it.status == "own" {
                         it.status = "ready".into();
                     }
                     it.include = true;
                     Ok(json!(it))
+                }))
+                .await?)
+            }
+            "pc_item_unmatch" => {
+                // No match on the review list (D128): a game of its own, matched to no source
+                let mut it: pcgames::Item = serde_json::from_value(args["item"].clone()).map_err(|e| e.to_string())?;
+                pcgames::unmatch(&mut it);
+                j(json!(it))
+            }
+            "pc_unmatch" => {
+                // None of these (Identify…) for a game in the library (D128)
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let running = self.begin_meta("Identify")?;
+                j(blocking(Box::new(move || {
+                    let _running = running;
+                    Ok(crate::pcmeta::unmatch(&Self::job_index(&data_dir, &lib)?, &lib, &id)?.to_json(&lib))
+                }))
+                .await?)
+            }
+            "pc_remove_plan" => {
+                // Remove from the library… (D129): the change's preview, and whether Add to
+                // Steam… wrote its shortcut, which stays until it's run again
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || {
+                    let plan = pcgames::remove_plan(&lib, &id)?;
+                    organise::save_pending(&data_dir, &plan)?;
+                    let mut s = plan.summary();
+                    s["steam"] = json!(steam::added(&lib, &data_dir, &id));
+                    Ok(s)
                 }))
                 .await?)
             }

@@ -30,7 +30,7 @@ export const TERMS = [
   ["details", "Details", "What's known about a game: its title, year, genre, players, description and so on. Each source's answer is kept apart; the game shows one value for each field, from the first source in your order, unless you've chosen another source's value or written your own."],
   ["source", "Source", "Where details and pictures come from: ScreenScraper, IGDB, TheGamesDB and LaunchBox for ROM games, Steam, GOG and LaunchBox for PC games. Their keys are in Settings › Sources. (A collection's Source tab is what the collection was made from.)"],
   ["scrape", "Scrape", "Asking the sources about your games and keeping their details, pictures, video and manuals in each game's library folder. You choose what's asked for; Scrape again… asks once more."],
-  ["identify", "Identify", "Choosing which game something is, by hand, from the sources' answers: for a PC game, or a game a scrape wasn't sure of. Its details and pictures come with it."],
+  ["identify", "Identify", "Choosing which game something is, by hand, from the sources' answers: for a PC game, or a game a scrape wasn't sure of. Its details and pictures come with it. For a PC game no source has, None of these (or No match on the import's list) keeps it matched to no source, under its own title."],
   ["picture-kinds", "Picture kinds and variants", "Each kind of picture (box front, screenshot, title screen, logo…) can come from several sources. One per source is kept; the one chosen is what the game shows and what an export takes."],
   ["game-library-folder", "A game's library folder", "Where a game's details, pictures and documents are kept: _library/games/<system>/<the DAT's name for it>/. It follows the game by its files' hashes, so renaming a ROM doesn't lose anything."],
   ["documents", "Documents", "Guides, FAQs, manuals, maps, posters and scans of your own, kept with their games (or by system) and searchable by their words."],
@@ -39,7 +39,7 @@ export const TERMS = [
   ["arcade", "Arcade sets", "MAME's and FinalBurn Neo's games: a ZIP per machine named by its short name (sf2.zip), clones leaning on their parents, BIOS sets (neogeo.zip) and devices as ZIPs of their own, hard disks as CHDs in a folder named for the machine, and sounds in samples/. BIOS sets and devices aren't counted as games."],
   ["set-type", "Set type", "How an arcade system's ZIPs are made up: non-merged (every game's ZIP holds all it needs but its BIOS's), split (a clone's ZIP holds only what its parent's doesn't) or merged (a parent's ZIP holds its clones' too). Chosen on the Audit page or in Settings › Systems; Organise builds ZIPs that way, and an export is always non-merged."],
   ["playable", "Playable", "An arcade game you have, with the BIOS set and devices it needs (and, in a split DAT, its parent). A game that isn't says what it needs; missing sounds are listed but don't stop it."],
-  ["pc-game", "PC game", "A game for Windows, kept in its own folder under PC/<Title> (<Year>)/ with a game.json saying what it is and how it starts. Installers are never run: Unpack opens GOG's and zipped ones."],
+  ["pc-game", "PC game", "A game for Windows, kept in its own folder under PC/<Title> (<Year>)/ with a game.json saying what it is and how it starts: one installer (or archive) and one unpacked copy, with its patches, DLC and extras. Installers are never run: Unpack opens GOG's and zipped ones."],
   ["ribbons", "Ribbons", "The panels beside a page. On the left, next to the menu, a page's own list: the collections, the audited systems, the magazines ([ folds it to a strip). On the right of a game's page, its pictures (] folds it). Drag a ribbon's edge to make it wider."],
   ["inbox", "Inbox", "A folder you drop PC installers, archives, disc images and game folders into; Import… reads it and imports them into the PC folder."],
 ];
@@ -59,6 +59,8 @@ export const PAGES = [
   ]],
   ["pc", "PC games", "Your PC games, each in its own folder with what it is and how it starts (under the Library).", [
     "Import… from the inbox, or Import files… and Import a game's folder… (each opens Import › PC games); Unpack GOG installers and archives; choose the program it starts with.",
+    "On the import's list, No match keeps a game no source has (one a search took for another) as a game of its own, under the title you give it. An installer or unpacked copy that goes into a game you have replaces its own (Replaces its installer): the old one is set aside, and Undo brings it back. Patches, DLC and extras add up.",
+    "Remove from the library… (in its panel, or its page's ⋯ menu) sets aside its folder and its details, pictures and documents, with the preview first and Undo after. A Steam shortcut Add to Steam… made stays until Add to Steam… is run again.",
     "Identify… finds the game on Steam, GOG or LaunchBox; each source's details and pictures are kept apart, as for every other game.",
     "Open its page: the same page as any game, with a PC game section for its program, Unpack and its folder; Add to Steam… makes the games Steam shortcuts with their artwork.",
   ]],

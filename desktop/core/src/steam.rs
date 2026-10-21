@@ -133,6 +133,16 @@ fn stamp() -> String {
     now().replace([':', '-'], "").replace('T', "-").replace('Z', "")
 }
 
+/// Whether the app's shortcut for a PC game is in what it last wrote for any Steam user
+/// (Remove from the library… says it stays until Add to Steam… is run again, D129).
+pub fn added(lib: &Library, data_dir: &Path, id: &str) -> bool {
+    let Some(appid) = shortcuts(lib).0.into_iter().find(|(g, _, _)| g == id).map(|(_, s, _)| s.appid) else { return false };
+    std::fs::read_dir(data_dir.join("steam")).into_iter().flatten().flatten().any(|e| {
+        e.path().extension().is_some_and(|x| x == "json")
+            && crate::config::read_json_object(&e.path())["appids"].as_array().is_some_and(|a| a.iter().any(|x| x.as_u64() == Some(u64::from(appid))))
+    })
+}
+
 /// When the app last wrote a user's shortcuts.
 pub fn last_written(data_dir: &Path, user: &str) -> Value {
     let rec = crate::config::read_json_object(&record_path(data_dir, user));
