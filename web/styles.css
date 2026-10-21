@@ -1361,6 +1361,8 @@ svg g[data-sk="classic"] { display: inline; }
 .root-list li, .dat-list li { flex-wrap: wrap; }
 .root-path, .dat-name { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
 .dat-group h3 { margin: 10px 0 4px; font-size: 14px; }
+.dat-group-head { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; }
+.dat-group-head h3 { margin: 0; }
 .dat-name .badge { margin-left: 6px; }
 .platform-pick { display: flex; gap: 8px; flex-wrap: wrap; }
 .audit-page { display: grid; gap: 12px; align-content: start; }

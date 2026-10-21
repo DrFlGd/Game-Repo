@@ -634,8 +634,8 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **10** | Variants | A custom DAT per system for the translations, hacks, prototypes and mods no DAT knows, each a variant of its original in the main DAT, suggested by comparing names, with its parentheticals as tags; several DATs audited per system (Jerred, 2026-10-20; "Phase 10 design", D118–D123). |
 | **Later** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). It reads every format Magazines imports: a PDF's pages and a CBZ's or CBR's images alike. |
 | **Later** | Videos | Walkthroughs, reviews and retrospectives kept as a section of their own, as magazines are, not as one game's metadata: each video can be linked to the games it covers, and shows on those games' pages (Jerred, 2026-10-20). Not designed yet. |
-| **Later** | Main DAT in Settings | Each system's main DAT chosen in Settings › DAT files too, beside its versions, as well as on the Audit page (Jerred, 2026-10-20: for an update or a different base set). Not designed yet. |
-| **Later** | Big-screen size | A size setting for Game Repo Go's big-screen view (D113), whose sizes are fixed for a television or the Steam Deck and too large on a phone (Jerred, 2026-10-20, on his Android devices): smaller, as it is, larger, kept per device. Not designed yet. |
+| **Built** | Main DAT in Settings | Each system's main DAT chosen in the DAT files list too, beside its versions, as well as on the Audit page (Jerred, 2026-10-20: for an update or a different base set). Built 2026-10-21 (D131). |
+| **Built** | Big-screen size | A size setting for Game Repo Go's big-screen view (D113), whose sizes are fixed for a television or the Steam Deck and too large on a phone (Jerred, 2026-10-20, on his Android devices): smaller, as it is, larger, kept per device. Built 2026-10-21 (D132). |
 | **Later** | Android games | Support for games that are Android apps (APKs, with any OBB or data files they come with): kept and scraped as a system of their own, and installed on an Android device by Game Repo Go (Jerred, 2026-10-20). Not designed yet. |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
@@ -5044,6 +5044,34 @@ removed, and every import into a game added its files to what it had.
   copy as it is. The `game.json` it replaces is set aside at the top of the PC games
   folder too, so a game's folder holds only the game.
 
+### Two later items: the main DAT in the DAT files list, the big screen's size (built 2026-10-21)
+
+Jerred, 2026-10-21 02:52, after v0.5.38: "What's next". Two of the roadmap's later items,
+both his of 2026-10-20, built first as Claude's recommendation while he chooses; D131 and
+D132 are Claude's defaults, followed unless he says otherwise.
+
+**D131 The main DAT, chosen in the DAT files list too.** Where the DAT files are listed
+(Import › *DATs*, which Settings' *DAT files* became with D78), a system with more than one
+DAT it can be audited against (each one's version in use, not its custom DAT) shows *Main
+DAT* on its main one and *Audited with it too* on those ticked (D118). Each other one has
+*Make it the main DAT*, which does what Audit's *DAT* drop-down does (`audit_dats_set`: the
+main DAT by name in `audit_dats`, the DATs audited with it too kept, less the new main one),
+and the system's heading has *DATs…*, the same dialog as Audit's. The `dats` command marks
+each row `main` and `also` (`audit::mark_roles`).
+
+**D132 The big screen's size.** Game Repo Go's Settings › *Look* › *Size*, shown while the
+view is the big screen: *Smaller, for a phone*, *As it is, for a TV or the Steam Deck*, or
+*Larger, for a TV across the room*, kept on the device with the view and skin (`go-look`'s
+`size`). It's CSS `zoom` on the page (0.8 or 1.2) under `data-size`: the type, box fronts,
+buttons and gaps all change together, and the frame still fills the window (the bar, the
+tabs along a phone's bottom and the hints stay at the edges); 0.8 brings the big screen's
+type to about the classic view's on a phone.
+
+- **Tests.** Step 13 of `tests/client_page.py` (on a phone held upright, *Smaller* draws a
+  tile at 0.8 of its height, kept in `go-look`, the tabs still along the bottom); the end of
+  `tests/desktop_page.py`'s variants part (the roles marked, *Make it the main DAT* kept in
+  library.json and shown in Audit's drop-down).
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -5189,7 +5217,7 @@ removed, and every import into a game added its files to what it had.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D131). D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D133). D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 

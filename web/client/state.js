@@ -162,6 +162,8 @@ export function look() {
     theme: THEMES.some(([v]) => v === saved.theme) ? saved.theme : "system",
     // "" until one is chosen in Settings: the usual one for the device
     view: ["big", "classic"].includes(saved.view) ? saved.view : "",
+    // the big screen's size (D132): "" as it is, else smaller or larger
+    size: ["smaller", "larger"].includes(saved.size) ? saved.size : "",
   };
 }
 
@@ -172,6 +174,8 @@ export function applyLook(next = look()) {
   // the big screen is dark unless a theme is chosen (D113)
   root.dataset.theme = next.theme === "system" ? (view === "big" || matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : next.theme;
   root.dataset.view = view;
+  if (next.size) root.dataset.size = next.size;
+  else delete root.dataset.size;
   if (go.get().view !== view) go.set({ view });
 }
 

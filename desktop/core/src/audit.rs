@@ -315,6 +315,24 @@ pub fn set_also(conn: &Connection, lib: &Library, platform: &str, names: &[Strin
     changed(conn)
 }
 
+/// Each listed DAT's part in its system's audit, for the DAT files list (D131): `main` for
+/// the system's main DAT, `also` for one it's audited with too.
+pub fn mark_roles(conn: &Connection, lib: &Library, rows: &mut Value) -> Result<()> {
+    let mut systems: HashMap<String, (Option<i64>, Vec<i64>)> = HashMap::new();
+    for r in rows.as_array_mut().into_iter().flatten() {
+        let platform = r["platform"].as_str().unwrap_or_default().to_string();
+        if !systems.contains_key(&platform) {
+            let roles = (primary_dat(conn, lib, &platform)?, also_dats(conn, lib, &platform)?);
+            systems.insert(platform.clone(), roles);
+        }
+        let (main, also) = &systems[&platform];
+        let id = r["id"].as_i64();
+        r["main"] = json!(id.is_some() && id == *main);
+        r["also"] = json!(id.is_some_and(|i| also.contains(&i)));
+    }
+    Ok(())
+}
+
 /// Audit `platform` against DAT `dat_id` from now on (Home and Audit use it).
 pub fn choose_dat(conn: &Connection, lib: &Library, dat_id: i64) -> Result<()> {
     let d = dat_ref(conn, dat_id)?;

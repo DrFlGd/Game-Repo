@@ -89,6 +89,9 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **A system's main DAT can be chosen where the DAT files are listed, as well as on the Audit page.** With more than one DAT for a system, the list marks its main DAT and the DATs it's audited with too; *Make it the main DAT* changes it, and *DATs…* beside the system's name opens the same choices as Audit's.
+- **Game Repo Go's big-screen view has a size: smaller, as it is, or larger.** Settings › Look › Size, kept on each device. *Smaller* suits a phone, where the big screen was too large.
+
 ## 0.5.38 (2026-10-21)
 
 - **Game Repo Go: a PC game zipped as its folder isn't two folders deep any more.** Its files go straight into the game's own folder. A game already downloaded keeps its old folders until it's removed and downloaded again.

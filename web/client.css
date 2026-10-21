@@ -190,6 +190,9 @@ progress { accent-color: var(--tool); height: 8px; }
   --cover-w: calc(var(--cover-h) * .75);
   --ring: 0 0 0 4px var(--tool), 0 0 26px color-mix(in srgb, var(--tool) 50%, transparent);
 }
+/* its size (D132): everything drawn smaller or larger, the frame still filling the window */
+[data-view="big"][data-size="smaller"] { zoom: .8; }
+[data-view="big"][data-size="larger"] { zoom: 1.2; }
 [data-view="big"] body { font-size: 18px; }
 [data-view="big"] .go-app :is(.primary, .ghost, .button) { min-height: 48px; padding: 0 20px; font-size: 17px; border-radius: 10px; }
 [data-view="big"] .go-app input:not([type="checkbox"]):not([type="radio"]), [data-view="big"] .go-app select { min-height: 48px; font-size: 17px; border-radius: 10px; }

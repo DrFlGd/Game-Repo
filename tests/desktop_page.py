@@ -748,6 +748,25 @@ async def variants(pg, base, home, library):
           "Custom - Game Boy Advance" in listed and "Nintendo - Game Boy Advance" in listed and kept == {"gba": ["Translations"]} and unknown == "0"
           and "Translations (2024-05) 1 of 1" in also and "Translations" in viewing and have == "1" and "unknown" not in tabs and "variants" not in tabs,
           (listed, kept, unknown, also, viewing, have, tabs))
+    # D131: the DAT files list says which is the system's main DAT and which it's audited with
+    # too, and makes another the main one, as Audit's DATs… does
+    await pg.goto(base + "#/import/settings-dats")
+    # (read again as it's shown, so it has what Audit's DATs… just changed)
+    await pg.wait_for_selector('#settings-dats .dat-group[data-platform="gba"] li[data-name="Translations"] .dat-also', timeout=15000)
+    roles = await pg.evaluate("""() => [...document.querySelectorAll('#settings-dats .dat-group[data-platform="gba"] li')].map((l) => [l.dataset.name,
+        l.querySelector('.dat-main') ? 'main' : l.querySelector('.dat-also') ? 'also' : '', !!l.querySelector('[data-action="main-dat"]')])""")
+    await pg.screenshot(path=str(out / "58d-dat-files-main.png"))
+    await pg.click('#settings-dats .dat-group[data-platform="gba"] li[data-name="Translations"] [data-action="main-dat"]')
+    said = await toast_text(pg, "main DAT now")
+    await pg.wait_for_selector('#settings-dats li[data-name="Translations"] .dat-main', timeout=15000)
+    meta = json.loads((library / "_library/library.json").read_text())
+    await pg.goto(base + "#/audit/gba")
+    await pg.wait_for_selector("#audit-dat")
+    picked = await pg.evaluate("() => document.querySelector('#audit-dat').selectedOptions[0]?.textContent || ''")
+    check("the DAT files list marks the main DAT and the one audited with too, and Make it the main DAT changes it, as Audit shows (D131)",
+          sorted(roles) == sorted([["Custom - Game Boy Advance", "", False], ["Nintendo - Game Boy Advance", "main", False], ["Translations", "also", True]])
+          and meta.get("audit_dats", {}).get("gba") == "Translations" and "gba" not in meta.get("also_dats", {}) and picked.startswith("Translations"),
+          (roles, said, meta.get("audit_dats"), meta.get("also_dats"), picked))
 
 
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices)]
