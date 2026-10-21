@@ -828,7 +828,7 @@ async def updates_in_the_app(pg, base, home, library):
     check("with the tick off it doesn't check as it starts; with it on, the status bar says a newer version is out", quiet and stand_in_update(base)["checks"] == 3)
 
     # 6. a copy that can't update itself says why, with no buttons
-    why = "This copy of Game Repo isn't installed, so it doesn't update itself."
+    why = "This copy of Game Repo wasn't put here by its installer, so it can't update itself."
     stand_in_update(base, {"can": False, "why_not": why, "available": None})
     await pg.goto(base + "#/about")
     await pg.wait_for_selector("#update-panel[data-state=off]")

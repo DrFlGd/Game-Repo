@@ -502,6 +502,7 @@ async def main():
                   and "go-search" in order and "go-sort" in order and "card 0" in order, order)
             cols = await pg.evaluate("() => { const c = [...document.querySelectorAll('#go-games .go-card')].map(e => e.offsetTop); return c.filter(t => t === c[0]).length; }")
             await pg.keyboard.press("ArrowRight")
+            await settled(pg, "() => document.activeElement?.dataset.index === '1'")
             right = await pg.evaluate("() => document.activeElement?.dataset.index")
             await pg.keyboard.press("ArrowLeft")
             await pg.keyboard.press("x")

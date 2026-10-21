@@ -830,9 +830,15 @@ jobs:
             gh release create "v$V" dist/* --title "Game Repo $V" --notes-file notes.md --target "$GITHUB_SHA" --latest
           else
             # a releases repository of its own (D136): the tag here, where the next release
-            # number is counted, and the release there, with that repository's token
+            # number is counted, and the release there, with that repository's token; while
+            # this repository is still public the release is here too, so the copies built
+            # to look here take one built to look there
             [ -n "$RELEASES_TOKEN" ] || { echo "::error title=Releases::RELEASES_REPO is $GAMEREPO_RELEASES, but the RELEASES_TOKEN secret that can write its releases isn't set"; exit 1; }
-            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/v$V" -f sha="$GITHUB_SHA" > /dev/null
+            if [ "$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)" = false ]; then
+              gh release create "v$V" dist/* --title "Game Repo $V" --notes-file notes.md --target "$GITHUB_SHA" --latest
+            else
+              gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/v$V" -f sha="$GITHUB_SHA" > /dev/null
+            fi
             GH_TOKEN="$RELEASES_TOKEN" gh release create "v$V" dist/* --repo "$GAMEREPO_RELEASES" --title "Game Repo $V" --notes-file notes.md --latest
           fi
           echo "::notice title=Released::Game Repo $V in $GAMEREPO_RELEASES"
