@@ -751,7 +751,8 @@ async def variants(pg, base, home, library):
     # D131: the DAT files list says which is the system's main DAT and which it's audited with
     # too, and makes another the main one, as Audit's DATs… does
     await pg.goto(base + "#/import/settings-dats")
-    await pg.wait_for_selector('#settings-dats .dat-group[data-platform="gba"] .dat-main')
+    # (read again as it's shown, so it has what Audit's DATs… just changed)
+    await pg.wait_for_selector('#settings-dats .dat-group[data-platform="gba"] li[data-name="Translations"] .dat-also', timeout=15000)
     roles = await pg.evaluate("""() => [...document.querySelectorAll('#settings-dats .dat-group[data-platform="gba"] li')].map((l) => [l.dataset.name,
         l.querySelector('.dat-main') ? 'main' : l.querySelector('.dat-also') ? 'also' : '', !!l.querySelector('[data-action="main-dat"]')])""")
     await pg.screenshot(path=str(out / "58d-dat-files-main.png"))

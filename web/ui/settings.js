@@ -130,6 +130,8 @@ async function makeMain(d, also) {
 export function DatsSection({ lib }) {
   const dats = useStore(ui, (st) => st.dats) || [];
   const off = !!lib.read_only;
+  // read again when shown: Audit changes the main DAT and those audited with it too
+  useEffect(() => { api("dats").then((d) => ui.set({ dats: d })).catch(() => {}); }, [lib.path]);
   const byPlatform = [];
   for (const d of dats) {
     let g = byPlatform.find((x) => x.platform === d.platform);
