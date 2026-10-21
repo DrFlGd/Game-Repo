@@ -70,6 +70,9 @@ pub struct PcFile {
     /// install | patch | extra | dlc
     pub kind: String,
     pub size: u64,
+    /// Its CRC32 and SHA1, when they've been read: an import since D133 reads a file only
+    /// to copy it, and lists its size
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub crc32: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha1: Option<String>,
@@ -534,6 +537,8 @@ pub struct InFile {
     /// Its path from the item's base (a folder item's own folder; else its name)
     pub rel: String,
     pub size: u64,
+    /// Read only when it may be in the library already (D133)
+    #[serde(default)]
     pub crc32: String,
     #[serde(default)]
     pub sha1: Option<String>,
@@ -787,9 +792,10 @@ pub struct Match {
     pub art: BTreeMap<String, String>,
 }
 
-/// Read the paths into items: grouped, hashed, looked inside and identified, then
-/// checked against the PC games there already. `search` asks the sources about an item
-/// nothing inside names (by title and year).
+/// Read the paths into items: grouped, looked inside and identified, then checked against
+/// the PC games there already. What's in a file is read only when it may be one there
+/// already (the same size as one of theirs, D133): the import reads it as it copies it.
+/// `search` asks the sources about an item nothing inside names (by title and year).
 pub fn read_items(
     lib: &Library,
     paths: &[PathBuf],
@@ -805,35 +811,67 @@ pub fn read_items(
         walk(&base, &mut files);
         it.files = files.iter().map(|p| InFile { path: p.display().to_string(), rel: rel_of(&base, p), ..Default::default() }).collect();
     }
-    let total: u64 = items.iter().flat_map(|i| i.files.iter().chain(i.patches.iter())).map(|f| std::fs::metadata(&f.path).map(|m| m.len()).unwrap_or(0)).sum();
-    let mut done: u64 = 0;
     let n = items.len();
     for (i, it) in items.iter_mut().enumerate() {
+        if cancel.load(Ordering::Relaxed) {
+            bail!("stopped");
+        }
+        progress(json!({ "item": i + 1, "items": n, "name": it.name }));
+        for f in it.files.iter_mut().chain(it.patches.iter_mut()) {
+            f.size = std::fs::metadata(&f.path).with_context(|| format!("couldn't read {}", f.path))?.len();
+        }
+        identify_item(it, cancel);
+        it.read = Some(AsRead { title: it.title.clone(), year: it.year, source: it.source.clone() });
+    }
+    // what's in the library already: the game each item's files all are in (by SHA1), read
+    // only for an item whose every file is as big as one there
+    let games = list(lib);
+    let mut by_size: HashMap<u64, Vec<(usize, usize)>> = HashMap::new();
+    for (g, e) in games.iter().enumerate() {
+        for (k, f) in e.game.files.iter().enumerate() {
+            by_size.entry(f.size).or_default().push((g, k));
+        }
+    }
+    let may_have = |it: &Item| !it.files.is_empty() && it.files.iter().chain(it.patches.iter()).all(|f| by_size.contains_key(&f.size));
+    let total: u64 = items.iter().filter(|it| may_have(it)).flat_map(|it| it.files.iter().chain(it.patches.iter())).map(|f| f.size).sum();
+    let mut done: u64 = 0;
+    // a file of theirs game.json has no SHA1 for (imported since D133), read when it's needed
+    let mut theirs: HashMap<(usize, usize), Option<String>> = HashMap::new();
+    let mut held: Vec<Option<usize>> = vec![None; n];
+    for (i, it) in items.iter_mut().enumerate() {
+        if !may_have(it) {
+            continue;
+        }
+        let mut first = None;
         for f in it.files.iter_mut().chain(it.patches.iter_mut()) {
             if cancel.load(Ordering::Relaxed) {
                 bail!("stopped");
             }
             progress(json!({ "item": i + 1, "items": n, "name": f.rel, "done": done, "total": total }));
             let mut file = std::fs::File::open(&f.path).with_context(|| format!("couldn't read {}", f.path))?;
-            let size = file.metadata()?.len();
-            let h = hash::hash_reader(&mut file, size, "", cancel).with_context(|| format!("couldn't read {}", f.path))?;
-            f.size = size;
+            let h = hash::identity(&mut file, cancel).with_context(|| format!("couldn't read {}", f.path))?;
+            done += f.size;
             f.crc32 = h.crc32;
             f.sha1 = h.sha1;
-            done += size;
-        }
-        identify_item(it, cancel);
-        it.read = Some(AsRead { title: it.title.clone(), year: it.year, source: it.source.clone() });
-    }
-    // what's in the library already
-    let games = list(lib);
-    let mut by_sha1: HashMap<String, (String, String)> = HashMap::new();
-    for e in &games {
-        for f in &e.game.files {
-            if let Some(s) = &f.sha1 {
-                by_sha1.insert(s.clone(), (e.game.id.clone(), e.game.title.clone()));
+            let same = by_size[&f.size].iter().copied().find(|&(g, k)| {
+                let theirs = theirs.entry((g, k)).or_insert_with(|| {
+                    let lf = &games[g].game.files[k];
+                    lf.sha1.clone().or_else(|| std::fs::File::open(rel_path(&games[g].dir, &lf.path)).ok().and_then(|mut r| hash::identity(&mut r, cancel).ok()).and_then(|h| h.sha1))
+                });
+                theirs.is_some() && *theirs == f.sha1
+            });
+            match same {
+                Some((g, _)) => {
+                    first.get_or_insert(g);
+                }
+                // not a game there: the rest needn't be read
+                None => {
+                    first = None;
+                    break;
+                }
             }
         }
+        held[i] = first;
     }
     for (i, it) in items.iter_mut().enumerate() {
         // each may ask a source on the web: Stop is heard between them (M30)
@@ -841,11 +879,10 @@ pub fn read_items(
             bail!("stopped");
         }
         progress(json!({ "item": i + 1, "items": n, "name": it.name, "done": total, "total": total }));
-        let held: Vec<&(String, String)> = it.files.iter().filter_map(|f| f.sha1.as_ref().and_then(|s| by_sha1.get(s))).collect();
-        if !it.files.is_empty() && held.len() == it.files.len() && it.patches.iter().all(|p| p.sha1.as_ref().is_some_and(|s| by_sha1.contains_key(s))) {
+        if let Some(g) = held[i] {
             it.status = "have".into();
-            it.game = Some(held[0].0.clone());
-            it.game_title = Some(held[0].1.clone());
+            it.game = Some(games[g].game.id.clone());
+            it.game_title = Some(games[g].game.title.clone());
             it.include = false;
             continue;
         }
@@ -1060,7 +1097,7 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
             let rel = format!("{dir}/{}", f.rel);
             // there already (the same file) or a name to find
             if let Some(have) = target.game.files.iter().find(|x| x.path.eq_ignore_ascii_case(&rel)) {
-                if have.sha1 == f.sha1 {
+                if same_file(&target.dir, have, f) {
                     continue;
                 }
             }
@@ -1177,6 +1214,15 @@ fn part_files(dir: &Path, g: &PcGame, part: &str) -> Vec<(String, PathBuf)> {
     let mut seen = HashSet::new();
     v.retain(|(_, p)| p.is_file() && seen.insert(key(p)));
     v
+}
+
+/// Whether a file a game has is `f`: the same size and SHA1, either read now if no one
+/// has yet (D133).
+fn same_file(dir: &Path, have: &PcFile, f: &InFile) -> bool {
+    let sha1 = |s: &Option<String>, p: &Path| -> Option<String> {
+        s.clone().or_else(|| std::fs::File::open(p).ok().and_then(|mut r| hash::identity(&mut r, &AtomicBool::new(false)).ok()).and_then(|h| h.sha1))
+    };
+    have.size == f.size && sha1(&have.sha1, &rel_path(dir, &have.path)).is_some_and(|a| Some(a) == sha1(&f.sha1, Path::new(&f.path)))
 }
 
 /// Whether a game has a part in its folder already (an installer, an unpacked copy…).
@@ -1488,6 +1534,8 @@ pub(crate) mod tests {
         let paths = inbox_paths(&inbox).unwrap();
         let items = read_items(&lib, &paths, &no_search, &cancel, &mut |_| {}).unwrap();
         assert_eq!(items.len(), 3, "{items:#?}");
+        // nothing like them in the library: their sizes are all that's read (D133)
+        assert!(items.iter().flat_map(|i| i.files.iter().chain(i.patches.iter())).all(|f| f.sha1.is_none() && f.size > 0), "{items:#?}");
         let hk = items.iter().find(|i| i.kind == "gog").unwrap();
         assert_eq!((hk.title.as_str(), hk.files.len(), hk.patches.len(), hk.version.as_str(), hk.status.as_str()), ("Hollow Knight", 2, 1, "1.5", "look"));
         let zeta = items.iter().find(|i| i.kind == "archive").unwrap();
@@ -1514,9 +1562,19 @@ pub(crate) mod tests {
         assert!(loose.dir.join("extracted/bin/loose.exe").is_file());
         assert!(inbox.join("Zeta Quest (1999).zip").is_file(), "copied, not moved");
         assert_eq!(games[2].dir.file_name().unwrap(), "Zeta Quest (1999)");
-        // read again: all in the library already
+        // listed by size, the import having read each file only to copy it (D133)
+        assert!(games.iter().flat_map(|e| e.game.files.iter()).all(|f| f.sha1.is_none() && f.crc32.is_empty()));
+        assert!(!std::fs::read_to_string(hk.dir.join(MANIFEST)).unwrap().contains("crc32"));
+        // read again: all in the library already, by SHA1 (theirs read now)
         let again = read_items(&lib, &paths, &no_search, &cancel, &mut |_| {}).unwrap();
         assert!(again.iter().all(|i| i.status == "have" && !i.include), "{again:#?}");
+        // the same size isn't the same file
+        std::fs::write(inbox.join("Loose Game/bin/loose.exe"), b"LOOSE").unwrap();
+        let again = read_items(&lib, &paths, &no_search, &cancel, &mut |_| {}).unwrap();
+        let loose_again = again.iter().find(|i| i.kind == "folder").unwrap();
+        assert_eq!((loose_again.status.as_str(), loose_again.include), ("update", true), "{loose_again:#?}");
+        assert!(again.iter().filter(|i| i.kind != "folder").all(|i| i.status == "have"));
+        std::fs::write(inbox.join("Loose Game/bin/loose.exe"), b"loose").unwrap();
         // a newer installer of the same GOG game joins it, in place of the one it had (its
         // installer and .bin part set aside, D130); its patch stays
         let newer = dir.join("newer");
