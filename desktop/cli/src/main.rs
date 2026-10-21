@@ -22,6 +22,7 @@
 //! same for Game Repo Go's pages (web/client.html) and its backend (gamerepo_device::app).
 
 mod devices;
+mod updates;
 
 use anyhow::{bail, Context, Result};
 use gamerepo_core::api::{App, AppPaths, Reply};
@@ -1593,7 +1594,8 @@ fn respond_with(
 
 /// The app's commands over HTTP: POST /invoke/<command> (as tests/tauri_shim.js
 /// sends them), GET /library/<path> for library files, everything else from --ui.
-/// POST /test/pick queues the answer to the next folder or file dialog.
+/// POST /test/pick queues the answer to the next folder or file dialog; the updates
+/// (`update_*`) are a stand-in, set and read with /test/update (updates.rs).
 async fn serve(mut a: Args) -> Result<()> {
     let ui = PathBuf::from(a.need("--ui")?);
     let home = PathBuf::from(a.need("--home")?);
@@ -1609,6 +1611,7 @@ async fn serve(mut a: Args) -> Result<()> {
     }
     let app = app_for(&home, "/library/")?;
     let picks: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let stand_in = Arc::new(updates::StandIn::new("Game Repo"));
     let listener = std::net::TcpListener::bind(("127.0.0.1", port))?;
     eprintln!(
         "serving on http://127.0.0.1:{port}/ (home {})",
@@ -1621,6 +1624,7 @@ async fn serve(mut a: Args) -> Result<()> {
             let app = app.clone();
             let ui = ui.clone();
             let picks = picks.clone();
+            let stand_in = stand_in.clone();
             let rt = rt.clone();
             std::thread::spawn(move || {
                 let Ok(req) = read_request(&mut stream) else {
@@ -1630,7 +1634,12 @@ async fn serve(mut a: Args) -> Result<()> {
                 let r: Result<()> = rt.block_on(async {
                     if let Some(cmd) = path.strip_prefix("/invoke/") {
                         let args: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
+                        let update = args["cmd"].as_str().filter(|c| cmd == "api" && c.starts_with("update_"));
                         match cmd {
+                            "api" if update.is_some() => match stand_in.call(update.unwrap_or_default(), &args["args"]) {
+                                Ok(v) => respond(&mut stream, 200, "application/json", &serde_json::to_vec(&v)?),
+                                Err(e) => respond(&mut stream, 400, "application/json", &serde_json::to_vec(&json!(e))?),
+                            },
                             "api" | "api_bytes" => match app
                                 .call(args["cmd"].as_str().unwrap_or(""), args["args"].clone())
                                 .await
@@ -1689,6 +1698,11 @@ async fn serve(mut a: Args) -> Result<()> {
                                 &serde_json::to_vec(&json!(format!("unknown command {other}")))?,
                             ),
                         }
+                    } else if path == "/test/update" {
+                        if req.method == "POST" {
+                            stand_in.set(&serde_json::from_slice(&req.body).unwrap_or(Value::Null));
+                        }
+                        respond(&mut stream, 200, "application/json", &serde_json::to_vec(&stand_in.read())?)
                     } else if path == "/test/pick" {
                         let v: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
                         if let Some(p) = v["path"].as_str() {

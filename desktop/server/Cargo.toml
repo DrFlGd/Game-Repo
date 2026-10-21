@@ -15,3 +15,4 @@ tauri-plugin-dialog = "2"
 gamerepo-core = { path = "../core" }
 gamerepo-serve = { path = "../serve" }
 gamerepo-wire = { path = "../wire" }
+gamerepo-update = { path = "../update" }

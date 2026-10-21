@@ -141,6 +141,6 @@ export function Shell() {
     ${big ? html`<${Hints} route=${s.route} dialog=${s.dialog} />` : null}
     <${Dialogs} dialog=${s.dialog} />
     ${s.toast ? html`<div class="toast go-toast" role="status" aria-live="polite" id="go-toast"><span>${s.toast.text}</span>
-      ${s.toast.page ? html`<button type="button" class="ghost light" tabindex=${big ? "-1" : null} onClick=${() => { go.set({ toast: null }); open({ page: s.toast.page }); }}>${s.toast.page === "queue" ? "See Downloads" : `See the ${s.toast.page}`}</button>` : null}</div>` : null}`;
+      ${s.toast.page ? html`<button type="button" class="ghost light" tabindex=${big ? "-1" : null} onClick=${() => { go.set({ toast: null }); open({ page: s.toast.page }); }}>${s.toast.page === "queue" ? "See Downloads" : s.toast.page === "settings" ? "Open Settings" : `See the ${s.toast.page}`}</button>` : null}</div>` : null}`;
 }
 

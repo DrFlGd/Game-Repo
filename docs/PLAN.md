@@ -5163,6 +5163,104 @@ your choosing when a game doesn't match with the default search. No new source f
   one source; one chosen is asked even when it's off in Settings, and one not set up is
   shown but can't be chosen.
 
+### In-app updates (built 2026-10-21, D134–D137)
+
+Jerred asked (2026-10-21) whether Game Repo and Game Repo Go could update themselves, and
+whether that would still work with the repository made private. His choice: the
+repository stays public for now, built so that moving to a private code repository with a
+public one for releases only ("option B") is an easy change. D134–D137 are Claude's
+defaults, followed unless he says otherwise. Game Repo Go on Android is part 2.
+
+**D134 What updates, and when.** Game Repo (Windows), Game Repo Server installed on its
+own (Windows) and Game Repo Go (Windows, and the Steam Deck and Linux as an AppImage)
+update themselves with Tauri's updater (tauri-plugin-updater, `desktop/update`).
+- **When.** A few seconds after it starts, unless *Check for updates when … starts* is
+  off (on by default, kept in `updates.json` in the program's config folder), and when
+  asked: Game Repo's About and Settings › *Updates*, the server's window and its tray
+  menu's *Check for updates…*, and Game Repo Go's Settings › *About and updates*.
+- **Found.** The panel says *Game Repo 0.5.42 is out*, with what's new in each version
+  after this one (the release notes of those versions). Game Repo's status bar says so too
+  and opens Settings › Updates; Game Repo Go shows a notice that opens Settings; the
+  server's tray item becomes *Update to 0.5.42…*.
+- **Installed only when asked.** Nothing installs until *Update and restart*. It
+  downloads with its progress shown, checks the download's signature against the public
+  key the program was built with (D135), and then: on Windows runs the installer
+  passively (a progress window, no questions) and opens the program again; as an AppImage
+  replaces the AppImage and starts it again. Before installing, Game Repo stops the Game
+  Repo Server it started, the server stops serving, and Game Repo Go stops its downloads,
+  as when each quits.
+- **A copy that can't update itself says why** and offers only the releases page: one
+  built without the key; one not put there by its installer (no `uninstall.exe` beside it
+  on Windows, not an AppImage on Linux, a `.deb` included); and the Game Repo Server that
+  sits beside Game Repo, which updates with Game Repo (D137). On Android, part 2; until
+  then Settings links to the releases page.
+
+**D135 The signing key.** The programs install only an update signed with the key whose
+public half they were built with (minisign's Ed25519, as Tauri signs).
+- **Made once, on Jerred's PC.** `tools/updater_key.cmd` (double-click) asks Game Repo
+  0.5.41 or later to make it (`game-repo.exe --make-update-key <folder>`, a random password
+  of 32 letters and digits) in Documents\Game Repo update key\, with a README on keeping it
+  safe, and adds the three repository secrets: with GitHub CLI if it's signed in,
+  otherwise by opening GitHub's page for each with its value copied. Run again, it uses
+  the key it made; it never makes a second. The private key never passes through a chat,
+  the repository or the project's files.
+- **Secrets.** `UPDATER_PRIVATE_KEY` and `UPDATER_KEY_PASSWORD` sign; `UPDATER_PUBKEY` is
+  built into the programs (`tools/update_files.py --build-config` writes the Tauri config
+  that has the builds sign their installers and carry the key). With no key in the
+  secrets the programs are built as before, without updates, and a release has no update
+  files (a warning says so).
+- **Getting started takes two releases.** The release that brings updates (0.5.41) has
+  the key maker but no key. Once the secrets are added, the next release is signed and
+  built with the key: installed by hand once, as now, every release after it is offered
+  by the programs themselves.
+- **If the key is lost**, a new one can be made, but copies built with the old one won't
+  take a release signed with the new one: install that release by hand once on each
+  computer and device.
+
+**D136 Where releases are, in one setting.** Where releases are published and where the
+programs look for updates come from one place: the repository variable `RELEASES_REPO`
+(`owner/name`), else this repository. CI builds it into the programs
+(`GAMEREPO_RELEASES`, `gamerepo_wire::RELEASES`) and publishes there.
+- **Each release** carries `latest-game-repo.json`, `latest-game-repo-server.json` and
+  `latest-game-repo-go.json` (`tools/update_files.py`): the version, what's new (CHANGELOG's
+  Unreleased section as this version, and up to 20 releases before it), and each system's
+  installer address and signature. Each signature is checked against the public key, in
+  Python with nothing installed, before anything is published, and after publishing each
+  address is checked against the release's assets. The programs read
+  `https://github.com/<releases>/releases/latest/download/latest-<program>.json`.
+- **Option B** (a private code repository, releases in a public one), with nothing in
+  the code changed:
+  1. Make the public repository, with a README (a release needs a commit to tag).
+  2. Add the repository variable `RELEASES_REPO` naming it and the secret `RELEASES_TOKEN`
+     (a fine-grained token with *Contents: read and write* on that repository only).
+  3. Let the next release be published. It goes to both: there, and here while this
+     repository is still public, so the copies installed now (built to look here) take
+     it, and it is built to look there. The tag stays here, where the next version is
+     counted.
+  4. Once the computers and devices have taken it, make this repository private. From
+     then on releases go only there.
+
+**D137 Game Repo Server's updates.** The server Game Repo installs beside itself (D89)
+updates with Game Repo, so its window says that and offers no button; Game Repo stops it
+before installing and starts it again as before when it opens. The server installed on
+its own (a NAS later, or another PC) checks and updates itself like the others, from its
+window and its tray menu.
+
+- **Tests.** `desktop/update`: a copy says why it can't update itself (no key, another
+  system, not installed), the setting is on until turned off, a key it makes signs what
+  the updater accepts (checked with minisign-verify), the update file's address.
+  `tests/update_files.py`: Ed25519 against RFC 8032's vector; a release's update files
+  (names as GitHub keeps them, the signature, what's new); an installer changed after
+  signing, one signed with another key, for another version or as another file, one
+  without a signature and a trusted comment changed are each refused with nothing
+  written. `tests/updater_key.py` (Windows CI, with the Game Repo just built): the helper
+  makes the key and its password, the Tauri CLI signs with it and the signature checks for
+  its version, a changed installer is refused, run again it keeps the key, a key without
+  its password is refused. The page tests drive each panel with the CLI's stand-in for
+  the updater (`/test/update`): the check as it starts, About, the status bar, Settings ›
+  Updates with its tick, Update and restart, a copy that can't, the server's window, and
+  Game Repo Go's Settings and its notice.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -5308,7 +5406,7 @@ your choosing when a game doesn't match with the default search. No new source f
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D139). D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it; D134–D137 are kept for in-app updates. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D139). D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -5366,3 +5464,6 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     with variants everywhere games show (built, "Phase 10 notes, part 1"), then several
     DATs per system on the Audit page (built, "Phase 10 notes, part 2"). Later: Android games (APKs), added to the roadmap
     by Jerred, 2026-10-20.
+16. In-app updates ("In-app updates", D134–D137): Windows and the Steam Deck built (part
+    1); Jerred makes the signing key once with `tools/updater_key.cmd`. Part 2 is Game Repo
+    Go on Android.

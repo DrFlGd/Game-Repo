@@ -1,4 +1,4 @@
-// About: the app's version and what it's built with, how a library is laid out,
+// About: the app's version and what it's built with, its updates, how a library is laid out,
 // what's coming, the licences and the changelog. tools/build_desktop.py copies
 // CHANGELOG.md and THIRD_PARTY.md next to the page and writes build-info.json,
 // so this works offline.
@@ -7,9 +7,10 @@ import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx } from "./context.js";
 import { CommandBar } from "./layout.js";
+import { Markdown, releases } from "./markdown.js";
+import { UpdatePanel } from "./updates.js";
 
 const OS = { windows: "Windows", linux: "Linux", macos: "macOS" };
-const RELEASES = "https://github.com/DrFlGd/Game-Repo/releases";
 
 export const TREE = `_library/                       the app's own files
   library.json                  the library's name and settings
@@ -64,60 +65,7 @@ export const NEXT = [
   ["Phase 9", "Serving games to your other devices: Android, Linux and handhelds on your home network"],
 ];
 
-/** Text with `code`, **bold**, *italic* and [links](https://…), as nodes (never as HTML). */
-function inline(text) {
-  const out = [];
-  const re = /`([^`]+)`|\*\*(.+?)\*\*|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\*([^*\s][^*]*)\*/g;
-  let at = 0, m;
-  while ((m = re.exec(text))) {
-    if (m.index > at) out.push(text.slice(at, m.index));
-    if (m[1] != null) out.push(html`<code>${m[1]}</code>`);
-    else if (m[2] != null) out.push(html`<strong>${inline(m[2])}</strong>`);
-    else if (m[3] != null) out.push(html`<a href=${m[4]} target="_blank" rel="noopener noreferrer">${inline(m[3])}</a>`);
-    else out.push(html`<em>${m[5]}</em>`);
-    at = re.lastIndex;
-  }
-  if (at < text.length) out.push(text.slice(at));
-  return out;
-}
-
-/** The Markdown this repository writes (headings, paragraphs, lists, tables), as nodes. */
-export function Markdown({ text }) {
-  const blocks = [];
-  let para = [], list = [], table = [];
-  const flush = () => {
-    if (para.length) blocks.push(html`<p>${inline(para.join(" "))}</p>`);
-    if (list.length) blocks.push(html`<ul>${list.map((t) => html`<li>${inline(t)}</li>`)}</ul>`);
-    if (table.length) {
-      const cells = (row) => row.replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
-      const [head, , ...rows] = table;
-      blocks.push(html`<div class="about-table"><table><thead><tr>${cells(head).map((c) => html`<th>${inline(c)}</th>`)}</tr></thead>
-        <tbody>${rows.map((r) => html`<tr>${cells(r).map((c) => html`<td>${inline(c)}</td>`)}</tr>`)}</tbody></table></div>`);
-    }
-    para = []; list = []; table = [];
-  };
-  for (const line of text.split(/\r?\n/)) {
-    const h = /^(#{1,4})\s+(.*)$/.exec(line);
-    if (h) { flush(); blocks.push(h[1].length <= 2 ? html`<h3>${inline(h[2])}</h3>` : html`<h4>${inline(h[2])}</h4>`); }
-    else if (/^\s*\|/.test(line)) { if (para.length || list.length) { const t = table; flush(); table = t; } table.push(line.trim()); }
-    else if (/^\s*[-*]\s+/.test(line)) { if (para.length || table.length) flush(); list.push(line.replace(/^\s*[-*]\s+/, "")); }
-    else if (!line.trim() || /^-{3,}$/.test(line.trim())) flush();
-    else if (list.length && /^\s+\S/.test(line)) list[list.length - 1] += " " + line.trim();
-    else { if (list.length || table.length) flush(); para.push(line.trim()); }
-  }
-  flush();
-  return html`<div class="about-md">${blocks}</div>`;
-}
-
-/** CHANGELOG.md's releases, newest first: [{title, version, body}], without the agents' notes. */
-export function releases(text) {
-  const parts = text.split(/^## /m).slice(1).map((p) => {
-    const nl = p.indexOf("\n");
-    const title = (nl < 0 ? p : p.slice(0, nl)).trim();
-    return { title, version: /^\d+\.\d+\.\d+/.exec(title)?.[0] || null, body: nl < 0 ? "" : p.slice(nl + 1).trim() };
-  });
-  return parts.filter((p) => p.version || /^unreleased/i.test(p.title));
-}
+export { Markdown, releases } from "./markdown.js";
 
 const fetchText = (path) => fetch(path, { cache: "no-store" }).then((r) => (r.ok ? r.text() : null)).catch(() => null);
 
@@ -156,7 +104,8 @@ export function About() {
       <dl class="about-versions">${rows.map(([k, v]) => html`<div key=${k}><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>
       ${built.length ? html`<details class="about-built" id="about-built"><summary>How it was built</summary>
         <dl class="about-versions">${built.map(([k, v]) => html`<div key=${k}><dt>${k}</dt><dd>${v}</dd></div>`)}</dl></details>` : null}
-      <p><a href=${RELEASES} target="_blank" rel="noopener noreferrer">All releases on GitHub</a></p>
+      ${ctx.platform?.kind === "desktop" ? html`<${UpdatePanel} call=${ctx.platform.api} />`
+        : html`<p><a href=${info.releases || "https://github.com/DrFlGd/Game-Repo/releases"} target="_blank" rel="noopener noreferrer">All releases on GitHub</a></p>`}
     </section>
     <section class="ls-section" id="about-changelog">
       <h2>What's changed</h2>

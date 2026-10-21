@@ -5,6 +5,7 @@
 import { createStore } from "../lib/store.js";
 import { SKINS, THEMES } from "../ui/state.js";
 import { call, info, onChange, storage } from "./backend.js";
+import { refreshUpdates } from "../ui/updates.js";
 
 export const go = createStore({
   ready: false,
@@ -139,6 +140,8 @@ export async function load() {
       await refreshSettings();
       refreshLists();
       statusSoon();
+    } else if (what === "update") {
+      refreshUpdates();
     }
   });
   // the library brought up to date each time Game Repo Go opens (D98)
