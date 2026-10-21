@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.43 (2026-10-21)
+
 - **Game Repo Go updates itself on Android too.** It looks for a newer version as it starts (Settings › About and updates turns that off) or when you choose *Check for updates*, shows what's new, and with *Download and install* downloads it, checks it against the key Game Repo Go was built with, and hands it to Android, which asks you to install it (the first time, it asks to let Game Repo Go install apps). Open Game Repo Go again afterwards. As on Windows and the Steam Deck, this starts with the first release built with the update key.
 
 ## 0.5.42 (2026-10-21)
