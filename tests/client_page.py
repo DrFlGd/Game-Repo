@@ -459,9 +459,12 @@ async def main():
             await pg.goto(B + "#library")
             await pg.reload()
             said = await toast(pg, "Game Repo Go 9.9.9 is out")
-            check("the check as it starts finds it, and a notice says so", "update it in Settings" in said and update()["checks"] == 3, said)
+            await pg.click("#go-toast button")
+            await pg.wait_for_selector("#go-settings #update-panel[data-state=available]")
+            check("the check as it starts finds it, and a notice says so and opens Settings", "update it in Settings" in said and "Open Settings" in said
+                  and update()["checks"] == 3 and not await pg.query_selector("#go-toast"), said)
             update(found=None, available=None)
-            await pg.goto(B + "#settings")
+            await pg.click("#go-settings #update-check")
             await pg.wait_for_selector("#go-settings #update-panel[data-state=newest]")
 
             # 11. a PC's size: the menu down the side, the systems beside the games, a game's page
