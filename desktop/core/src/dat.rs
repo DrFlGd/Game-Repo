@@ -2,7 +2,9 @@
 //! importing them. An imported DAT is copied to
 //! `_library/dats/<platform>/<name> (<version>).dat` (the library is the source of
 //! truth: [`sync_library`] loads the index from these files when it's rebuilt) and
-//! loaded into the index, where its ROMs are matched with the scanned files.
+//! loaded into the index, where its ROMs are matched with the scanned files. A DAT is read
+//! as it's parsed (D149), from the file or a ZIP's member as a stream, never whole into
+//! memory: a 300 MB MAME listxml takes what its games take, with progress and Stop.
 
 use crate::index::Index;
 use crate::library::{now, valid_id, Library, APP_DIR};
@@ -12,7 +14,9 @@ use quick_xml::events::{BytesStart, Event};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Dat {
@@ -104,26 +108,94 @@ impl Rom {
 
 /// Read a DAT of either format.
 pub fn parse(bytes: &[u8]) -> Result<Dat> {
-    let start = bytes.iter().position(|b| !b.is_ascii_whitespace() && *b != 0xEF && *b != 0xBB && *b != 0xBF);
-    let mut dat = match start.map(|i| bytes[i]) {
-        Some(b'<') => parse_logiqx(bytes)?,
-        Some(_) => parse_clrmamepro(&String::from_utf8_lossy(bytes))?,
-        None => bail!("the file is empty"),
+    parse_from(bytes)
+}
+
+/// Read a DAT of either format as it comes: Logiqx XML a piece at a time, a ClrMamePro DAT
+/// (always small) whole.
+pub fn parse_from<R: BufRead>(mut r: R) -> Result<Dat> {
+    // past any byte order mark and white space, to the first thing in it
+    let first = loop {
+        let buf = r.fill_buf()?;
+        if buf.is_empty() {
+            bail!("the file is empty");
+        }
+        match buf.iter().position(|b| !b.is_ascii_whitespace() && *b != 0xEF && *b != 0xBB && *b != 0xBF) {
+            Some(i) => {
+                let b = buf[i];
+                r.consume(i);
+                break b;
+            }
+            None => {
+                let n = buf.len();
+                r.consume(n);
+            }
+        }
+    };
+    let mut dat = if first == b'<' {
+        parse_logiqx(r)?
+    } else {
+        let mut bytes = vec![];
+        r.read_to_end(&mut bytes)?;
+        parse_clrmamepro(&String::from_utf8_lossy(&bytes))?
     };
     if dat.name.is_empty() {
         bail!("this DAT has no name in its header");
     }
     // a game listed again with the same files (libretro's Redump copies list a disc once
     // per serial) is the same game
-    let mut seen: HashMap<String, Vec<Rom>> = HashMap::new();
-    dat.games.retain(|g| match seen.get(&g.name) {
-        Some(roms) if *roms == g.roms => false,
-        _ => {
-            seen.insert(g.name.clone(), g.roms.clone());
-            true
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut kept: Vec<Game> = Vec::with_capacity(dat.games.len());
+    for g in std::mem::take(&mut dat.games) {
+        if seen.get(&g.name).is_some_and(|&i| kept[i].roms == g.roms) {
+            continue;
         }
-    });
+        seen.insert(g.name.clone(), kept.len());
+        kept.push(g);
+    }
+    dat.games = kept;
     Ok(dat)
+}
+
+/// A file being read for a DAT: how far it's got (for progress), and Stop.
+struct Reading<'a, R> {
+    inner: R,
+    read: u64,
+    cancel: &'a AtomicBool,
+    progress: &'a mut dyn FnMut(u64),
+    told: u64,
+}
+
+impl<R: Read> Read for Reading<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(std::io::Error::other("stopped"));
+        }
+        let n = self.inner.read(buf)?;
+        self.read += n as u64;
+        // a few times a megabyte at most
+        if self.read - self.told >= 1 << 20 || n == 0 {
+            self.told = self.read;
+            (self.progress)(self.read);
+        }
+        Ok(n)
+    }
+}
+
+/// Parse what `r` gives (a file, a ZIP's member), with progress in bytes read and Stop.
+fn parse_reading<R: Read>(r: R, cancel: &AtomicBool, progress: &mut dyn FnMut(u64)) -> Result<Dat> {
+    let reading = Reading { inner: r, read: 0, cancel, progress, told: 0 };
+    let dat = parse_from(BufReader::with_capacity(1 << 20, reading));
+    if cancel.load(Ordering::Relaxed) {
+        bail!("stopped");
+    }
+    dat
+}
+
+/// The DAT in a file, read as it's parsed.
+pub fn parse_file(path: &Path) -> Result<Dat> {
+    let f = std::fs::File::open(path).with_context(|| format!("couldn't read {}", path.display()))?;
+    parse_reading(f, &AtomicBool::new(false), &mut |_| {})
 }
 
 // ------------------------------------------------------------ Logiqx XML
@@ -139,8 +211,8 @@ fn attrs(e: &BytesStart) -> Vec<(String, String)> {
         .collect()
 }
 
-fn parse_logiqx(bytes: &[u8]) -> Result<Dat> {
-    let mut r = quick_xml::Reader::from_reader(bytes);
+fn parse_logiqx<R: BufRead>(input: R) -> Result<Dat> {
+    let mut r = quick_xml::Reader::from_reader(input);
     let mut buf = vec![];
     let mut dat = Dat::default();
     let mut stack: Vec<String> = vec![];
@@ -483,32 +555,52 @@ fn remembered_platform(lib: &Library, name: &str) -> Option<String> {
 }
 
 /// What importing one DAT came to.
+#[derive(Debug)]
 pub enum Imported {
     Loaded(Value),
     /// The platform couldn't be worked out: the page asks, and imports again with the answer.
     NeedsPlatform { name: String, file: String },
 }
 
+fn is_zip(path: &Path) -> Result<bool> {
+    let mut head = [0u8; 4];
+    let mut f = std::fs::File::open(path).with_context(|| format!("couldn't read {}", path.display()))?;
+    let n = f.read(&mut head)?;
+    Ok(n == 4 && &head == b"PK\x03\x04")
+}
+
+/// A ZIP's members that are DATs: (index, name, size unpacked).
+fn zip_dats(zip: &mut zip::ZipArchive<std::fs::File>) -> Result<Vec<(usize, String, u64)>> {
+    let mut v = vec![];
+    for i in 0..zip.len() {
+        let m = zip.by_index(i)?;
+        let name = m.name()?.into_owned();
+        let ext = platforms::ext_of(&name);
+        if !m.is_dir() && (ext == "dat" || ext == "xml") {
+            v.push((i, name, m.size()));
+        }
+    }
+    Ok(v)
+}
+
+fn open_zip(path: &Path, file: &str) -> Result<zip::ZipArchive<std::fs::File>> {
+    let f = std::fs::File::open(path).with_context(|| format!("couldn't read {}", path.display()))?;
+    zip::ZipArchive::new(f).map_err(|e| anyhow!("{file} isn't a ZIP that can be read: {e}"))
+}
+
 /// The DAT (or the DATs in a ZIP) at `path`, read without importing them (a collection
 /// made from a DAT, D49).
 pub fn read_file(path: &Path) -> Result<Vec<Dat>> {
-    let bytes = std::fs::read(path).with_context(|| format!("couldn't read {}", path.display()))?;
     let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    if !bytes.starts_with(b"PK\x03\x04") {
-        return Ok(vec![parse(&bytes).with_context(|| format!("{file} isn't a DAT that can be read"))?]);
+    if !is_zip(path)? {
+        return Ok(vec![parse_file(path).with_context(|| format!("{file} isn't a DAT that can be read"))?]);
     }
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).map_err(|e| anyhow!("{file} isn't a ZIP that can be read: {e}"))?;
+    let mut zip = open_zip(path, &file)?;
     let mut out = vec![];
-    for i in 0..zip.len() {
-        let mut m = zip.by_index(i)?;
-        let name = m.name()?.into_owned();
-        let ext = platforms::ext_of(&name);
-        if m.is_dir() || !(ext == "dat" || ext == "xml") {
-            continue;
-        }
-        let mut inner = vec![];
-        std::io::Read::read_to_end(&mut m, &mut inner)?;
-        out.push(parse(&inner).with_context(|| format!("{file} › {name} isn't a DAT that can be read"))?);
+    let never = AtomicBool::new(false);
+    for (i, name, _) in zip_dats(&mut zip)? {
+        let m = zip.by_index(i)?;
+        out.push(parse_reading(m, &never, &mut |_| {}).with_context(|| format!("{file} › {name} isn't a DAT that can be read"))?);
     }
     if out.is_empty() {
         bail!("{file} has no .dat or .xml file inside.");
@@ -519,34 +611,136 @@ pub fn read_file(path: &Path) -> Result<Vec<Dat>> {
 /// Import the DAT (or the DATs in a ZIP) at `path`. `answers` maps a DAT's name to its
 /// platform, for those whose platform couldn't be worked out.
 pub fn import(ix: &Index, lib: &Library, path: &Path, answers: &Map<String, Value>) -> Result<Vec<Imported>> {
+    import_with(ix, lib, path, answers, &AtomicBool::new(false), &mut |_, _| {})
+}
+
+/// `import`, with Stop and `progress(read, total)` in bytes (a ZIP's DATs' as unpacked).
+pub fn import_with(ix: &Index, lib: &Library, path: &Path, answers: &Map<String, Value>, cancel: &AtomicBool, progress: &mut dyn FnMut(u64, u64)) -> Result<Vec<Imported>> {
     lib.writable()?;
-    let bytes = std::fs::read(path).with_context(|| format!("couldn't read {}", path.display()))?;
     let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    if bytes.starts_with(b"PK\x03\x04") {
-        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).map_err(|e| anyhow!("{file} isn't a ZIP that can be read: {e}"))?;
-        let mut out = vec![];
-        for i in 0..zip.len() {
-            let mut m = zip.by_index(i)?;
-            let name = m.name()?.into_owned();
-            let ext = platforms::ext_of(&name);
-            if m.is_dir() || !(ext == "dat" || ext == "xml") {
-                continue;
-            }
-            let mut inner = vec![];
-            std::io::Read::read_to_end(&mut m, &mut inner)?;
-            drop(m);
-            out.push(import_bytes(ix, lib, &inner, &format!("{file} › {name}"), answers)?);
-        }
-        if out.is_empty() {
-            bail!("{file} has no .dat or .xml file inside.");
-        }
-        return Ok(out);
+    if !is_zip(path)? {
+        let total = std::fs::metadata(path)?.len();
+        let f = std::fs::File::open(path).with_context(|| format!("couldn't read {}", path.display()))?;
+        let dat = parse_reading(f, cancel, &mut |n| progress(n, total)).with_context(|| format!("{file} isn't a DAT that can be read"))?;
+        return Ok(vec![import_parsed(ix, lib, dat, Kept::File(path), &file, answers)?]);
     }
-    Ok(vec![import_bytes(ix, lib, &bytes, &file, answers)?])
+    let mut zip = open_zip(path, &file)?;
+    let members = zip_dats(&mut zip)?;
+    if members.is_empty() {
+        bail!("{file} has no .dat or .xml file inside.");
+    }
+    let total: u64 = members.iter().map(|m| m.2).sum();
+    let dir = lib.root().join(APP_DIR).join("dats");
+    std::fs::create_dir_all(&dir)?;
+    let mut out = vec![];
+    let mut before = 0;
+    for (i, name, size) in members {
+        let label = format!("{file} › {name}");
+        // unpacked beside the DATs as it's read, for the library to keep
+        let tmp = dir.join(format!(".importing-{}-{i}.tmp", std::process::id()));
+        let read = (|| -> Result<Dat> {
+            let mut copy = std::fs::File::create(&tmp).with_context(|| format!("couldn't write {}", tmp.display()))?;
+            let m = zip.by_index(i)?;
+            let tee = Tee { inner: m, copy: &mut copy };
+            parse_reading(tee, cancel, &mut |n| progress(before + n, total)).with_context(|| format!("{label} isn't a DAT that can be read"))
+        })();
+        let done = read.and_then(|dat| import_parsed(ix, lib, dat, Kept::Unpacked(&tmp), &label, answers));
+        let _ = std::fs::remove_file(&tmp);
+        out.push(done?);
+        before += size;
+    }
+    Ok(out)
+}
+
+/// What's read is also written to `copy`.
+struct Tee<'a, R> {
+    inner: R,
+    copy: &'a mut std::fs::File,
+}
+
+impl<R: Read> Read for Tee<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        std::io::Write::write_all(self.copy, &buf[..n])?;
+        Ok(n)
+    }
+}
+
+/// Where an imported DAT's text is, for the library to keep a copy.
+enum Kept<'a> {
+    Bytes(&'a [u8]),
+    /// The file picked (copied in)
+    File(&'a Path),
+    /// A ZIP's member unpacked beside the DATs (moved in)
+    Unpacked(&'a Path),
+}
+
+impl Kept<'_> {
+    /// Whether the file at `p` holds the same.
+    fn same_as(&self, p: &Path) -> bool {
+        match self {
+            Kept::Bytes(b) => std::fs::metadata(p).is_ok_and(|m| m.len() == b.len() as u64) && std::fs::read(p).ok().as_deref() == Some(*b),
+            Kept::File(f) | Kept::Unpacked(f) => same_contents(f, p),
+        }
+    }
+
+    fn text(&self) -> String {
+        match self {
+            Kept::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
+            Kept::File(f) | Kept::Unpacked(f) => String::from_utf8_lossy(&std::fs::read(f).unwrap_or_default()).into_owned(),
+        }
+    }
+
+    fn keep_at(&self, dest: &Path) -> Result<()> {
+        match self {
+            Kept::Bytes(b) => crate::config::write_atomic(dest, b),
+            Kept::File(f) => {
+                if let Some(d) = dest.parent() {
+                    std::fs::create_dir_all(d)?;
+                }
+                let tmp = dest.with_extension(format!("tmp-{}", std::process::id()));
+                std::fs::copy(f, &tmp).with_context(|| format!("couldn't write {}", tmp.display()))?;
+                std::fs::rename(&tmp, dest).with_context(|| format!("couldn't write {}", dest.display()))?;
+                Ok(())
+            }
+            Kept::Unpacked(f) => {
+                if let Some(d) = dest.parent() {
+                    std::fs::create_dir_all(d)?;
+                }
+                std::fs::rename(f, dest).with_context(|| format!("couldn't write {}", dest.display()))
+            }
+        }
+    }
+}
+
+/// Two files with the same bytes, read a piece at a time.
+fn same_contents(a: &Path, b: &Path) -> bool {
+    let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) else { return false };
+    if ma.len() != mb.len() {
+        return false;
+    }
+    let (Ok(fa), Ok(fb)) = (std::fs::File::open(a), std::fs::File::open(b)) else { return false };
+    let (mut ra, mut rb) = (BufReader::with_capacity(1 << 20, fa), BufReader::with_capacity(1 << 20, fb));
+    loop {
+        let (Ok(x), Ok(y)) = (ra.fill_buf(), rb.fill_buf()) else { return false };
+        if x.is_empty() || y.is_empty() {
+            return x.is_empty() && y.is_empty();
+        }
+        let n = x.len().min(y.len());
+        if x[..n] != y[..n] {
+            return false;
+        }
+        ra.consume(n);
+        rb.consume(n);
+    }
 }
 
 pub fn import_bytes(ix: &Index, lib: &Library, bytes: &[u8], file: &str, answers: &Map<String, Value>) -> Result<Imported> {
     let dat = parse(bytes).with_context(|| format!("{file} isn't a DAT that can be read"))?;
+    import_parsed(ix, lib, dat, Kept::Bytes(bytes), file, answers)
+}
+
+fn import_parsed(ix: &Index, lib: &Library, dat: Dat, kept: Kept, file: &str, answers: &Map<String, Value>) -> Result<Imported> {
     // "*": every DAT in this import is for that platform (the BIOS page's Import a BIOS DAT…)
     let answered = answers.get(&dat.name).or_else(|| answers.get("*")).and_then(Value::as_str).filter(|p| !p.is_empty());
     let platform = match answered {
@@ -563,7 +757,7 @@ pub fn import_bytes(ix: &Index, lib: &Library, bytes: &[u8], file: &str, answers
         },
     };
     // a BIOS DAT's games are the systems (libretro's System.dat names them in comments)
-    let dat = if platform == crate::bios::ID { crate::bios::by_system(&String::from_utf8_lossy(bytes), dat) } else { dat };
+    let dat = if platform == crate::bios::ID { crate::bios::by_system(&kept.text(), dat) } else { dat };
     let version = if dat.version.is_empty() { "undated".to_string() } else { dat.version.clone() };
     let dir = lib.root().join(APP_DIR).join("dats").join(&platform);
     let base = safe_name(&format!("{} ({})", dat.name, version));
@@ -571,7 +765,7 @@ pub fn import_bytes(ix: &Index, lib: &Library, bytes: &[u8], file: &str, answers
     let rel = loop {
         let fname = if n == 1 { format!("{base}.dat") } else { format!("{base} {n}.dat") };
         let p = dir.join(&fname);
-        if !p.exists() || std::fs::read(&p).ok().as_deref() == Some(bytes) {
+        if !p.exists() || kept.same_as(&p) {
             break format!("{APP_DIR}/dats/{platform}/{fname}");
         }
         n += 1;
@@ -580,7 +774,7 @@ pub fn import_bytes(ix: &Index, lib: &Library, bytes: &[u8], file: &str, answers
     let existing: Option<i64> = ix.conn().query_row("SELECT id FROM dats WHERE source_path = ?1", [&rel], |r| r.get(0)).ok();
     let already = dest.exists() && existing.is_some();
     if !dest.exists() {
-        crate::config::write_atomic(&dest, bytes)?;
+        kept.keep_at(&dest)?;
     }
     let id = match existing {
         Some(id) if already => id,
@@ -787,9 +981,8 @@ pub fn sync_library(ix: &Index, lib: &Library) -> Result<()> {
                 }
             }
         }
-        let Ok(bytes) = std::fs::read(&path) else { continue };
-        let Ok(dat) = parse(&bytes) else { continue };
-        let dat = if platform == crate::bios::ID { crate::bios::by_system(&String::from_utf8_lossy(&bytes), dat) } else { dat };
+        let Ok(dat) = parse_file(&path) else { continue };
+        let dat = if platform == crate::bios::ID { crate::bios::by_system(&Kept::File(&path).text(), dat) } else { dat };
         let id = load(conn, rel, platform, &dat)?;
         crate::arcade::loaded(conn, lib, id, platform)?;
         crate::audit::match_dat(conn, id)?;
@@ -921,5 +1114,68 @@ game (
         assert_eq!(g.flags, ["bios", "unl"]);
         assert_eq!(parse_name("Tetris").title, "Tetris");
         assert_eq!(parse_name("Pokemon (Zh-Hans) (Proto)").languages, ["Zh-Hans"]);
+    }
+
+    #[test]
+    fn a_big_dat_is_read_as_its_parsed_with_progress_and_stop_and_a_zips_dats_kept_as_they_were() {
+        // a byte order mark and white space before it, read one byte at a time
+        let slow = format!("\u{feff}\n  {LOGIQX}");
+        assert_eq!(parse_from(BufReader::with_capacity(1, slow.as_bytes())).unwrap(), parse(LOGIQX.as_bytes()).unwrap());
+        let (dir, lib, ix) = crate::collection::tests::fixture("bigdat");
+        let mut big = String::from("<?xml version=\"1.0\"?>\n<datafile><header><name>Nintendo - Game Boy</name><description>x</description><version>20261022</version></header>\n");
+        for i in 0..30_000 {
+            big.push_str(&format!("<game name=\"Game {i:05} (World)\"><description>Game {i:05}</description><rom name=\"Game {i:05} (World).gb\" size=\"32768\" crc=\"{i:08x}\" sha1=\"{i:040x}\"/></game>\n"));
+        }
+        big.push_str("</datafile>\n");
+        let path = dir.join("big.dat");
+        std::fs::write(&path, &big).unwrap();
+        let mut seen = vec![];
+        let r = import_with(&ix, &lib, &path, &Map::new(), &AtomicBool::new(false), &mut |n, t| seen.push((n, t))).unwrap();
+        let total = big.len() as u64;
+        assert!(seen.len() >= 4 && seen.windows(2).all(|w| w[0].0 <= w[1].0) && seen.last() == Some(&(total, total)), "{seen:?}");
+        let Imported::Loaded(v) = &r[0] else { panic!("{r:?}") };
+        assert_eq!(v["games"], 30_000);
+        let kept = lib.resolve(v["path"].as_str().unwrap()).unwrap();
+        assert!(same_contents(&kept, &path));
+        let Imported::Loaded(again) = import(&ix, &lib, &path, &Map::new()).unwrap().remove(0) else { panic!() };
+        assert_eq!((&again["path"], &again["already"]), (&v["path"], &json!(true)));
+
+        // stopped part way: nothing imported, nothing left behind
+        let path2 = dir.join("big2.dat");
+        std::fs::write(&path2, big.replace("20261022", "20261023")).unwrap();
+        let stop = AtomicBool::new(false);
+        let e = import_with(&ix, &lib, &path2, &Map::new(), &stop, &mut |n, _| {
+            if n > 1 << 20 {
+                stop.store(true, Ordering::Relaxed);
+            }
+        })
+        .unwrap_err();
+        assert!(format!("{e:#}").contains("stopped"), "{e:#}");
+        let dats = lib.root().join(APP_DIR).join("dats");
+        fn names(d: &Path, out: &mut Vec<String>) {
+            for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
+                out.push(e.file_name().to_string_lossy().into_owned());
+                if e.path().is_dir() {
+                    names(&e.path(), out);
+                }
+            }
+        }
+        let mut all = vec![];
+        names(&dats, &mut all);
+        assert!(!all.iter().any(|n| n.contains("20261023")), "{all:?}");
+
+        // a ZIP's DATs, each read from the ZIP as it's parsed and kept in the library as it was
+        let gba = LOGIQX.replace("Nintendo - Game Boy (Parent-Clone)", "Nintendo - Game Boy Advance");
+        crate::audit::tests::zip(&dir.join("two.zip"), &[("a.dat", LOGIQX.as_bytes()), ("readme.txt", b"x"), ("b.xml", gba.as_bytes())]);
+        let r = import(&ix, &lib, &dir.join("two.zip"), &Map::new()).unwrap();
+        assert_eq!(r.len(), 2);
+        for (imp, text) in r.iter().zip([LOGIQX.to_string(), gba]) {
+            let Imported::Loaded(v) = imp else { panic!("{imp:?}") };
+            assert_eq!(std::fs::read_to_string(lib.resolve(v["path"].as_str().unwrap()).unwrap()).unwrap(), text);
+        }
+        let mut all = vec![];
+        names(&dats, &mut all);
+        assert!(!all.iter().any(|n| n.starts_with(".importing") || n.contains(".tmp")), "{all:?}");
+        assert_eq!(read_file(&dir.join("two.zip")).unwrap().iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["Nintendo - Game Boy (Parent-Clone)", "Nintendo - Game Boy Advance"]);
     }
 }

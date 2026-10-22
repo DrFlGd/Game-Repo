@@ -799,13 +799,22 @@ impl App {
                 };
                 let answers = args["answers"].as_object().cloned().unwrap_or_default();
                 let data_dir = self.paths.data_dir.clone();
-                j(self.spawn_job("Importing DATs", move |app, id, _| {
+                j(self.spawn_job("Importing DATs", move |app, id, cancel| {
                     let ix = Self::job_index(&data_dir, &lib)?;
                     let (mut imported, mut ask, mut failed) = (vec![], vec![], vec![]);
                     for (i, p) in paths.iter().enumerate() {
+                        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                            bail!("stopped");
+                        }
                         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                        app.job_progress(&id, json!({ "item": i + 1, "items": paths.len(), "name": name }));
-                        match dat::import(&ix, &lib, p, &answers) {
+                        let of = if paths.len() > 1 { format!(" ({} of {})", i + 1, paths.len()) } else { String::new() };
+                        app.job_progress(&id, json!({ "text": format!("{name}{of}"), "name": name }));
+                        // read as it's parsed (D149): how far into the file, for a big one
+                        let mut told = |done: u64, total: u64| {
+                            let pc = if total > 0 { done * 100 / total } else { 0 };
+                            app.job_progress(&id, json!({ "text": format!("{name}{of}, {pc}% read"), "name": name, "done": done, "total": total }));
+                        };
+                        match dat::import_with(&ix, &lib, p, &answers, &cancel, &mut told) {
                             Ok(done) => {
                                 for d in done {
                                     match d {
@@ -816,6 +825,7 @@ impl App {
                                     }
                                 }
                             }
+                            Err(_) if cancel.load(std::sync::atomic::Ordering::Relaxed) => bail!("stopped"),
                             Err(e) => failed.push(json!({ "path": p.display().to_string(), "error": format!("{e:#}") })),
                         }
                     }
