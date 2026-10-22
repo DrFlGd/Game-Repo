@@ -12,7 +12,7 @@ import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, size, libraryUrl } from "./library.js";
 import { reveal } from "./games.js";
 import { CommandBar, EditBox } from "./layout.js";
-import { Dialog, close, confirmDialog } from "./dialogs.js";
+import { Dialog, More, close, confirmDialog } from "./dialogs.js";
 import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { importFrom } from "./importpage.js";
 import { gameHash } from "./browse.js";
@@ -89,7 +89,8 @@ function ImportDialog({ paths }) {
     return html`<${Dialog} title=${plan.title || plan.label} id="video-import-dialog" wide=${true} sticky=${true} onSubmit=${() => { close(); runPlan(plan).then(again); }} busy=${plan.short || !plan.ops} submitLabel="Import"
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
-      <p class="muted">Each goes into its kind's folder in the library, <code>Videos/${"<kind>"}/</code>, named by its title, and is listed in videos.json. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."}</p>
+      <p class="muted">Each goes into its kind's folder in the library. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."}</p>
+      <${More} id="video-import-more"><p>That's <code>Videos/${"<kind>"}/</code>. Each video is named by its title, and listed in videos.json.</p><//>
     <//>`;
   }
   const included = (items || []).filter((i) => i.include).length;

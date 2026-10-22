@@ -424,6 +424,10 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 .dialog-foot { position: sticky; bottom: -16px; margin: 0 -20px -16px; padding: 10px 20px 16px; background: var(--white); border-top: 1px solid var(--steel-2); display: grid; gap: 8px; z-index: 1; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dialog-actions .primary { padding: 9px 18px; }
+/* a dialog's More about this: what it needn't say at once (D147) */
+.more-about { color: var(--graphite); font-size: 13.5px; }
+.more-about > summary { cursor: pointer; width: fit-content; }
+.more-about > p { margin: 6px 0 0; }
 .field-block { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); }
 .field-label, .field-block > span { font-weight: 700; font-size: 13.5px; }
 .field-block input:not([type="checkbox"]):not([type="radio"]), .field-block select, .inline-form input:not([type="checkbox"]):not([type="radio"]) {

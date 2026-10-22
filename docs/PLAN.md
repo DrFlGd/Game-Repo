@@ -5428,6 +5428,18 @@ system; a game's page lists its videos; the player is the one game pages use now
 the rest goes behind *More about this* or into Help. Organise, bring-in, the PC import,
 Scrape and the export dialogs first, then the rest in the same pass.
 
+- **As built (2026-10-22, `More` in `web/ui/dialogs.js`).** *More about this* is a folded
+  `<details>` at the foot of a dialog (or under the line it adds to). Organise…'s and
+  Convert…'s previews say in one line that every file is checked and the change can be
+  undone; Organise… keeps its TorrentZip and disc-image notes and the naming under More.
+  The imports' previews (games, PC games, documents, magazines, videos, BIOS files) say
+  where each goes and whether the files stay or move, with the folder names and the
+  manifests under More. Export's preview and choices, Save as DATs, a collection's
+  review, a new group, Scrape…'s note on how the sources are asked, Identify's, Add to
+  Steam's, Audit's DATs, Make a DAT, and Import into a collection's waiting files do the
+  same. An ask dialog (Get starter DATs?) shows its first paragraph and folds the rest.
+  Warnings (not enough space, Steam running, no source ready) stay in sight.
+
 **D148 F: two computers, one library** (M9). A change (an Organise plan, an import, a
 custom DAT's change) takes a lock file in `_library/journal/` naming the computer and when
 it started, refreshed while it runs. Another computer that finds a fresh lock says "Game
@@ -5435,9 +5447,26 @@ Repo on <computer> is changing this library" and waits or lets the person stop; 
 not refreshed for ten minutes is old and taken over. Undo and finishing a change the other
 computer left work as now once the lock is free.
 
+- **As built (2026-10-22, `lock.rs`).** The lock is `_library/journal/change.lock`, JSON
+  naming the computer, this run of the app, what it's doing, the Organise change's id,
+  when it started and when it was last refreshed (every minute, by a thread of its own).
+  It's fresh when either the time it says or the file's own time is under ten minutes
+  old, as two computers' clocks may not agree. Every Organise change and Undo waits for
+  it (the progress says "waiting: Game Repo on X is changing this library (…)", and Stop
+  ends the wait); importing DATs and a custom DAT's changes, being quick, say who has it
+  and to try again. A change within a change (an import's Organise step) is let through.
+  History shows the other computer's change as running, with its computer's name.
+
 **D149 F: very large DATs** (M15). DAT files are read as they're parsed (from a
 `BufReader`, a zip's member as a stream) instead of whole into memory, with progress and
 Stop, so a 300 MB MAME listxml takes a fraction of the memory it does now.
+
+- **As built (2026-10-22, `dat.rs`).** `parse_file` reads a DAT through a `BufReader`, and
+  a ZIP's DATs member by member as a stream, each copied to `_library/dats/` as it's read
+  and renamed into place once it's parsed, so no DAT is held whole in memory. The import
+  says how far through the file it is (each megabyte) and Stop ends it. A 120 MB
+  synthetic listxml took 218 MB at most, from 328 MB; what's left is the parsed games
+  themselves and SQLite's cache.
 
 ## 8. Working in a cloud session
 

@@ -10,7 +10,7 @@ import { ctx, routeHash } from "./context.js";
 import { api, toast, isDesktop, plural, size } from "./library.js";
 import { importDats, starterDats, reveal } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
-import { Dialog, close } from "./dialogs.js";
+import { Dialog, More, close } from "./dialogs.js";
 import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { Icon } from "./icons.js";
 import { importFrom } from "./importpage.js";
@@ -42,7 +42,8 @@ function GatherDialog({ plan: first }) {
     <${Preview} plan=${plan} />
     ${nothing ? html`<p id="organise-nothing">Nothing to import: ${plan.in_place ? "the BIOS files the library has are in its BIOS folder already." : "the library has none of the files the BIOS DATs list. Add the folder they're in (Import › Folders with games) and scan."}</p>`
       : html`<${HowControl} id="bios-gather-mode" value=${how} onChange=${change} />
-      <p class="muted">Each file goes into the library's BIOS folder, in a folder for its system, and is checked. ${how === "move" ? "The files are moved; Undo puts them back." : "The files where they are now aren't changed."} The change can be undone from the message afterwards or from History.</p>`}
+      <p class="muted">Each file goes into the library's BIOS folder and is checked. ${how === "move" ? "The files are moved; Undo puts them back." : "The files where they are now aren't changed."}</p>
+      <${More} id="bios-gather-more"><p>Each system's files have a folder of their own there. The change can be undone from the message afterwards or from History.</p><//>`}
   <//>`;
 }
 

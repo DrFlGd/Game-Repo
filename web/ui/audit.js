@@ -24,7 +24,7 @@ import { gameHash } from "./browse.js";
 import { openMenu } from "./actions.js";
 import { importFrom } from "./importpage.js";
 import { UnknownTable, VariantsList } from "./variants.js";
-import { Dialog, close } from "./dialogs.js";
+import { Dialog, More, close } from "./dialogs.js";
 
 const PAGE = 200;
 
@@ -144,7 +144,8 @@ function AuditDatsDialog({ platform, platformName, dats, main, custom, onDone })
     }
   };
   return html`<${Dialog} title=${`${platformName}'s DATs`} id="audit-dats-dialog" onSubmit=${submit} busy=${busy} error=${error} submitLabel="Save">
-    <p class="muted">The main DAT's counts are the totals. A DAT included in Audit (a translation group's, say) knows files the main one doesn't: they're off Unknown, and its games are in the Library and collections beside the main DAT's.</p>
+    <p class="muted">The main DAT's counts are the totals; one included in Audit adds the games it knows.</p>
+    <${More} id="audit-dats-more"><p>A DAT included in Audit (a translation group's, say) knows files the main one doesn't: they're off Unknown, and its games are in the Library and collections beside the main DAT's.</p><//>
     <ul class="ls-list" id="audit-dats-list">${dats.map((d) => html`<li key=${d.id} data-dat=${d.name}>
       <label class="check-row"><input type="radio" name="audit-main" checked=${m === d.id} onChange=${() => setM(d.id)} /> ${d.name} <span class="muted">${d.version}</span>${m === d.id ? html` <span class="muted">(main)</span>` : null}</label>
       <label class="check-row"><input type="checkbox" class="audit-also" disabled=${m === d.id} checked=${m !== d.id && also.includes(d.name)} onChange=${(e) => tick(d.name, e.target.checked)} /> Include in Audit</label></li>`)}

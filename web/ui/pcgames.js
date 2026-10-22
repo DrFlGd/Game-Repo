@@ -18,7 +18,7 @@ import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, size, libraryUrl, shortPath, baseName } from "./library.js";
 import { reveal } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
-import { Dialog, close } from "./dialogs.js";
+import { Dialog, More, close } from "./dialogs.js";
 import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { Icon } from "./icons.js";
 import { gameHash } from "./browse.js";
@@ -111,7 +111,8 @@ export function IdentifyDialog({ title, query = "", year = null, platform = "pc"
         <button type="button" class="ghost" data-action="pick" disabled=${busy} onClick=${() => pick(x)}>This one</button>
       </li>`)}</ul>
       ${r.errors?.map((e) => html`<p class="warn-note identify-error" key=${e.source} data-source=${e.source}>${e.name || e.source}: ${e.error}</p>`)}
-      ${r.needs?.length ? html`<p class="muted identify-needs" id="identify-needs" title=${r.needs.map((e) => `${e.name}: ${e.text}`).join("\n")}>${r.needs.length === 1 ? `${r.needs[0].name} isn't set up` : `${r.needs.length} sources aren't set up (${r.needs.map((e) => e.name).join(", ")})`}, so ${r.needs.length === 1 ? "it wasn't" : "they weren't"} asked. <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a></p>` : null}` : html`<p class="muted">The sources are asked in the order Settings › Sources gives, or just the one chosen beside the year. Picking a result keeps its id and details with the game and gets its pictures.</p>`}
+      ${r.needs?.length ? html`<p class="muted identify-needs" id="identify-needs" title=${r.needs.map((e) => `${e.name}: ${e.text}`).join("\n")}>${r.needs.length === 1 ? `${r.needs[0].name} isn't set up` : `${r.needs.length} sources aren't set up (${r.needs.map((e) => e.name).join(", ")})`}, so ${r.needs.length === 1 ? "it wasn't" : "they weren't"} asked. <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a></p>` : null}` : html`<p class="muted">Picking a result keeps its id and details with the game, and gets its pictures.</p>
+      <${More} id="identify-more"><p>The sources are asked in the order Settings › Sources gives, or just the one chosen beside the year.</p><//>`}
     ${onNone ? html`<p class="muted" id="identify-none-row">Not one of these, and in no source at all?${" "}<button type="button" class="linkish" id="identify-none-of-these" disabled=${busy} onClick=${() => pick(null)}>None of these</button>:${" "}${noneNote}</p>` : null}
   <//>`;
 }
@@ -191,7 +192,8 @@ function ImportDialog({ paths, restore }) {
     return html`<${Dialog} title=${plan.title || plan.label} id="pc-import-dialog" wide=${true} sticky=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan).then(again); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Import"}
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
-      <p class="muted">Each game gets its own folder in the PC games folder, with a game.json that says what it is. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."} Artwork from the sources is fetched afterwards.</p>
+      <p class="muted">Each game gets its own folder in the PC games folder. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."}</p>
+      <${More} id="pc-import-more"><p>A game.json in its folder says what it is, and artwork from the sources is fetched afterwards.</p><//>
     <//>`;
   }
   const included = (items || []).filter((i) => i.include).length;
@@ -319,7 +321,7 @@ function SteamDialog() {
   const off = info.running || busy || !pv;
   const last = info.users.find((u) => u.id === user)?.last_written;
   return html`<${Dialog} title="Add to Steam" id="steam-dialog" wide=${true} onSubmit=${() => write("steam_write")} busy=${off || !(pv?.add.length || pv?.update.length || pv?.remove.length)} error=${error} submitLabel="Write the shortcuts">
-    <p class="muted">Each PC game with a program becomes a non-Steam game in your Steam library, with its artwork in Steam's grid. Your own shortcuts are kept, and shortcuts.vdf is backed up first.</p>
+    <p class="muted">Each PC game with a program becomes a non-Steam game in your Steam library, with its artwork.</p>
     ${info.running ? html`<p class="warn-note" role="alert" id="steam-running">Steam is running. Close it first (Steam › Exit): it rewrites its shortcuts when it closes, so changes made now would be lost.</p>` : null}
     <label class="field-block"><span class="field-label">Steam user</span>
       <select id="steam-user" class="compact" value=${user} onChange=${(e) => setUser(e.target.value)}>
@@ -333,6 +335,7 @@ function SteamDialog() {
       ${pv.without_program.length ? html`<p class="muted" id="steam-without">Without a program to start, so left out: ${pv.without_program.join(", ")}. Set one in the game's panel.</p>` : null}
       ${last?.written ? html`<p class="muted">Last written ${last.written.slice(0, 16).replace("T", " ")}. <button type="button" class="linkish" id="steam-remove" disabled=${off} onClick=${() => write("steam_remove")}>Remove the app's shortcuts</button></p>` : null}
     </div>` : null}
+    <${More} id="steam-more"><p>The artwork goes in Steam's grid. Your own shortcuts are kept, and Steam's shortcuts.vdf is backed up first.</p><//>
   <//>`;
 }
 

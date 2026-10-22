@@ -190,10 +190,10 @@ async function offerFolderRenames() {
 export function starterDats(platforms = null) {
   const bios = platforms?.length === 1 && platforms[0] === "bios";
   ui.set({ dialog: { type: "ask", title: bios ? "Get libretro's list of BIOS files?" : "Get starter DATs?",
-    text: bios ? ["libretro's System.dat lists the BIOS files its emulators look for, with their hashes, for each system. It's downloaded from libretro's public copy on GitHub and imported, so the library's BIOS files can be audited against it.",
-      "It lists the files, not the files themselves: those are yours to find. A BIOS DAT you import yourself is used beside it."]
-      : ["No-Intro's DATs for the cartridge systems and Redump's for the disc systems are downloaded from libretro's public copies on GitHub and imported, for each system that has no DAT yet, with libretro's list of BIOS files.",
-      "They can be a little behind the newest, and libretro's copies of Redump's DATs list only one track of each disc. A DAT you import yourself becomes the version in use."],
+    text: bios ? ["It lists the BIOS files libretro's emulators look for, with their hashes, so the library's can be audited against it.",
+      "libretro's System.dat is downloaded from its public copy on GitHub and imported. It lists the files, not the files themselves: those are yours to find. A BIOS DAT you import yourself is used beside it."]
+      : ["No-Intro's DATs for the cartridge systems and Redump's for the disc systems are downloaded and imported, for each system that has no DAT yet.",
+      "They come from libretro's public copies on GitHub, with libretro's list of BIOS files. They can be a little behind the newest, and libretro's copies of Redump's DATs list only one track of each disc. A DAT you import yourself becomes the version in use."],
     button: bios ? "Download it" : "Download them", run: () => runStarter(platforms) } });
 }
 

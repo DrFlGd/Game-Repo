@@ -15,7 +15,7 @@ import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, size, libraryUrl } from "./library.js";
 import { reveal } from "./games.js";
 import { CommandBar, EditBox } from "./layout.js";
-import { Dialog, close, confirmDialog } from "./dialogs.js";
+import { Dialog, More, close, confirmDialog } from "./dialogs.js";
 import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { importFrom } from "./importpage.js";
 import { viewDoc, useDroppedFiles } from "./documents.js";
@@ -76,7 +76,8 @@ function ImportDialog({ paths }) {
     return html`<${Dialog} title=${plan.title || plan.label} id="mag-import-dialog" wide=${true} sticky=${true} onSubmit=${() => { close(); runPlan(plan).then(again); }} busy=${plan.short || !plan.ops} submitLabel="Import"
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
-      <p class="muted">Each goes into its magazine's folder in the library, <code>Magazines/${"<magazine>"}/</code>, named by its number and date, and listed in its magazine.json. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."}</p>
+      <p class="muted">Each goes into its magazine's folder in the library. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."}</p>
+      <${More} id="mag-import-more"><p>That's <code>Magazines/${"<magazine>"}/</code>. Each issue is named by its number and date, and listed in its magazine.json.</p><//>
     <//>`;
   }
   const included = (items || []).filter((i) => i.include).length;

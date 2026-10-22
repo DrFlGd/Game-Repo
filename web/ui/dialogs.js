@@ -59,10 +59,19 @@ export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger =
   </div>`;
 }
 
-/** A question with a button that does it: `{ title, text (one or more paragraphs), button, cancel, run }`. */
+/** What a dialog needn't say at once, folded under *More about this* (D147): a dialog says
+ *  what it does in one line, and the rest is here or in Help. */
+export function More({ id, children }) {
+  return html`<details class="more-about" id=${id}><summary>More about this</summary>${children}</details>`;
+}
+
+/** A question with a button that does it: `{ title, text (one or more paragraphs), button, cancel, run }`.
+ *  The first paragraph says it; the rest are under More about this (D147). */
 function AskDialog({ title, text, button, cancel = "Not now", run }) {
+  const [first, ...rest] = [].concat(text);
   return html`<${Dialog} title=${title} id="ask-dialog" onSubmit=${() => { close(); run(); }} submitLabel=${button} cancelLabel=${cancel}>
-    ${[].concat(text).map((t, i) => html`<p key=${i} class=${i ? "muted" : null}>${t}</p>`)}
+    <p>${first}</p>
+    ${rest.length ? html`<${More} id="ask-more">${rest.map((t, i) => html`<p key=${i}>${t}</p>`)}<//>` : null}
   <//>`;
 }
 
@@ -175,7 +184,7 @@ function MakeDatDialog() {
       <p>Add the folder (Import › Folders with games) and scan it first: the DAT is made from what the scan read.</p><//>`;
   }
   return html`<${Dialog} title="Make a DAT from a folder" id="make-dat-dialog" onSubmit=${submit} busy=${busy || !name.trim() || !root || (typeof platform === "object" && !answered(platform))} error=${error} submitLabel="Make the DAT">
-    <p class="muted">Each file (or ZIP) the last scan found becomes a game in a standard (Logiqx) DAT, saved in the library's <code>_library/made-dats</code> folder. ZIPs are read in full so every file in them has its full hash.</p>
+    <p class="muted">Each file (or ZIP) the last scan found becomes a game in a standard (Logiqx) DAT.</p>
     <label class="field-block"><span class="field-label">Folder with games</span>
       <select id="make-dat-root" class="compact" value=${root} onChange=${(e) => setRoot(e.target.value)}>
         ${roots.map((r) => html`<option key=${r.id} value=${r.id}>${r.dir}</option>`)}
@@ -186,6 +195,7 @@ function MakeDatDialog() {
       <input type="text" id="make-dat-name" maxlength="150" placeholder="e.g. My Game Boy set" value=${name} onInput=${(e) => setName(e.target.value)} /></label>
     <div class="field-block"><span class="field-label">Import it to audit against</span>
       <${PlatformSelect} id="make-dat-platform" value=${platform} none="Don't import it" onChange=${setPlatform} /></div>
+    <${More} id="make-dat-more"><p>It's saved in the library's <code>_library/made-dats</code> folder. ZIPs are read in full, so every file in them has its full hash.</p><//>
   <//>`;
 }
 

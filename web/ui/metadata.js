@@ -16,7 +16,7 @@ import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, libraryUrl } from "./library.js";
 import { reveal } from "./games.js";
 import { CommandBar, SearchNote, MoreButton } from "./layout.js";
-import { Dialog, close } from "./dialogs.js";
+import { Dialog, More, close } from "./dialogs.js";
 import { identifyDialog } from "./pcgames.js";
 import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
 import { Icon } from "./icons.js";
@@ -143,8 +143,7 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
     <div class="field-block"><span class="field-label">Sources, in the order they're asked</span>
       <${Ordered} id="scrape-sources" items=${c.sources} value=${o.sources} onChange=${(sources) => set({ sources })} note=${(x) => (x.hashes ? "by the ROMs' hashes" : "by title")} />
       ${ready.length && ready.length < c.sources.length ? html`<small class="muted" id="scrape-not-ready">${c.sources.filter((x) => x.needs).map((x) => x.name).join(", ")} ${c.sources.filter((x) => x.needs).length === 1 ? "needs" : "need"} setting up in <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a> first.</small>` : null}
-      ${!ready.length ? html`<p class="warn-note" id="scrape-no-source">No source is ready: set their accounts or keys in <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a>, or get LaunchBox's database there.</p>` : null}
-      <small class="muted">Each game is asked of the first source that knows it; a source asked by title is only believed when the title is the same.</small></div>
+      ${!ready.length ? html`<p class="warn-note" id="scrape-no-source">No source is ready: set their accounts or keys in <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a>, or get LaunchBox's database there.</p>` : null}</div>
     <div class="field-block" id="scrape-what"><span class="field-label">What's scraped</span>
       <p id="scrape-what-text">${o.fields.length ? `${o.fields.length === c.fields.length ? "Every detail" : plural(o.fields.length, "detail", "details")}` : "No details"}${o.media.length ? `; ${c.media.filter((m) => o.media.includes(m.id)).map((m) => m.name.toLowerCase()).join(", ")}` : "; no pictures"}${(o.variants || []).some((k) => o.media.includes(k)) ? ", every source's kept" : ""}.</p>
       <div><button type="button" class="ghost compact" id="scrape-change" aria-expanded=${changing ? "true" : "false"} onClick=${() => setChanging(!changing)}>${changing ? "Done changing" : "Change what's scraped…"}</button></div></div>
@@ -186,6 +185,7 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
       ${EXISTING.map(([k, l]) => html`<label class="check-row" key=${k}><input type="radio" name="scrape-existing" value=${k} checked=${o.existing === k} onChange=${() => set({ existing: k })} /> ${l}</label>`)}
       <small class="muted">What you've written yourself, what you chose on a game's page and your own documents are never replaced.</small></div>
     <label class="check-row"><input type="checkbox" id="scrape-fresh" checked=${!!o.fresh} onChange=${(e) => set({ fresh: e.target.checked })} /> Ask the sources again <span class="muted">(their answers are otherwise kept for a week)</span></label>
+    <${More} id="scrape-more-about"><p>Each game is asked of the first source that knows it; a source asked by title is only believed when the title is the same.</p><//>
   <//>`;
 }
 

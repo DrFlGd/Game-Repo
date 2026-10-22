@@ -16,7 +16,7 @@ import { CommandBar, SearchNote, ViewSwitch, SortMenu, DayGroups } from "./layou
 import { usePageKeys, selectAllKey, openMenu } from "./actions.js";
 import { Games, useGames, useSelection, blank, VIEWS, opened, gameHash } from "./browse.js";
 import { useSidePanel, useRouteArg, argHash } from "./panels.js";
-import { Dialog, close, confirmDialog } from "./dialogs.js";
+import { Dialog, More, close, confirmDialog } from "./dialogs.js";
 import { Preview, runPlan } from "./organise.js";
 import { Icon } from "./icons.js";
 import { CarryChoices, NO_CARRY, scrapeDialog } from "./metadata.js";
@@ -174,7 +174,9 @@ function SaveDatsDialog({ c }) {
     }
   };
   return html`<${Dialog} title=${`Save ${c.name} as DATs`} id="save-dats-dialog" onSubmit=${submit} busy=${busy} error=${error} submitLabel="Save">
-    <p>One Logiqx DAT for each system, <code>${c.name} - <i>System</i>.dat</code>${c.groups?.length ? html` (a group after the first's <code>${c.name} - <i>Group</i> - <i>System</i>.dat</code>)` : null}, with every game and its files as its own DAT lists them. RomVault, clrmamepro and igir can build the set from them.</p>
+    <p>One Logiqx DAT for each system, <code>${c.name} - <i>System</i>.dat</code>, with every game and its files.</p>
+    <${More} id="save-dats-more">${c.groups?.length ? html`<p>A group after the first's is <code>${c.name} - <i>Group</i> - <i>System</i>.dat</code>.</p>` : null}
+      <p>Each game's files are as its own DAT lists them, so RomVault, clrmamepro and igir can build the set from them.</p><//>
     <div class="field-block"><span class="field-label">Into</span>
       <div class="pick-row">
         <input type="text" id="save-dats-to" placeholder=${`The library's _library/collection-dats/${c.name}`} value=${to} onInput=${(e) => setTo(e.target.value)} />
@@ -318,7 +320,8 @@ function NewCollectionDialog({ way: given = "rules", again, group: into, onMade 
         <ul class="ls-list">${review.unknown.slice(0, 500).map((u, i) => html`<li key=${i} data-path=${u.path}><span class="op-to">${u.path}</span> <span class="muted">${u.why}</span></li>`)}</ul>
         <small class="muted">Import the DAT of a system they belong to (<a href=${argHash("import", "settings-dats")} onClick=${close}>Import › DAT files</a>), then read them again. Or import the folders into a collection (<a href=${argHash("import", "import-copy")} onClick=${close}>Import › Games into the library</a>): files no DAT knows wait on it until you add them to their system's custom DAT on Audit › Unknown.</small></details>` : null}
       ${lacking ? html`<p class="muted bring-row" id="subset-lacking">${plural(lacking, "game", "games")} in the folders ${lacking === 1 ? "isn't" : "aren't"} in your audited games yet: <a href=${routeHash("import")} onClick=${close}>Import › Games into the library</a> brings ${lacking === 1 ? "it" : "them"} in.</p>` : null}
-      <p class="muted">The ${what} is kept as DATs of its own (one per system, with the Audit page's DATs' names and hashes) in the library. Its games are exported from your audited games; ${way === "dat" ? "the DAT isn't" : "the folders aren't"} changed.</p>
+      <p class="muted">Its games are exported from your audited games; ${way === "dat" ? "the DAT isn't" : "the folders aren't"} changed.</p>
+      <${More} id="subset-more"><p>The ${what} is kept in the library as DATs of its own: one per system, with the Audit page's DATs' names and hashes.</p><//>
     <//>`;
   }
   const byName = way === "rules" || way === "empty";
@@ -326,7 +329,8 @@ function NewCollectionDialog({ way: given = "rules", again, group: into, onMade 
   const submitLabel = busy ? "Reading…" : byName ? (into ? "Add the group" : "Make the collection") : way === "dat" ? "Read the DAT" : "Read the folders";
   return html`<${Dialog} title=${again ? `Reading ${again.name} again` : into ? `A new group of ${into.name}` : "A new collection"} id="collection-new-dialog" sticky=${busy || folders.length > 0} onSubmit=${byName ? make : read}
     busy=${busy || !can || !!again} error=${error} submitLabel=${submitLabel}>
-    ${into ? html`<p class="muted" id="collection-new-group">A group is a part of ${into.name} with its own way of choosing games; a game an earlier group has isn't in it again. Exported, each group is a collection of its own too.</p>` : null}
+    ${into ? html`<p class="muted" id="collection-new-group">A group is a part of ${into.name} with its own way of choosing games.</p>
+      <${More} id="collection-group-more"><p>A game an earlier group has isn't in it again. Exported, each group is a collection of its own too.</p><//>` : null}
     ${!again ? html`<div class="field-block way-pick" id="collection-way" role="radiogroup" aria-label="How it's made">${WAYS.map(([k, label, about]) => html`<label key=${k} class="way" data-way=${k}>
       <input type="radio" name="collection-way" value=${k} checked=${way === k} onChange=${() => { setWay(k); setError(""); }} />
       <span><b>${label}</b><small class="muted">${about}</small></span></label>`)}</div>` : null}
@@ -339,7 +343,7 @@ function NewCollectionDialog({ way: given = "rules", again, group: into, onMade 
         <input type="text" id="new-folder-path" placeholder="A folder's path" value=${typed} onInput=${(e) => setTyped(e.target.value)} onKeyDown=${(e) => { if (e.key === "Enter" && typed.trim()) { e.preventDefault(); addTyped(); } }} />
         ${isDesktop() ? html`<button type="button" class="ghost" id="new-add-folder" onClick=${addFolder}>Choose a folder…</button>` : null}
       </div>
-      <small class="muted">Every file in them and their folders is read (it may take a while for big folders). They're not added as folders with games, and nothing in them changes.</small></div>` : null}
+      <small class="muted">Every file in them and their folders is read, and nothing in them changes.</small></div>` : null}
     ${way === "dat" && !again ? html`<div class="field-block"><span class="field-label">DAT</span>
       <div class="pick-row">
         <input type="text" id="new-dat-path" placeholder="A .dat, .xml or .zip file" value=${datPath} onInput=${(e) => setDatPath(e.target.value)} />
@@ -435,7 +439,8 @@ function ExportDialog({ c, sum, plan: given, only, count }) {
       ${plan.notes?.length ? html`<div class="warn-note" id="export-notes">${plan.notes.map((n, i) => html`<p key=${i}>${n}</p>`)}</div>` : null}
       <${Preview} plan=${plan} />
       ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.in_place ? "the export is up to date." : "none of the collection's games are in the library."}</p>`
-        : html`<p class="muted">Files are hardlinked where the folder is on the same drive as the library's games (they take no space), else copied, and every one written is read back and checked. Files the export placed before that the collection no longer has are set aside, never deleted. The change can be undone from the message afterwards or from History.</p>`}
+        : html`<p class="muted">Every file written is checked, and the change can be undone.</p>
+          <${More} id="export-more"><p>Files are hardlinked where the folder is on the same drive as the library's games (they take no space), else copied. Files the export placed before that the collection no longer has are set aside, never deleted. Undo is in the message afterwards and in History.</p><//>`}
     <//>`;
   }
   return html`<${Dialog} title=${only?.length ? `Export ${plural(count, "game", "games")} of ${c.name}` : `Export ${c.name}`} id="export-dialog" onSubmit=${preview} busy=${busy || !ready} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
@@ -457,7 +462,8 @@ function ExportDialog({ c, sum, plan: given, only, count }) {
     <label class="check-row"><input type="checkbox" id="export-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> Always copy (no hardlinks)</label>
     ${only?.length ? html`<p class="muted" id="export-part">Only the ${plural(count, "game", "games")} picked. Update… keeps to them.</p>` : null}
     ${!only?.length && c.size_limit && sum && sum.size > c.size_limit ? html`<p class="warn-note" id="export-over">${c.name} is ${size(sum.size)}, ${size(sum.size - c.size_limit)} more than its size limit (${size(c.size_limit)}).</p>` : null}
-    <p class="muted">Games are exported in the library's format (Convert… changes it first). Nothing changes until you've seen the preview and pressed Export.</p>
+    <p class="muted">Nothing changes until you've seen the preview and pressed Export.</p>
+    <${More} id="export-more"><p>Games are exported in the library's format: Convert… changes it first.</p><//>
   <//>`;
 }
 

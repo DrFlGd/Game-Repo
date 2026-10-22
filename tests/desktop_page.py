@@ -1285,6 +1285,13 @@ async def main():
                 await pg.click("#organise-pick")
                 await pg.wait_for_function("(p) => document.querySelector('#organise-out')?.value === p", arg=str(sorted_dir))
                 await pg.select_option("#organise-format", "zip")
+                # one line says what it does; the rest is folded under More about this (D147)
+                more = pg.locator("#organise-dialog #organise-more")
+                folded = [await more.count(), await more.evaluate("m => m.open"), await pg.locator("#organise-more > p").first.is_visible()]
+                await pg.click("#organise-more > summary")
+                opened = [await more.evaluate("m => m.open"), await pg.locator("#organise-more > p", has_text="TorrentZip").is_visible()]
+                check("Organise… keeps what it needn't say at once under More about this, which opens on a click (D147)",
+                      folded == [1, False, False] and opened == [True, True], (folded, opened))
                 await pg.screenshot(path=str(out / "14-organise.png"))
                 await pg.click("#organise-dialog button[type=submit]")
                 await pg.wait_for_selector("#organise-totals")

@@ -11,7 +11,7 @@ import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { api, followJob, isDesktop, plural, toast } from "./library.js";
 import { CommandBar } from "./layout.js";
-import { Dialog, close } from "./dialogs.js";
+import { Dialog, More, close } from "./dialogs.js";
 import { Preview, runPlan, HowControl, howArgs, gatherDialog, IMPORT_KINDS } from "./organise.js";
 import { RootsSection, DatsSection, ChangeHistory } from "./settings.js";
 import { importPc, addGameDialog } from "./pcgames.js";
@@ -238,7 +238,7 @@ function Working({ w }) {
       cancelLabel="Stop" onCancel=${() => w.job && api("job_cancel", { id: w.job })} onDismiss=${hide}>
     <p id="import-games-progress">${p.items ? `${p.text || "Working"}: ${Math.min(p.item + 1, p.items)} of ${p.items}` : p.text || "Starting…"}${p.name ? html` <span class="muted">${p.name}</span>` : null}</p>
     <div class="audit-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow=${pct ?? 0}><span style=${`width:${pct ?? 0}%`}></span></div>
-    <p class="muted">The window stays until it's done or stopped. Run in the background to carry on elsewhere: the status bar, bottom right, brings you back here.</p>
+    <p class="muted">Run in the background to carry on elsewhere; the status bar, bottom right, brings you back here.</p>
   <//>`;
 }
 
@@ -337,7 +337,8 @@ function ImportGamesDialog() {
         ${s.into ? html`<input type="text" id="import-into-name" class="compact" maxlength="120" aria-label=${s.into === "new" ? "The collection's name" : "The group's name"}
           placeholder=${s.folders[0] || typed ? baseName(s.folders[0] || typed) : s.into === "new" ? "The collection's name" : "The group's name"} value=${s.intoName} onInput=${(e) => imp.set({ intoName: e.target.value })} />` : null}
       </div>
-      <small class="muted">${s.into ? "Every game read goes in it, the library's own too. Files no DAT knows that you give a system wait on Audit › Unknown, and join it once a DAT knows them (added to the system's custom DAT, say)." : "The games are imported into the library, and nothing more."}</small></div>` : null}
+      <small class="muted">${s.into ? "Every game read goes in it, the library's own too." : "The games are imported into the library, and nothing more."}</small>
+      ${s.into ? html`<${More} id="import-into-more"><p>Files no DAT knows that you give a system wait on Audit › Unknown, and join it once a DAT knows them (added to the system's custom DAT, say).</p><//>` : null}</div>` : null}
   <//>`;
 }
 

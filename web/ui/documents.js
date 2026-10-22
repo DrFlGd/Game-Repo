@@ -12,7 +12,7 @@ import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, size, libraryUrl } from "./library.js";
 import { reveal } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
-import { Dialog, close } from "./dialogs.js";
+import { Dialog, More, close } from "./dialogs.js";
 import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { Icon } from "./icons.js";
 import { importFrom } from "./importpage.js";
@@ -289,7 +289,8 @@ function DocsImportDialog({ paths, game = null, folder = null, gameName = "", pl
     return html`<${Dialog} title=${plan.title || plan.label} id="docs-import-dialog" wide=${true} sticky=${true} onSubmit=${() => { close(); runPlan(plan).then(again); }} busy=${plan.short || !plan.ops} submitLabel="Import"
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
-      <p class="muted">Each goes into its game's library folder (those with no game into _library/docs), with its kind and title in docs.json. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."} Their text is read for searching afterwards.</p>
+      <p class="muted">Each goes into its game's library folder. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."}</p>
+      <${More} id="docs-import-more"><p>Those with no game go into <code>_library/docs</code>. Each one's kind and title are kept in docs.json, and its text is read for searching afterwards.</p><//>
     <//>`;
   }
   const n = (k) => (items || []).filter((i) => i.pairing === k).length;

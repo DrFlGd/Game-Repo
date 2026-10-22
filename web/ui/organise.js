@@ -9,7 +9,7 @@ import { ui } from "./state.js";
 import { ctx } from "./context.js";
 import { api, toast, followJob, undoable, isDesktop, plural, size, shortPath } from "./library.js";
 import { refreshGames } from "./games.js";
-import { Dialog, close } from "./dialogs.js";
+import { Dialog, More, close } from "./dialogs.js";
 
 const PAGE = 100;
 
@@ -274,11 +274,13 @@ export function OrganiseDialog({ dat, platform, platformName, plan: given, onRun
       cancelLabel=${given ? "Cancel" : "Back"} onCancel=${given ? close : () => setPlan(null)}>
       <${Preview} plan=${plan} />
       ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.kind === "folders" ? "no game's library folder can be renamed (the preview says why)." : plan.kind === "metadata" ? "there's none of that to delete." : plan.in_place ? "everything is in place already." : "no files match this DAT yet."}</p>`
-        : plan.kind === "metadata" ? html`<p class="muted">The files are set aside in the library, not deleted, and the games' details are made again from what's left. Your own documents and what you've written yourself stay. The change can be undone from the message afterwards or from History, which also empties what was set aside.</p>`
-        : plan.kind === "folders" ? html`<p class="muted">Each game's library folder is renamed where it is, with what's in it (details, pictures, documents). The change can be undone from the message afterwards or from History.</p>`
-        : plan.kind === "pc_remove" ? html`<p class="muted" id="pc-remove-note">Every file in its folder, and its details, pictures and documents in the library, are set aside, not deleted: it goes from PC games and the Library, and Undo (from the message afterwards, or History) brings it all back. History empties what was set aside.</p>
-          ${plan.steam ? html`<p class="muted" id="pc-remove-steam">Add to Steam… made it a Steam shortcut, which stays in Steam until you run Add to Steam… again.</p>` : null}`
-        : html`<p class="muted">Every file written is read back and checked before anything is set aside. The change can be undone from the message afterwards or from History.</p>`}
+        : plan.kind === "metadata" ? html`<p class="muted">The files are set aside, not deleted, and the games' details made again from what's left; it can be undone.</p>
+          <${More} id="organise-more"><p>Your own documents and what you've written yourself stay. Undo is in the message afterwards and in History, which also empties what was set aside.</p><//>`
+        : plan.kind === "folders" ? html`<p class="muted">Each game's library folder is renamed where it is, with its details, pictures and documents; it can be undone.</p>`
+        : plan.kind === "pc_remove" ? html`<p class="muted" id="pc-remove-note">Its files, details, pictures and documents are set aside, not deleted, and Undo brings it all back.</p>
+          ${plan.steam ? html`<p class="muted" id="pc-remove-steam">Add to Steam… made it a Steam shortcut, which stays in Steam until you run Add to Steam… again.</p>` : null}
+          <${More} id="organise-more"><p>It goes from PC games and the Library. Undo is in the message afterwards and in History, which also empties what was set aside.</p><//>`
+        : html`<p class="muted">Every file written is checked before anything is set aside, and the change can be undone.</p>`}
     <//>`;
   }
   const modeHelp = MODES.find(([m]) => m === mode)?.[2];
@@ -292,14 +294,18 @@ export function OrganiseDialog({ dat, platform, platformName, plan: given, onRun
         <input type="text" id="organise-out" placeholder=${mode === "copy" ? "A folder for the sorted copy" : `The library's ${platformName || "system's"} folder`} value=${out} onInput=${(e) => setOut(e.target.value)} />
         ${isDesktop() ? html`<button type="button" class="ghost" id="organise-pick" onClick=${pick}>Choose…</button>` : null}
       </div></div>` : null}
-    ${disc ? html`<p class="muted" id="organise-disc-note">Disc images are kept as they are (CHDs, ISOs and cue/bin sets, with their cue sheets rewritten to the new names). Convert… changes their format.</p>` : html`<label class="field-block"><span class="field-label">Format</span>
+    ${disc ? null : html`<label class="field-block"><span class="field-label">Format</span>
       <select id="organise-format" class="compact" value=${format} onChange=${(e) => setFormat(e.target.value)}>
         ${FORMATS.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}
-      </select>
-      <small class="muted">ZIPs are written the TorrentZip way, so the same game gives the same bytes as other collectors' tools. Names follow Settings › Naming.</small></label>`}
+      </select></label>`}
     <label class="check-row"><input type="checkbox" id="organise-partial" checked=${partial} onChange=${(e) => setPartial(e.target.checked)} /> Include games partly there</label>
     ${mode === "copy" ? html`<label class="check-row"><input type="checkbox" id="organise-copy" checked=${alwaysCopy} onChange=${(e) => setAlwaysCopy(e.target.checked)} /> <span title="Hardlinks are a second name for the same file on the same drive: they take no space">Always copy (no hardlinks)</span></label>` : null}
     <p class="muted">Nothing changes until you've seen the preview and pressed Run.</p>
+    <${More} id="organise-more">
+      ${disc ? html`<p id="organise-disc-note">Disc images are kept as they are (CHDs, ISOs and cue/bin sets, with their cue sheets rewritten to the new names). Convert… changes their format.</p>`
+        : html`<p>ZIPs are written the TorrentZip way, so the same game gives the same bytes as other collectors' tools.</p>`}
+      <p>Names follow Settings › Naming.</p>
+    <//>
   <//>`;
 }
 
@@ -345,7 +351,7 @@ export function ConvertDialog({ dat, platform, platformName, games }) {
     return html`<${Dialog} title=${plan.title || plan.label} id="convert-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Run"}
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
-      ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.in_place ? "everything is in that format already." : "no files of these games are here."}</p>` : html`<p class="muted">Each result is read back and compared with the files it came from before anything is replaced. The change can be undone from the message afterwards or from History.</p>`}
+      ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.in_place ? "everything is in that format already." : "no files of these games are here."}</p>` : html`<p class="muted">Each result is checked against the files it came from before anything is replaced, and the change can be undone.</p>`}
     <//>`;
   }
   const disc = !!info.disc;
