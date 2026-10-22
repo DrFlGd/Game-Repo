@@ -831,7 +831,8 @@ export function Collections() {
   } } });
   const remove = () => confirmDialog({
     title: `Delete ${c.name}?`, text: `The collection's rules${groupsOf(c).some((g) => g.made_from) ? ", its own DATs" : ""}${many ? ", its groups" : ""} and the games added or left out by hand are deleted. Its games, DATs saved from it and its exports aren't touched.`, button: "Delete",
-    run: async () => { await api("collection_delete", { id: c.id }); setFallback(null); if (arg) history.replaceState(null, "", "#/collections"); again(); },
+    // (its address goes too, so the page doesn't ask for it again)
+    run: async () => { await api("collection_delete", { id: c.id }); setFallback(null); if (arg) location.hash = routeHash("collections"); else again(); },
   });
   const leaveOut = (keys) => hand({ leave_out: keys });
   const putBack = (keys) => hand({ put_back: keys });
