@@ -5406,6 +5406,24 @@ like, opened in the browser). The Videos page lists them with filters by kind, g
 system; a game's page lists its videos; the player is the one game pages use now
 (`web/ui/video.js`). Exports and devices don't take videos for now.
 
+- **As built (2026-10-22, `videos.rs`, `web/ui/videos.js`).** The kinds' folders are
+  plural: `Videos/Walkthroughs/`, `Reviews/`, `Retrospectives/`, `Other/`. A name's kind
+  comes from its words (*longplay*, *playthrough*, *let's play*, *speedrun* are
+  walkthroughs; *history of*, *documentary*, *making of* retrospectives; *review*, *AVGN*
+  reviews), else from a folder named for a kind; its date from a full date in it
+  (2019-04-12, 2019-04, or yt-dlp's 20190412; a bare year is taken as the game's, not the
+  video's); a yt-dlp name's `[id]` gives its source (YouTube) and its address. The games
+  are found in the title by D145's title finder (D120's comparison of words, across the
+  library's games and their DATs), as a video's name holds more than the title. The
+  length is read from the file's header (MP4, M4V and MOV's `mvhd`, Matroska and WebM's
+  `Info`, AVI's `avih`, or OpenDML's `dmlh`), nothing else read. A video imported again
+  is known by its *print* (its size and first and last megabyte, hashed) rather than a
+  full hash, as videos are large. A link's source is named from its address (YouTube,
+  Vimeo, Twitch, the Internet Archive, else the site). A file plays on the Videos page
+  (`#/videos/<id>`); Remove… sets a file aside as an Organise change with Undo, and takes
+  a link off the list at once. A video's file keeps its name and folder when its title or
+  kind changes.
+
 **D147 F: shorter dialogs** (review finding 5). A dialog says what it does in one line;
 the rest goes behind *More about this* or into Help. Organise, bring-in, the PC import,
 Scrape and the export dialogs first, then the rest in the same pass.

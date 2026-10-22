@@ -502,6 +502,95 @@ async def magazines(pg, base, home, library):
           marked == "Hedgehog" and at == "2", (marked, at))
 
 
+def mp4_bytes(seconds):
+    """An MP4's header saying how long it is (there's nothing in it to play)."""
+    box = lambda name, body: struct.pack(">I", len(body) + 8) + name + body
+    mvhd = bytearray(100)
+    mvhd[12:16] = struct.pack(">I", 1000)
+    mvhd[16:20] = struct.pack(">I", seconds * 1000)
+    return box(b"ftyp", b"isom\0\0\x02\0isomiso2") + box(b"moov", box(b"mvhd", bytes(mvhd)))
+
+
+async def videos(pg, base, home, library):
+    """Videos (D146): a folder of them read, put right and brought in by kind; one watched,
+    the list filtered, a link added and changed, and a file removed with Undo."""
+    vids = home / "Videos in"
+    (vids / "Reviews").mkdir(parents=True)
+    (vids / "Super Metroid - Longplay [dQw4w9WgXcQ].mp4").write_bytes(mp4_bytes(5400))
+    (vids / "Reviews" / "20190412 Mega Man 2.mp4").write_bytes(mp4_bytes(600))
+    await pg.click('.sidebar a[href="#/videos"]')
+    await pg.wait_for_selector("#videos-page #video-empty")
+    pick(vids, base)
+    await pg.click("#video-import")
+    await pg.wait_for_selector("#video-items li", timeout=30000)
+    read = await pg.eval_on_selector_all("#video-items li", "els => Object.fromEntries(els.map(e => [e.dataset.name, [e.querySelector('.video-item-title').value, e.querySelector('.video-item-kind').value, e.querySelector('.video-item-date').value, e.querySelector('.pc-item-name .muted').textContent]]))")
+    await pg.fill('#video-items li[data-name="20190412 Mega Man 2.mp4"] .video-item-title', "Mega Man 2, reviewed")
+    await pg.screenshot(path=str(out / "64-videos-import.png"))
+    await pg.click("#video-import-dialog button[type=submit]")
+    await pg.wait_for_selector("#organise-totals")
+    totals = await pg.inner_text("#organise-totals")
+    head = await pg.evaluate("() => [document.querySelector('#video-import-dialog h2').textContent, location.hash]")
+    await pg.click("#video-import-dialog button[type=submit]")
+    await toast_text(pg, "Imported 2 videos")
+    await pg.click('.sidebar a[href="#/videos"]')
+    await pg.wait_for_selector("#video-list li", timeout=15000)
+    listed = await pg.eval_on_selector_all("#video-list li", "els => els.map(e => [e.querySelector('.video-title').textContent, e.dataset.kind, e.querySelector('small').textContent])")
+    on_disk = sorted(p.relative_to(library).as_posix() for p in (library / "Videos").rglob("*.mp4"))
+    metroid = read.get("Super Metroid - Longplay [dQw4w9WgXcQ].mp4", ["", "", "", ""])
+    check("Import videos… reads each one's title, kind and date from its name (or its folder's), its length from its header; they're put right and brought into Videos/<kind>/ (the originals stay)",
+          metroid[:3] == ["Super Metroid - Longplay", "walkthrough", ""] and "1:30:00" in metroid[3]
+          and read.get("20190412 Mega Man 2.mp4", [None])[:3] == ["Mega Man 2", "review", "2019-04-12"]
+          and head == ["Import 2 videos", "#/import/import-videos"] and "2 videos" in totals
+          and on_disk == ["Videos/Reviews/Mega Man 2, reviewed.mp4", "Videos/Walkthroughs/Super Metroid - Longplay.mp4"]
+          and (vids / "Super Metroid - Longplay [dQw4w9WgXcQ].mp4").is_file()
+          and [x[0] for x in listed] == ["Mega Man 2, reviewed", "Super Metroid - Longplay"] and "YouTube" in listed[1][2] and "1:30:00" in listed[1][2],
+          (read, head, totals, on_disk, listed))
+    await pg.click('#video-list li[data-kind="walkthrough"] [data-action="watch"]')
+    await pg.wait_for_selector("#video-player")
+    playing = await pg.evaluate("() => [location.hash.startsWith('#/videos/'), !!document.querySelector('#video-player video, #video-player [data-video=\"cant-play\"]'), document.querySelector('#video-player h2').textContent]")
+    await pg.click('#video-kinds [data-kind="review"]')
+    reviews = await pg.eval_on_selector_all("#video-list li", "els => els.map(e => e.dataset.kind)")
+    await pg.click('#video-kinds [data-kind="all"]')
+    await pg.fill("#video-search", "metroid")
+    found = await pg.eval_on_selector_all("#video-list li .video-title", "els => els.map(e => e.textContent)")
+    await pg.fill("#video-search", "")
+    await pg.screenshot(path=str(out / "65-videos.png"))
+    await pg.click("#video-player-close")
+    await pg.wait_for_selector("#video-player", state="detached")
+    check("a video file plays on the Videos page (#/videos/<id>), and the list filters by kind and by words",
+          playing == [True, True, "Super Metroid - Longplay"] and reviews == ["review"] and found == ["Super Metroid - Longplay"], (playing, reviews, found))
+    await pg.click("#video-menu")
+    await pg.click('#context-menu [data-action="video-add-link"]')
+    await pg.wait_for_selector("#video-link-dialog")
+    await pg.fill("#video-link-url", "https://www.youtube.com/watch?v=abcdefghijk")
+    await pg.fill("#video-link-title", "The History of Metroid")
+    await pg.click("#video-link-dialog button[type=submit]")
+    await toast_text(pg, "Added The History of Metroid")
+    await pg.wait_for_selector('#video-list li[data-kind="retrospective"]')
+    link = await pg.inner_text('#video-list li[data-kind="retrospective"] small')
+    await pg.click('#video-list li[data-kind="retrospective"] [data-action="edit"]')
+    await pg.wait_for_selector("#video-edit")
+    await pg.fill("#video-edit-date", "2021-03")
+    await pg.press("#video-edit-date", "Enter")
+    await pg.wait_for_function("() => document.querySelector('#video-list li[data-kind=\"retrospective\"] small')?.textContent.includes('2021-03')")
+    kept = json.loads((library / "Videos" / "videos.json").read_text())
+    link_kept = next((v for v in kept.get("videos", []) if v.get("url", "").endswith("abcdefghijk")), {})
+    check("Add a link… keeps a web video (its kind from its title, its source from its address), and its date is changed on the page",
+          "Retrospective" in link and "YouTube" in link and "a link" in link and link_kept.get("date") == "2021-03" and "file" not in link_kept, (link, link_kept))
+    await pg.click('#video-list li[data-kind="review"] [data-action="remove"]')
+    await pg.wait_for_selector("#organise-dialog #organise-totals")
+    remove_head = await pg.inner_text("#organise-dialog h2")
+    await pg.click("#organise-dialog button[type=submit]")
+    said = await toast_text(pg, "Removed the video")
+    await pg.wait_for_function("() => !document.querySelector('#video-list li[data-kind=\"review\"]')", timeout=15000)
+    gone = not (library / "Videos/Reviews/Mega Man 2, reviewed.mp4").exists()
+    await pg.click("#toast button:has-text('Undo')")
+    await toast_text(pg, "Undone")
+    await pg.wait_for_selector('#video-list li[data-kind="review"]', timeout=15000)
+    check("Remove… sets a video's file aside as a change, with the preview, and Undo brings it back",
+          remove_head == "Remove the video Mega Man 2, reviewed" and gone and (library / "Videos/Reviews/Mega Man 2, reviewed.mp4").is_file(), (remove_head, said, gone))
+
+
 async def import_by_system(pg, base, home, library):
     """D77's moves and new folders (review M44: the test only looked for the choices): games
     of two systems moved in from a folder, one to its system's folder with games, the other
@@ -889,7 +978,7 @@ async def updates_in_the_app(pg, base, home, library):
 
 
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app)]
+             ("updates", updates_in_the_app), ("videos", videos)]
 
 
 async def main():
@@ -940,7 +1029,7 @@ async def main():
                 active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
                 lead = await pg.inner_text("#audit-empty")
                 check("the menu's places open, with the pages still to come saying what they'll do",
-                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Export layouts", "History", "Settings", "Help", "About"]
+                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Export layouts", "History", "Settings", "Help", "About"]
                       and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
                 await pg.screenshot(path=str(out / "01-coming.png"))
 
@@ -1917,7 +2006,7 @@ async def main():
                 await pg.locator("#import-recent").scroll_into_view_if_needed()
                 await pg.screenshot(path=str(out / "23e-recent-imports.png"))
                 check("the import review lists the games before where each system's go (review M42); its preview says what it will do with one word for it (M40); Recent imports lists it (D78)",
-                      games_first and bring_head == ["Import 2 games into the library", "2 games to import.", "Import"] and recent and recent[0] == "bring" and all(k in ("bring", "add", "import", "docs", "magazines", "bios") for k in recent),
+                      games_first and bring_head == ["Import 2 games into the library", "2 games to import.", "Import"] and recent and recent[0] == "bring" and all(k in ("bring", "add", "import", "docs", "magazines", "videos", "bios") for k in recent),
                       (games_first, bring_head, recent))
                 check("Import offers every system or one, and copy, always copy or move; its window stays put and comes back where it was; each system's games go to the folder its games are in, and a file no DAT knows to its folder's system",
                       systems_offered[0].startswith("Every system") and "Game Boy" in systems_offered and unknown_as == "gb" and stayed and kept == "gb" and len(brought) == 1

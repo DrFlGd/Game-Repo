@@ -641,7 +641,7 @@ impl App {
         if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
             return self.collection_call(cmd, args).await;
         }
-        if ["layout", "bios", "magazine"].iter().any(|p| cmd.starts_with(p)) {
+        if ["layout", "bios", "magazine", "video"].iter().any(|p| cmd.starts_with(p)) {
             return self.device_call(cmd, args).await;
         }
         if cmd.starts_with("serve_") {
@@ -1183,6 +1183,8 @@ impl App {
                     "bring" => "Importing games",
                     "docs" => "Importing documents",
                     "magazines" => "Importing magazines",
+                    "videos" => "Importing videos",
+                    "video_remove" => "Removing a video",
                     "bios" => "Importing BIOS files",
                     "metadata" => "Deleting metadata",
                     "pc_remove" => "Removing a PC game",
@@ -2110,6 +2112,77 @@ impl App {
                 let ticked = args["ticked"].as_bool();
                 let page = args["page"].as_u64().map(|p| p as u32);
                 j(self.with_index(move |ix| crate::magtext::set_game(ix, &lib, &title, &file, &key, ticked, page)).await?)
+            }
+            // the Videos page (D146)
+            "videos" => {
+                let lib = self.library()?;
+                j(blocking(Box::new(move || Ok(crate::videos::overview(&lib)))).await?)
+            }
+            "video_items" => {
+                // the videos in the files and folders picked, and the games in their titles (a job)
+                let lib = self.library()?;
+                let paths: Vec<PathBuf> = args["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).map(PathBuf::from).collect();
+                if paths.is_empty() {
+                    return Err("Choose the videos or a folder of them.".into());
+                }
+                let label = "Reading the videos";
+                self.not_running(label)?;
+                j(self.spawn_job(label, move |app, jid, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    let items = crate::videos::read_items(&ix, &lib, &paths, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    let mut items = serde_json::to_value(&items)?;
+                    for g in items.as_array_mut().into_iter().flatten().flat_map(|it| it["games"].as_array_mut().into_iter().flatten()) {
+                        g["platform_name"] = json!(crate::browse::system_name(g["platform"].as_str().unwrap_or("")));
+                    }
+                    Ok(json!({ "items": items }))
+                }))
+            }
+            "video_plan" => {
+                let lib = self.library()?;
+                let items: Vec<crate::videos::Item> = serde_json::from_value(args["items"].clone()).map_err(|e| e.to_string())?;
+                let mode = args["mode"].as_str().unwrap_or("copy").to_string();
+                let always_copy = args["always_copy"].as_bool().unwrap_or(false);
+                j(blocking(Box::new(move || {
+                    let plan = crate::videos::plan(&lib, &items, &mode, always_copy)?;
+                    organise::save_pending(&data_dir, &plan)?;
+                    Ok(plan.summary())
+                }))
+                .await?)
+            }
+            "video_link" => {
+                let lib = self.library()?;
+                let (url, title) = (arg(&args, "url").map_err(e2s)?.to_string(), arg(&args, "title").map_err(e2s)?.to_string());
+                let kind = args["kind"].as_str().filter(|k| !k.is_empty()).map(String::from);
+                let date = args["date"].as_str().map(String::from);
+                j(self.with_index(move |ix| crate::videos::add_link(ix, &lib, &url, &title, kind.as_deref(), date.as_deref())).await?)
+            }
+            "video_edit" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let patch = args["patch"].clone();
+                j(blocking(Box::new(move || crate::videos::edit(&lib, &id, &patch))).await?)
+            }
+            "video_game" => {
+                // a game added to a video ("on": true), or taken off
+                let lib = self.library()?;
+                let (id, key) = (arg(&args, "id").map_err(e2s)?.to_string(), arg(&args, "key").map_err(e2s)?.to_string());
+                let on = args["on"].as_bool().unwrap_or(true);
+                j(self.with_index(move |ix| crate::videos::set_game(ix, &lib, &id, &key, on)).await?)
+            }
+            "video_remove" => {
+                // a link taken off at once; a file's removal planned, for the preview and Undo
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || {
+                    Ok(match crate::videos::remove(&lib, &id)? {
+                        Some(plan) => {
+                            organise::save_pending(&data_dir, &plan)?;
+                            json!({ "plan": plan.summary() })
+                        }
+                        None => json!({ "removed": true }),
+                    })
+                }))
+                .await?)
             }
             other => Err(format!("unknown command {other}")),
         }

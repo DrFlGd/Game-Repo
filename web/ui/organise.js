@@ -36,10 +36,10 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing PC games", add: "Importing a game", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", bios: "Importing BIOS files", metadata: "Deleting metadata", pc_remove: "Removing a PC game" })[kind] || "Organising";
+const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing PC games", add: "Importing a game", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", videos: "Importing videos", bios: "Importing BIOS files", metadata: "Deleting metadata", pc_remove: "Removing a PC game", video_remove: "Removing a video" })[kind] || "Organising";
 
 /** The changes that bring files into the library (the Import page's Recent imports, D78). */
-export const IMPORT_KINDS = ["bring", "add", "import", "docs", "magazines", "bios"];
+export const IMPORT_KINDS = ["bring", "add", "import", "docs", "magazines", "videos", "bios"];
 
 /** How an import brings its files in (D79), the same three choices everywhere: "copy"
  *  (hardlinked on the same drive), "always" (a full copy) or "move"; and for games from
@@ -64,7 +64,7 @@ const COUNTS = {
   docs: ["document", "documents", "import"], magazines: ["issue", "issues", "import"], bios: ["system's BIOS files", "systems' BIOS files", "import"],
   convert: ["game", "games", "convert"], extract: ["game", "games", "unpack"], folders: ["game's folder", "games' folders", "rename"],
   metadata: ["game's metadata", "games' metadata", "delete"], aside: ["game", "games", "set extra copies aside for"],
-  pc_remove: ["PC game", "PC games", "remove from the library"],
+  pc_remove: ["PC game", "PC games", "remove from the library"], videos: ["video", "videos", "import"], video_remove: ["video", "videos", "remove"],
 };
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
@@ -270,7 +270,7 @@ export function OrganiseDialog({ dat, platform, platformName, plan: given, onRun
   };
   if (plan) {
     const nothing = !plan.ops;
-    return html`<${Dialog} title=${plan.title || plan.label} id="organise-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) { onRun?.(); runPlan(plan); } }} busy=${plan.short} submitLabel=${nothing ? "OK" : plan.kind === "aside" ? "Set them aside" : plan.kind === "pc_remove" ? "Remove it" : "Run"}
+    return html`<${Dialog} title=${plan.title || plan.label} id="organise-dialog" wide=${true} onSubmit=${() => { close(); if (!nothing) { onRun?.(); runPlan(plan); } }} busy=${plan.short} submitLabel=${nothing ? "OK" : plan.kind === "aside" ? "Set them aside" : plan.kind === "pc_remove" || plan.kind === "video_remove" ? "Remove it" : "Run"}
       cancelLabel=${given ? "Cancel" : "Back"} onCancel=${given ? close : () => setPlan(null)}>
       <${Preview} plan=${plan} />
       ${nothing ? html`<p id="organise-nothing">Nothing to do: ${plan.kind === "folders" ? "no game's library folder can be renamed (the preview says why)." : plan.kind === "metadata" ? "there's none of that to delete." : plan.in_place ? "everything is in place already." : "no files match this DAT yet."}</p>`

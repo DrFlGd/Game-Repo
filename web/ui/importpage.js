@@ -2,7 +2,7 @@
 // into the library, in one place. Games in folders you keep (the folders with games, scanned
 // where they are), games copied into the library from a folder (matched by the audit DATs,
 // named as they say, D53's bring-in) or one at a time (Add a game…), PC games, DATs, BIOS
-// files, documents and magazines, and the imports made lately. The other pages' import
+// files, documents, magazines and videos, and the imports made lately. The other pages' import
 // buttons open this page at their section (`importFrom`), and files dropped where no page
 // takes them come here to be asked what they are (`dropToImport`).
 import { html, useState, useEffect } from "../lib/html.js";
@@ -18,6 +18,7 @@ import { importPc, addGameDialog } from "./pcgames.js";
 import { importBios } from "./bios.js";
 import { attachDocs } from "./documents.js";
 import { importMagazines } from "./magazines.js";
+import { importVideos, addVideoLink } from "./videos.js";
 import { importDats, starterDats, addRoot, refreshGames, scan } from "./games.js";
 import { Icon } from "./icons.js";
 import { argHash, useRouteArg } from "./panels.js";
@@ -381,6 +382,7 @@ const DROPPED = [
   ["pc", "PC games", "Installers, archives and game folders, each into its own folder under PC/.", "import-pc"],
   ["docs", "Documents", "Manuals, guides and scans, each paired with its game.", "import-docs"],
   ["mags", "Magazines", "Issues (PDF, CBZ or CBR) into Magazines/, by magazine.", "import-mags"],
+  ["videos", "Videos", "Walkthroughs, reviews and the like into Videos/, by kind.", "import-videos"],
   ["dats", "DATs", "Lists of games to audit your files against.", "settings-dats"],
   ["bios-dat", "A BIOS DAT", "A list of BIOS files to audit them against.", "import-bios"],
 ];
@@ -392,6 +394,7 @@ export function guessDropped(paths) {
   const all = (exts) => paths.every((p) => exts.includes(extOf(p)));
   if (all(["dat", "xml"])) return "dats";
   if (all(["cbz", "cbr"])) return "mags";
+  if (all(["mp4", "m4v", "mov", "webm", "mkv", "avi"])) return "videos";
   if (all(["exe", "msi"])) return "pc";
   if (all(["pdf", "txt", "md", "htm", "html", "doc", "docx", "rtf"])) return "docs";
   return "games";
@@ -403,6 +406,7 @@ function startDropped(kind, paths) {
   if (kind === "pc") return importPc("paths", paths);
   if (kind === "docs") return attachDocs({ how: "files", paths });
   if (kind === "mags") return importMagazines(false, paths);
+  if (kind === "videos") return importVideos(false, paths);
   if (kind === "dats") { close(); return importDats(paths); }
   if (kind === "bios-dat") { close(); return importDats(paths, { "*": "bios" }); }
 }
@@ -485,6 +489,11 @@ export function ImportPage() {
       <${Card} id="import-mags" icon="stack" title="Magazines" here=${at === "import-mags"} where="Issues (PDF, CBZ or CBR) into Magazines/, by magazine.">
         <button type="button" class="ghost" id="import-mags-folder" disabled=${off || !desk} onClick=${() => importMagazines()}>A folder…</button>
         <button type="button" class="ghost" id="import-mags-files" disabled=${off || !desk} onClick=${() => importMagazines(true)}>Files…</button>
+      <//>
+      <${Card} id="import-videos" icon="video" title="Videos" here=${at === "import-videos"} where="Walkthroughs, reviews, retrospectives and others into Videos/, by kind, each with the games it's about; or a link to one on the web.">
+        <button type="button" class="ghost" id="import-videos-folder" disabled=${off || !desk} onClick=${() => importVideos()}>A folder…</button>
+        <button type="button" class="ghost" id="import-videos-files" disabled=${off || !desk} onClick=${() => importVideos(true)}>Files…</button>
+        <button type="button" class="ghost" id="import-videos-link" disabled=${off} onClick=${addVideoLink}>A link…</button>
       <//>
     </div>
     <section class="ls-section" id="import-recent">

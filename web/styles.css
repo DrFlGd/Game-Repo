@@ -1549,6 +1549,25 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
   background: var(--panel); border: 1px solid var(--steel-2); border-radius: var(--radius-s); }
 .doc-page-text mark { background: color-mix(in srgb, var(--accent-edge) 35%, transparent); color: inherit; padding: 0 1px; border-radius: 2px; }
 
+/* Videos (D146) */
+.video-filters { margin: 0 0 10px; }
+.video-filters input[type="search"] { flex: 0 1 320px; width: auto; min-width: 160px; }
+.ls-list li.video-row > .seg { flex: none; }
+.video-list li.video-row { align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--steel-2); }
+.video-list li.video-row.playing .video-title { color: var(--accent-ink, inherit); text-decoration: underline; }
+.video-watch { flex: none; padding: 6px; }
+.ls-list li > .video-main { display: grid; gap: 2px; }
+.video-games { display: flex; flex-wrap: wrap; gap: 4px 0; }
+a.video-chip { color: inherit; text-decoration: none; }
+a.video-chip:hover { border-color: var(--accent-edge); }
+.video-chip .linkish { padding: 0 0 0 4px; }
+.video-items .video-item-title { flex: 1 1 220px; min-width: 0; }
+.video-items .video-item-kind { flex: 0 1 140px; width: auto; }
+.video-items .video-item-date { flex: 0 1 110px; min-width: 0; }
+.video-item-games { display: flex; flex-wrap: wrap; gap: 4px 0; font-size: 12.5px; }
+.video-player-head { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.video-big { display: block; width: 100%; max-height: 62vh; background: #000; border-radius: var(--radius-m); }
+
 /* PC games (Phase 4) */
 .pc-body { display: grid; grid-template-columns: minmax(260px, 420px) minmax(0, 1fr); gap: 0 24px; align-items: start; }
 .pc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }

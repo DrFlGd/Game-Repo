@@ -64,6 +64,7 @@ words below to the person using the app; this file is the list for whoever write
 | **identify** | Choosing by hand which game something is. | match (as a verb for this) |
 | **documents** | Guides, manuals, maps and scans of your own, kept with their games. | docs, files, attachments |
 | **magazines** | Issues of game magazines kept by magazine. | periodicals |
+| **videos** | Walkthroughs, reviews, retrospectives and others about your games: files in the library, or links to the web. | clips, media (for these) |
 | **text recognition** | Reading the words in a picture of a page (Windows' own, or Tesseract). | OCR (except where a tool is named), scanning |
 | **BIOS files** | The firmware files emulators need. | firmware (alone), system files |
 | **PC game** | A game for Windows, kept in its own folder under *PC*. | Windows game |

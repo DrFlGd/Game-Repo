@@ -28,6 +28,7 @@ import { opened, gameHash, systemColour } from "./browse.js";
 import { Icon } from "./icons.js";
 import { Inspector } from "./panels.js";
 import { isVideo, Video } from "./video.js";
+import { watch, videoFacts } from "./videos.js";
 import { variantDialog, undoVariants } from "./variants.js";
 
 const err = (e) => e.message || String(e);
@@ -350,6 +351,11 @@ export function GamePage() {
       <ul class="ls-list">${g.magazines.map((x) => html`<li key=${x.path} data-path=${x.path}><span>${x.title}</span>
         <span class="mag-game-pages">${x.pages.length ? x.pages.map((p) => html`<button type="button" class="linkish" key=${p} data-page=${p} disabled=${!x.doc} title=${`Read page ${p}`} onClick=${() => viewDoc(x.doc, { page: p, find: g.title })}>p. ${p}</button>`)
           : html`<button type="button" class="linkish" disabled=${!x.doc} onClick=${() => viewDoc(x.doc, { find: g.title })}>Read it</button>`}</span></li>`)}</ul>
+    </section>` : null}
+    ${g.videos?.length ? html`<section class="ls-section" id="game-videos"><h2>Videos</h2>
+      <ul class="ls-list">${g.videos.map((v) => html`<li key=${v.id} data-id=${v.id}><span class="op-paths">
+        <button type="button" class="linkish" data-action="watch" title=${v.file ? "Watch it on the Videos page" : "Watch it in your browser"} disabled=${v.file && v.gone} onClick=${() => watch(v)}>${v.file ? Icon.video(14) : Icon.external(14)} ${v.title}</button>
+        <span class="muted">${videoFacts(v)}</span></span></li>`)}</ul>
     </section>` : null}
     ${pc ? null : html`<section class="ls-section" id="game-files"><h2>Files</h2>
       ${files.length ? html`<ul class="ls-list">${files.map((f, i) => html`<li key=${i} data-missing=${f.missing ? "yes" : "no"}>
