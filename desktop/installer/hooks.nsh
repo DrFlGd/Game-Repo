@@ -22,10 +22,10 @@
 
 ; Windows keeps the icons of shortcuts and taskbar pins in a cache: asked to read them again,
 ; a pin made before the program's icon changed shows the new one (D143). Game Repo Go's
-; installer has the same line (go-hooks.nsh). It's Windows' own program, not waited for and
-; not the installer's own call (SHChangeNotify), as either could hang the installer where
-; no one is signed in (an automated install).
+; installer has the same lines (go-hooks.nsh). ie4uinit isn't waited for: the installer
+; needn't wait while Windows reads its icons again.
 !macro GR_REFRESH_ICONS
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
   Exec `"$SYSDIR\ie4uinit.exe" -show`
 !macroend
 

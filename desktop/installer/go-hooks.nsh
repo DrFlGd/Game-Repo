@@ -4,7 +4,7 @@
 ; Repo Server's installers do the same in hooks.nsh.)
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; Windows' own program, not waited for and not the installer's own call (SHChangeNotify),
-  ; as either could hang the installer where no one is signed in (an automated install)
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+  ; not waited for: the installer needn't wait while Windows reads its icons again
   Exec `"$SYSDIR\ie4uinit.exe" -show`
 !macroend
