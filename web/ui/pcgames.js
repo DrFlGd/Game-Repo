@@ -111,7 +111,7 @@ export function IdentifyDialog({ title, query = "", year = null, platform = "pc"
         <button type="button" class="ghost" data-action="pick" disabled=${busy} onClick=${() => pick(x)}>This one</button>
       </li>`)}</ul>
       ${r.errors?.map((e) => html`<p class="warn-note identify-error" key=${e.source} data-source=${e.source}>${e.name || e.source}: ${e.error}</p>`)}
-      ${r.needs?.length ? html`<p class="muted identify-needs" id="identify-needs" title=${r.needs.map((e) => `${e.name}: ${e.text}`).join("\n")}>${r.needs.length === 1 ? `${r.needs[0].name} isn't set up` : `${r.needs.length} sources aren't set up (${r.needs.map((e) => e.name).join(", ")})`}, so ${r.needs.length === 1 ? "it wasn't" : "they weren't"} asked. <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a></p>` : null}` : html`<p class="muted">The sources are asked in the order Settings › Sources gives, or just the one chosen beside the year. Picking a result keeps its id and details with the game and gets its artwork.</p>`}
+      ${r.needs?.length ? html`<p class="muted identify-needs" id="identify-needs" title=${r.needs.map((e) => `${e.name}: ${e.text}`).join("\n")}>${r.needs.length === 1 ? `${r.needs[0].name} isn't set up` : `${r.needs.length} sources aren't set up (${r.needs.map((e) => e.name).join(", ")})`}, so ${r.needs.length === 1 ? "it wasn't" : "they weren't"} asked. <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a></p>` : null}` : html`<p class="muted">The sources are asked in the order Settings › Sources gives, or just the one chosen beside the year. Picking a result keeps its id and details with the game and gets its pictures.</p>`}
     ${onNone ? html`<p class="muted" id="identify-none-row">Not one of these, and in no source at all?${" "}<button type="button" class="linkish" id="identify-none-of-these" disabled=${busy} onClick=${() => pick(null)}>None of these</button>:${" "}${noneNote}</p>` : null}
   <//>`;
 }
@@ -392,7 +392,7 @@ function AddGameDialog({ platform: given, files: givenFiles }) {
     <div class="field-block"><span class="field-label">The game</span>
       ${isDesktop() ? html`<div class="pick-row"><span class="pick-path" id="add-files">${files.length ? files.join(", ") : "Nothing chosen"}</span>
         <button type="button" class="ghost" id="add-pick-files" onClick=${pickFiles}>Choose…</button></div>`
-        : html`<textarea id="add-files-typed" rows="2" placeholder="Its file's path (one per line)" onInput=${(e) => setTyped(e.target.value)}>${typed}</textarea>`}
+        : html`<textarea id="add-files-typed" rows="2" placeholder="Its files' paths, one per line" onInput=${(e) => setTyped(e.target.value)}>${typed}</textarea>`}
       <small class="muted">A ROM, a ZIP or 7z of one, or a disc (its cue sheet brings its tracks).</small></div>
     <label class="field-block"><span class="field-label">System</span>
       <select id="add-platform" class="compact" value=${platform} onChange=${(e) => setPlatform(e.target.value)}>
@@ -426,7 +426,7 @@ function AddResultsDialog({ added }) {
   return html`<${Dialog} title=${`Imported into ${added.platform_name}`} id="add-results-dialog" onSubmit=${close} submitLabel="Done" cancelLabel=${null}>
     <ul class="ls-list" id="add-results">${files.map((f) => html`<li key=${f.path} data-matched=${f.game ? "yes" : "no"} data-named=${f.named ? "yes" : "no"}>
       <span class="identify-label"><span><b>${f.file}</b></span>
-        <span class="muted">${f.game ? (f.named ? `${f.game}, named as its DAT says.` : `${f.game} in its DAT. Organise… (Rename these, on the Audit page's Misnamed list) gives it the DAT's name.`)
+        <span class="muted">${f.game ? (f.named ? `${f.game}, named as its DAT says.` : `${f.game} in its DAT. Rename to the DAT's names… on Audit › Misnamed gives it that name.`)
           : f.identity ? `Identified: ${f.identity.title}${f.identity.year ? ` (${f.identity.year})` : ""}` : f.dat ? "No DAT knows this file." : "There's no DAT for this system to check it against."}</span></span>
       ${!f.game && f.sha1 ? html`<button type="button" class="ghost" data-action="identify" onClick=${() => identify(f)}>Identify…</button>` : null}
     </li>`)}</ul>
@@ -623,7 +623,7 @@ export function PcGames() {
   if (data.error) return html`${head}<div class="pages"><p class="warn-note" role="alert">${data.error}</p></div>`;
   if (!games.length) {
     return html`${head}<div class="pages"><div class="library-settings" id="pc-empty">
-      <p class="page-lead">${Icon.monitor(18)} Import installers, zipped games and game folders into one layout: each game in its own folder, with what it is and how it starts.</p>
+      <p class="page-lead">${Icon.monitor(18)} Import installers, zipped games and game folders, each into a folder of its own with what it is and how it starts.</p>
       <section class="ls-section">
         <h2>To start</h2>
         <p>Drop GOG installers, archives, disc images or game folders into an inbox folder and press Import…, or pick them. Imports are made on the <a href=${routeHash("import")}>Import</a> page.</p>

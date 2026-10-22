@@ -66,7 +66,7 @@ export function PairPage() {
   const p = usePairing();
   return html`<form class="go-page go-pair" id="pair-page" onSubmit=${(e) => { e.preventDefault(); p.pair(); }}>
     <h1>Pair with your library</h1>
-    <p>Game Repo Go downloads games from a Game Repo library on your home network into ES-DE's folders on this device. Pair it with the library once; after that it keeps a copy of the list here, so you can browse it anywhere.</p>
+    <p>Game Repo Go downloads games from a Game Repo library on your home network into ES-DE's folders on this device. Pair it with the library once; after that it keeps a copy of the library's list of games here, so you can browse it anywhere.</p>
     <${Fields} p=${p} />
     ${p.error ? html`<p class="form-error" role="alert" id="pair-error">${p.error}</p>` : null}
     <div><button type="submit" class="primary" id="pair-go" disabled=${p.busy || !p.address.trim() || p.code.length !== 6}>${p.busy ? "Pairing…" : "Pair"}</button></div>
@@ -77,7 +77,7 @@ export function PairPage() {
 export function PairDialog() {
   const p = usePairing(closeDialog);
   return html`<${Dialog} title="Pair with another library" id="pair-dialog" onSubmit=${p.pair} busy=${p.busy} disabled=${!p.address.trim() || p.code.length !== 6} error=${p.error} submitLabel=${p.busy ? "Pairing…" : "Pair"}>
-    <p class="muted">The games already on this device stay. This device's copy of the list is read again from the new library.</p>
+    <p class="muted">The games already on this device stay. This device's list of games is read again from the new library.</p>
     <${Fields} p=${p} />
   <//>`;
 }

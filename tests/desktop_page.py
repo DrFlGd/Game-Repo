@@ -31,7 +31,7 @@ with thumbnails, a filter with counts kept in the address, the search, selecting
 the table sorted and grouped, a game's page with a detail edited and a file dropped
 on it, Next, and the filters saved as a collection; (Phase 6b) each source's answer kept, a box from
 another source chosen and a detail used from it on a game's page, Scrape again…,
-Delete metadata… with Undo, and Settings › Metadata's sizes;
+Delete metadata… with Undo, and Settings › Details and pictures' sizes;
 renaming the library, with Undo; opening a folder that already holds games
 leaves them as they were, and switching back from the recent list; the theme
 and skin follow the settings and are kept; a library from a newer app opens
@@ -2634,12 +2634,12 @@ async def main():
                 await pg.click("#game-menu")
                 await pg.click('#context-menu [data-action="game-scrape-again"]')
                 await pg.wait_for_selector("#scrape-dialog #scrape-sources")
-                # review M42, D80: what's fetched is a line, its choices behind Change what's fetched…
+                # review M42, D80: what's scraped is a line, its choices behind Change what's scraped…
                 short = await pg.evaluate("() => { const d = document.querySelector('#scrape-dialog'); return [!document.querySelector('#scrape-media'), d.scrollHeight <= d.clientHeight + 2, document.querySelector('#scrape-what-text')?.textContent || ''] }")
                 await pg.screenshot(path=str(out / "56b-scrape-short.png"))
                 await pg.click("#scrape-change")
                 await pg.wait_for_selector("#scrape-dialog #scrape-variants")
-                check("the Scrape window fits without scrolling, what's fetched in one line, its choices behind Change what's fetched… (D80)", short[0] and short[1] and "detail" in short[2], short)
+                check("the Scrape window fits without scrolling, what's scraped in one line, its choices behind Change what's scraped… (D80)", short[0] and short[1] and "detail" in short[2], short)
                 again = await pg.evaluate("() => [document.querySelector('input[name=scrape-existing][value=replace]').checked, document.querySelector('#scrape-fresh').checked, document.querySelector('#scrape-dialog h2, #scrape-dialog .dialog-title')?.textContent || '']")
                 check("Scrape again… is the Scrape dialog set to replace and ask the sources afresh", again[0] and again[1] and "again" in again[2], again)
                 await pg.keyboard.press("Escape")
@@ -2666,7 +2666,7 @@ async def main():
                 await pg.click("#meta-sizes-work")
                 await pg.wait_for_selector('#meta-sizes tr[data-platform="gb"]')
                 shown = await pg.inner_text("#settings-metadata")
-                check("Settings › Metadata shows what the metadata takes, by system and kind, and which source each detail comes from",
+                check("Settings › Details and pictures shows the space they take, by system and kind, and which source each detail comes from",
                       "Game Boy" in shown and "Box front" in shown and sizes.get("kinds", {}).get("cover", 0) > 0 and await pg.locator('#details-from select[data-field="description"]').count() == 1, (shown[:300], sizes.get("kinds")))
                 await pg.screenshot(path=str(out / "55-settings-metadata.png"), full_page=True)
 

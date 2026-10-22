@@ -85,7 +85,7 @@ export function QueuePage() {
       ${going.length ? html`<button type="button" class="ghost" id="queue-all" onClick=${() => run(pausedAll ? "resume" : "pause")}>${pausedAll ? "Resume all" : "Pause all"}</button>` : null}
     </div>
     ${q.added && !going.length ? html`<div class="go-note" id="queue-restart" role="status">
-        <span><strong>Restart ES-DE to see the new games.</strong> ES-DE reads its game lists when it starts.</span>
+        <span><strong>Restart ES-DE to see the new games.</strong> ES-DE reads its gamelists when it starts.</span>
         <button type="button" class="ghost" onClick=${() => run("clear_done")}>OK</button>
       </div>` : null}
     ${info.kind === "linux" && done.some((i) => i.key.startsWith("pcgames/")) ? html`<${SteamWaiting} rev=${`${rev}-${done.length}`} />` : null}
@@ -94,7 +94,7 @@ export function QueuePage() {
     ${!q.items.length ? html`<p class="empty" id="queue-empty">Nothing to download. Choose Download… on a game to download it now, or Add to queue to start it later with others.</p>` : null}
     <ul class="go-queue-list" id="queue-list">
       ${going.map((i) => html`<li class=${`go-q go-q-${i.state}`} key=${i.id} data-key=${i.key}>
-        <div class="go-q-what"><strong>${i.title}</strong><span class="muted">${i.media_only ? "Media only · " : ""}${i.unpacking ? "Being unpacked on the library first" : STATE[i.state] || i.state}${i.state === "downloading" && i.speed ? ` · ${bytes(i.speed)}/s` : ""}</span></div>
+        <div class="go-q-what"><strong>${i.title}</strong><span class="muted">${i.media_only ? "Pictures and manuals only · " : ""}${i.unpacking ? "Being unpacked in the library first" : STATE[i.state] || i.state}${i.state === "downloading" && i.speed ? ` · ${bytes(i.speed)}/s` : ""}</span></div>
         ${i.unpacking && i.unpack_size ? html`<progress class="go-q-unpack" max=${i.unpack_size} value=${i.unpacked || 0} aria-label=${`${i.title}: ${bytes(i.unpacked || 0)} of ${bytes(i.unpack_size)} unpacked`}></progress>`
           : i.size && !i.unpacking ? html`<progress max=${i.size} value=${i.done} aria-label=${`${i.title}: ${bytes(i.done)} of ${bytes(i.size)}`}></progress>` : html`<progress aria-label=${i.title}></progress>`}
         <span class="muted go-q-size">${i.unpacking && i.unpack_size ? `${bytes(i.unpacked || 0)} of ${bytes(i.unpack_size)} unpacked` : i.size && !i.unpacking ? `${bytes(i.done)} of ${bytes(i.size)}` : ""}</span>
@@ -116,7 +116,7 @@ export function QueuePage() {
     ${done.length ? html`<div class="go-page-head go-q-done-head"><h2>Done</h2>
         <button type="button" class="ghost" id="queue-clear" onClick=${() => run("clear_done")}>Clear</button></div>
       <ul class="go-queue-list" id="queue-done">${done.map((i) => html`<li class="go-q go-q-done" key=${i.id} data-key=${i.key}>
-        <div class="go-q-what"><strong>${i.title}</strong><span class="muted">${i.media_only ? "Media added" : "On this device"} · ${bytes(i.size)}</span></div>
+        <div class="go-q-what"><strong>${i.title}</strong><span class="muted">${i.media_only ? "Pictures and manuals added" : "On this device"} · ${bytes(i.size)}</span></div>
       </li>`)}</ul>` : null}
   </section>`;
 }

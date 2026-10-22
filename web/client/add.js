@@ -70,10 +70,10 @@ export function AddDialog({ keys }) {
       <p class="go-add-sum" id="add-sum">
         ${plural(n, "game")}: ${bytes(p.size)}${media ? ` with ${bytes(media)} of pictures and manuals` : ""}. <span class=${short ? "danger-text" : "muted"}>${bytes(p.free)} free on this device.</span>
       </p>
-      ${short ? html`<p class="warn-note" id="add-short">There isn't room for all of that. Leave out some media, add fewer games, or make room on this device first.</p>` : null}
+      ${short ? html`<p class="warn-note" id="add-short">There isn't room for all of that. Leave out some pictures or manuals, add fewer games, or make room on this device first.</p>` : null}
       ${p.left?.length ? html`<div class="warn-note"><p>Some can't go:</p><ul>${p.left.slice(0, 8).map((l) => html`<li>${l.what}: ${l.why}</li>`)}</ul></div>` : null}
       ${p.notes?.map((t) => html`<p class="muted">${t}</p>`)}
-      ${p.unpacking ? html`<p class="muted" id="add-unpacking">${p.unpacking === 1 ? "A PC game is" : `${plural(p.unpacking, "PC game")} are`} being unpacked on the library first, so ${p.unpacking === 1 ? "it waits" : "they wait"} in Downloads until that's done.</p>` : null}
+      ${p.unpacking ? html`<p class="muted" id="add-unpacking">${p.unpacking === 1 ? "A PC game is" : `${plural(p.unpacking, "PC game")} are`} being unpacked in the library first, so ${p.unpacking === 1 ? "it waits" : "they wait"} in Downloads until that's done.</p>` : null}
       ${pc < n ? html`<p class="muted">Games go into ES-DE's folders one at a time. Each shows in ES-DE once all of its files are in, after ES-DE is restarted.</p>` : null}
       ${pc ? html`<p class="muted" id="add-pc">PC games go in ${folder || "the PC games folder"}, each in a folder of its own, with a shortcut ${info.kind === "windows" ? "in the Start menu" : "in Steam"}.</p>` : null}
     ` : null}
@@ -102,18 +102,18 @@ export function AddMediaDialog({ row }) {
     try {
       await call("add_media", { id: row.id, key: row.key, kinds: [...ticked] });
       closeDialog();
-      say(`Downloading ${row.name}'s media.`, "queue");
+      say(`Downloading ${row.name}'s pictures and manuals.`, "queue");
     } catch (e) {
       setError(message(e));
       setBusy(false);
     }
   };
-  return html`<${Dialog} title=${`Add media to ${row.name}`} id="add-media-dialog" onSubmit=${add} busy=${busy} disabled=${!ticked.size} error=${error} submitLabel=${`Add (${bytes(size)})`}>
+  return html`<${Dialog} title=${`Add pictures and manuals to ${row.name}`} id="add-media-dialog" onSubmit=${add} busy=${busy} disabled=${!ticked.size} error=${error} submitLabel=${`Add (${bytes(size)})`}>
     ${kinds === null && !error ? html`<p class="muted">Asking the library what it has…</p>` : null}
     ${kinds && !kinds.length ? html`<p class="muted">This device already has every kind the library has for this game.</p>` : null}
     ${kinds?.length ? html`<div class="field-block">${kinds.map((k) => html`<label class="check-row" key=${k.kind}>
         <input type="checkbox" name=${k.kind} checked=${ticked.has(k.kind)} onChange=${() => flip(k.kind)} />
         <span>${kindName(k.kind)}</span><span class="muted">${bytes(k.size)}</span></label>`)}</div>` : null}
-    ${row.from === "known" ? html`<p class="muted">This game came from elsewhere, but the library has it: its media are named for this device's file, and Game Repo Go looks after it from now on.</p>` : null}
+    ${row.from === "known" ? html`<p class="muted">This game came from elsewhere, but the library has it: its pictures and manuals are named for this device's file, and Game Repo Go looks after it from now on.</p>` : null}
   <//>`;
 }

@@ -406,7 +406,7 @@ export function Layouts() {
     ctx.platform.library.openPath(r.path);
   };
   const remove = () => confirmDialog({
-    title: `Remove ${summary?.name}?`, text: "The layout's file is deleted from the library. Exports made with it need another layout before they're updated.", button: "Remove",
+    title: `Delete ${summary?.name}?`, text: "The layout's file is deleted from the library. Exports made with it need another layout before they're updated.", button: "Delete",
     run: async () => { await api("layout_remove", { id }); prefs()?.set("gr-layout", ""); await load(""); },
   });
   const showCompare = async () => {
@@ -431,7 +431,7 @@ export function Layouts() {
   const head = html`<${CommandBar} id="layouts-head" title="Export layouts" count=${list ? plural(list.length, "layout", "layouts") : null}
     primary=${html`<button type="button" class="primary compact" id="layout-save" disabled=${off || !draft || (!dirty && !builtin) || !!textError || !!preview?.problems?.length}
       title=${preview?.problems?.length ? "Put the problems right first" : builtin ? "A built-in layout is kept as it is: your changes become a new layout" : "Save the changes"} onClick=${save}>${builtin ? "Save as new…" : "Save"}</button>`}
-    more=${{ id: "layouts-menu", title: "Import, save as a file, remove", items: menu }} />`;
+    more=${{ id: "layouts-menu", title: "Import, save as a file, delete", items: menu }} />`;
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   if (!list || !draft) return html`${head}<div class="pages"><p class="muted">Reading the layouts…</p></div>`;
   const places = Object.fromEntries((preview?.places || []).map((p) => [p.id, p.label]));

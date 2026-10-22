@@ -19,7 +19,7 @@ const root = document.getElementById("go-root");
 
 async function main() {
   if (!inApp) {
-    root.innerHTML = '<p class="go-opening">Game Repo Go runs as an app on Windows and Android. Install it from Game Repo\'s releases.</p>';
+    root.innerHTML = '<p class="go-opening">Game Repo Go runs as an app on Windows, Linux and Android. Install it from Game Repo\'s releases.</p>';
     return;
   }
   render(html`<${Shell} />`, root);

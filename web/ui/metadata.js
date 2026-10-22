@@ -38,7 +38,7 @@ const SHOWS = [
 ];
 const SHOW_HELP = {
   have: "The games you have, with what the library holds for each.",
-  all: "Every game in the system's DAT, yours or not: a scrape of these fills the library ahead of the games.",
+  all: "Every game in the system's DAT, yours or not: scraping these gets their details and pictures before you have the games.",
   look: "Games a scrape found more than one possible match for, or none it was sure of: pick the right one.",
   none: "Games you have with no details or pictures yet.",
 };
@@ -122,7 +122,7 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
       const text = games && r.games === 1
         ? r.found ? `Scraped ${gameName}: ${plural(r.pictures, "picture", "pictures")}.` : r.look ? `${gameName} needs a look: the sources found more than one game it could be.` : `No source knew ${gameName}.`
         : `Scraped ${plural(r.games, "game", "games")}: ${r.found} found, ${r.look} need a look, ${r.none} not found${r.skipped ? `, ${r.skipped} skipped` : ""}; ${plural(r.pictures, "picture", "pictures")}.${r.stopped ? " Stopped." : ""}`;
-      toast(`${text}${errors ? ` ${errors}` : ""}${r.sources_stopped ? " The sources stopped answering, so it stopped." : ""}`, 12000);
+      toast(`${text}${errors ? ` ${errors}` : ""}${r.sources_stopped ? " The sources stopped answering, so the scrape stopped." : ""}`, 12000);
     } catch (e) {
       toast(`Couldn't scrape: ${err(e)}`, 10000);
     } finally {
@@ -138,16 +138,16 @@ function ScrapeDialog({ platform = "", platformName, games = null, collection = 
     ${games || collection ? null : html`<div class="field-block" role="radiogroup" aria-label="Which games">
       <span class="field-label">Which games</span>
       <label class="check-row"><input type="radio" name="scrape-scope" value="have" checked=${o.scope === "have"} onChange=${() => set({ scope: "have" })} /> The ${plural(have, "game", "games")} in the library</label>
-      <label class="check-row"><input type="radio" name="scrape-scope" value="all" checked=${o.scope === "all"} onChange=${() => set({ scope: "all" })} /> Every game in its DAT (${all.toLocaleString()}), so the library has them all ahead of the games</label>
+      <label class="check-row"><input type="radio" name="scrape-scope" value="all" checked=${o.scope === "all"} onChange=${() => set({ scope: "all" })} /> Every game in its DAT (${all.toLocaleString()}), to have their details before you have the games</label>
     </div>`}
     <div class="field-block"><span class="field-label">Sources, in the order they're asked</span>
       <${Ordered} id="scrape-sources" items=${c.sources} value=${o.sources} onChange=${(sources) => set({ sources })} note=${(x) => (x.hashes ? "by the ROMs' hashes" : "by title")} />
       ${ready.length && ready.length < c.sources.length ? html`<small class="muted" id="scrape-not-ready">${c.sources.filter((x) => x.needs).map((x) => x.name).join(", ")} ${c.sources.filter((x) => x.needs).length === 1 ? "needs" : "need"} setting up in <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a> first.</small>` : null}
       ${!ready.length ? html`<p class="warn-note" id="scrape-no-source">No source is ready: set their accounts or keys in <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a>, or get LaunchBox's database there.</p>` : null}
       <small class="muted">Each game is asked of the first source that knows it; a source asked by title is only believed when the title is the same.</small></div>
-    <div class="field-block" id="scrape-what"><span class="field-label">What's fetched</span>
+    <div class="field-block" id="scrape-what"><span class="field-label">What's scraped</span>
       <p id="scrape-what-text">${o.fields.length ? `${o.fields.length === c.fields.length ? "Every detail" : plural(o.fields.length, "detail", "details")}` : "No details"}${o.media.length ? `; ${c.media.filter((m) => o.media.includes(m.id)).map((m) => m.name.toLowerCase()).join(", ")}` : "; no pictures"}${(o.variants || []).some((k) => o.media.includes(k)) ? ", every source's kept" : ""}.</p>
-      <div><button type="button" class="ghost compact" id="scrape-change" aria-expanded=${changing ? "true" : "false"} onClick=${() => setChanging(!changing)}>${changing ? "Done changing" : "Change what's fetched…"}</button></div></div>
+      <div><button type="button" class="ghost compact" id="scrape-change" aria-expanded=${changing ? "true" : "false"} onClick=${() => setChanging(!changing)}>${changing ? "Done changing" : "Change what's scraped…"}</button></div></div>
     ${changing ? html`<div class="scrape-changing" id="scrape-changing">
     <div class="field-block"><span class="field-label">Details</span>
       <${Ticks} id="scrape-fields" items=${c.fields} value=${o.fields} onChange=${(fields) => set({ fields })} /></div>
