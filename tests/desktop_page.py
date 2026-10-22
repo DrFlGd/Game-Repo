@@ -1111,7 +1111,7 @@ async def main():
                 active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
                 lead = await pg.inner_text("#audit-empty")
                 check("the menu's places open, with the pages still to come saying what they'll do",
-                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Export layouts", "History", "Settings", "Help", "About"]
+                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Backlog", "Export layouts", "History", "Settings", "Help", "About"]
                       and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
                 await pg.screenshot(path=str(out / "01-coming.png"))
 
@@ -2864,6 +2864,7 @@ async def main():
                       line.startswith("1 of 2 to play") and pos.endswith("in the backlog") and line2.startswith("2 of 2 to play") and "In progress" in line2
                       and sorted(playing) == ["gb/Alpha (USA)", "nes/Echo (USA)"], (line, pos, line2, playing))
                 # Add games… by title, to the top; Back to the backlog from Completed (at the bottom)
+                await pg.keyboard.press("Escape")
                 await pg.click("#backlog-add")
                 await pg.fill("#backlog-add-search", "Beta")
                 await pg.wait_for_selector("#backlog-add-list li input")
