@@ -97,6 +97,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 - **Include in Audit.** The tick in Audit › *DATs…* that adds another DAT to a system's audit was *Audit with it too*; it's now *Include in Audit*.
 - **Clearer wording throughout.** Every page, dialog and message of Game Repo, Game Repo Server and Game Repo Go was read for plain, short wording and one word for one thing (`docs/wording.md` has the list): a ROM is a *file* of a game, pictures are *pictures* (not media), the game page's ribbon is *Pictures*, Settings' *Metadata* section is *Details and pictures*, Game Repo Go *pairs* with the server, buttons end in "…" only when they open a dialog, and messages start with *Couldn't* and say what to do. Help's *Words used in the app* has eleven more.
 - **The new icons on the taskbar and Start menu.** Each Windows installer asks Windows to refresh its cached icons after installing, so a pin made before 0.5.38 shows the folder pad, and the installers show the program's icon.
+- **The update key helper doesn't stop for no reason.** `tools/updater_key.cmd` sometimes said *Game Repo couldn't make the key (exit )* when it had; it now reads Game Repo's answer itself.
 
 ## 0.5.44 (2026-10-21)
 
