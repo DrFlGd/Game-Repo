@@ -4,23 +4,30 @@
 // (its folder's docs/, with docs.json for their kinds and titles), or in _library/docs/
 // when they go with none. Import documents… reads files or a folder, pairs each with
 // the game its name suggests, lets each pairing be changed, then brings them in as a
-// change with a preview and Undo. The viewer shows PDFs, pictures, text and audio.
+// change with a preview and Undo. The viewer shows PDFs, pictures, text and audio. The
+// page is laid out as the Library is, more simply (D155): the filters (kind, system, game,
+// where from, whether their words are read) with their counts down the left, grouped by
+// game, kind or system, as lines or tiles (a document's first page, else its game's
+// picture), and the one picked read in the panel; a page of 100 at a time, asked of the
+// core.
 import { html, useState, useEffect, useRef } from "../lib/html.js";
 import { useStore, createStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, size, libraryUrl } from "./library.js";
 import { reveal } from "./games.js";
-import { CommandBar, SearchNote } from "./layout.js";
+import { CommandBar, ViewSwitch, SortMenu, MenuButton } from "./layout.js";
 import { Dialog, More, close } from "./dialogs.js";
 import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { Icon } from "./icons.js";
 import { importFrom } from "./importpage.js";
+import { usePageKeys, openMenu } from "./actions.js";
+import { Values, SIZES, gameHash, systemColour } from "./browse.js";
+import { useShelfState, Pic } from "./shelf.js";
 
 const PAGE = 100;
 const err = (e) => e.message || String(e);
 const again = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
-const prefs = () => ctx.platform?.store?.prefs;
 
 const SOURCE_NAMES = { screenscraper: "ScreenScraper", igdb: "IGDB", thegamesdb: "TheGamesDB", launchbox: "LaunchBox", steam: "Steam", gog: "GOG" };
 /** A source's name, from its id. */
@@ -381,40 +388,57 @@ export function DocDialogs({ dialog }) {
 
 // ------------------------------------------------------------ the page
 
+const DOC_SORTS = [["title", "Title"], ["game", "Game"], ["kind", "Kind"], ["size", "Size"]];
+const DOC_GROUPS = [["", "None"], ["game", "Game"], ["kind", "Kind"], ["system", "System"]];
+const DOC_VIEWS = [["list", "List", "list"], ["grid", "Grid", "grid"]];
+/** The filters (D155), as the page's state and the query name them. */
+const DOC_FIELDS = [["kind", "Kind", "kinds"], ["platform", "System", "platforms"], ["game", "Game", "games", true], ["source", "From", "sources"], ["text", "Text", "text"]];
+const kindIcon = (d) => (d.view === "image" ? "image" : d.kind === "manual" || d.kind === "guide" || d.kind === "faq" ? "book" : "file");
+/** A document's group, as the core names it: its game's folder, kind or system ("" for none). */
+const groupOf = (d, group) => (group === "game" ? d.folder : group === "kind" ? d.kind : group === "system" ? d.platform : null) || "";
+/** A document's pictures for a tile: its first page (a PDF's, a comic's) or itself, then its game's. */
+const docPics = (d, grid) => [
+  grid && (d.view === "pdf" || d.view === "comic") ? libraryUrl(`~first/${d.path}`) : null,
+  grid && d.view === "image" ? libraryUrl(`~thumb/256/${d.path}`) : null,
+  d.game_picture ? libraryUrl(`~thumb/${grid ? 256 : 128}/${d.game_picture}`) : null,
+];
+
 export function Documents() {
   const s = useStore(ui, (st) => ({ library: st.library, changes: st.changes }));
-  const saved = prefs()?.get("gr-docs", {}) || {};
-  const [q, setQ] = useState("");
-  const [kind, setKind] = useState(saved.kind || "");
-  const [platform, setPlatform] = useState(saved.platform || "");
-  const [source, setSource] = useState(saved.source || "");
+  const [st, set] = useShelfState("docs", { view: "list", sort: "title", group: "game" });
   const [list, setList] = useState({ total: 0, items: [], loading: true });
   const [sel, setSel] = useState(null);
   const [tick, setTick] = useState(0);
   const [reading, setReading] = useState(false);
+  const scrollRef = useRef(null);
   const off = !!s.library?.read_only;
+  const f = st.f || {};
+  const sort = DOC_SORTS.some(([k]) => k === st.sort) ? st.sort : "title";
+  const group = DOC_GROUPS.some(([k]) => k === st.group) ? st.group : "game";
+  const view = DOC_VIEWS.some(([k]) => k === st.view) ? st.view : "list";
+  const query = (offset) => ({ query: st.search, ...Object.fromEntries(DOC_FIELDS.map(([k, , arg]) => [arg, f[k] || []])), sort, desc: !!st.desc, group, offset, limit: PAGE, facets: offset === 0 });
+  const key = JSON.stringify(query(0));
   useEffect(() => {
     if (!s.library) return;
     let gone = false;
     setList((l) => ({ ...l, loading: true }));
     const t = setTimeout(() => {
-      api("docs_list", { query: q, kind, platform, source, offset: 0, limit: PAGE })
+      api("docs_list", query(0))
         .then((r) => { if (gone) return; setList({ ...r, loading: false }); loadKinds(r.kinds); })
         .catch((e) => { if (!gone) setList({ total: 0, items: [], loading: false, error: err(e) }); });
-    }, q ? 250 : 0);
+    }, st.search ? 250 : 0);
     return () => { gone = true; clearTimeout(t); };
-  }, [s.library?.path, q, kind, platform, source, s.changes, tick]);
+  }, [s.library?.path, key, s.changes, tick]);
   const more = async () => {
-    const r = await api("docs_list", { query: q, kind, platform, source, offset: list.items.length, limit: PAGE });
+    const r = await api("docs_list", query(list.items.length));
     setList((l) => ({ ...l, items: [...l.items, ...r.items] }));
   };
-  const filter = (patch) => {
-    const next = { kind, platform, source, ...patch };
-    if ("kind" in patch) setKind(patch.kind);
-    if ("platform" in patch) setPlatform(patch.platform);
-    if ("source" in patch) setSource(patch.source);
-    prefs()?.set("gr-docs", next);
+  const change = (patch) => {
+    set(patch);
+    setSel(null);
+    scrollRef.current?.scrollTo({ top: 0 });
   };
+  const toggle = (k) => (v) => change({ f: { ...f, [k]: (f[k] || []).includes(v) ? f[k].filter((x) => x !== v) : [...(f[k] || []), v] } });
   const readTexts = async () => {
     setReading(true);
     try {
@@ -429,19 +453,49 @@ export function Documents() {
       setReading(false);
     }
   };
+  const items = list.items || [];
+  const current = sel != null ? items.find((d) => d.id === sel) || null : null;
+  const menuFor = (d) => [
+    { id: "doc-open-big", label: "Open", icon: "book", run: () => viewDoc(d.id, { find: st.search }) },
+    { id: "doc-open-own", label: "Open in its own program", icon: "external", disabled: !isDesktop(), run: async () => { const x = await api("docs_get", { id: d.id }); ctx.platform.library.openPath(x.full); } },
+    { id: "doc-show", label: "Show in folder", icon: "folder", disabled: !isDesktop(), run: async () => { const x = await api("docs_get", { id: d.id }); reveal(x.full); } },
+    ...(d.game_key ? [{ id: "doc-game", label: "Go to its game", icon: "gamepad", run: () => { location.hash = gameHash(d.game_key); } }] : []),
+  ];
+  usePageKeys((e) => {
+    if (e.key === "Escape" && current) { setSel(null); return; }
+    if (e.key === "Enter" && current) { viewDoc(current.id, { find: st.search }); return; }
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && items.length) {
+      e.preventDefault();
+      const i = current ? items.indexOf(current) : -1;
+      const next = items[Math.max(0, Math.min(items.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
+      setSel(next.id);
+      scrollRef.current?.querySelector(`[data-id="${next.id}"]`)?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if (e.key === "ContextMenu" && current) {
+      const r = scrollRef.current?.querySelector(".selected")?.getBoundingClientRect();
+      if (r) openMenu({ clientX: r.left + 20, clientY: r.top + 20 }, menuFor(current));
+    }
+  });
   const menu = () => [
+    ...(list.all ? [{ head: "Tile size" }, ...Object.keys(SIZES).map((k) => ({ id: `docs-size-${k}`, label: k[0].toUpperCase() + k.slice(1), icon: (st.size || "medium") === k ? "check" : null, run: () => set({ size: k }), disabled: view !== "grid" ? "Only in the grid" : false })), { sep: true }] : []),
+    ...(list.all ? [{ id: "docs-import-more", label: "Import documents…", icon: "inbox", disabled: off || !isDesktop(), run: () => importFrom("import-docs", () => attachDocs({ how: "folder" })) }] : []),
     { id: "docs-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => importFrom("import-docs", () => attachDocs({ how: "files" })) },
     { id: "docs-import-folder", label: "Import a folder…", icon: "folder", disabled: off || !isDesktop(), run: () => importFrom("import-docs", () => attachDocs({ how: "folder" })) },
     { sep: true },
     { id: "docs-read", label: "Make them searchable", icon: "search", disabled: reading || !list.unread, run: readTexts },
   ];
+  const search = html`<input type="search" id="docs-search" data-search="1" class="compact" placeholder="Search the documents' words" aria-label="Search the documents" value=${st.search} onInput=${(e) => change({ search: e.target.value })} />`;
+  const tools = html`<${ViewSwitch} id="docs-view" views=${DOC_VIEWS} value=${view} onChange=${(v) => set({ view: v })} />
+    <${SortMenu} id="docs-sort" options=${DOC_SORTS} value=${sort} onChange=${(k) => change({ sort: k, desc: false })} />
+    <button type="button" class="ghost compact" id="docs-desc" title=${st.desc ? "Reversed: back to the usual order" : "Reverse the order"} aria-pressed=${st.desc ? "true" : "false"} onClick=${() => change({ desc: !st.desc })}>${st.desc ? "↑" : "↓"}</button>
+    <${MenuButton} id="docs-group" label=${`Group: ${DOC_GROUPS.find(([k]) => k === group)?.[1]}`} icon="grouped" items=${() => DOC_GROUPS.map(([k, l]) => ({ id: `docs-group-${k || "none"}`, label: l, icon: group === k ? "check" : null, run: () => change({ group: k }) }))} />`;
   const head = html`<${CommandBar} id="docs-head" title="Documents" count=${list.loading ? null : plural(list.total, "document", "documents")}
-    search=${html`<input type="search" id="docs-search" class="compact" placeholder="Search the documents' words" aria-label="Search the documents" value=${q} onInput=${(e) => setQ(e.target.value)} />`}
-    primary=${html`<button type="button" class="primary compact" id="docs-import" disabled=${off || !isDesktop()} title=${isDesktop() ? "Import a folder of guides, manuals or scans, each paired with its game" : "In the app"} onClick=${() => importFrom("import-docs", () => attachDocs({ how: "folder" }))}>${Icon.inbox(15)} Import documents…</button>`}
-    more=${{ id: "docs-menu", title: "Import files, read their text", items: menu }} />`;
+    search=${list.all ? search : null} tools=${list.all ? tools : null}
+    primary=${list.all ? null : html`<button type="button" class="primary compact" id="docs-import" disabled=${off || !isDesktop()} title=${isDesktop() ? "Import a folder of guides, manuals or scans, each paired with its game" : "In the app"} onClick=${() => importFrom("import-docs", () => attachDocs({ how: "folder" }))}>${Icon.inbox(15)} Import documents…</button>`}
+    more=${{ id: "docs-menu", title: "Import files, read their text, tile size", items: menu }} />`;
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
-  const filtered = kind || platform || source;
-  if (!list.loading && !list.total && !q && !filtered) {
+  if (!list.loading && !list.all && !list.error) {
     return html`${head}<div class="pages"><div class="library-settings" id="docs-empty">
       <p class="page-lead">${Icon.book(18)} Guides, FAQs, manuals, maps, posters and scans, searchable by their words and kept with their games.</p>
       <section class="ls-section"><h2>To start</h2>
@@ -449,41 +503,57 @@ export function Documents() {
         <div class="home-actions"><button type="button" class="primary" id="docs-first" disabled=${off || !isDesktop()} onClick=${() => importFrom("import-docs", () => attachDocs({ how: "folder" }))}>Import documents…</button></div></section>
     </div></div>`;
   }
-  const current = sel && list.items.some((d) => d.id === sel) ? sel : null;
-  return html`${head}<div class="pages pc-page docs-page" id="docs-page">
-    <div class="audit-pick">
-      <label class="field-inline"><span>Kind</span>
-        <select id="docs-kind" class="compact" value=${kind} onChange=${(e) => filter({ kind: e.target.value })}>
-          <option value="">Every kind</option>
-          ${(list.kinds || []).filter((k) => k.count || k.id === kind).map((k) => html`<option key=${k.id} value=${k.id}>${k.name} (${k.count})</option>`)}
-        </select></label>
-      <label class="field-inline"><span>System</span>
-        <select id="docs-platform" class="compact" value=${platform} onChange=${(e) => filter({ platform: e.target.value })}>
-          <option value="">Every system</option>
-          ${(list.platforms || []).map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
-        </select></label>
-      <label class="field-inline"><span>From</span>
-        <select id="docs-source" class="compact" value=${source} onChange=${(e) => filter({ source: e.target.value })}>
-          <option value="">Anywhere</option><option value="yours">Yours</option>
-          ${(list.sources || []).map((x) => html`<option key=${x} value=${x}>${sourceName(x)}</option>`)}
-        </select></label>
-      ${list.unread ? html`<span class="muted" id="docs-unread">${plural(list.unread, "document's", "documents'")} words aren't read yet. <button type="button" class="linkish" id="docs-read-now" disabled=${reading} onClick=${readTexts}>Read them</button></span>` : null}
-    </div>
-    <div class="pc-body docs-body">
-      <div class="pc-list-wrap">
-        <${SearchNote} q=${q} found=${list.loading ? null : plural(list.total, "document", "documents")} onClear=${() => setQ("")} />
+  const facets = list.facets || {};
+  const nameOf = (k, v) => facets[k]?.find((x) => x.value === v)?.name || (k === "game" && v === "" ? "No game" : v);
+  const chips = [];
+  for (const [k, name] of DOC_FIELDS) for (const v of f[k] || []) chips.push([`${k}-${v}`, `${name}: ${nameOf(k, v)}`, () => toggle(k)(v)]);
+  if (st.search) chips.push(["search", `Search: ${st.search}`, () => change({ search: "" })]);
+  // the documents in their groups, each heading with how many the whole group has
+  const sections = [];
+  for (const d of items) {
+    const g = group ? groupOf(d, group) : null;
+    if (!sections.length || sections[sections.length - 1].value !== g) {
+      const info = list.groups?.find((x) => (x.value || "") === g);
+      sections.push({ value: g, name: info?.name || (g || "None"), count: info?.count, items: [] });
+    }
+    sections[sections.length - 1].items.push(d);
+  }
+  const draw = (d) => {
+    const on = current?.id === d.id;
+    const ev = { onClick: () => setSel(d.id), onDblClick: () => viewDoc(d.id, { find: st.search }), onContextMenu: (e) => { e.preventDefault(); setSel(d.id); openMenu(e, menuFor(d)); } };
+    const none = { icon: kindIcon(d), colour: systemColour(d.kind) };
+    const meta = [d.kind_name, group === "game" ? null : d.game, group === "system" ? null : d.platform_name, d.source && sourceName(d.source)].filter(Boolean).join(" · ");
+    if (view === "grid") {
+      return html`<button type="button" key=${d.id} class=${`lib-tile shelf-tile doc-tile${on ? " selected" : ""}`} data-id=${d.id} data-kind=${d.kind} aria-pressed=${on ? "true" : "false"} title=${d.title} ...${ev}>
+        <span class="lib-tile-art"><${Pic} srcs=${docPics(d, true)} none=${none} /><span class="lib-badge" style=${`border-color:${systemColour(d.kind)}`}>${d.kind_name}</span></span>
+        <span class="lib-tile-title">${d.title}</span>
+        <span class="lib-tile-meta muted">${(group === "game" ? null : d.game) || d.platform_name || (d.source ? sourceName(d.source) : "")}</span></button>`;
+    }
+    return html`<button type="button" key=${d.id} class=${`lib-line shelf-line doc-line pc-row${on ? " selected active" : ""}`} data-id=${d.id} data-kind=${d.kind} aria-pressed=${on ? "true" : "false"} ...${ev}>
+      <${Pic} srcs=${docPics(d, false)} none=${none} cls="lib-cover small" px=${18} />
+      <span class="lib-line-main"><span class="lib-line-title">${d.title}</span><span class="muted">${meta}</span>${d.snippet ? html`<${Snippet} text=${d.snippet} />` : null}</span></button>`;
+  };
+  return html`${head}<div class=${`lib-page shelf-page docs-shelf${current ? " docs-open" : ""}`} id="docs-page" data-view=${view}>
+    <aside class="lib-filters" id="docs-filters" aria-label="Filters">
+      ${list.unread ? html`<div class="lib-switches"><p class="muted shelf-note" id="docs-unread">${plural(list.unread, "document's", "documents'")} words aren't read yet. <button type="button" class="linkish" id="docs-read-now" disabled=${reading} onClick=${readTexts}>Read them</button></p></div>` : null}
+      ${DOC_FIELDS.map(([k, name, , long]) => html`<${Values} key=${k} id=${`docs-${k}`} name=${name} values=${facets[k]} chosen=${f[k] || []} onToggle=${toggle(k)} long=${!!long} />`)}
+    </aside>
+    <div class="lib-main">
+      ${chips.length ? html`<div class="lib-chips" id="docs-chips">${chips.map(([k, label, x]) => html`<span class="lib-chip" key=${k} data-chip=${k}>${label}<button type="button" class="ghost" aria-label=${`Remove ${label}`} title="Remove" onClick=${x}>${Icon.close(11)}</button></span>`)}
+        <button type="button" class="linkish" id="docs-clear" onClick=${() => change({ f: {}, search: "" })}>Clear</button></div>` : null}
+      <div class="lib-scroll shelf-scroll" ref=${scrollRef} aria-busy=${list.loading ? "true" : "false"}>
+        ${st.search && !list.loading ? html`<p class="muted shelf-note" id="docs-best">${list.total ? `The best matches first${group ? ", in each group" : ""}.` : ""}</p>` : null}
         ${list.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
-        ${!list.loading && !list.items.length ? html`<p class="muted" id="docs-none">${q ? "No document has those words." : "None of that kind."}</p>` : null}
-        <ul class="pc-list" id="docs-list" data-total=${list.total} aria-busy=${list.loading ? "true" : "false"}>${list.items.map((d) => html`<li key=${d.id}>
-          <button type="button" class=${`pc-row${current === d.id ? " active" : ""}`} data-id=${d.id} data-kind=${d.kind} aria-pressed=${current === d.id ? "true" : "false"} onClick=${() => setSel(d.id)}>
-            <span class="doc-kind-icon" aria-hidden="true">${Icon[d.view === "image" ? "image" : d.kind === "manual" || d.kind === "guide" || d.kind === "faq" ? "book" : "file"](16)}</span>
-            <span class="pc-row-main"><span class="pc-row-title">${d.title}</span>
-              <span class="muted pc-row-meta">${[d.kind_name, d.game, d.platform_name, d.source && sourceName(d.source)].filter(Boolean).join(" · ")}</span>
-              ${d.snippet ? html`<${Snippet} text=${d.snippet} />` : null}</span>
-          </button></li>`)}</ul>
-        ${list.items.length < list.total ? html`<div class="home-actions"><button type="button" class="ghost" id="docs-more" onClick=${more}>Show ${Math.min(PAGE, list.total - list.items.length)} more (${list.total - list.items.length} left)</button></div>` : null}
+        ${!list.loading && !items.length ? html`<p class="muted lib-none" id="docs-none">${st.search ? "No document has those words." : "No document matches these filters."}</p>` : null}
+        <div class=${`shelf-items shelf-${view}s`} id="docs-list" data-total=${list.total} role="list" style=${`--tile:${SIZES[st.size] || SIZES.medium}px;--ratio:3 / 4`}>
+          ${sections.map((sec) => html`<section class="shelf-section" key=${sec.value ?? "all"} data-group=${sec.value ?? ""}>
+            ${sec.value != null ? html`<div class="lib-group shelf-group-head" data-group=${sec.value}><h2>${sec.name}</h2>${sec.count != null ? html`<span class="muted">${plural(sec.count, "document", "documents")}</span>` : null}
+              ${group === "game" && sec.items[0]?.game_key ? html`<a class="shelf-group-link" href=${gameHash(sec.items[0].game_key)} title="Its page">${Icon.gamepad(14)} Its page</a>` : null}</div>` : null}
+            <div class=${`shelf-${view}`}>${sec.items.map(draw)}</div></section>`)}
+        </div>
+        ${items.length < list.total ? html`<div class="home-actions"><button type="button" class="ghost" id="docs-more" onClick=${more}>Show ${Math.min(PAGE, list.total - items.length)} more (${list.total - items.length} left)</button></div>` : null}
       </div>
-      ${current ? html`<${DocView} key=${current} id=${current} off=${off} find=${q} onChange=${() => setTick((t) => t + 1)} />` : html`<aside class="pc-panel pc-panel-empty"><p class="muted">Pick a document to read it here.</p></aside>`}
     </div>
+    ${current ? html`<${DocView} key=${current.id} id=${current.id} off=${off} find=${st.search} onClose=${() => setSel(null)} onChange=${() => setTick((t) => t + 1)} />` : null}
   </div>`;
 }

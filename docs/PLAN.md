@@ -5469,6 +5469,95 @@ Stop, so a 300 MB MAME listxml takes a fraction of the memory it does now.
   synthetic listxml took 218 MB at most, from 328 MB; what's left is the parsed games
   themselves and SQLite's cache.
 
+### Jerred's list of 2026-10-22, second part: the Library's place, Previous and Next, Videos, Magazines and Documents laid out as the Library (D150–D156)
+
+Jerred, 2026-10-22: the Library should keep its settings and filters when he goes to
+another page and back; a game's page should have Next and Previous through the Library or
+collection he opened it from; Videos and Magazines should be viewed and organised as the
+Library is (grid, list and table, filters in the ribbon on the side, groups, series and
+creators); Documents the same but simpler, as they mostly go with a game; and a
+collection's *Leave out* should say *Remove from collection*. D150–D156 are Claude's
+defaults, followed unless he says otherwise. One pull request.
+
+**D150 The Library keeps its place.** The Library's address is its query (search,
+filters, sort, group); its view and cover size are kept already. The last address is
+remembered for each library (prefs `gr-library-last`, with the library's id), so the
+menu's *Library* (and a game page's Back when there's no history) goes back to it, after
+another page or a restart. An address with its own query (a system's bar on Home, a
+collection's *Show in the Library*) is shown as it is; *Clear* empties it. Coming back from
+a game's page, the game last shown is picked and scrolled to.
+
+**D151 Previous and Next on a game's page.** They were there only when a game was opened by
+a double-click, Enter or the menu, as two small arrows. Now the panel's *Open* keeps the
+list too, and the buttons say *‹ Previous* and *Next ›*, with "3 of 120 in the Library" (or
+"in Best Of", a collection's name) between them. ← and → (and Page Up and Page Down) step
+through the list as before; Back goes to the list.
+
+**D152 The shelf: Videos and Magazines laid out as the Library.** One layout of the
+Library's own parts (`web/ui/shelf.js`) for things the page holds all of at once: the
+filters on the left, each value with how many it has, as the Library's (with the filters in
+use as chips over the list, each with ×); a search; *Grid*, *List* and *Table*; *Sort*
+and reverse; *Group by*, each group a heading with its count; a panel on the right for the
+one picked (its details, changed there) or the several picked (what can be done to all of
+them); a click picks one, Ctrl and Shift more, Ctrl+A all those shown, Esc none; a
+right-click opens the same actions; Enter opens one. Each page's filters, search, view,
+sort and group are kept (prefs `gr-shelf-<page>`), so they stay when you come back (D150).
+The magazines' ribbon beside the menu is replaced by the filters (*Magazine*), as the
+Library's systems are filters.
+
+**D153 Videos.** Each video gets a *series* (a show, a let's play in parts) and *tags*
+(labels of your own, several to a video: "Favourites", "To watch"; *tag* rather than
+*group*, which is a collection's part); its *source* is shown as *Creator* (a channel, a
+site). Filters: Kind, Series, Creator, Tag, System, Game, Year (from its date), and Is (a
+file, a link, no game yet). Group by: Kind, Series, Creator, Tag, System, Year. Sort: Title, Date, Length, Added. A tile shows the picture chosen for
+it (*Choose a picture…*, kept in `Videos/pictures/`), else its first game's cover, else its
+kind on a colour. The panel has its details and games as the page had, *Watch* and *Remove…*;
+with several picked: *Set the series…*, *Set the creator…*, *Set the kind*, *Add a tag…*,
+*Remove a tag*, *Add a game…* and *Remove…* (the files in one change, with Undo). A
+file plays above the list (`#/videos/<id>`), as now.
+
+**D154 Magazines.** Every issue is a tile (its cover), across the magazines. Filters:
+Magazine, Publisher, Tag, Year, System (of the games ticked in it), Text (read, not
+read) and Has (games, a cover of your own). Group by: Magazine (the first time), Publisher,
+Tag, Year, Decade. Sort: Magazine and number, Date, Added, Size. *Missing issues too* (in
+the filters, as the Library's *Every game in the DATs*) shows the issues the lists name and
+you haven't, as faded tiles. A magazine's heading has its menu: *Rename…*, *Publisher…*,
+*Read its text*, *Save a list of what's missing*, *Show its folder*. The panel has the
+issue's cover, number, date, games, tags and *Read*; with several picked: *Move to
+another magazine…* (the files moved into its folder and renamed for it, their text and
+covers with them, as a change with the preview and Undo), *Add a tag…* and *Remove a
+tag*. The lists the issues are checked against are under ⋯ › *Lists…*.
+`#/magazines/<title>` (a link from a game's page) shows that magazine's issues.
+
+**D155 Documents, kept simpler.** The same layout without what documents don't need: no
+table, one document picked at a time, its viewer in the panel as now. Filters: Kind,
+System, Game (with a box to find one), From (yours, a source) and Text (read, not read
+yet), with their counts. Group by: Game (the first time), Kind, System. Sort: Title, Game,
+Kind, Size; a search lists the best matches first in each group. *List* is as now, with
+the found words; *Grid* shows each document's first page (a picture, a PDF's or a comic's
+first page, else its game's cover, else its kind). A document's game links to its page. The
+core lists them a hundred at a time as now (`docs_list` gains the filters as lists, the
+sort and group, and the counts).
+
+**D156 Remove from collection.** A collection's *Leave out* is *Remove from collection*
+on its right-click menu, its bar and a game's page, and the games so removed are
+*Removed by hand*; *Put back* stays. The rules' flags list is *Remove from it*: Betas,
+Demos and the rest. The core's words (`leave_out`) stay.
+
+**As built (2026-10-22).** `web/ui/shelf.js` is the shelf: the page gives its items and
+`fields` (each a filter with its counts under the other filters, and a way to group; one can
+be `hidden`, only to group by, as the magazines' Decade), its sorts, tile, line and table, its
+actions on what's picked and its panel; an item with several values (a video's tags, its
+games) is in each of their groups. Videos and Magazines read every item at once and do the
+rest in the page; Documents asks the core (`docs::query`, a hundred at a time, with each
+filter's counts and the groups' counts) and draws the same filters and groups itself. The
+magazines' side ribbon is gone (the Magazine filter does it); their lists moved to ⋯ ›
+*Lists…*. A picture or an issue's text moves with an issue moved to another magazine
+(`magazines::move_plan`, one change with Undo). A video's picture is copied to
+`Videos/pictures/<id>.<ext>` and set aside with it when it's removed. Previous and Next keep
+the list's name in `opened.name`; the Library's address is kept in `gr-library-last` with the
+library's id, so another library starts on its own.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -5614,7 +5703,7 @@ Stop, so a 300 MB MAME listxml takes a fraction of the memory it does now.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D150). D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D157). D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -5678,5 +5767,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
 17. Jerred's list of 2026-10-22 (D140–D149), in this order: the import into a collection
     with empty collections and the fixes (D140–D143), the wording (D144), magazines' text
     and games (C, D145), videos (D, D146), then shorter dialogs, the lock for two
-    computers and large DATs read as a stream (F, D147–D149). Later: 9d (the server on the
+    computers and large DATs read as a stream (F, D147–D149), released in 0.5.45.
+18. Jerred's second list of 2026-10-22 (D150–D156): the Library keeps its place, Previous
+    and Next on a game's page, Videos and Magazines laid out as the Library, Documents
+    the same kept simpler, and *Remove from collection*. Later: 9d (the server on the
     NAS, access away from home with Tailscale, muOS-style handhelds) and Android games.

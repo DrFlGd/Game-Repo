@@ -57,6 +57,9 @@ pub struct Issue {
     /// The games found in its text, and those added by hand (magtext.rs, D145)
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub games: Vec<IssueGame>,
+    /// Labels of your own: "Favourites", "Specials" (D154)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -421,6 +424,136 @@ pub fn edit(lib: &Library, title: &str, file: Option<&str>, patch: &Value) -> Re
     Ok(json!({ "ok": true }))
 }
 
+/// Add a tag to issues (`tag_add`), or take one off (`tag_remove`) (D154). `items`: each
+/// issue's magazine and file.
+pub fn edit_issues(lib: &Library, items: &[(String, String)], patch: &Value) -> Result<Value> {
+    lib.writable()?;
+    let add = patch["tag_add"].as_str().map(str::trim).filter(|t| !t.is_empty());
+    let remove = patch["tag_remove"].as_str().map(str::trim).filter(|t| !t.is_empty());
+    let all = list(lib);
+    // one case for a tag: the one it has already
+    let add = add.map(|t| all.iter().flat_map(|(_, m)| m.issues.iter().flat_map(|i| i.tags.iter())).find(|x| x.eq_ignore_ascii_case(t)).cloned().unwrap_or_else(|| t.to_string()));
+    let mut n = 0;
+    for (dir, mut m) in all {
+        let mut changed = false;
+        for i in m.issues.iter_mut().filter(|i| items.iter().any(|(t, f)| t.eq_ignore_ascii_case(&m.title) && *f == i.file)) {
+            n += 1;
+            changed = true;
+            if let Some(t) = &add {
+                if !i.tags.iter().any(|x| x.eq_ignore_ascii_case(t)) {
+                    i.tags.push(t.clone());
+                    i.tags.sort_by_key(|x| x.to_lowercase());
+                }
+            }
+            if let Some(t) = remove {
+                i.tags.retain(|x| !x.eq_ignore_ascii_case(t));
+            }
+        }
+        if changed {
+            crate::config::write_json(&dir.join(MANIFEST), &serde_json::to_value(&m)?)?;
+        }
+    }
+    if n == 0 {
+        bail!("Choose the issues to change.");
+    }
+    Ok(json!({ "changed": n }))
+}
+
+/// Plan moving issues into another magazine (D154): each file moved into its folder (a new
+/// one for a magazine there isn't yet) and named for it, its text (D145) and the cover
+/// chosen for it with it, and both magazines' `magazine.json` written; a change with the
+/// preview and Undo. `items`: each issue's magazine and file.
+pub fn move_plan(lib: &Library, items: &[(String, String)], to: &str) -> Result<Plan> {
+    lib.writable()?;
+    let to = to.trim();
+    if to.is_empty() {
+        bail!("Give the magazine they go to.");
+    }
+    let all = list(lib);
+    let (to_dir, mut to_mag) = all.iter().find(|(_, m)| norm(&m.title) == norm(to)).cloned().unwrap_or_else(|| {
+        let dir = folder(lib).join(safe_name(to));
+        let mag = all.iter().find(|(d, _)| key(d) == key(&dir)).map(|(_, m)| m.clone()).unwrap_or_else(|| Magazine { title: to.to_string(), ..Default::default() });
+        (dir, mag)
+    });
+    let names_in = |d: &Path| -> HashSet<String> { std::fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().to_lowercase()).collect() };
+    let mut taken = names_in(&to_dir);
+    let mut covers_taken = names_in(&to_dir.join("covers"));
+    let mut from: BTreeMap<String, (PathBuf, Magazine)> = BTreeMap::new();
+    let mut ops = vec![];
+    let mut n = 0;
+    for (title, file) in items {
+        let (dir, m) = all.iter().find(|(_, m)| m.title.eq_ignore_ascii_case(title)).ok_or_else(|| anyhow!("There's no magazine {title}."))?;
+        if key(dir) == key(&to_dir) {
+            continue;
+        }
+        let (_, was) = from.entry(key(dir)).or_insert_with(|| (dir.clone(), m.clone()));
+        let at = was.issues.iter().position(|i| &i.file == file).ok_or_else(|| anyhow!("{title} has no issue {file}."))?;
+        let mut issue = was.issues.remove(at);
+        let src = dir.join(&issue.file);
+        if !src.is_file() {
+            bail!("{} isn't in the library any more.", issue_title(&m.title, &issue));
+        }
+        let ext = crate::platforms::ext_of(&issue.file);
+        let name = free(&mut taken, &issue_name(&to_mag.title, issue.number.as_deref(), issue.date.as_deref()), &ext);
+        let game = issue_title(&to_mag.title, &issue);
+        let mv = |a: &Path, b: &Path| {
+            let s = outside(a);
+            Op { op: "move".into(), game: game.clone(), to: b.display().to_string(), size: s.size, from: vec![s], names: vec![], aside: vec![], note: None }
+        };
+        ops.push(mv(&src, &to_dir.join(&name)));
+        if let Some(t) = crate::magtext::text_path(&src).filter(|t| t.is_file()) {
+            if let Some(to_text) = crate::magtext::text_path(&to_dir.join(&name)) {
+                ops.push(mv(&t, &to_text));
+            }
+        }
+        issue.cover = match issue.cover.as_deref().and_then(|c| inside(dir, c)).filter(|c| c.is_file()) {
+            Some(c) => {
+                let stem = Path::new(&name).file_stem().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
+                let cover = format!("covers/{}", free(&mut covers_taken, &stem, &crate::platforms::ext_of(&c.to_string_lossy())));
+                ops.push(mv(&c, &to_dir.join(&cover)));
+                Some(cover)
+            }
+            None => None,
+        };
+        issue.file = name;
+        to_mag.issues.push(issue);
+        n += 1;
+    }
+    if n == 0 {
+        bail!("They're in {} already.", to_mag.title);
+    }
+    let text = |m: &Magazine| -> Result<String> { Ok(serde_json::to_string_pretty(&sorted(&serde_json::to_value(m)?))? + "\n") };
+    for (dir, m) in from.into_values() {
+        ops.push(text_op(&m.title, &dir.join(MANIFEST), text(&m)?, "magazine.json: its issues"));
+    }
+    to_mag.issues.sort_by(|a, b| issue_order(a).cmp(&issue_order(b)));
+    ops.push(text_op(&to_mag.title, &to_dir.join(MANIFEST), text(&to_mag)?, "magazine.json: its issues"));
+    let s = if n == 1 { "" } else { "s" };
+    Ok(Plan {
+        id: organise::new_id(),
+        created: now(),
+        kind: "magazine_move".into(),
+        label: format!("Moved {n} issue{s} to {}", to_mag.title),
+        title: format!("Move {n} issue{s} to {}", to_mag.title),
+        dat: Value::Null,
+        platform: String::new(),
+        mode: "move".into(),
+        format: "keep".into(),
+        out: Some(folder(lib).display().to_string()),
+        space: organise::space_needed(&ops),
+        ops,
+        games: n,
+        in_place: 0,
+        conflicts: vec![],
+        duplicates: vec![],
+        left: vec![],
+        new_root: None,
+        new_roots: vec![],
+        present: vec![],
+        export: None,
+    })
+}
+
 /// A picture dropped on an issue: kept in the magazine's `covers/` as its cover.
 pub fn set_cover(lib: &Library, title: &str, file: &str, picture: &Path) -> Result<()> {
     lib.writable()?;
@@ -529,6 +662,65 @@ pub fn first_page(p: &Path) -> Option<(Vec<u8>, String)> {
     }
 }
 
+/// Making first pages, two at a time: a PDF is read whole to find its first page's picture.
+static MAKING: (std::sync::Mutex<usize>, std::sync::Condvar) = (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+/// A file's first page (an issue's, a document's), made smaller once and kept in `<data
+/// dir>/thumbs/<library id>/covers/` by the file's path, size and time: `Ok(None)` when it
+/// has no picture to give (remembered, so it isn't read again). Also the plain cover's path.
+fn first_made(lib: &Library, data_dir: &Path, rel: &str, file: &Path) -> Result<(Option<PathBuf>, PathBuf)> {
+    let st = std::fs::metadata(file).with_context(|| format!("There's no file {rel}."))?;
+    let stamp = format!("{rel}|{}|{:?}", st.len(), st.modified().ok());
+    let id = {
+        use sha2::Digest;
+        hex::encode(&sha2::Sha256::digest(stamp.as_bytes())[..12])
+    };
+    let cache = data_dir.join("thumbs").join(lib.id().unwrap_or_default()).join("covers");
+    let (at, plain, none) = (cache.join(format!("{id}.jpg")), cache.join(format!("{id}.svg")), cache.join(format!("{id}.none")));
+    if at.is_file() {
+        return Ok((Some(at), plain));
+    }
+    if none.is_file() || plain.is_file() {
+        return Ok((None, plain));
+    }
+    std::fs::create_dir_all(&cache)?;
+    {
+        let (lock, cv) = &MAKING;
+        let mut n = lock.lock().unwrap_or_else(|e| e.into_inner());
+        while *n >= 2 {
+            n = cv.wait(n).unwrap_or_else(|e| e.into_inner());
+        }
+        *n += 1;
+    }
+    let made = (|| -> Result<Option<PathBuf>> {
+        if at.is_file() {
+            return Ok(Some(at.clone()));
+        }
+        let Some(img) = first_page(file).and_then(|(bytes, _)| ::image::load_from_memory(&bytes).ok()) else {
+            std::fs::write(&none, b"")?;
+            return Ok(None);
+        };
+        let img = if img.width().max(img.height()) > 640 { img.thumbnail(640, 640) } else { img };
+        let tmp = at.with_extension("tmp");
+        img.to_rgb8().save_with_format(&tmp, ::image::ImageFormat::Jpeg)?;
+        std::fs::rename(&tmp, &at)?;
+        Ok(Some(at.clone()))
+    })();
+    {
+        let (lock, cv) = &MAKING;
+        *lock.lock().unwrap_or_else(|e| e.into_inner()) -= 1;
+        cv.notify_one();
+    }
+    Ok((made?, plain))
+}
+
+/// The file served for `~first/<a document's library path>` (D155): its first page as a
+/// picture, for a PDF, a CBZ or a CBR that has one.
+pub fn first_file(lib: &Library, data_dir: &Path, rel: &str) -> Result<PathBuf> {
+    let file = lib.resolve(rel)?;
+    first_made(lib, data_dir, rel, &file)?.0.ok_or_else(|| anyhow!("{rel} has no first page to show."))
+}
+
 /// The file served for `~cover/<issue's library path>`: the cover dropped on it, else its
 /// first page, made smaller once and kept in `<data dir>/thumbs/<library id>/covers/`.
 pub fn cover_file(lib: &Library, data_dir: &Path, rel: &str) -> Result<PathBuf> {
@@ -541,47 +733,31 @@ pub fn cover_file(lib: &Library, data_dir: &Path, rel: &str) -> Result<PathBuf> 
             return Ok(p);
         }
     }
-    let st = std::fs::metadata(&issue).with_context(|| format!("There's no issue {rel}."))?;
-    let stamp = format!("{rel}|{}|{:?}", st.len(), st.modified().ok());
-    let id = {
-        use sha2::Digest;
-        hex::encode(&sha2::Sha256::digest(stamp.as_bytes())[..12])
-    };
-    let cache = data_dir.join("thumbs").join(lib.id().unwrap_or_default()).join("covers");
-    let at = cache.join(format!("{id}.jpg"));
-    let plain = cache.join(format!("{id}.svg"));
-    for p in [&at, &plain] {
-        if p.is_file() {
-            return Ok(p.clone());
-        }
+    let (made, plain) = first_made(lib, data_dir, rel, &issue).with_context(|| format!("There's no issue {rel}."))?;
+    if let Some(at) = made {
+        return Ok(at);
     }
-    std::fs::create_dir_all(&cache)?;
-    let picture = first_page(&issue).and_then(|(bytes, _)| ::image::load_from_memory(&bytes).ok());
-    let Some(img) = picture else {
-        // no picture to make it from: a plain cover with the magazine's name and the number,
-        // until one is chosen
-        let i = m.issues.iter().find(|i| i.file == name);
-        let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
-        let number = i.and_then(|i| i.number.clone()).map(|n| format!("No. {n}")).unwrap_or_default();
-        let date = i.and_then(|i| i.date.clone()).unwrap_or_default();
-        let svg = format!(
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 300 400\" width=\"300\" height=\"400\">\
-             <rect width=\"300\" height=\"400\" fill=\"#e4e8ec\"/><rect x=\"12\" y=\"12\" width=\"276\" height=\"376\" fill=\"none\" stroke=\"#8a96a3\" stroke-width=\"2\"/>\
-             <text x=\"150\" y=\"150\" font-family=\"sans-serif\" font-size=\"24\" font-weight=\"700\" fill=\"#3c4650\" text-anchor=\"middle\">{}</text>\
-             <text x=\"150\" y=\"215\" font-family=\"sans-serif\" font-size=\"44\" font-weight=\"700\" fill=\"#1d242b\" text-anchor=\"middle\">{}</text>\
-             <text x=\"150\" y=\"260\" font-family=\"sans-serif\" font-size=\"20\" fill=\"#5a6672\" text-anchor=\"middle\">{}</text></svg>",
-            esc(&m.title.chars().take(22).collect::<String>()),
-            esc(&number),
-            esc(&date)
-        );
-        std::fs::write(&plain, svg)?;
+    if plain.is_file() {
         return Ok(plain);
-    };
-    let img = if img.width().max(img.height()) > 640 { img.thumbnail(640, 640) } else { img };
-    let tmp = at.with_extension("tmp");
-    img.to_rgb8().save_with_format(&tmp, ::image::ImageFormat::Jpeg)?;
-    std::fs::rename(&tmp, &at)?;
-    Ok(at)
+    }
+    // no picture to make it from: a plain cover with the magazine's name and the number,
+    // until one is chosen
+    let i = m.issues.iter().find(|i| i.file == name);
+    let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let number = i.and_then(|i| i.number.clone()).map(|n| format!("No. {n}")).unwrap_or_default();
+    let date = i.and_then(|i| i.date.clone()).unwrap_or_default();
+    let svg = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 300 400\" width=\"300\" height=\"400\">\
+         <rect width=\"300\" height=\"400\" fill=\"#e4e8ec\"/><rect x=\"12\" y=\"12\" width=\"276\" height=\"376\" fill=\"none\" stroke=\"#8a96a3\" stroke-width=\"2\"/>\
+         <text x=\"150\" y=\"150\" font-family=\"sans-serif\" font-size=\"24\" font-weight=\"700\" fill=\"#3c4650\" text-anchor=\"middle\">{}</text>\
+         <text x=\"150\" y=\"215\" font-family=\"sans-serif\" font-size=\"44\" font-weight=\"700\" fill=\"#1d242b\" text-anchor=\"middle\">{}</text>\
+         <text x=\"150\" y=\"260\" font-family=\"sans-serif\" font-size=\"20\" fill=\"#5a6672\" text-anchor=\"middle\">{}</text></svg>",
+        esc(&m.title.chars().take(22).collect::<String>()),
+        esc(&number),
+        esc(&date)
+    );
+    std::fs::write(&plain, svg)?;
+    Ok(plain)
 }
 
 /// The file served for `~page/<n>/<issue's library path>`: page n (from 1) of a comic,
@@ -630,7 +806,7 @@ pub fn overview(ix: &Index, lib: &Library) -> Result<Value> {
                 .collect();
             issues.push(json!({
                 "number": i.number, "date": i.date, "file": i.file, "path": rel, "size": i.size, "doc": doc, "title": issue_title(&m.title, i),
-                "cover": i.cover, "gone": !dir.join(&i.file).is_file(), "games": games, "text": text,
+                "cover": i.cover, "gone": !dir.join(&i.file).is_file(), "games": games, "text": text, "tags": i.tags, "added": i.added,
             }));
         }
         let (read, unread) = crate::magtext::state(&dir, &m);
@@ -964,6 +1140,32 @@ mod tests {
         // an issue's number put right
         edit(&lib, "Nintendo Power", Some("Nintendo Power 014.pdf"), &json!({ "date": "1990-07" })).unwrap();
         assert_eq!(by_title(&lib, "Nintendo Power").unwrap().1.issues[2].date.as_deref(), Some("1990-07"));
+        // tags (D154); an issue moved to another magazine, renamed for it, its text and cover with it, and Undo
+        let np14 = ("Nintendo Power".to_string(), "Nintendo Power 014.pdf".to_string());
+        edit_issues(&lib, &[("nintendo power".into(), "Nintendo Power 012 (1990-05).cbz".into()), np14.clone()], &json!({ "tag_add": "Favourites" })).unwrap();
+        edit_issues(&lib, &[np14.clone()], &json!({ "tag_add": "favourites" })).unwrap();
+        assert!(by_title(&lib, "Nintendo Power").unwrap().1.issues.iter().filter(|i| i.tags == ["Favourites"]).count() == 2);
+        edit_issues(&lib, &[np14.clone()], &json!({ "tag_remove": "FAVOURITES" })).unwrap();
+        assert!(edit_issues(&lib, &[("Nintendo Power".into(), "nothing.pdf".into())], &json!({ "tag_add": "x" })).is_err());
+        let text = crate::magtext::text_path(&mag.join("Nintendo Power 014.pdf")).unwrap();
+        std::fs::create_dir_all(text.parent().unwrap()).unwrap();
+        std::fs::write(&text, b"{}").unwrap();
+        assert!(move_plan(&lib, &[np14.clone()], "nintendo power").is_err(), "in it already");
+        let mv = move_plan(&lib, &[np14.clone()], "Super Power").unwrap();
+        assert_eq!((mv.kind.as_str(), mv.title.as_str()), ("magazine_move", "Move 1 issue to Super Power"));
+        let r = organise::run(&ix, &lib, &mv, &cancel, &mut |_| {}).unwrap();
+        assert_eq!(r["failed"], json!([]), "{r}");
+        let sp = folder(&lib).join("Super Power");
+        let moved = sp.join("Super Power 014 (1990-07).pdf");
+        assert!(moved.is_file() && !mag.join("Nintendo Power 014.pdf").exists());
+        assert!(crate::magtext::text_path(&moved).unwrap().is_file() && !text.exists());
+        let (_, spm) = by_title(&lib, "super power").unwrap();
+        assert_eq!((spm.issues.len(), spm.issues[0].cover.as_deref()), (1, Some("covers/Super Power 014 (1990-07).png")));
+        assert!(sp.join("covers/Super Power 014 (1990-07).png").is_file());
+        assert_eq!(by_title(&lib, "Nintendo Power").unwrap().1.issues.len(), 2);
+        organise::undo(&ix, &lib, &mv.id, &cancel, &mut |_| {}).unwrap();
+        assert!(mag.join("Nintendo Power 014.pdf").is_file() && mag.join("covers/Nintendo Power 014.png").is_file() && text.is_file());
+        assert_eq!(by_title(&lib, "Nintendo Power").unwrap().1.issues.len(), 3);
         // audited against a list: 12 and 15 listed, 15 missing; and a magazine none of whose issues you have
         let csv = dir.join("np.csv");
         std::fs::write(&csv, "magazine,number,date\nNintendo Power,012,1990-05\nNintendo Power,15,1990-08\n\"Edge, the\",1,1993-10\n").unwrap();

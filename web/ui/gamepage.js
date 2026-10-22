@@ -24,7 +24,7 @@ import { scrapeDialog, deleteMetadata } from "./metadata.js";
 import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
 import { identifyDialog, PcParts, pcLine, removePc, unmatchPc } from "./pcgames.js";
 import { convertDialog } from "./organise.js";
-import { opened, gameHash, systemColour } from "./browse.js";
+import { opened, gameHash, systemColour, libraryHash } from "./browse.js";
 import { Icon } from "./icons.js";
 import { Inspector } from "./panels.js";
 import { isVideo, Video } from "./video.js";
@@ -262,7 +262,7 @@ export function GamePage() {
     // in place of this game in the history, so Back goes to the list rather than through every game stepped past
     location.replace(gameHash(r.items[0].key));
   };
-  const back = () => (history.length > 1 ? history.back() : (location.hash = routeHash("library")));
+  const back = () => (history.length > 1 ? history.back() : (location.hash = libraryHash()));
   const removeVariant = async () => {
     try {
       await api("variants_remove", { platform: g.platform, names: [g.variant.name] });
@@ -296,21 +296,21 @@ export function GamePage() {
     { id: "game-add", label: "Add to a collection…", icon: "collection", disabled: off || (!dat && "Collections hold games from DATs, and a PC game has none"), run: () => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } }) },
   ];
   const head = html`<${CommandBar} id="game-head" back=${{ id: "game-back", run: back }} title=${g?.title || "A game"} count=${g ? [g.regions, g.platform_name].filter(Boolean).join(" · ") || null : null}
-    tools=${fromList ? html`<span class="seg"><button type="button" class="ghost compact" id="game-prev" title="The previous game in the list (←)" disabled=${opened.index <= 0} onClick=${() => step(-1)}>‹</button>
-      <span class="muted game-pos">${(opened.index + 1).toLocaleString()} of ${opened.total.toLocaleString()}</span>
-      <button type="button" class="ghost compact" id="game-next" title="The next game in the list (→)" disabled=${opened.index >= opened.total - 1} onClick=${() => step(1)}>›</button></span>` : null}
+    tools=${fromList ? html`<span class="game-steps" id="game-steps"><button type="button" class="ghost compact" id="game-prev" title=${`The previous game in ${opened.name || "the list"} (←)`} disabled=${opened.index <= 0} onClick=${() => step(-1)}>‹ Previous</button>
+      <span class="muted game-pos" title=${opened.name ? `Its place in ${opened.name}` : null}>${(opened.index + 1).toLocaleString()} of ${opened.total.toLocaleString()}${opened.name ? ` in ${opened.name}` : ""}</span>
+      <button type="button" class="ghost compact" id="game-next" title=${`The next game in ${opened.name || "the list"} (→)`} disabled=${opened.index >= opened.total - 1} onClick=${() => step(1)}>Next ›</button></span>` : null}
     primary=${g && dat ? html`<button type="button" class="primary compact" id="game-scrape" disabled=${off} onClick=${() => scrapeDialog({ platform: g.platform, platformName: g.platform_name, games: [g.id], gameName: g.title })}>${Icon.scrape(15)} Scrape…</button>`
       : g && pc ? html`<button type="button" class="primary compact" id="game-identify-pc" disabled=${off} title="Search Steam, GOG and the other sources for it" onClick=${identifyPc}>${Icon.search(15)} Identify…</button>` : null}
     more=${g ? { id: "game-menu", title: "Identify, attach documents, show its folder, add to a collection", items: more } : null} />`;
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
-  if (error && !g) return html`${head}<div class="pages"><p class="warn-note" role="alert" id="game-error">${error}</p><p><a href=${routeHash("library")}>Back to the Library</a></p></div>`;
+  if (error && !g) return html`${head}<div class="pages"><p class="warn-note" role="alert" id="game-error">${error}</p><p><a href=${libraryHash()}>Back to the Library</a></p></div>`;
   if (!g) return html`${head}<div class="pages"><p class="muted">Reading…</p></div>`;
   const removeFrom = async (c) => {
     try {
       // the collection takes it out of whichever group has it, and History can undo it (review M34)
       await api("collection_hand", { id: c.id, leave_out: [g.key] });
       ui.set((x) => ({ changes: (x.changes || 0) + 1 }));
-      toast(`Left ${g.title} out of ${c.name}.`, 6000);
+      toast(`Removed ${g.title} from ${c.name}.`, 6000);
     } catch (e) {
       toast(`Couldn't change ${c.name}: ${err(e)}`, 8000);
     }
@@ -372,7 +372,7 @@ export function GamePage() {
     </section>`}
     ${dat ? html`<section class="ls-section" id="game-collections"><h2>Collections</h2>
       ${g.collections?.length ? html`<ul class="ls-list">${g.collections.map((c) => html`<li key=${c.id} data-id=${c.id}><a href=${routeHash("collections")}>${c.name}</a>
-        <button type="button" class="ghost compact" disabled=${off} title=${`Leave it out of ${c.name}`} onClick=${() => removeFrom(c)}>Leave out</button></li>`)}</ul>` : html`<p class="muted">In none.</p>`}
+        <button type="button" class="ghost compact" data-action="remove-from" disabled=${off} title=${`Remove it from ${c.name}`} onClick=${() => removeFrom(c)}>Remove from collection</button></li>`)}</ul>` : html`<p class="muted">In none.</p>`}
       <button type="button" class="ghost compact" id="game-add" disabled=${off} onClick=${() => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } })}>${Icon.collection(14)} Add to a collection…</button>
     </section>` : null}
   </div>

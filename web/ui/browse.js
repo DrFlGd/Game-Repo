@@ -75,9 +75,39 @@ export function hashOf(q) {
 
 const filtered = (q) => LISTS.some((k) => q[k].length) || q.look || q.players || q.rating || q.collection || q.search;
 
-/** The list a game page was opened from, so Previous and Next go through it, and the
- *  game opened (a game opened from elsewhere, Audit or Home, has no list: review M33). */
-export const opened = { query: null, index: -1, total: 0, key: null };
+/** The list a game page was opened from, so Previous and Next go through it, the game
+ *  opened, and the list's name ("the Library", a collection's) (a game opened from
+ *  elsewhere, Audit or Home, has no list: review M33). */
+export const opened = { query: null, index: -1, total: 0, key: null, name: "" };
+
+/** The Library's last address, kept for each library (D150): the menu's Library goes back
+ *  to it, after another page or a restart. */
+const LAST = "gr-library-last";
+export function libraryHash() {
+  const saved = prefs()?.get(LAST, null);
+  const id = ui.get().library?.id || null;
+  return saved && saved.id === id && typeof saved.hash === "string" && saved.hash.startsWith("#/library") ? saved.hash : "#/library";
+}
+const remember = (hash) => { try { prefs()?.set(LAST, { id: ui.get().library?.id || null, hash }); } catch { /* not kept */ } };
+
+/** Coming back to a list from a game's page (D150): the game last shown there is picked,
+ *  and `reveal` ({ index }) scrolls the list to it. */
+export function useCameBack(q, games, picked) {
+  const [reveal, setReveal] = useState(null);
+  const tried = useRef(false);
+  useEffect(() => {
+    if (tried.current || games.loading || !games.total) return;
+    tried.current = true;
+    const i = opened.index;
+    if (!opened.key || !opened.query || i < 0 || i >= games.total || JSON.stringify(opened.query) !== JSON.stringify(q)) return;
+    games.range(i, i).then(([g]) => {
+      if (g?.key !== opened.key) return;
+      picked.pickForMenu(g, i);
+      setReveal({ index: i });
+    }).catch(() => {});
+  }, [games.loading, games.total]);
+  return reveal;
+}
 
 /** A game's page. */
 export const gameHash = (key) => `#/game/${key.split("/").map(encodeURIComponent).join("/")}`;
@@ -104,7 +134,7 @@ const stars = (r) => (r == null ? "" : "★".repeat(Math.round(r * 5)) + "☆".r
 
 // ------------------------------------------------------------ the filters
 
-function Values({ id, name, values, chosen, onToggle, label = (v) => v.name || String(v.value), long = false }) {
+export function Values({ id, name, values, chosen, onToggle, label = (v) => v.name || String(v.value), long = false }) {
   const [open, setOpen] = useState(false);
   const [find, setFind] = useState("");
   const all = values || [];
@@ -298,7 +328,7 @@ const scrolledTo = new Map();
 
 /** The grid, list or table, drawing only what's in view. `jump` ({ value }, a new object
  *  each time) scrolls to the heading of the group with that value. */
-export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMenu, scrollRef, jump }) {
+export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMenu, scrollRef, jump, reveal }) {
   const [box, setBox] = useState({ w: 800, h: 600, top: 0 });
   // where the list was scrolled to, for each list and view, so coming back to it (from a
   // game's page, say) is where it was left (review M37)
@@ -342,6 +372,16 @@ export function Games({ games, q, set, view, px, selected, onPick, onOpen, onMen
     const s = jump && jump !== jumped.current && segs.find((x) => String(x.g.value) === String(jump.value));
     if (s && scrollRef.current) { scrollRef.current.scrollTop = s.top; jumped.current = jump; }
   }, [jump, segs]);
+  // the game come back to from its page, in view (D150)
+  const revealed = useRef(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    const s = reveal && reveal !== revealed.current && segs.find((x) => reveal.index >= x.start && reveal.index < x.start + x.g.count);
+    if (!s || !el) return;
+    revealed.current = reveal;
+    const top = s.top + s.head + Math.floor((reveal.index - s.start) / cols) * rowH;
+    if (top < el.scrollTop || top + rowH > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top - Math.round(el.clientHeight / 3));
+  }, [reveal, segs, cols, rowH]);
   const from = box.top - box.h, to = box.top + box.h * 2;
   const drawn = [];
   const wanted = new Set();
@@ -411,7 +451,7 @@ export function useSelection(games) {
 
 const DETAIL_LABELS = [["released", "Released"], ["developer", "Developer"], ["publisher", "Publisher"], ["genres", "Genres"], ["players", "Players"], ["rating", "Rating"]];
 
-function Inspector({ count, keyOf, actions, overview, off }) {
+function Inspector({ count, keyOf, actions, overview, off, onOpen }) {
   const [g, setG] = useState(null);
   const [error, setError] = useState("");
   const changes = useStore(ui, (s) => s.changes);
@@ -442,7 +482,7 @@ function Inspector({ count, keyOf, actions, overview, off }) {
     <h2 id="lib-panel-title">${g.title}${g.year ? html` <span class="muted">(${g.year})</span>` : null}</h2>
     <p class="muted">${[g.platform_name, g.have === false ? "not in the library" : null, g.name !== g.title ? g.name : null].filter(Boolean).join(" · ")}</p>
     <div class="lib-panel-actions">
-      <a class="primary compact lib-open" id="lib-panel-open" href=${gameHash(g.key)}>Open</a>
+      <a class="primary compact lib-open" id="lib-panel-open" href=${gameHash(g.key)} onClick=${(e) => { if (onOpen) { e.preventDefault(); onOpen(); } }}>Open</a>
       ${actions.filter((a) => a.one !== false).slice(1).map((a) => html`<button type="button" class="ghost compact" key=${a.id} id=${`lib-panel-${a.id}`} disabled=${!!a.disabled || off} title=${typeof a.disabled === "string" ? a.disabled : a.label} onClick=${a.run}>${Icon[a.icon]?.(14)} ${a.label}</button>`)}
     </div>
     ${d.description ? html`<p class="lib-panel-text">${d.description}</p>` : null}
@@ -606,6 +646,8 @@ export function Browse() {
   }, [s.library?.path, s.changes, s.home]);
   const games = useGames(q, `${s.changes}`, !!overview && !overview.error);
   const picked = useSelection(games);
+  const reveal = useCameBack(q, games, picked);
+  useEffect(() => { if (s.library) remember(hashOf(q)); }, [hashOf(q), s.library?.id]);
   const { sel, all, anchor, count, one, selected, pick } = picked;
   const clearSel = picked.clear;
   // the address is the query: Back and a bookmark come back to it
@@ -630,7 +672,7 @@ export function Browse() {
   const pickView = (v) => { setView(v); prefs()?.set("gr-library-view", v); };
   const pickSize = (v) => { setPx(v); prefs()?.set("gr-library-size", v); };
   const open = (g, i) => {
-    Object.assign(opened, { query: { ...q }, index: i, total: games.total, key: g.key });
+    Object.assign(opened, { query: { ...q }, index: i, total: games.total, key: g.key, name: "the Library" });
     location.hash = gameHash(g.key);
   };
   /** The games selected, every one (asked of the core when everything is). */
@@ -713,10 +755,10 @@ export function Browse() {
       ${games.error ? html`<p class="warn-note" role="alert">${games.error}</p>` : null}
       <div class="lib-scroll" ref=${scrollRef} aria-busy=${games.loading ? "true" : "false"} onClick=${(e) => { if (e.target === e.currentTarget || e.target.classList.contains("lib-canvas")) clearSel(); }}>
         ${!games.loading && !games.total ? html`<p class="muted lib-none" id="lib-none">${filtered(q) ? "No game matches these filters." : q.all ? "No games in the DATs." : "No games in the library yet. Every game in the DATs shows those you don't have."}</p>` : null}
-        ${overview ? html`<${Games} games=${games} q=${q} set=${set} view=${view} px=${px} selected=${selected} onPick=${pick} onOpen=${open} onMenu=${onMenu} scrollRef=${scrollRef} />` : html`<p class="muted lib-none">Reading the library…</p>`}
+        ${overview ? html`<${Games} games=${games} q=${q} set=${set} view=${view} px=${px} selected=${selected} onPick=${pick} onOpen=${open} onMenu=${onMenu} scrollRef=${scrollRef} reveal=${reveal} />` : html`<p class="muted lib-none">Reading the library…</p>`}
       </div>
     </div>
-    <${Inspector} count=${count} keyOf=${keyOf} actions=${actions} overview=${overview} off=${off} />
+    <${Inspector} count=${count} keyOf=${keyOf} actions=${actions} overview=${overview} off=${off} onOpen=${() => one && open(one, anchor)} />
   </div>`;
 }
 

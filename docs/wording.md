@@ -54,6 +54,10 @@ words below to the person using the app; this file is the list for whoever write
 | **undo** | Putting a change back. | revert, roll back |
 | **collection** | Games picked for an export; it copies no files. | playlist (except a frontend's), list |
 | **group** | A part of a collection with its own way of choosing games. | section, sub-collection |
+| **tag** | A label of your own, several to a thing: a variant's (*English Translated*), a video's or a magazine issue's (*Favourites*). | group (a collection's part), label |
+| **series** | Videos that go together (a show, a let's play in parts); a magazine's issues are its series. | playlist, season |
+| **creator** | Who made a video: a channel, a site. A magazine's is its **publisher**. | author, uploader, source (in what's shown) |
+| **remove from collection** | Taking a game out of a collection by hand; *Put back* undoes it. The games so taken out are *removed by hand*. | leave out, exclude |
 | **waiting** | A file imported into a collection that no DAT knows yet; it joins when one does. | pending, queued |
 | **export** | Copying a collection's games (and their pictures and the rest) for a frontend, a device or a folder. | sync, deploy |
 | **export layout** | Where an export puts each thing. | template, profile |

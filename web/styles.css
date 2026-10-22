@@ -1832,6 +1832,51 @@ html.drop-over .game-page, html.drop-over .meta-panel { outline: 2px dashed var(
   .lib-filters { max-height: 34vh; border-right: 0; border-bottom: 1px solid var(--steel-2); }
 }
 
+/* the shelf (D152, D155): Videos, Magazines and Documents laid out as the Library */
+.shelf-section { content-visibility: auto; contain-intrinsic-size: auto 480px; }
+.shelf-group-head { margin-bottom: 8px; }
+.shelf-group-head .shelf-group-more { margin-left: auto; padding: 2px 6px; min-height: 0; }
+.shelf-group-link { margin-left: auto; display: inline-flex; gap: 4px; align-items: center; font-size: 12.5px; }
+.shelf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile, 160px), 1fr)); gap: 14px; padding: 4px 0 14px; }
+.shelf-grid .lib-tile { height: auto; }
+.shelf-grid .lib-tile-art { flex: none; width: 100%; aspect-ratio: var(--ratio, 1); }
+.shelf-list { display: grid; gap: 2px; padding: 4px 0 12px; }
+.shelf-list .lib-line { height: auto; min-height: 54px; }
+.shelf-tables { min-width: 800px; }
+.shelf-table { padding-bottom: 8px; }
+.shelf-line-badge { flex: none; max-width: 32%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.shelf-note { margin: 0; font-size: 12.5px; }
+.shelf-panel { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.shelf-panel h3 { margin: 6px 0 0; font-size: 13px; }
+.shelf-panel > button { justify-self: start; }
+.shelf-panel .edit-row { grid-template-columns: 64px minmax(0, 1fr); }
+.shelf-panel select { justify-self: start; max-width: 100%; }
+.shelf-panel .ls-list li { gap: 6px; }
+.shelf-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.shelf-tag-add { flex: 1 1 120px; min-width: 0; }
+.shelf-page .video-player { padding: 10px 16px 4px; border-bottom: 1px solid var(--steel-2); }
+.shelf-page .video-player h2 { margin: 0; font-size: 16px; }
+.shelf-page .video-player p { margin: 4px 0 0; }
+.shelf-page .video-big { max-height: 46vh; }
+.doc-line .lib-line-main { gap: 1px; }
+.doc-line .doc-snippet { white-space: normal; }
+.docs-shelf { grid-template-columns: 230px minmax(0, 1fr); }
+.docs-shelf.docs-open { grid-template-columns: 220px minmax(260px, 1fr) minmax(0, 1.5fr); }
+.docs-shelf > .doc-panel { position: static; height: auto; max-height: none; min-height: 0; overflow: hidden; display: flex; flex-direction: column; border: 0; border-left: 1px solid var(--steel-2); border-radius: 0; }
+@media (max-width: 1250px) {
+  .docs-shelf { grid-template-columns: 210px minmax(0, 1fr); }
+  .docs-shelf.docs-open { grid-template-columns: 190px minmax(220px, 1fr) minmax(0, 1.3fr); }
+}
+@media (max-width: 900px) {
+  .docs-shelf.docs-open { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); }
+  .docs-shelf.docs-open > .lib-filters { display: none; }
+}
+@media (max-width: 760px) {
+  .docs-shelf, .docs-shelf.docs-open { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .docs-shelf.docs-open { grid-template-rows: minmax(0, 1fr) minmax(0, 1.4fr); }
+  .docs-shelf > .doc-panel { border-left: 0; border-top: 1px solid var(--steel-2); }
+}
+
 /* A game's page (Phase 6) */
 .game-page > * { max-width: 1180px; }
 .game-top { display: grid; grid-template-columns: minmax(240px, 420px) minmax(0, 1fr); gap: 24px; align-items: start; margin-bottom: 18px; }
@@ -1884,7 +1929,8 @@ span.game-hero { display: grid; place-items: center; font-size: 96px; }
 .media-view img, .media-view video { width: 100%; max-height: 60vh; object-fit: contain; background: var(--white); border-radius: var(--radius-s); }
 .media-view figcaption { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; }
 .game-detail-from { font-size: 11.5px; min-height: 1.3em; }
-.game-pos { padding: 6px 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.game-steps { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.game-pos { padding: 6px 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 /* a PC game's page: what only a PC game has, in columns (D55); in the PC games panel, one under another */
 .pc-parts { display: grid; gap: 10px; min-width: 0; }
 .game-pc .pc-parts { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 28px; align-items: start; }

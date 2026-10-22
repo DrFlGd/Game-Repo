@@ -52,7 +52,7 @@ export const TERMS = [
   ["set-type", "Set type", "How an arcade system's ZIPs are made up: non-merged (every game's ZIP holds all it needs but its BIOS's), split (a clone's ZIP holds only what its parent's doesn't) or merged (a parent's ZIP holds its clones' too). Chosen on the Audit page or in Settings › Systems; Organise builds ZIPs that way, and an export is always non-merged."],
   ["playable", "Playable", "An arcade game you have, with the BIOS set and devices it needs (and, in a split DAT, its parent). A game that isn't says what it needs; missing sounds are listed but don't stop it."],
   ["pc-game", "PC game", "A game for Windows, kept in its own folder under PC/<Title> (<Year>)/ with a game.json saying what it is and how it starts: one installer (or archive) and one unpacked copy, with its patches, DLC and extras. Installers are never run: Unpack opens GOG's and zipped ones."],
-  ["ribbons", "Ribbons", "The panels beside a page. On the left, next to the menu, a page's own list: the collections, the audited systems, the magazines ([ folds it to a strip). On the right of a game's page, its pictures (] folds it). Drag a ribbon's edge to make it wider."],
+  ["ribbons", "Ribbons", "The panels beside a page. On the left, next to the menu, a page's own list: the collections, the audited systems ([ folds it to a strip). On the right of a game's page, its pictures (] folds it). Drag a ribbon's edge to make it wider."],
   ["inbox", "Inbox", "A folder you drop PC installers, archives, disc images and game folders into; Import… reads it and imports them into the PC folder."],
   ["device", "Device and pairing", "A handheld, phone or computer that Game Repo Go runs on. It's paired with Game Repo Server once, with the six-digit code Pair a device… shows in Settings › Serve to devices; then it browses the library and downloads games into ES-DE's folders. The games waiting to download are its queue."],
 ];
@@ -66,8 +66,8 @@ export const PAGES = [
     "Folders with games: how many files were found and when they were last scanned, Add a folder… while there are none, folders not found on this computer (Point it elsewhere…), and files no DAT takes yet. Before any library is open, Open a library… is all Home offers.",
   ]],
   ["library", "Library", "Every game in the library, across systems, by its pictures and details.", [
-    "Filter by system, genre, decade, players and more, search, and sort or group the list.",
-    "Open a game's page: its details from each source (Use this picks one), its pictures by kind, its files and documents, its updates and DLC; edit a detail by hand, or drop a file on it. The ribbon on its right (] opens it) shows every picture from each source, larger, with Use this.",
+    "Filter by system, genre, decade, players and more, search, and sort or group the list. The Library keeps where you were (its filters, view and order) while you're on other pages.",
+    "Open a game's page (Open, a double click or Enter): ‹ Previous and Next › go through the list it was opened from, the Library's or a collection's; Back comes back to that game in the list. A game's page shows its details from each source (Use this picks one), its pictures by kind, its files and documents, its updates and DLC; edit a detail by hand, or drop a file on it. The ribbon on its right (] opens it) shows every picture from each source, larger, with Use this.",
     "Save as a collection… keeps the filters as a collection's rules.",
   ]],
   ["pc", "PC games", "Your PC games, each in its own folder with what it is and how it starts (under the Library).", [
@@ -78,9 +78,11 @@ export const PAGES = [
     "Find details… (in the ⋯ menu) asks the sources about every PC game not matched to one yet, as an import does: a game a source has under the same title (or another of its titles) takes its details and pictures; the rest are listed with Identify… beside each. DOS and Windows 3.x games are searched as well as Windows ones.",
     "Open its page: the same page as any game, with a PC game section for its program, Unpack and its folder; Add to Steam… makes the games Steam shortcuts with their artwork.",
   ]],
-  ["magazines", "Magazines", "Your magazines, each issue by its cover, readable here (under the Library).", [
+  ["magazines", "Magazines", "Your magazines, each issue by its cover, laid out as the Library is and readable here (under the Library).", [
+    "Every issue is a tile: filter by magazine, publisher, tag, year, system, whether its text is read and what it has; group by magazine, publisher, tag, year or decade; Grid, List or Table. A magazine's heading has a menu: Rename…, Publisher…, Read its text, Save a list of what's missing, Show its folder.",
+    "Pick issues (Ctrl or Shift and a click) to Move to another magazine… (a change with Undo) or add and remove a tag; one picked shows in the panel, where its number, date, tags and games are changed.",
     "Import magazines… (Import › Magazines) from files or a folder: each file's magazine, number and date are read from its name for you to check, then imported (copied, linked or moved, with Undo).",
-    "Open an issue to read it (a PDF, or a comic book a page at a time); give it a cover by dropping a picture on it; Import a list… of a magazine's issues to see which you're missing, and Save a list of what's missing.",
+    "Open an issue to read it (a PDF, or a comic book a page at a time); give it a cover by dropping a picture on it; Lists… (in ⋯) imports a list of a magazine's issues: Missing issues too shows those you don't have as faded tiles, and Save a list of what's missing saves them.",
     "Read their text reads each issue page by page (its own text, or by text recognition), once for each file: the Documents page then finds an issue by its words, and the viewer's Text shows a page's text with them marked.",
     "Games, on an issue, lists the games whose titles are in its text, with their pages: ticked when sure, and listed on their game's page (In magazines). Tick or untick them, or add one by its title and page.",
     "An export can carry the magazines into a Magazines folder (What it carries in the Export dialog).",
@@ -88,7 +90,8 @@ export const PAGES = [
   ["videos", "Videos", "Videos about your games: walkthroughs, reviews, retrospectives and others (under the Library).", [
     "Import videos… (Import › Videos) from files or a folder: each one's title, kind and date are read from its name, and the games whose titles are in its title found, for you to check; then they're imported (copied, linked or moved, with Undo) into Videos/, a folder for each kind.",
     "Add a link… keeps a video on the web (YouTube and the like) by its address; it opens in your browser.",
-    "Watch a video here (a file the app can't play opens in its own player), filter them by kind, system or words, and change a video's title, kind, date, source and games. Remove… sets a file aside (History can undo it).",
+    "Videos are laid out as the Library is: filter by kind, series, creator, tag, system, game or year; group and sort them; Grid, List or Table. Watch one here with a double click (a file the app can't play opens in its own player).",
+    "Pick videos (Ctrl or Shift and a click) to set their series, creator or kind, add or remove a tag, or add a game, together; one picked shows in the panel, where its title, kind, series, creator, date, tags, games and picture are changed. Remove… sets a file aside (History can undo it).",
     "A game's page lists its videos (Videos). Exports and devices don't take videos.",
   ]],
   ["import", "Import", "Everything that comes into the library, in one place.", [
@@ -117,13 +120,13 @@ export const PAGES = [
     "Delete metadata… or Scrape again… for a system or a game (with a preview and Undo); Import documents… from a folder.",
   ]],
   ["documents", "Documents", "Your guides, manuals and other documents, searchable and readable here (under the Audit).", [
-    "Search their words, read them beside the list, filter by kind; Import documents… pairs files with games for you to check first.",
+    "Search their words, filter by kind, system, game, where they're from and whether their words are read, grouped by game, kind or system, as a list or tiles of their first pages; the one picked is read in the panel (a double click opens it larger). Import documents… pairs files with games for you to check first.",
   ]],
   ["collections", "Collections", "Games picked from the library, to export or save as DATs. Collecting moves no files.", [
     "The collections are in the ribbon on the left; the one chosen shows its games as the Library does (grid, list or table), with its Source (or Rules), Size, Exported to and History.",
     "New collection…: by rules, from folders (matched by hash, so the files' names don't matter), from a DAT read where it is (a review shows the games found before it's made), or empty (games are added later with Add to a collection…). Add a group… adds a group made its own way (a system's translations, say), shown as a section of its own.",
     "Pick games (Ctrl or Shift for more, Ctrl+A for all) and Export these…, or Export… the whole collection; Update… and Check an export from Exported to. An ES-DE export can put each group in a subfolder or as a system of its own, and a Knulli or ROCKNIX export in a subfolder; every export makes a custom collection or playlist of each group where the frontend or the handheld has them (ES-DE, Knulli, RetroArch, Pegasus).",
-    "Leave a game out by hand, or add one; set a size limit for a card; Save as DATs… for RomVault, clrmamepro or igir.",
+    "Remove a game from it by hand, or add one; set a size limit for a card; Save as DATs… for RomVault, clrmamepro or igir.",
     "With their updates and DLC (a rule, on by default) takes the games' updates and DLC you have along; History lists each change to what's in it, a day at a time, and Undo puts one back.",
   ]],
   ["layouts", "Export layouts", "Where an export puts things for ES-DE, RetroArch, Pegasus, LaunchBox, Playnite, a device's firmware or a folder.", [

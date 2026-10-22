@@ -1194,7 +1194,8 @@ impl App {
                     "docs" => "Importing documents",
                     "magazines" => "Importing magazines",
                     "videos" => "Importing videos",
-                    "video_remove" => "Removing a video",
+                    "video_remove" => "Removing videos",
+                    "magazine_move" => "Moving magazine issues",
                     "bios" => "Importing BIOS files",
                     "metadata" => "Deleting metadata",
                     "pc_remove" => "Removing a PC game",
@@ -1507,16 +1508,24 @@ impl App {
                 }))
             }
             "docs_list" => {
-                let q = args["query"].as_str().unwrap_or("").to_string();
-                let (kind, platform, source) = (args["kind"].as_str().unwrap_or("").to_string(), args["platform"].as_str().unwrap_or("").to_string(), args["source"].as_str().unwrap_or("").to_string());
-                let (offset, limit) = (args["offset"].as_i64().unwrap_or(0), args["limit"].as_i64().unwrap_or(100));
+                // D155: the filters as lists, the sort and group, and their counts (a kind,
+                // system or source on its own as before)
+                let mut q: docs::DocsQuery = serde_json::from_value(args.clone()).map_err(|e| e.to_string())?;
+                for (one, list) in [("kind", &mut q.kinds), ("platform", &mut q.platforms), ("source", &mut q.sources)] {
+                    if let Some(v) = args[one].as_str().filter(|v| !v.is_empty()) {
+                        list.push(v.to_string());
+                    }
+                }
+                if args["limit"].is_null() {
+                    q.limit = 100;
+                }
                 let lib = self.library()?;
                 j(self
                     .with_index(move |ix| {
-                        if offset == 0 {
+                        if q.offset == 0 {
                             meta::sync(ix, &lib)?;
                         }
-                        docs::search(ix, &q, &kind, &platform, &source, offset, limit)
+                        docs::query(ix, &q)
                     })
                     .await?)
             }
@@ -2060,6 +2069,25 @@ impl App {
                 })
                 .await?)
             }
+            // issues tagged, or a tag taken off (D154); `items`: [{ title, file }]
+            "magazine_issues_edit" => {
+                let lib = self.library()?;
+                let items = issue_refs(&args["items"]);
+                let patch = args["patch"].clone();
+                j(blocking(Box::new(move || crate::magazines::edit_issues(&lib, &items, &patch))).await?)
+            }
+            // issues moved into another magazine: planned, for the preview and Undo (D154)
+            "magazine_move" => {
+                let lib = self.library()?;
+                let items = issue_refs(&args["items"]);
+                let to = arg(&args, "to").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || {
+                    let plan = crate::magazines::move_plan(&lib, &items, &to)?;
+                    organise::save_pending(&data_dir, &plan)?;
+                    Ok(plan.summary())
+                }))
+                .await?)
+            }
             "magazine_cover" => {
                 let lib = self.library()?;
                 let (title, file, picture) = (arg(&args, "title").map_err(e2s)?.to_string(), arg(&args, "file").map_err(e2s)?.to_string(), PathBuf::from(arg(&args, "picture").map_err(e2s)?));
@@ -2126,7 +2154,7 @@ impl App {
             // the Videos page (D146)
             "videos" => {
                 let lib = self.library()?;
-                j(blocking(Box::new(move || Ok(crate::videos::overview(&lib)))).await?)
+                j(self.with_index(move |ix| Ok(crate::videos::overview(ix, &lib))).await?)
             }
             "video_items" => {
                 // the videos in the files and folders picked, and the games in their titles (a job)
@@ -2172,6 +2200,20 @@ impl App {
                 let patch = args["patch"].clone();
                 j(blocking(Box::new(move || crate::videos::edit(&lib, &id, &patch))).await?)
             }
+            // several videos changed at once (D153): kind, series, creator, a tag, a game
+            "video_edit_many" => {
+                let lib = self.library()?;
+                let ids: Vec<String> = args["ids"].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect();
+                let patch = args["patch"].clone();
+                j(self.with_index(move |ix| crate::videos::edit_many(ix, &lib, &ids, &patch)).await?)
+            }
+            // the picture a video's tile shows (none: taken off)
+            "video_picture" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let picture = args["picture"].as_str().filter(|p| !p.is_empty()).map(PathBuf::from);
+                j(blocking(Box::new(move || crate::videos::set_picture(&lib, &id, picture.as_deref()))).await?)
+            }
             "video_game" => {
                 // a game added to a video ("on": true), or taken off
                 let lib = self.library()?;
@@ -2182,9 +2224,12 @@ impl App {
             "video_remove" => {
                 // a link taken off at once; a file's removal planned, for the preview and Undo
                 let lib = self.library()?;
-                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let mut ids: Vec<String> = args["ids"].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect();
+                if let Some(id) = args["id"].as_str() {
+                    ids.push(id.to_string());
+                }
                 j(blocking(Box::new(move || {
-                    Ok(match crate::videos::remove(&lib, &id)? {
+                    Ok(match crate::videos::remove(&lib, &ids)? {
                         Some(plan) => {
                             organise::save_pending(&data_dir, &plan)?;
                             json!({ "plan": plan.summary() })
@@ -2553,7 +2598,7 @@ impl App {
     /// or page, whose file (a JPEG, a plain SVG cover, a comic's PNG) differs from the issue's.
     pub fn served_name(&self, rel: &str) -> String {
         let bare = rel.trim_start_matches('/');
-        if bare.starts_with("~cover/") || bare.starts_with("~page/") {
+        if bare.starts_with("~cover/") || bare.starts_with("~page/") || bare.starts_with("~first/") {
             if let Ok(p) = self.served_path(rel) {
                 return p.to_string_lossy().into_owned();
             }
@@ -2576,12 +2621,21 @@ impl App {
         if let Some(rest) = rel.strip_prefix("~cover/") {
             return crate::magazines::cover_file(&lib, &self.paths.data_dir, rest);
         }
+        // ~first/<path>: a document's first page as a picture (D155)
+        if let Some(rest) = rel.strip_prefix("~first/") {
+            return crate::magazines::first_file(&lib, &self.paths.data_dir, rest);
+        }
         if let Some(rest) = rel.strip_prefix("~page/") {
             let (n, issue) = rest.split_once('/').ok_or_else(|| anyhow!("no issue"))?;
             return crate::magazines::page_file(&lib, &self.paths.data_dir, n.parse().unwrap_or(1), issue);
         }
         lib.resolve(&rel)
     }
+}
+
+/// Magazines' issues named in a command, `[{ title, file }]`: (magazine, file).
+fn issue_refs(v: &Value) -> Vec<(String, String)> {
+    v.as_array().into_iter().flatten().filter_map(|x| Some((x["title"].as_str()?.to_string(), x["file"].as_str()?.to_string()))).collect()
 }
 
 /// Run `f` on `lib`'s index in `slot`, opening it first if the slot holds none or
