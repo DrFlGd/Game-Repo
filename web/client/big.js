@@ -242,7 +242,7 @@ export function Shelves() {
         ${sync.of ? html`<progress max=${sync.of} value=${sync.done}></progress>` : html`<progress></progress>`}
       </div>`
       : !all && sync.error ? html`<div class="go-note warn-note" role="alert" id="go-sync-error">
-        <span>${sync.error} Nothing of the library is kept on this device yet.</span>
+        <span>${sync.error} Nothing from the library is kept on this device yet.</span>
         <button type="button" class="ghost" onClick=${() => call("sync").catch(() => {})}>Try again</button>
       </div>` : null}
     ${!systems.length && !sync.running ? html`<p class="empty" id="go-no-games">No games here yet.</p>` : null}
@@ -316,11 +316,11 @@ export function BigGame({ gameKey }) {
             ${g.on_device
               ? html`<span class="badge go-badge-on" id="go-game-on">On this device</span>
                   <button type="button" class="primary danger" id="go-game-remove" data-first="" onClick=${() => rowOf(game.key, (row) => showDialog({ type: "remove", asks: [{ id: row.id, key: row.key }], title: `Remove ${row.name}` }))}>Remove…</button>
-                  <button type="button" class="ghost" id="go-game-addmedia" onClick=${() => rowOf(game.key, (row) => showDialog({ type: "add-media", row }))}>Add media…</button>`
+                  <button type="button" class="ghost" id="go-game-addmedia" onClick=${() => rowOf(game.key, (row) => showDialog({ type: "add-media", row }))}>Add pictures and manuals…</button>`
               : html`<button type="button" class="primary" id="go-game-add" data-first="" data-say="Downloads straight away into ES-DE's folders" onClick=${() => showDialog({ type: "add", keys: [game.key] })}>
                     ${Icon.download(22)} Download… · ${bytes(game.size)}</button>
                   <button type="button" class="ghost" id="go-game-enqueue" data-say="Queued, it waits for Start downloads… in Downloads" onClick=${() => enqueue([game.key])}>Add to queue</button>`}
-            ${media.length || files.length ? html`<button type="button" class="ghost" id="go-game-media" onClick=${() => showDialog({ type: "media", title: game.title, media, files })}>Media…</button>` : null}
+            ${media.length || files.length ? html`<button type="button" class="ghost" id="go-game-media" onClick=${() => showDialog({ type: "media", title: game.title, media, files })}>Pictures and files…</button>` : null}
           </div>
           ${d.description ? html`<div class="go-hero-text go-scroll" tabindex="0" data-a="" data-say="Up and Down scroll the description">${String(d.description).split(/\n\s*\n/).map((p) => html`<p>${p}</p>`)}</div>` : null}
           ${facts.length ? html`<dl class="go-hero-facts">${facts.map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>` : null}

@@ -162,7 +162,7 @@ export function SettingsPage() {
           <input type="checkbox" name=${k} checked=${kinds.has(k)} onChange=${() => flip(k)} /><span>${name}</span></label>`)}
           <label class="check-row"><input type="checkbox" name="manual" checked=${v.manuals} onChange=${() => set({ manuals: !v.manuals })} /><span>Manual</span></label>
         </div>
-        <small class="muted">Add to queue… starts with these chosen, and remembers what you chose last time.</small>
+        <small class="muted">Download… starts with these ticked and keeps what you choose there for next time; Add to queue takes them as they are.</small>
       </div>
       <label class="field-block"><span>Files downloaded at once</span>
         <select id="set-at-once" class="compact" value=${String(v.at_once)} onChange=${(e) => set({ at_once: +e.currentTarget.value })}>
@@ -217,7 +217,7 @@ export function SettingsPage() {
         <select id="set-view" class="compact" value=${lk.view || usualView()} onChange=${(e) => changeLook({ view: e.currentTarget.value })}>
           <option value="big">Big screen, for a controller</option>
           <option value="classic">Classic, for a mouse and keyboard</option></select>
-        <small class="muted">The big screen is as Steam's Big Picture: shelves of box fronts, large type, and the controller's buttons shown along the bottom. ${usualView() === "big" ? "It's the usual view on this device." : "The classic view is the usual one on this device."}</small></label>
+        <small class="muted">The big screen is like Steam's Big Picture: shelves of box fronts, large type, and the controller's buttons shown along the bottom. ${usualView() === "big" ? "It's the usual view on this device." : "The classic view is the usual one on this device."}</small></label>
       ${(lk.view || usualView()) === "big" ? html`<label class="field-block"><span>Size</span>
         <select id="set-size" class="compact" value=${lk.size} onChange=${(e) => changeLook({ size: e.currentTarget.value })}>
           <option value="smaller">Smaller, for a phone</option>

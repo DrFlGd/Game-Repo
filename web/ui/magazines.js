@@ -184,7 +184,7 @@ export function Magazines() {
   ];
   const head = html`<${CommandBar} id="mag-head" title="Magazines" count=${data ? plural(mags.filter((x) => !x.none).length, "magazine", "magazines") : null}
     primary=${html`<button type="button" class="primary compact" id="mag-import" disabled=${off || !isDesktop()} onClick=${() => importFrom("import-mags", () => importMagazines())}>${Icon.inbox(15)} Import magazines…</button>`}
-    more=${{ id: "mag-menu", title: "Import files, add a list, save the missing", items: more }} />`;
+    more=${{ id: "mag-menu", title: "Import files or a list, save what's missing", items: more }} />`;
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   if (error) return html`${head}<div class="pages"><p class="warn-note" role="alert">${error}</p></div>`;
   if (!data) return html`${head}<div class="pages"><p class="muted">Reading…</p></div>`;
@@ -192,7 +192,7 @@ export function Magazines() {
   return html`${head}<div class="pages magazines-page" id="magazines-page">
     ${!mags.length ? html`<div class="library-settings" id="mag-empty">
       <p class="page-lead">Your magazines, each with its issues as PDF, CBZ or CBR files, their covers, and the issues you're missing.</p>
-      <p class="muted">Import magazines… (on the <a href=${routeHash("import")}>Import</a> page, where files dropped on the window go too) reads a folder of them (the magazine, number and date of each come from its name), and imports them into the library's Magazines folder. Import a list… of the issues there are to see which you don't have.</p>
+      <p class="muted">Import magazines… reads a folder of them, takes each one's magazine, number and date from its name, and imports them into the library's Magazines folder. It's on the <a href=${routeHash("import")}>Import</a> page, where files dropped on the window go too. Import a list… of a magazine's issues to see which you don't have.</p>
     </div>` : html`<div class="mag-layout">
       <div class="collection-main" id="mag-main" data-title=${m.title}>
         <div class="collection-top">
@@ -220,7 +220,7 @@ export function Magazines() {
     <section class="ls-section" id="mag-lists"><h2>Lists</h2>
       <p class="muted">What the magazines are checked against: a CSV of magazine, number and date, or a DAT whose games are issues (matched by their files, else by magazine and number). They're kept in _library/dats/magazines.</p>
       ${lists.length ? html`<ul class="ls-list">${lists.map((l) => html`<li key=${l.name} data-name=${l.name}><span>${l.name} <span class="muted">${plural(l.issues, "issue", "issues")}</span></span>
-        <button type="button" class="ghost compact" disabled=${off} onClick=${() => removeList(l.name)}>Remove</button></li>`)}</ul>` : html`<p class="muted">None yet.</p>`}
+        <button type="button" class="ghost compact" disabled=${off} onClick=${() => removeList(l.name)}>Remove…</button></li>`)}</ul>` : html`<p class="muted">None yet.</p>`}
       <button type="button" class="ghost compact" id="mag-add-list-button" disabled=${off || !isDesktop()} onClick=${addList}>${Icon.audit(14)} Import a list…</button>
     </section>
   </div>`;
