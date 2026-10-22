@@ -17,6 +17,7 @@ import { usePageKeys, selectAllKey, openMenu } from "./actions.js";
 import { scrapeDialog } from "./metadata.js";
 import { attachDocs } from "./documents.js";
 import { convertDialog } from "./organise.js";
+import { addToBacklog } from "./backlog.js";
 import { Icon } from "./icons.js";
 
 const CHUNK = 120;
@@ -75,10 +76,11 @@ export function hashOf(q) {
 
 const filtered = (q) => LISTS.some((k) => q[k].length) || q.look || q.players || q.rating || q.collection || q.search;
 
-/** The list a game page was opened from, so Previous and Next go through it, the game
- *  opened, and the list's name ("the Library", a collection's) (a game opened from
- *  elsewhere, Audit or Home, has no list: review M33). */
-export const opened = { query: null, index: -1, total: 0, key: null, name: "" };
+/** The list a game page was opened from, so Previous and Next go through it: its query, or
+ *  its games' keys (the backlog's lists, D157); the game opened, and the list's name ("the
+ *  Library", a collection's) (a game opened from elsewhere, Audit or Home, has no list:
+ *  review M33). */
+export const opened = { query: null, keys: null, index: -1, total: 0, key: null, name: "" };
 
 /** The Library's last address, kept for each library (D150): the menu's Library goes back
  *  to it, after another page or a restart. */
@@ -672,7 +674,7 @@ export function Browse() {
   const pickView = (v) => { setView(v); prefs()?.set("gr-library-view", v); };
   const pickSize = (v) => { setPx(v); prefs()?.set("gr-library-size", v); };
   const open = (g, i) => {
-    Object.assign(opened, { query: { ...q }, index: i, total: games.total, key: g.key, name: "the Library" });
+    Object.assign(opened, { query: { ...q }, keys: null, index: i, total: games.total, key: g.key, name: "the Library" });
     location.hash = gameHash(g.key);
   };
   /** The games selected, every one (asked of the core when everything is). */
@@ -700,6 +702,7 @@ export function Browse() {
   const actions = [
     { id: "open", label: "Open", icon: "external", one: true, run: () => one && open(one, anchor) },
     { id: "add", label: "Add to a collection…", icon: "collection", disabled: off, run: async () => ui.set({ dialog: { type: "lib-add", games: await chosen() } }) },
+    { id: "backlog", label: "Add to the backlog", icon: "list", disabled: off, run: async () => { try { await addToBacklog(await chosen()); } catch (e) { toast(err(e), 8000); } } },
     { id: "scrape", label: "Scrape…", icon: "scrape", disabled: off, run: scrape },
     { id: "convert", label: "Convert…", icon: "convert", disabled: off ? true : !oneSystem ? "Pick games of one system to convert them" : false, run: convert, hide: !(one ? formats(one.platform) : true) },
     { id: "attach", label: "Attach documents…", icon: "file", one: true, disabled: off || !isDesktop() || one?.kind !== "dat", run: () => one && attachDocs({ game: one.dat_game, gameName: one.title, platform: one.platform }) },

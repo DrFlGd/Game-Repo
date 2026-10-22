@@ -641,7 +641,7 @@ impl App {
         if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
             return self.collection_call(cmd, args).await;
         }
-        if ["layout", "bios", "magazine", "video"].iter().any(|p| cmd.starts_with(p)) {
+        if ["layout", "bios", "magazine", "video", "backlog"].iter().any(|p| cmd.starts_with(p)) {
             return self.device_call(cmd, args).await;
         }
         if cmd.starts_with("serve_") {
@@ -2150,6 +2150,44 @@ impl App {
                 let ticked = args["ticked"].as_bool();
                 let page = args["page"].as_u64().map(|p| p as u32);
                 j(self.with_index(move |ix| crate::magtext::set_game(ix, &lib, &title, &file, &key, ticked, page)).await?)
+            }
+            // the backlog (D157-D159): every change returns it with what it was before, for Undo
+            "backlog" => {
+                let lib = self.library()?;
+                j(self.with_index(move |ix| crate::backlog::view(ix, &lib)).await?)
+            }
+            "backlog_add" => {
+                let lib = self.library()?;
+                let games: Vec<crate::backlog::Game> = serde_json::from_value(args["games"].clone()).map_err(|e| e.to_string())?;
+                if games.is_empty() {
+                    return Err("Choose a game first.".into());
+                }
+                let top = args["top"].as_bool().unwrap_or(false);
+                j(self.with_index(move |ix| crate::backlog::add(ix, &lib, games, top)).await?)
+            }
+            "backlog_move" | "backlog_playing" | "backlog_complete" | "backlog_remove" => {
+                let lib = self.library()?;
+                let keys = crate::backlog::keys_of(&args).map_err(e2s)?;
+                let (to, on) = (args["to"].as_u64().unwrap_or(0) as usize, args["on"].as_bool().unwrap_or(true));
+                let cmd = cmd.to_string();
+                j(self
+                    .with_index(move |ix| {
+                        crate::backlog::change(ix, &lib, |b| {
+                            match cmd.as_str() {
+                                "backlog_move" => b.move_to(&keys, to),
+                                "backlog_playing" => b.set_playing(&keys, on),
+                                "backlog_complete" => b.complete(&keys),
+                                _ => b.remove(&keys),
+                            }
+                            Ok(json!({}))
+                        })
+                    })
+                    .await?)
+            }
+            "backlog_restore" => {
+                let lib = self.library()?;
+                let was = args["backlog"].clone();
+                j(self.with_index(move |ix| crate::backlog::restore(ix, &lib, was)).await?)
             }
             // the Videos page (D146)
             "videos" => {

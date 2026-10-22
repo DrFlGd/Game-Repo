@@ -1,5 +1,5 @@
 // The menu on the left, by what each page does (D71–D72): Home; the Library with PC games, Magazines and Videos under it;
-// Import; Audit with BIOS files, Metadata and Documents under it; Collections; Export layouts; History; the pages
+// Import; Audit with BIOS files, Metadata and Documents under it; Collections with the Backlog under it; Export layouts; History; the pages
 // each phase still brings; Settings, Help and About. In a narrow window it's a drawer; on a wide one it folds to its icons.
 import { html } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
@@ -48,6 +48,7 @@ export function Sidebar() {
         <${NavLink} route="metadata" label="Metadata" icon="scrape" current=${s.route} off=${!s.open} child=${true} />
         <${NavLink} route="documents" label="Documents" icon="book" current=${s.route} off=${!s.open} child=${true} />
         <${NavLink} route="collections" label="Collections" icon="collection" current=${s.route} off=${!s.open} />
+        <${NavLink} route="backlog" label="Backlog" icon="list" current=${s.route} off=${!s.open} child=${true} />
         <${NavLink} route="layouts" label="Export layouts" icon="layers" current=${s.route} off=${!s.open} />
         <${NavLink} route="history" label="History" icon="clock" current=${s.route} off=${!s.open} />
       </ul>
