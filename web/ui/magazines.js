@@ -1,14 +1,18 @@
-// Magazines (docs/PLAN.md, "Phase 8 design", D68): each magazine in the library's
+// Magazines (docs/PLAN.md, "Phase 8 design", D68, D154): each magazine in the library's
 // Magazines/<Title>/ folder with its issues, their covers (the first page, or a picture
 // chosen for it), and how they stand against the lists kept to audit them (a CSV of
 // magazine, number and date, or a DAT of issues). Import magazines… reads a folder into a
 // review list (each file's magazine, number and date worked out from its name, put right
-// here) and brings them in as a change with a preview and Undo. An issue opens in the
-// document viewer: PDFs as documents are, CBZ and CBR a page at a time. The magazines are
-// in the ribbon beside the menu (`#/magazines/<title>`, D69). Their text is read page by
-// page (D145: a PDF's own, else text recognition), searched on the Documents page, and the
-// games in it are listed with each issue, ticked when sure, and on the games' pages.
-import { html, useState, useEffect } from "../lib/html.js";
+// here) and brings them in as a change with a preview and Undo. The page is laid out as the
+// Library is (shelf.js): every issue a tile, filtered by magazine, publisher, tag, year,
+// system, text and what it has, grouped by magazine (each heading with its menu: rename,
+// publisher, read its text, what's missing), and the missing issues as faded tiles when
+// asked. Issues are moved to another magazine as a change with Undo, and tagged. An issue
+// opens in the document viewer: PDFs as documents are, CBZ and CBR a page at a time. Their
+// text is read page by page (D145: a PDF's own, else text recognition), searched on the
+// Documents page, and the games in it are listed with each issue, ticked when sure, and on
+// the games' pages. `#/magazines/<title>` shows that magazine's issues.
+import { html, useState, useEffect, useMemo } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
@@ -19,20 +23,14 @@ import { Dialog, More, close, confirmDialog } from "./dialogs.js";
 import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { importFrom } from "./importpage.js";
 import { viewDoc, useDroppedFiles } from "./documents.js";
+import { systemColour } from "./browse.js";
 import { Icon } from "./icons.js";
-import { useSidePanel, useRouteArg, argHash } from "./panels.js";
+import { useRouteArg } from "./panels.js";
+import { Shelf, useShelfState, Pic, PanelActions, TagEdit, askValue, byName } from "./shelf.js";
 
 const err = (e) => e.message || String(e);
 const again = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
 const PICTURE = /\.(jpe?g|png|webp|gif|bmp)$/i;
-
-/** An issue's cover, or its number on the magazine's colour. */
-function Cover({ issue, stamp }) {
-  const [broken, setBroken] = useState(false);
-  useEffect(() => setBroken(false), [stamp]);
-  if (broken || issue.gone) return html`<span class="mag-cover mag-cover-none" aria-hidden="true">${issue.number || "?"}</span>`;
-  return html`<img class="mag-cover" src=${libraryUrl(`~cover/${issue.path}`) + `?v=${stamp}`} alt="" loading="lazy" onError=${() => setBroken(true)} />`;
-}
 
 /** Import magazines…: the files picked read into a review list, then planned and run. */
 function ImportDialog({ paths }) {
@@ -97,11 +95,6 @@ function ImportDialog({ paths }) {
       <${HowControl} id="mag-import-mode" value=${how} onChange=${setHow} />
       <p class="muted"><b>${plural(included, "issue", "issues")}</b> to import. The magazine, number and date come from each file's name: put them right before the preview.</p>`}
   <//>`;
-}
-
-export function MagazineDialogs({ dialog }) {
-  if (dialog.type === "mag-import") return html`<${ImportDialog} key=${dialog.paths.join("|")} ...${dialog} />`;
-  return null;
 }
 
 /** Read the text of a magazine's issues (`title`), or every magazine's, that wasn't read
@@ -172,135 +165,251 @@ export async function importMagazines(files = false, given = null) {
   if (paths.length) ui.set({ dialog: { type: "mag-import", paths } });
 }
 
+/** The lists the magazines are checked against, each with Remove…, and Import a list…. */
+function ListsDialog() {
+  const [lists, setLists] = useState(null);
+  const [error, setError] = useState("");
+  const off = !!ui.get().library?.read_only;
+  const load = () => api("magazines").then((d) => setLists(d.lists || [])).catch((e) => setError(err(e)));
+  useEffect(() => { load(); }, []);
+  const add = async () => {
+    await addList();
+    load();
+  };
+  return html`<${Dialog} title="Lists" id="mag-lists" onSubmit=${close} submitLabel="Done" cancelLabel=${null} error=${error}>
+    <p class="muted">What the magazines are checked against: a CSV of magazine, number and date, or a DAT whose games are issues.</p>
+    ${!lists ? html`<p class="muted">Reading…</p>` : lists.length ? html`<ul class="ls-list" id="mag-list-names">${lists.map((l) => html`<li key=${l.name} data-name=${l.name}><span>${l.name} <span class="muted">${plural(l.issues, "issue", "issues")}</span></span>
+      <button type="button" class="ghost compact" disabled=${off} onClick=${() => removeList(l.name)}>Remove…</button></li>`)}</ul>` : html`<p class="muted" id="mag-lists-none">None yet.</p>`}
+    <button type="button" class="ghost compact" id="mag-add-list-button" disabled=${off || !isDesktop()} onClick=${add}>${Icon.audit(14)} Import a list…</button>
+    <${More} id="mag-lists-more"><p>They're kept in <code>_library/dats/magazines</code>. A DAT's issues are matched by their files, else by magazine and number.</p><//>
+  <//>`;
+}
+
+export function MagazineDialogs({ dialog }) {
+  if (dialog.type === "mag-import") return html`<${ImportDialog} key=${dialog.paths.join("|")} ...${dialog} />`;
+  if (dialog.type === "mag-lists") return html`<${ListsDialog} />`;
+  return null;
+}
+
+/** Import a list of a magazine's issues, to see which are missing. */
+async function addList() {
+  const p = await ctx.platform.library.pickFile("A list of issues (CSV of magazine, number, date; or a DAT)", ["csv", "txt", "dat", "xml", "zip"]);
+  if (!p) return;
+  try {
+    const r = await api("magazine_list_import", { path: p });
+    toast(`Imported the list ${r.name}: ${plural(r.issues, "issue", "issues")}.`, 6000);
+    again();
+  } catch (e) {
+    toast(err(e), 8000);
+  }
+}
+
+const removeList = (name) => confirmDialog({ title: `Remove the list ${name}?`, text: "Its issues are no longer looked for. The magazines you have stay.", button: "Remove it", run: async () => { await api("magazine_list_remove", { name }); again(); } });
+
+/** Save a list of the issues missing from a magazine (`title`), or from every one. */
+async function saveMissing(title = null) {
+  try {
+    const r = await api("magazine_missing", { title });
+    toast(`Saved ${plural(r.issues, "missing issue", "missing issues")} as ${r.rel || r.path}.`, 8000);
+  } catch (e) {
+    toast(err(e), 8000);
+  }
+}
+
+// ------------------------------------------------------------ the page (D154)
+
+const num = (n) => { const x = parseFloat(String(n ?? "").replace(/[^\d.]/g, "")); return Number.isNaN(x) ? Infinity : x; };
+const SORTS = [
+  ["number", "Magazine and number", (a, b) => byName(a.mag, b.mag) || num(a.number) - num(b.number) || byName(a.date, b.date) || byName(a.title, b.title)],
+  ["date", "Date", (a, b) => (a.date ? 0 : 1) - (b.date ? 0 : 1) || byName(a.date, b.date) || byName(a.mag, b.mag)],
+  ["added", "Added", (a, b) => byName(b.added, a.added)],
+  ["size", "Size", (a, b) => (b.size || 0) - (a.size || 0)],
+];
+const GROUPS = [["", "None"], ["magazine", "Magazine"], ["publisher", "Publisher"], ["tag", "Tag"], ["year", "Year"], ["decade", "Decade"]];
+const TEXT = { read: "Read", partly: "Partly read", unread: "Not read yet" };
+const HAS = { games: "Games found in it", cover: "A cover chosen" };
+const COLUMNS = [
+  ["magazine", "Magazine", (i) => i.mag, "number"],
+  ["number", "Number", (i) => i.number || "", null],
+  ["date", "Date", (i) => i.date || "", "date"],
+  ["publisher", "Publisher", (i) => i.publisher || "", null],
+  ["tags", "Tags", (i) => (i.tags || []).join(", "), null],
+  ["games", "Games", (i) => (i.missing ? "" : String((i.games || []).filter((g) => g.ticked).length || "")), null],
+  ["text", "Text", (i) => (i.missing ? "Missing" : TEXT[textOf(i)]), null],
+  ["size", "Size", (i) => (i.size ? size(i.size) : ""), "size"],
+];
+const COLS = "minmax(140px, 2.4fr) 70px 84px minmax(80px, 1.4fr) minmax(80px, 1.4fr) 56px 96px 72px";
+const textOf = (i) => (!i.text ? "unread" : i.text.unread ? "partly" : "read");
+const ref = (i) => ({ title: i.mag, file: i.file });
+
+/** One issue in the panel: its cover, number, date and tags changed here, its text and the games in it. */
+function IssuePanel({ i, off, tags, actions, stamp, reading, read }) {
+  const edit = async (patch) => {
+    try {
+      await api("magazine_edit", { title: i.mag, file: i.file, patch });
+      again();
+    } catch (e) {
+      toast(err(e), 8000);
+    }
+  };
+  const tag = (patch) => api("magazine_issues_edit", { items: [ref(i)], patch }).then(again, (e) => toast(err(e), 8000));
+  if (i.missing) {
+    return html`<div class="shelf-panel" id="mag-issue" data-missing="1">
+      <span class="lib-panel-cover lib-cover-none" style=${`background:${systemColour(i.mag)}`} aria-hidden="true">${i.number || "?"}</span>
+      <h2>${i.title}</h2>
+      <p class="muted">You don't have this issue: a list of ${i.mag}'s issues names it.</p>
+      <div class="lib-panel-actions"><button type="button" class="ghost compact" id="mag-save-missing-one" disabled=${off} onClick=${() => saveMissing(i.mag)}>${Icon.download(14)} Save a list of what's missing</button></div>
+    </div>`;
+  }
+  const t = i.text;
+  return html`<div class="shelf-panel" id="mag-issue" data-file=${i.file}>
+    <${Pic} srcs=${[i.gone ? null : `${libraryUrl(`~cover/${i.path}`)}?v=${stamp}`]} none=${{ text: i.number || "?", colour: systemColour(i.mag) }} cls="lib-panel-cover" />
+    <h2 id="mag-issue-title">${i.title}</h2>
+    <p class="muted">${[i.publisher, size(i.size), i.gone ? "its file is gone" : null].filter(Boolean).join(" · ")}</p>
+    <${PanelActions} page="mag" actions=${actions} />
+    <${EditBox} id="mag-issue-number" caption="Number" label="Number" value=${i.number || ""} off=${off} onSave=${(v) => edit({ number: v })} />
+    <${EditBox} id="mag-issue-date" caption="Date" label="Date (YYYY-MM)" placeholder="YYYY-MM" value=${i.date || ""} off=${off} onSave=${(v) => edit({ date: v })} />
+    <h3>Tags</h3>
+    <${TagEdit} id="mag-tags" tags=${i.tags} all=${tags} off=${off} onAdd=${(x) => tag({ tag_add: x })} onRemove=${(x) => tag({ tag_remove: x })} />
+    <p class="muted" id="mag-text" data-state=${textOf(i)}>${!t ? "Its text isn't read yet." : t.unread ? `${plural(t.pages - t.unread, "page", "pages")} of ${t.pages} read.` : "Its text is read: search the Documents page for it."}${" "}
+      ${!t || t.unread ? html`<button type="button" class="linkish" id="mag-read" disabled=${off || reading} onClick=${() => read(i.mag)}>${reading ? "Reading…" : "Read its magazine's text"}</button>` : null}</p>
+    <${IssueGames} m=${{ title: i.mag }} issue=${i} off=${off} onChange=${again} />
+    ${isDesktop() ? html`<p class="muted">Drop a picture on the page to make it the cover.</p>` : null}
+  </div>`;
+}
+
 export function Magazines() {
   const s = useStore(ui, (st) => ({ library: st.library, changes: st.changes }));
   const off = !!s.library?.read_only;
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  const pick = useRouteArg("magazines");
+  const [st, set] = useShelfState("mags", { sort: "number", group: "magazine" });
+  const arg = useRouteArg("magazines");
   const [stamp, setStamp] = useState(0);
-  const [focus, setFocus] = useState(null);
-  const [open, setOpen] = useState(null);
   const [reading, setReading] = useState(false);
+  const [focus, setFocus] = useState(null);
   useEffect(() => {
     if (!s.library) return;
     api("magazines").then((d) => { setData(d); setError(""); }).catch((e) => setError(err(e)));
   }, [s.changes, s.library?.path]);
+  // `#/magazines/<title>`: that magazine's issues
+  useEffect(() => { if (arg) set({ f: { ...(st.f || {}), magazine: [arg] } }); }, [arg]);
   const mags = data?.magazines || [];
-  const m = mags.find((x) => x.title === pick) || mags[0];
-  useEffect(() => { setFocus(null); setOpen(null); }, [m?.title]);
-  useSidePanel(mags.length ? {
-    id: "mag-panel", route: "magazines", title: "Magazines", icon: "stack", count: mags.filter((x) => !x.none).length, current: m?.title,
-    items: mags.map((x) => ({ id: x.title, label: x.title, sub: [x.none ? "none yet" : plural(x.issues.length, "issue", "issues"), x.missing?.length ? `${x.missing.length} missing` : null].filter(Boolean).join(" · "), href: argHash("magazines", x.title) })),
-  } : null);
-  const reload = async () => setData(await api("magazines"));
-  const cover = async (issue, picture) => {
+  const items = useMemo(() => {
+    const out = [];
+    for (const m of mags) {
+      for (const i of m.issues) out.push({ ...i, id: `${m.title}/${i.file}`, mag: m.title, publisher: m.publisher });
+      if (st.missing) for (const x of m.missing || []) out.push({ ...x, id: `missing/${m.title}/${x.title}`, mag: m.title, publisher: m.publisher, missing: true, tags: [], games: [] });
+    }
+    return out;
+  }, [data, st.missing]);
+  const names = useMemo(() => {
+    const m = new Map();
+    for (const i of items) for (const g of i.games || []) m.set(g.platform, g.platform_name);
+    return m;
+  }, [items]);
+  const tags = useMemo(() => [...new Set(items.flatMap((i) => i.tags || []))].sort(byName), [items]);
+  const cover = async (i, picture) => {
     try {
-      await api("magazine_cover", { title: m.title, file: issue.file, picture });
+      await api("magazine_cover", { title: i.mag, file: i.file, picture });
       setStamp((n) => n + 1);
-      toast(`Set the cover of ${issue.title}.`, 5000);
+      toast(`Set the cover of ${i.title}.`, 5000);
     } catch (e) {
       toast(err(e), 8000);
     }
   };
-  // a picture dropped on an issue is its cover; anything else is imported, as magazines (D78)
+  // a picture dropped while an issue is picked is its cover; anything else is imported, as magazines (D78)
   useDroppedFiles((paths) => {
     const pic = paths.find((p) => PICTURE.test(p));
-    if (!(pic && focus && !off)) return "mags";
+    if (!(pic && focus && !focus.missing && !off)) return "mags";
     cover(focus, pic);
     return true;
   });
-  const chooseCover = async (issue) => {
-    const p = await ctx.platform.library.pickFile(`A cover for ${issue.title}`, ["jpg", "jpeg", "png", "webp"]);
-    if (p) cover(issue, p);
-  };
-  const edit = async (issue, patch) => {
-    try {
-      await api("magazine_edit", { title: m.title, file: issue?.file ?? null, patch });
-      await reload();
-    } catch (e) {
-      toast(err(e), 8000);
-    }
-  };
-  const addList = async () => {
-    const p = await ctx.platform.library.pickFile("A list of issues (CSV of magazine, number, date; or a DAT)", ["csv", "txt", "dat", "xml", "zip"]);
-    if (!p) return;
-    try {
-      const r = await api("magazine_list_import", { path: p });
-      toast(`Imported the list ${r.name}: ${plural(r.issues, "issue", "issues")}.`, 6000);
-      await reload();
-    } catch (e) {
-      toast(err(e), 8000);
-    }
-  };
-  const saveMissing = async (title = null) => {
-    try {
-      const r = await api("magazine_missing", { title });
-      toast(`Saved ${plural(r.issues, "missing issue", "missing issues")} as ${r.rel || r.path}.`, 8000);
-    } catch (e) {
-      toast(err(e), 8000);
-    }
+  const chooseCover = async (i) => {
+    const p = await ctx.platform.library.pickFile(`A cover for ${i.title}`, ["jpg", "jpeg", "png", "webp"]);
+    if (p) cover(i, p);
   };
   const read = async (title, again = false) => {
     setReading(true);
     await readMagazines(title, again);
     setReading(false);
   };
-  const removeList = (name) => confirmDialog({ title: `Remove the list ${name}?`, text: "Its issues are no longer looked for. The magazines you have stay.", button: "Remove it", run: async () => { await api("magazine_list_remove", { name }); await reload(); } });
+  const editMag = (title, patch) => api("magazine_edit", { title, file: null, patch }).then(again);
+  const fields = [
+    { id: "magazine", name: "Magazine", of: (i) => [i.mag], long: true, groupOrder: "name" },
+    { id: "publisher", name: "Publisher", of: (i) => [i.publisher], long: true, none: "No publisher given" },
+    { id: "tag", name: "Tag", of: (i) => i.tags, long: true, none: "No tags" },
+    { id: "year", name: "Year", of: (i) => [i.date?.slice(0, 4)], order: "newest", none: "No date" },
+    { id: "decade", name: "Decade", hidden: true, of: (i) => [i.date ? `${i.date.slice(0, 3)}0` : null], label: (d) => `${d}s`, none: "No date" },
+    { id: "system", name: "System", of: (i) => (i.games || []).filter((g) => g.ticked).map((g) => g.platform), label: (p) => names.get(p) || p },
+    { id: "text", name: "Text", of: (i) => [i.missing ? null : textOf(i)], label: (x) => TEXT[x] || x },
+    { id: "has", name: "Has", of: (i) => [(i.games || []).some((g) => g.ticked) ? "games" : null, i.cover ? "cover" : null], label: (x) => HAS[x] || x },
+    ...(st.missing ? [{ id: "is", name: "Is", of: (i) => [i.missing ? "missing" : "have"], label: (x) => (x === "missing" ? "Missing" : "In the library") }] : []),
+  ];
+  const actions = (list) => {
+    const real = list.filter((i) => !i.missing);
+    if (!real.length) return [];
+    const one = list.length === 1 ? real[0] : null;
+    const refs = real.map(ref);
+    const theirTags = [...new Set(real.flatMap((i) => i.tags || []))].sort(byName);
+    const titles = mags.filter((m) => !m.none).map((m) => m.title);
+    return [
+      { id: "read", label: "Read", icon: "book", one: true, disabled: !one?.doc, run: () => { if (one?.doc) viewDoc(one.doc); } },
+      { id: "move", label: "Move to another magazine…", icon: "move", disabled: off, run: () => askValue({
+        title: real.length === 1 ? `Move ${real[0].title}` : `Move ${plural(real.length, "issue", "issues")}`, label: "The magazine they go to", list: titles, button: "Preview",
+        note: "Their files are moved into its folder and named for it; a magazine that isn't there yet is made. Undo puts them back.",
+        run: async (to) => ui.set({ dialog: { type: "organise", plan: await api("magazine_move", { items: refs, to }) } }),
+      }) },
+      { id: "tag-add", label: "Add a tag…", icon: "pin", disabled: off, run: () => askValue({ title: "Add a tag", label: "The tag", list: tags, button: "Add it", note: "A tag is a label of your own, such as Favourites or Reviews.", run: (x) => api("magazine_issues_edit", { items: refs, patch: { tag_add: x } }).then(again) }) },
+      { id: "tag-remove", label: "Remove a tag…", icon: "close", disabled: off || !theirTags.length, run: () => askValue({ title: "Remove a tag", label: "The tag", value: theirTags[0], options: theirTags.map((t) => [t, t]), button: "Remove it", run: (x) => api("magazine_issues_edit", { items: refs, patch: { tag_remove: x } }).then(again) }) },
+      { id: "cover", label: "Choose a cover…", icon: "image", one: true, disabled: off || !isDesktop(), run: () => one && chooseCover(one) },
+      { id: "show", label: "Show in folder", icon: "folder", one: true, disabled: !isDesktop() || one?.gone, run: () => one && reveal(`${s.library.path}/${one.path}`) },
+    ];
+  };
+  const groupMenu = (g) => {
+    if (st.group !== "magazine" || !g.value) return null;
+    const m = mags.find((x) => x.title === g.value);
+    if (!m) return null;
+    return [
+      { id: "mag-rename", label: "Rename…", icon: "edit", disabled: off || !!m.none, run: () => askValue({ title: `Rename ${m.title}`, label: "Its name", value: m.title, button: "Rename it", run: async (x) => {
+        await editMag(m.title, { title: x });
+        if ((st.f?.magazine || []).includes(m.title)) set({ f: { ...st.f, magazine: st.f.magazine.map((t) => (t === m.title ? x : t)) } });
+      } }) },
+      { id: "mag-publisher", label: "Publisher…", icon: "edit", disabled: off || !!m.none, run: () => askValue({ title: `${m.title}'s publisher`, label: "Its publisher", value: m.publisher || "", empty: true, button: "Save", run: (x) => editMag(m.title, { publisher: x }) }) },
+      { sep: true },
+      { id: "mag-read", label: m.read && !m.unread ? "Read its text again" : "Read its text", icon: "search", disabled: off || reading || !m.issues.length, run: () => read(m.title, !m.unread) },
+      { id: "mag-save-missing", label: "Save a list of what's missing", icon: "download", disabled: off || !m.missing?.length, run: () => saveMissing(m.title) },
+      { id: "mag-show", label: "Show its folder", icon: "folder", disabled: !isDesktop() || !m.issues[0], run: () => reveal(`${s.library.path}/${m.issues[0].path}`) },
+    ];
+  };
   const missingAll = mags.reduce((n, x) => n + (x.missing?.length || 0), 0);
+  // with issues to show, Import magazines… is under ⋯, as the Library's Import… is
   const more = () => [
+    ...(items.length ? [{ id: "mag-import-more", label: "Import magazines…", icon: "inbox", disabled: off || !isDesktop(), run: () => importFrom("import-mags", () => importMagazines()) }] : []),
     { id: "mag-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => importFrom("import-mags", () => importMagazines(true)) },
-    { id: "mag-add-list", label: "Import a list…", icon: "audit", disabled: off || !isDesktop(), run: addList },
+    { id: "mag-lists", label: "Lists…", icon: "audit", run: () => ui.set({ dialog: { type: "mag-lists" } }) },
     { id: "mag-save-missing", label: "Save a list of what's missing", icon: "download", disabled: off || !missingAll, run: () => saveMissing() },
     { sep: true },
     { id: "mag-read-all", label: "Read every magazine's text", icon: "search", disabled: off || reading || !mags.some((x) => x.unread), run: () => read(null) },
-    { id: "mag-read-again", label: "Read this magazine's text again", icon: "search", disabled: off || reading || !m?.read, run: () => read(m.title, true) },
   ];
-  const head = html`<${CommandBar} id="mag-head" title="Magazines" count=${data ? plural(mags.filter((x) => !x.none).length, "magazine", "magazines") : null}
-    primary=${html`<button type="button" class="primary compact" id="mag-import" disabled=${off || !isDesktop()} onClick=${() => importFrom("import-mags", () => importMagazines())}>${Icon.inbox(15)} Import magazines…</button>`}
-    more=${{ id: "mag-menu", title: "Import files or a list, save what's missing", items: more }} />`;
-  if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
-  if (error) return html`${head}<div class="pages"><p class="warn-note" role="alert">${error}</p></div>`;
-  if (!data) return html`${head}<div class="pages"><p class="muted">Reading…</p></div>`;
-  const lists = data.lists || [];
-  return html`${head}<div class="pages magazines-page" id="magazines-page">
-    ${!mags.length ? html`<div class="library-settings" id="mag-empty">
-      <p class="page-lead">Your magazines, each with its issues as PDF, CBZ or CBR files, their covers, and the issues you're missing.</p>
-      <p class="muted">Import magazines… reads a folder of them, takes each one's magazine, number and date from its name, and imports them into the library's Magazines folder. It's on the <a href=${routeHash("import")}>Import</a> page, where files dropped on the window go too. Import a list… of a magazine's issues to see which you don't have.</p>
-    </div>` : html`<div class="mag-layout">
-      <div class="collection-main" id="mag-main" data-title=${m.title}>
-        <div class="collection-top">
-          <h2 id="mag-title">${m.title}</h2>
-          <p class="muted" id="mag-totals">${[m.publisher, plural(m.issues.length, "issue", "issues"), m.listed ? `${m.listed - (m.missing?.length || 0)} of the ${m.listed} listed` : null].filter(Boolean).join(" · ")}</p>
-          ${m.read + m.unread ? html`<p class="muted" id="mag-text" data-read=${m.read} data-unread=${m.unread}>${m.unread ? (m.read ? `The text of ${m.read} of its ${m.read + m.unread} issues is read.` : "Its issues' text isn't read yet.") : "Every issue's text is read: search the Documents page for it."}${" "}
-            ${m.unread ? html`<button type="button" class="linkish" id="mag-read" disabled=${off || reading} onClick=${() => read(m.title)}>${reading ? "Reading…" : m.read ? "Read the rest" : "Read their text"}</button>` : null}
-            ${m.unread && !data.reader ? html`${" "}<span id="mag-no-reader">Scanned pages need Tesseract (Settings › Tools).</span>` : null}</p>` : null}
-          ${!m.none ? html`<div class="pick-row">
-            <${EditBox} id="mag-publisher" label="Publisher" title="Its publisher: click to change it" placeholder="Publisher" value=${m.publisher || ""} off=${off} onSave=${(v) => edit(null, { publisher: v })} />
-            ${isDesktop() && m.folder ? html`<button type="button" class="ghost compact" onClick=${() => reveal(m.issues[0] ? `${s.library.path}/${m.issues[0].path}` : s.library.path)}>${Icon.folder(14)} Show its folder</button>` : null}
-          </div>` : null}
-        </div>
-        ${m.issues.length ? html`<ul class="mag-issues" id="mag-issues">${m.issues.map((i) => html`<li key=${i.file} class=${focus?.file === i.file ? "mag-issue focused" : "mag-issue"} data-file=${i.file} data-number=${i.number || ""}>
-          <button type="button" class="mag-open" title=${i.doc ? `Read ${i.title}` : i.title} disabled=${!i.doc} onClick=${() => { setFocus(i); viewDoc(i.doc); }} onFocus=${() => setFocus(i)}>
-            <${Cover} issue=${i} stamp=${stamp} /><span class="mag-issue-title">${i.number ? `No. ${i.number}` : i.title}</span><small class="muted">${[i.date, size(i.size)].filter(Boolean).join(" · ")}</small></button>
-          <span class="seg">
-            <${EditBox} cls="mag-issue-date" label="Date (YYYY-MM)" title="Its date: click to change it" placeholder="YYYY-MM" value=${i.date || ""} off=${off} onSave=${(v) => edit(i, { date: v })} />
-            <button type="button" class="ghost compact" data-action="cover" disabled=${off || !isDesktop()} title="Choose a picture for its cover (or drop one on the page)" onClick=${() => { setFocus(i); chooseCover(i); }}>${Icon.image(14)}</button>
-            <button type="button" class="ghost compact" data-action="games" aria-pressed=${open === i.file ? "true" : "false"} title="The games in it" onClick=${() => { setFocus(i); setOpen(open === i.file ? null : i.file); }}>${(i.games || []).some((g) => g.ticked) ? plural(i.games.filter((g) => g.ticked).length, "game", "games") : "Games"}</button>
-          </span></li>`)}</ul>` : html`<p class="muted">You have none of its issues.</p>`}
-        ${open && m.issues.some((i) => i.file === open) ? html`<${IssueGames} m=${m} issue=${m.issues.find((i) => i.file === open)} off=${off} onChange=${reload} />` : null}
-        ${m.missing?.length ? html`<section class="ls-section" id="mag-missing"><h2>Missing</h2>
-          <p class="muted">The issues the lists name that you don't have.</p>
-          <ul class="ls-list">${m.missing.map((x) => html`<li key=${x.title} data-number=${x.number || ""}>${x.title}</li>`)}</ul>
-          <button type="button" class="ghost compact" id="mag-save-missing-one" disabled=${off} onClick=${() => saveMissing(m.title)}>${Icon.download(14)} Save a list of what's missing</button>
-        </section>` : null}
-      </div>
-    </div>`}
-    <section class="ls-section" id="mag-lists"><h2>Lists</h2>
-      <p class="muted">What the magazines are checked against: a CSV of magazine, number and date, or a DAT whose games are issues (matched by their files, else by magazine and number). They're kept in _library/dats/magazines.</p>
-      ${lists.length ? html`<ul class="ls-list">${lists.map((l) => html`<li key=${l.name} data-name=${l.name}><span>${l.name} <span class="muted">${plural(l.issues, "issue", "issues")}</span></span>
-        <button type="button" class="ghost compact" disabled=${off} onClick=${() => removeList(l.name)}>Remove…</button></li>`)}</ul>` : html`<p class="muted">None yet.</p>`}
-      <button type="button" class="ghost compact" id="mag-add-list-button" disabled=${off || !isDesktop()} onClick=${addList}>${Icon.audit(14)} Import a list…</button>
-    </section>
+  const primary = html`<button type="button" class="primary compact" id="mag-import" disabled=${off || !isDesktop()} onClick=${() => importFrom("import-mags", () => importMagazines())}>${Icon.inbox(15)} Import magazines…</button>`;
+  if (!s.library) return html`<${CommandBar} id="mags-head" title="Magazines" /><div class="pages"><p class="page-lead">Open a library first.</p></div>`;
+  const switches = html`<label class="check-row" title="The issues the lists name that you don't have, as faded tiles"><input type="checkbox" id="mag-missing-too" checked=${!!st.missing} onChange=${(e) => set({ missing: e.target.checked })} /> Missing issues too${missingAll ? html` <span class="lib-count">${missingAll.toLocaleString()}</span>` : null}</label>
+    ${mags.some((x) => x.unread) ? html`<p class="muted shelf-note" id="mag-unread">${plural(mags.reduce((n, x) => n + x.unread, 0), "issue's", "issues'")} text isn't read yet.${" "}
+      <button type="button" class="linkish" id="mag-read-all-now" disabled=${off || reading} onClick=${() => read(null)}>${reading ? "Reading…" : "Read it"}</button>${!data?.reader ? html`${" "}<span id="mag-no-reader">Scanned pages need Tesseract (Settings › Tools).</span>` : null}</p>` : null}`;
+  const empty = html`<div class="library-settings" id="mag-empty">
+    <p class="page-lead">Your magazines, each with its issues as PDF, CBZ or CBR files, their covers, and the issues you're missing.</p>
+    <p class="muted">Import magazines… reads a folder of them, takes each one's magazine, number and date from its name, and imports them into the library's Magazines folder. It's on the <a href=${routeHash("import")}>Import</a> page, where files dropped on the window go too. Lists… in ⋯ imports a list of a magazine's issues, to see which you don't have.</p>
   </div>`;
+  const label = (i) => (i.number ? `No. ${i.number}` : i.date || i.title);
+  return html`<${Shelf} page="mags" noun=${["issue", "issues"]} title="Magazines" items=${data ? items : null} error=${error} st=${st} set=${set}
+    fields=${fields} groups=${GROUPS} sorts=${SORTS} ratio="3 / 4" columns=${COLUMNS} cols=${COLS}
+    text=${(i) => [i.title, i.mag, i.publisher, i.number, i.date, ...(i.tags || []), ...(i.games || []).filter((g) => g.ticked).map((g) => g.title)].join(" ")}
+    tile=${(i) => ({ pics: [i.missing || i.gone ? null : `${libraryUrl(`~cover/${i.path}`)}?v=${stamp}`], none: { text: i.number || "?", colour: systemColour(i.mag) }, badge: st.group === "magazine" ? null : { text: i.mag, colour: systemColour(i.mag) },
+      title: st.group === "magazine" ? label(i) : `${i.mag} ${label(i)}`, meta: i.missing ? `Missing${i.date ? ` · ${i.date}` : ""}` : [i.number ? i.date : null, size(i.size)].filter(Boolean).join(" · "), missing: !!i.missing || i.gone })}
+    line=${(i) => ({ pics: [i.missing || i.gone ? null : `${libraryUrl(`~cover/${i.path}`)}?v=${stamp}`], none: { text: i.number || "?", colour: systemColour(i.mag) }, title: i.title,
+      meta: i.missing ? "Missing" : [i.publisher, size(i.size), (i.games || []).some((g) => g.ticked) ? plural(i.games.filter((g) => g.ticked).length, "game", "games") : null, ...(i.tags || [])].filter(Boolean).join(" · "), missing: !!i.missing || i.gone })}
+    actions=${actions} onOpen=${(i) => { if (i.doc) viewDoc(i.doc); }} groupMenu=${groupMenu} switches=${switches} primary=${mags.length ? null : primary} more=${more} moreTitle="Import files, lists, what's missing, tile size" empty=${empty}
+    onPicked=${setFocus}
+    panel=${(i) => html`<${IssuePanel} i=${i} off=${off} tags=${tags} stamp=${stamp} reading=${reading} read=${read} actions=${actions([i]).filter((a) => ["read", "cover", "show"].includes(a.id))} />`} />`;
 }

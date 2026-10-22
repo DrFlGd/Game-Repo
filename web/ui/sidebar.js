@@ -9,6 +9,7 @@ import { Icon } from "./icons.js";
 import { COMING } from "./coming.js";
 import { NavHead, useMedia, NARROW } from "./chrome.js";
 import { SidePanel, DrawerRows } from "./panels.js";
+import { libraryHash } from "./browse.js";
 
 function NavLink({ route, label, icon, current, note = null, off = false, child = false }) {
   const active = current === route;
@@ -18,8 +19,12 @@ function NavLink({ route, label, icon, current, note = null, off = false, child 
 function NavRow({ route, label, icon, active, note, off, child }) {
   return html`<li class=${child ? "nav-row nav-child" : "nav-row"}>
     <span class="nav-toggle-space"></span>
-    <a class=${`nav-link${active ? " active" : ""}${off ? " off" : ""}`} id=${`nav-${route}`} href=${routeHash(route)} title=${off ? `${label} (open a library first)` : note ? `${label} (${note})` : label} aria-label=${label} aria-current=${active ? "page" : null}
-      onClick=${() => ui.set({ navOpen: false })}>
+    <a class=${`nav-link${active ? " active" : ""}${off ? " off" : ""}`} id=${`nav-${route}`} href=${route === "library" ? libraryHash() : routeHash(route)} title=${off ? `${label} (open a library first)` : note ? `${label} (${note})` : label} aria-label=${label} aria-current=${active ? "page" : null}
+      onClick=${(e) => {
+        ui.set({ navOpen: false });
+        // the Library as it was left (D150), as it is now (filters changed since the menu was drawn)
+        if (route === "library" && !off) { e.preventDefault(); location.hash = libraryHash(); }
+      }}>
       <span class="nav-icon">${Icon[icon](15)}</span><span class="nav-label">${label}</span>
 </a></li>`;
 }

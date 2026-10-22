@@ -226,6 +226,10 @@ pub fn unread(conn: &Connection) -> Result<i64> {
 /// The documents whose text can be read (a magazine's issue: once it's been read, D145).
 const EXT_SQL: &str = "(lower(name) LIKE '%.pdf' OR lower(name) LIKE '%.txt' OR lower(name) LIKE '%.md' OR lower(name) LIKE '%.markdown' OR lower(name) LIKE '%.nfo'
                         OR lower(name) LIKE '%.htm' OR lower(name) LIKE '%.html' OR lower(name) LIKE '%.diz' OR kind = 'magazine')";
+/// The same, of `docs d` joined to another table.
+fn ext_sql_d() -> String {
+    EXT_SQL.replace("(name)", "(d.name)").replace("kind =", "d.kind =")
+}
 
 /// The text of a document, for search: a magazine issue's as it was read (D145), a PDF's
 /// (when it has text, not just scans), a text file's, a web page's without its tags. At
@@ -350,63 +354,208 @@ fn fts_query(q: &str) -> String {
 }
 
 /// The Documents page: every document, or those the search finds (in titles, names and
-/// text), with filters. Each has its game's title when it has a game.
+/// text), with filters. Each has its game's title when it has a game. (`query` with one
+/// value for each filter.)
 pub fn search(ix: &Index, query: &str, kind: &str, platform: &str, source: &str, offset: i64, limit: i64) -> Result<Value> {
+    let one = |v: &str| if v.is_empty() { vec![] } else { vec![v.to_string()] };
+    self::query(ix, &DocsQuery { query: query.into(), kinds: one(kind), platforms: one(platform), sources: one(source), offset, limit, ..Default::default() })
+}
+
+/// What the Documents page asks for (D155): words, the filters (each a list of values: a
+/// game is its folder, "" a document with none; a source "yours" is your own; text "read"
+/// or "unread"), the order (title, game, kind or size; a search's best matches first) and
+/// grouping (game, kind or system), and a page of them.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct DocsQuery {
+    pub query: String,
+    pub kinds: Vec<String>,
+    pub platforms: Vec<String>,
+    pub sources: Vec<String>,
+    pub games: Vec<String>,
+    pub text: Vec<String>,
+    pub sort: String,
+    pub desc: bool,
+    pub group: String,
+    pub offset: i64,
+    pub limit: i64,
+    /// Each filter's values with how many documents have them (those of the other filters)
+    pub facets: bool,
+}
+
+/// The kinds in the order they're listed.
+fn kind_order() -> String {
+    format!("CASE d.kind {} ELSE {} END", KINDS.iter().enumerate().map(|(i, (k, _, _))| format!("WHEN '{k}' THEN {i}")).collect::<Vec<_>>().join(" "), KINDS.len())
+}
+
+pub fn query(ix: &Index, q: &DocsQuery) -> Result<Value> {
+    use rusqlite::types::Value as V;
     let conn = ix.conn();
-    let fts = fts_query(query);
-    let mut wh = vec!["1".to_string()];
-    if !kind.is_empty() {
-        wh.push("d.kind = :kind".into());
-    }
-    if !platform.is_empty() {
-        wh.push("d.platform = :platform".into());
-    }
-    match source {
-        "" => {}
-        "yours" => wh.push("d.source IS NULL".into()),
-        _ => wh.push("d.source = :source".into()),
-    }
-    let (from, snip, order) = if fts.is_empty() {
-        ("docs d".to_string(), "NULL".to_string(), "d.title COLLATE NOCASE")
-    } else {
-        wh.push("docs_text MATCH :q".into());
-        ("docs_text JOIN docs d ON d.id = docs_text.rowid".to_string(), "snippet(docs_text, 2, '[', ']', '…', 12)".to_string(), "bm25(docs_text, 5.0, 3.0, 1.0)")
+    let fts = fts_query(&q.query);
+    let text = |v: &[String]| v.iter().map(|x| V::Text(x.clone())).collect::<Vec<V>>();
+    let marks = |n: usize| vec!["?"; n].join(", ");
+    // a list of values, "" (none) as NULL
+    let any_of = |col: &str, vals: &[String], none: &str| -> (String, Vec<V>) {
+        let real: Vec<String> = vals.iter().filter(|v| v.as_str() != none).cloned().collect();
+        let mut parts = vec![];
+        if !real.is_empty() {
+            parts.push(format!("{col} IN ({})", marks(real.len())));
+        }
+        if vals.iter().any(|v| v == none) {
+            parts.push(format!("{col} IS NULL"));
+        }
+        (parts.join(" OR "), text(&real))
     };
-    let wh = wh.join(" AND ");
-    let mut named: Vec<(&str, &dyn rusqlite::ToSql)> = vec![];
-    if !kind.is_empty() {
-        named.push((":kind", &kind));
+    // each filter's condition on its own, so a filter's counts are those the others leave
+    let mut conds: Vec<(&str, String, Vec<V>)> = vec![];
+    if !q.kinds.is_empty() {
+        conds.push(("kind", format!("d.kind IN ({})", marks(q.kinds.len())), text(&q.kinds)));
     }
-    if !platform.is_empty() {
-        named.push((":platform", &platform));
+    if !q.platforms.is_empty() {
+        let (s, p) = any_of("d.platform", &q.platforms, "");
+        conds.push(("platform", s, p));
     }
-    if !source.is_empty() && source != "yours" {
-        named.push((":source", &source));
+    if !q.sources.is_empty() {
+        let (s, p) = any_of("d.source", &q.sources, "yours");
+        conds.push(("source", s, p));
     }
-    if !fts.is_empty() {
-        named.push((":q", &fts));
+    if !q.games.is_empty() {
+        let (s, p) = any_of("d.folder", &q.games, "");
+        conds.push(("game", s, p));
     }
-    let total: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {from} WHERE {wh}"), named.as_slice(), |r| r.get(0))?;
-    let lim = limit.clamp(1, 500);
-    let off = offset.max(0);
-    let mut all = named.clone();
-    all.push((":lim", &lim));
-    all.push((":off", &off));
-    let mut q = conn.prepare(&format!(
-        "SELECT d.*, {snip} AS snip, mg.title AS game_title, mg.name AS game_name FROM {from} LEFT JOIN meta_games mg ON mg.folder = d.folder
-         WHERE {wh} ORDER BY {order} LIMIT :lim OFFSET :off"
+    if !q.text.is_empty() {
+        let mut parts = vec![];
+        if q.text.iter().any(|t| t == "read") {
+            parts.push("d.text_read = 1".to_string());
+        }
+        if q.text.iter().any(|t| t == "unread") {
+            parts.push(format!("(d.text_read = 0 AND {})", ext_sql_d()));
+        }
+        conds.push(("text", if parts.is_empty() { "0".into() } else { parts.join(" OR ") }, vec![]));
+    }
+    let from = if fts.is_empty() { "docs d" } else { "docs_text JOIN docs d ON d.id = docs_text.rowid" };
+    let from = format!("{from} LEFT JOIN meta_games mg ON mg.folder = d.folder");
+    let where_of = |skip: Option<&str>| -> (String, Vec<V>) {
+        let mut sql = vec![if fts.is_empty() { "1".to_string() } else { "docs_text MATCH ?".to_string() }];
+        let mut ps: Vec<V> = if fts.is_empty() { vec![] } else { vec![V::Text(fts.clone())] };
+        for (f, c, p) in &conds {
+            if Some(*f) != skip {
+                sql.push(format!("({c})"));
+                ps.extend(p.iter().cloned());
+            }
+        }
+        (sql.join(" AND "), ps)
+    };
+    let (wh, ps) = where_of(None);
+    let total: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {from} WHERE {wh}"), rusqlite::params_from_iter(ps.iter()), |r| r.get(0))?;
+    let game_name = "COALESCE(mg.title, mg.name, d.folder)";
+    // the groups first (those with none last), then the order asked for
+    let (group_by, group_key) = match q.group.as_str() {
+        "game" => (format!("(d.folder IS NULL), {game_name} COLLATE NOCASE, d.folder"), "d.folder".to_string()),
+        "kind" => (kind_order(), "d.kind".to_string()),
+        "system" => ("(d.platform IS NULL), d.platform".to_string(), "d.platform".to_string()),
+        _ => (String::new(), String::new()),
+    };
+    let dir = if q.desc { "DESC" } else { "ASC" };
+    let sort = if !fts.is_empty() {
+        "bm25(docs_text, 5.0, 3.0, 1.0)".to_string()
+    } else {
+        match q.sort.as_str() {
+            "game" => format!("(d.folder IS NULL), {game_name} COLLATE NOCASE {dir}, d.title COLLATE NOCASE"),
+            "kind" => format!("{} {dir}, d.title COLLATE NOCASE", kind_order()),
+            // biggest first, as the Library's
+            "size" => format!("d.size {}, d.title COLLATE NOCASE", if q.desc { "ASC" } else { "DESC" }),
+            _ => format!("d.title COLLATE NOCASE {dir}"),
+        }
+    };
+    let order = [group_by.as_str(), sort.as_str(), "d.id"].iter().filter(|x| !x.is_empty()).copied().collect::<Vec<_>>().join(", ");
+    let snip = if fts.is_empty() { "NULL" } else { "snippet(docs_text, 2, '[', ']', '…', 12)" };
+    let lim = q.limit.clamp(1, 500);
+    let mut all = ps.clone();
+    all.push(V::Integer(lim));
+    all.push(V::Integer(q.offset.max(0)));
+    let mut st = conn.prepare(&format!(
+        "SELECT d.*, {snip} AS snip, mg.title AS game_title, mg.name AS game_name,
+            (SELECT key FROM library l WHERE l.folder = d.folder ORDER BY l.have DESC LIMIT 1) AS game_key,
+            (SELECT picture FROM library l WHERE l.folder = d.folder AND l.picture IS NOT NULL LIMIT 1) AS game_picture
+         FROM {from} WHERE {wh} ORDER BY {order} LIMIT ? OFFSET ?"
     ))?;
-    let items: Vec<Value> = q
-        .query_map(all.as_slice(), |r| {
+    let items: Vec<Value> = st
+        .query_map(rusqlite::params_from_iter(all.iter()), |r| {
             let mut v = doc_json(r)?;
             v["snippet"] = json!(r.get::<_, Option<String>>("snip")?);
             v["game"] = json!(r.get::<_, Option<String>>("game_title")?.or(r.get::<_, Option<String>>("game_name")?));
+            v["game_key"] = json!(r.get::<_, Option<String>>("game_key")?);
+            v["game_picture"] = json!(r.get::<_, Option<String>>("game_picture")?);
             if let Some(p) = v["platform"].as_str() {
                 v["platform_name"] = json!(crate::browse::system_name(p));
             }
             Ok(v)
         })?
         .collect::<rusqlite::Result<_>>()?;
+    // the groups' headings: each group's name and how many it has
+    let groups: Option<Vec<Value>> = if group_key.is_empty() {
+        None
+    } else {
+        let name = match q.group.as_str() {
+            "game" => format!("MIN({game_name})"),
+            _ => "NULL".to_string(),
+        };
+        let mut st = conn.prepare(&format!("SELECT {group_key}, COUNT(*), {name} FROM {from} WHERE {wh} GROUP BY {group_key} ORDER BY {group_by}"))?;
+        let rows = st.query_map(rusqlite::params_from_iter(ps.iter()), |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<String>>(2)?)))?;
+        Some(
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+                .into_iter()
+                .map(|(value, count, game)| {
+                    let name = match (q.group.as_str(), value.as_deref()) {
+                        (_, None) => if q.group == "game" { "No game".to_string() } else { "General".to_string() },
+                        ("kind", Some(k)) => kind_name(k).to_string(),
+                        ("system", Some(p)) => crate::browse::system_name(p),
+                        (_, Some(f)) => game.unwrap_or_else(|| f.to_string()),
+                    };
+                    json!({ "value": value.unwrap_or_default(), "name": name, "count": count })
+                })
+                .collect(),
+        )
+    };
+    // each filter's values, with their counts under the other filters
+    let mut facets = json!({});
+    if q.facets {
+        let count = |skip: &str, col: &str, extra: &str| -> Result<Vec<(Option<String>, i64, Option<String>)>> {
+            let (wh, ps) = where_of(Some(skip));
+            let mut st = conn.prepare(&format!("SELECT {col}, COUNT(*), {extra} FROM {from} WHERE {wh} GROUP BY {col} ORDER BY COUNT(*) DESC LIMIT 500"))?;
+            let rows = st.query_map(rusqlite::params_from_iter(ps.iter()), |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<String>>(2)?)))?;
+            Ok(rows.collect::<rusqlite::Result<_>>()?)
+        };
+        let kinds: HashMap<String, i64> = count("kind", "d.kind", "NULL")?.into_iter().filter_map(|(k, n, _)| Some((k?, n))).collect();
+        facets["kind"] = json!(KINDS.iter().filter_map(|(id, name, _)| kinds.get(*id).map(|n| json!({ "value": id, "name": name, "count": n }))).collect::<Vec<_>>());
+        let mut systems: Vec<Value> = count("platform", "d.platform", "NULL")?
+            .into_iter()
+            .map(|(p, n, _)| json!({ "value": p.clone().unwrap_or_default(), "name": p.as_deref().map(crate::browse::system_name).unwrap_or_else(|| "General".into()), "count": n }))
+            .collect();
+        systems.sort_by_key(|v| v["name"].as_str().unwrap_or("").to_lowercase());
+        facets["platform"] = json!(systems);
+        facets["source"] = json!(count("source", "d.source", "NULL")?
+            .into_iter()
+            .map(|(x, n, _)| json!({ "value": x.clone().unwrap_or_else(|| "yours".into()), "name": x.as_deref().map(source_name).unwrap_or("Yours"), "count": n }))
+            .collect::<Vec<_>>());
+        facets["game"] = json!(count("game", "d.folder", &format!("MIN({game_name})"))?
+            .into_iter()
+            .map(|(f, n, g)| json!({ "value": f.clone().unwrap_or_default(), "name": if f.is_some() { g.unwrap_or_default() } else { "No game".to_string() }, "count": n }))
+            .collect::<Vec<_>>());
+        let (wh, ps) = where_of(Some("text"));
+        let (read, unread): (i64, i64) = conn.query_row(
+            &format!("SELECT COALESCE(SUM(d.text_read = 1), 0), COALESCE(SUM(d.text_read = 0 AND {}), 0) FROM {from} WHERE {wh}", ext_sql_d()),
+            rusqlite::params_from_iter(ps.iter()),
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let text: Vec<Value> = [("read", "Its words read", read), ("unread", "Not read yet", unread)]
+            .into_iter()
+            .filter(|(_, _, n)| *n > 0)
+            .map(|(value, name, count)| json!({ "value": value, "name": name, "count": count }))
+            .collect();
+        facets["text"] = json!(text);
+    }
     let mut kinds = conn.prepare("SELECT kind, COUNT(*) FROM docs GROUP BY kind")?;
     let kinds: BTreeMap<String, i64> = kinds.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
     let mut ps = conn.prepare("SELECT DISTINCT platform FROM docs WHERE platform IS NOT NULL ORDER BY platform")?;
@@ -414,11 +563,25 @@ pub fn search(ix: &Index, query: &str, kind: &str, platform: &str, source: &str,
     let mut ss = conn.prepare("SELECT DISTINCT source FROM docs WHERE source IS NOT NULL ORDER BY source")?;
     let ss: Vec<String> = ss.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     Ok(json!({
-        "total": total, "items": items, "unread": unread(conn)?,
+        "total": total, "items": items, "unread": unread(conn)?, "groups": groups, "facets": facets,
+        "all": conn.query_row("SELECT COUNT(*) FROM docs", [], |r| r.get::<_, i64>(0))?,
         "kinds": KINDS.iter().map(|(id, name, _)| json!({ "id": id, "name": name, "count": kinds.get(*id).copied().unwrap_or(0) })).collect::<Vec<_>>(),
         "platforms": ps.iter().map(|p| json!({ "id": p, "name": platforms::name_of(p) })).collect::<Vec<_>>(),
         "sources": ss,
     }))
+}
+
+/// A source's name, as the page shows it.
+fn source_name(id: &str) -> &str {
+    match id {
+        "screenscraper" => "ScreenScraper",
+        "igdb" => "IGDB",
+        "thegamesdb" => "TheGamesDB",
+        "launchbox" => "LaunchBox",
+        "steam" => "Steam",
+        "gog" => "GOG",
+        other => other,
+    }
 }
 
 /// One document, to show it.
@@ -956,6 +1119,30 @@ mod tests {
         assert_eq!(found["total"], 1, "{found}");
         assert!(found["items"][0]["snippet"].as_str().unwrap().contains("[warp]"), "{found}");
         assert_eq!(search(&ix, "", "manual", "gb", "yours", 0, 50).unwrap()["total"], 1);
+        // D155: grouped by game (those with none last), with each group's count, its game's
+        // key; the filters as lists, each counted under the others; sorted by size
+        crate::browse::refresh(&ix, &lib).unwrap();
+        let q = |f: &dyn Fn(&mut DocsQuery)| {
+            let mut x = DocsQuery { limit: 50, facets: true, ..Default::default() };
+            f(&mut x);
+            query(&ix, &x).unwrap()
+        };
+        let kinds = |v: &Value| v["items"].as_array().unwrap().iter().map(|d| d["kind"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        let counts = |v: &Value| v.as_array().unwrap().iter().map(|x| (x["name"].as_str().unwrap().to_string(), x["count"].as_i64().unwrap())).collect::<Vec<_>>();
+        let by_game = q(&|x| x.group = "game".into());
+        assert_eq!(kinds(&by_game), ["manual", "guide", "other"]);
+        assert_eq!(counts(&by_game["groups"]), [("Alpha".to_string(), 1), ("Beta".to_string(), 1), ("No game".to_string(), 1)]);
+        assert!(by_game["items"][0]["game_key"].as_str().is_some_and(|k| k.starts_with("gb/Alpha")), "{}", by_game["items"][0]);
+        assert_eq!(counts(&by_game["facets"]["kind"]), [("Manual".to_string(), 1), ("Guide".to_string(), 1), ("Other".to_string(), 1)]);
+        assert_eq!(counts(&by_game["facets"]["text"]), [("Its words read".to_string(), 3)]);
+        assert_eq!(counts(&by_game["facets"]["source"]), [("Yours".to_string(), 3)]);
+        let two = q(&|x| x.kinds = vec!["manual".into(), "guide".into()]);
+        assert_eq!((two["total"].as_i64(), counts(&two["facets"]["kind"]).len()), (Some(2), 3));
+        assert_eq!(counts(&two["facets"]["game"]).len(), 2, "{}", two["facets"]["game"]);
+        assert_eq!(q(&|x| x.games = vec!["".into()])["total"], 1);
+        assert_eq!(q(&|x| x.text = vec!["unread".into()])["total"], 0);
+        assert_eq!(kinds(&q(&|x| x.sort = "size".into())), ["guide", "manual", "other"]);
+        assert_eq!(kinds(&q(&|x| { x.sort = "size".into(); x.desc = true; })), ["other", "manual", "guide"]);
         // a kind changed by hand is kept in docs.json
         let id = guide["id"].as_i64().unwrap();
         assert_eq!(set(&ix, &lib, id, Some("faq"), None).unwrap()["kind"], "faq");

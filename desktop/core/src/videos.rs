@@ -73,9 +73,18 @@ pub struct Video {
     /// In seconds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub length: Option<u64>,
-    /// Who made it, or where it's from: "YouTube", a channel
+    /// Who made it, or where it's from: "YouTube", a channel (shown as its creator, D153)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// The series it's part of: a show, a let's play in parts (D153)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub series: Option<String>,
+    /// Labels of your own: "Favourites", "To watch" (D153)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    /// A picture chosen for it, below `Videos/` (`pictures/<id>.<ext>`)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub picture: Option<String>,
     #[serde(skip_serializing_if = "is_zero")]
     pub size: u64,
     /// The file's size and its first and last megabyte, hashed: the same video imported
@@ -569,7 +578,7 @@ pub fn plan(lib: &Library, items: &[Item], mode: &str, always_copy: bool) -> Res
             print: it.print.clone(),
             added: now(),
             games: it.games.clone(),
-            extra: Map::new(),
+            ..Default::default()
         });
     }
     all.videos.sort_by(order);
@@ -653,6 +662,9 @@ pub fn edit(lib: &Library, id: &str, patch: &Value) -> Result<Value> {
     if let Some(s) = text("source") {
         v.source = s;
     }
+    if let Some(s) = text("series") {
+        v.series = s;
+    }
     if let Some(u) = text("url") {
         match u {
             Some(u) => v.url = Some(web_link(&u)?),
@@ -660,6 +672,102 @@ pub fn edit(lib: &Library, id: &str, patch: &Value) -> Result<Value> {
             None => v.url = None,
         }
     }
+    write(lib, &mut all)?;
+    Ok(json!({ "ok": true }))
+}
+
+/// A tag in the order it's kept: trimmed, and the same as one there is but for case taken as that one.
+fn tag_of(all: &[String], t: &str) -> Option<String> {
+    let t = t.trim();
+    (!t.is_empty()).then(|| all.iter().find(|x| x.eq_ignore_ascii_case(t)).cloned().unwrap_or_else(|| t.to_string()))
+}
+
+/// Change several videos at once (D153): `patch` may set their `kind`, `series` and
+/// `source` (empty clears it), add a tag (`tag_add`), take one off (`tag_remove`), add a
+/// game (`game_add`, its key) or take one off (`game_remove`).
+pub fn edit_many(ix: &Index, lib: &Library, ids: &[String], patch: &Value) -> Result<Value> {
+    lib.writable()?;
+    let mut all = read(lib);
+    let want: HashSet<&str> = ids.iter().map(String::as_str).collect();
+    if !all.videos.iter().any(|v| want.contains(v.id.as_str())) {
+        bail!("Choose the videos to change.");
+    }
+    let text = |k: &str| patch.get(k).map(|v| v.as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from));
+    let known: Vec<String> = all.videos.iter().flat_map(|v| v.tags.iter().cloned()).collect();
+    let tag_add = patch["tag_add"].as_str().and_then(|t| tag_of(&known, t));
+    let tag_remove = patch["tag_remove"].as_str().map(str::trim).filter(|t| !t.is_empty());
+    let game_add = match patch["game_add"].as_str().filter(|k| !k.is_empty()) {
+        Some(key) => {
+            let (platform, title): (String, String) = ix
+                .conn()
+                .query_row("SELECT platform, title FROM library WHERE key = ?1", [key], |r| Ok((r.get(0)?, r.get(1)?)))
+                .optional()?
+                .ok_or_else(|| anyhow!("There's no game {key} in the library."))?;
+            Some(VideoGame { key: key.into(), title: split_name(&title).0.to_string(), platform })
+        }
+        None => None,
+    };
+    let game_remove = patch["game_remove"].as_str();
+    let mut n = 0;
+    for v in all.videos.iter_mut().filter(|v| want.contains(v.id.as_str())) {
+        n += 1;
+        if let Some(Some(k)) = text("kind") {
+            v.kind = kind(&k).0.to_string();
+        }
+        if let Some(x) = text("series") {
+            v.series = x;
+        }
+        if let Some(x) = text("source") {
+            v.source = x;
+        }
+        if let Some(t) = &tag_add {
+            if !v.tags.iter().any(|x| x.eq_ignore_ascii_case(t)) {
+                v.tags.push(t.clone());
+                v.tags.sort_by_key(|x| x.to_lowercase());
+            }
+        }
+        if let Some(t) = tag_remove {
+            v.tags.retain(|x| !x.eq_ignore_ascii_case(t));
+        }
+        if let Some(g) = &game_add {
+            if !v.games.iter().any(|x| x.key == g.key) {
+                v.games.push(g.clone());
+            }
+        }
+        if let Some(k) = game_remove {
+            v.games.retain(|x| x.key != k);
+        }
+    }
+    write(lib, &mut all)?;
+    Ok(json!({ "changed": n }))
+}
+
+/// The picture a tile shows for a video (D153): `picture` copied into `Videos/pictures/`,
+/// or none to take it off (its file goes too).
+pub fn set_picture(lib: &Library, id: &str, picture: Option<&Path>) -> Result<Value> {
+    lib.writable()?;
+    let mut all = read(lib);
+    let v = all.videos.iter_mut().find(|v| v.id == id).ok_or_else(|| anyhow!("There's no video {id}."))?;
+    let base = folder(lib);
+    let new = match picture {
+        Some(p) => {
+            let ext = crate::platforms::ext_of(&p.to_string_lossy());
+            if !["jpg", "jpeg", "png", "webp", "gif", "bmp"].contains(&ext.as_str()) {
+                bail!("A video's picture is a picture (JPEG, PNG, WebP).");
+            }
+            let rel = format!("pictures/{}.{ext}", safe_name(&v.id));
+            std::fs::create_dir_all(base.join("pictures"))?;
+            std::fs::copy(p, base.join(&rel)).with_context(|| format!("couldn't copy {}", p.display()))?;
+            Some(rel)
+        }
+        None => None,
+    };
+    if let Some(old) = v.picture.take().filter(|o| Some(o) != new.as_ref()) {
+        if let Ok(rel) = crate::library::rel_inside(&old) {
+            let _ = std::fs::remove_file(base.join(rel));
+        }
+    }
+    v.picture = new;
     write(lib, &mut all)?;
     Ok(json!({ "ok": true }))
 }
@@ -688,41 +796,76 @@ pub fn set_game(ix: &Index, lib: &Library, id: &str, key: &str, on: bool) -> Res
     Ok(json!({ "ok": true }))
 }
 
-/// Remove a video. A link is taken off the list; a file is set aside by a change, with
-/// the preview and Undo (the plan is returned to be run).
-pub fn remove(lib: &Library, id: &str) -> Result<Option<Plan>> {
+/// Remove videos. Links are taken off the list; files (and the pictures chosen for them)
+/// are set aside by a change, with the preview and Undo (the plan is returned to be run).
+pub fn remove(lib: &Library, ids: &[String]) -> Result<Option<Plan>> {
     lib.writable()?;
     let mut all = read(lib);
-    let at = all.videos.iter().position(|v| v.id == id).ok_or_else(|| anyhow!("There's no video {id}."))?;
-    let v = all.videos.remove(at);
-    let Some(file) = v.file.as_deref().filter(|f| folder(lib).join(f).is_file()) else {
+    let want: HashSet<&str> = ids.iter().map(String::as_str).collect();
+    let (gone, kept): (Vec<Video>, Vec<Video>) = all.videos.drain(..).partition(|v| want.contains(v.id.as_str()));
+    all.videos = kept;
+    if gone.is_empty() {
+        bail!("There's no video {}.", ids.first().map(String::as_str).unwrap_or(""));
+    }
+    let base = folder(lib);
+    let src = |rel: &str| {
+        let path = base.join(rel);
+        Src {
+            file_id: 0,
+            root: format!("dir:{}", base.display()),
+            rel: rel.to_string(),
+            path: path.display().to_string(),
+            member: None,
+            size: std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
+            crc32: String::new(),
+            sha1: None,
+        }
+    };
+    let mut ops = vec![];
+    for v in &gone {
+        for rel in [v.file.as_deref(), v.picture.as_deref()].into_iter().flatten() {
+            if crate::library::rel_inside(rel).is_ok() && base.join(rel).is_file() {
+                let s = src(rel);
+                ops.push(Op { op: "aside".into(), game: v.title.clone(), to: s.path.clone(), size: s.size, from: vec![s], names: vec![], aside: vec![], note: None });
+            }
+        }
+    }
+    if ops.is_empty() {
         write(lib, &mut all)?;
         return Ok(None);
+    }
+    ops.push(text_op("Videos", &base.join(MANIFEST), text_of(&all)?, "videos.json: the videos"));
+    let (title, label) = match gone.as_slice() {
+        [v] => (format!("Remove the video {}", v.title), format!("Removed the video {}", v.title)),
+        _ => (format!("Remove {} videos", gone.len()), format!("Removed {} videos", gone.len())),
     };
-    let path = folder(lib).join(file);
-    let base = folder(lib);
-    let src = Src {
-        file_id: 0,
-        root: format!("dir:{}", base.display()),
-        rel: file.to_string(),
-        path: path.display().to_string(),
-        member: None,
-        size: std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
-        crc32: String::new(),
-        sha1: None,
-    };
-    let ops = vec![
-        Op { op: "aside".into(), game: v.title.clone(), to: src.path.clone(), size: src.size, from: vec![src], names: vec![], aside: vec![], note: None },
-        text_op("Videos", &base.join(MANIFEST), text_of(&all)?, "videos.json: the videos"),
-    ];
-    Ok(Some(plan_of(lib, "video_remove", format!("Remove the video {}", v.title), format!("Removed the video {}", v.title), ops, 1)))
+    Ok(Some(plan_of(lib, "video_remove", title, label, ops, gone.len())))
 }
 
 // ------------------------------------------------------------ the page, and a game's
 
-fn shown(lib: &Library, v: &Video) -> Value {
+/// The pictures of the games videos are about, by their keys (D153: a tile shows its first game's cover).
+fn pictures_of(ix: &Index, all: &Videos) -> std::collections::HashMap<String, String> {
+    let keys: HashSet<&str> = all.videos.iter().flat_map(|v| v.games.iter().map(|g| g.key.as_str())).collect();
+    let mut out = std::collections::HashMap::new();
+    let Ok(mut q) = ix.conn().prepare("SELECT picture FROM library WHERE key = ?1 AND picture IS NOT NULL") else { return out };
+    for k in keys {
+        if let Ok(Some(p)) = q.query_row([k], |r| r.get::<_, String>(0)).optional() {
+            out.insert(k.to_string(), p);
+        }
+    }
+    out
+}
+
+fn shown(lib: &Library, v: &Video, pictures: &std::collections::HashMap<String, String>) -> Value {
     let mut o = serde_json::to_value(v).unwrap_or_default();
     o["kind_name"] = json!(kind(&v.kind).1);
+    if let Some(p) = v.picture.as_deref().filter(|p| crate::library::rel_inside(p).is_ok()) {
+        let at = folder(lib).join(p);
+        if at.is_file() {
+            o["picture_path"] = json!(lib.relative(&at));
+        }
+    }
     if let Some(f) = &v.file {
         let p = folder(lib).join(f);
         o["path"] = json!(lib.relative(&p));
@@ -734,17 +877,21 @@ fn shown(lib: &Library, v: &Video) -> Value {
         .map(|g| {
             let mut x = serde_json::to_value(g).unwrap_or_default();
             x["platform_name"] = json!(crate::browse::system_name(&g.platform));
+            if let Some(p) = pictures.get(&g.key) {
+                x["picture"] = json!(p);
+            }
             x
         })
         .collect::<Vec<_>>());
     o
 }
 
-/// The Videos page: every video, with its games' systems named.
-pub fn overview(lib: &Library) -> Value {
+/// The Videos page: every video, with its games' systems named and their pictures.
+pub fn overview(ix: &Index, lib: &Library) -> Value {
     let all = read(lib);
+    let pictures = pictures_of(ix, &all);
     json!({
-        "videos": all.videos.iter().map(|v| shown(lib, v)).collect::<Vec<_>>(),
+        "videos": all.videos.iter().map(|v| shown(lib, v, &pictures)).collect::<Vec<_>>(),
         "kinds": KINDS.iter().map(|k| json!({ "id": k.0, "name": k.1 })).collect::<Vec<_>>(),
         "folder": lib.relative(&folder(lib)),
     })
@@ -757,7 +904,7 @@ pub fn of_game(lib: &Library, key: &str, platform: &str, title: &str) -> Vec<Val
         .videos
         .iter()
         .filter(|v| v.games.iter().any(|g| g.key == key || (g.platform == platform && !want.is_empty() && words(&g.title) == want)))
-        .map(|v| shown(lib, v))
+        .map(|v| shown(lib, v, &Default::default()))
         .collect()
 }
 
@@ -900,13 +1047,37 @@ mod tests {
         let link = read(&lib).videos.into_iter().find(|v| v.id == id).unwrap();
         assert_eq!((link.title.as_str(), link.kind.as_str(), link.date, link.games.iter().map(|g| g.key.clone()).collect::<Vec<_>>()), ("Mega Man's story", "other", None, vec![golf]));
         assert!(edit(&lib, &id, &json!({ "url": "" })).is_err());
-        assert!(remove(&lib, &id).unwrap().is_none());
+
+        // several at once (D153): a series, a creator, a tag (one case for it), a game
+        let ids: Vec<String> = read(&lib).videos.iter().map(|v| v.id.clone()).collect();
+        assert_eq!(edit_many(&ix, &lib, &ids, &json!({ "series": "Mega Man week", "tag_add": "Favourites" })).unwrap()["changed"], 3);
+        edit_many(&ix, &lib, &ids[..1], &json!({ "tag_add": "favourites", "source": "Someone" })).unwrap();
+        let all = read(&lib);
+        assert!(all.videos.iter().all(|v| v.series.as_deref() == Some("Mega Man week") && v.tags == ["Favourites"]), "{:?}", all.videos);
+        assert_eq!(all.videos[0].source.as_deref(), Some("Someone"));
+        edit_many(&ix, &lib, &ids, &json!({ "tag_remove": "FAVOURITES", "series": "", "game_add": "nes/Golf (USA)" })).unwrap();
+        let all = read(&lib);
+        assert!(all.videos.iter().all(|v| v.series.is_none() && v.tags.is_empty() && v.games.iter().filter(|g| g.key == "nes/Golf (USA)").count() == 1));
+        assert!(edit_many(&ix, &lib, &["nothing".into()], &json!({ "series": "x" })).is_err());
+        // a picture of its own, shown on its tile; its game's cover when it has none
+        let pic = dir.join("pic.png");
+        ::image::RgbImage::from_pixel(4, 4, ::image::Rgb([1, 2, 3])).save(&pic).unwrap();
+        assert!(set_picture(&lib, &ids[0], Some(&dir.join("notes.txt"))).is_err());
+        set_picture(&lib, &ids[0], Some(&pic)).unwrap();
+        let with = read(&lib).videos.into_iter().find(|v| v.id == ids[0]).unwrap();
+        assert!(v.join(with.picture.as_deref().unwrap()).is_file());
+        let shown = overview(&ix, &lib);
+        let first = shown["videos"].as_array().unwrap().iter().find(|x| x["id"] == ids[0].as_str()).unwrap().clone();
+        assert!(first["picture_path"].as_str().unwrap().starts_with("Videos/pictures/"), "{first}");
+
+        assert!(remove(&lib, &[id.clone()]).unwrap().is_none());
         assert!(read(&lib).videos.iter().all(|v| v.id != id));
 
         // a file is set aside by a change, and Undo brings it back
         let mm_id = read(&lib).videos.iter().find(|v| v.title.starts_with("Mega Man 2")).unwrap().id.clone();
-        let rm = remove(&lib, &mm_id).unwrap().unwrap();
+        let rm = remove(&lib, &[mm_id.clone()]).unwrap().unwrap();
         assert_eq!(rm.kind, "video_remove");
+        assert_eq!(rm.ops.iter().filter(|o| o.op == "aside").count(), 2, "its file and its picture");
         assert!(read(&lib).videos.iter().any(|v| v.id == mm_id), "listed until the change runs");
         let r = organise::run(&ix, &lib, &rm, &cancel, &mut |_| {}).unwrap();
         assert!(r["failed"].as_array().unwrap().is_empty(), "{r}");
@@ -915,5 +1086,11 @@ mod tests {
         organise::undo(&ix, &lib, r["id"].as_str().unwrap(), &cancel, &mut |_| {}).unwrap();
         assert!(v.join("Reviews").join("Mega Man 2, reviewed.mkv").is_file());
         assert_eq!(read(&lib).videos.len(), 2);
+        assert!(v.join(with.picture.as_deref().unwrap()).is_file(), "its picture back too");
+
+        // several removed in one change
+        let ids: Vec<String> = read(&lib).videos.iter().map(|v| v.id.clone()).collect();
+        let rm = remove(&lib, &ids).unwrap().unwrap();
+        assert_eq!((rm.title.as_str(), rm.ops.iter().filter(|o| o.op == "aside").count()), ("Remove 2 videos", 3));
     }
 }

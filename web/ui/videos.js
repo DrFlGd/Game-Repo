@@ -1,11 +1,13 @@
-// Videos (docs/PLAN.md, D146): walkthroughs, reviews, retrospectives and others, kept in the
-// library's Videos/<Kind>/ folders or as web links, each with the games it's about. Import
-// videos… reads a folder into a review list (each one's title, kind and date from its name,
-// its games found in its title, put right here) and brings them in as a change with a
-// preview and Undo; Add a link… keeps a web video, opened in the browser. The page filters
-// them by kind, system and words, plays a file here (`#/videos/<id>`, video.js), and lets
-// each one's details and games be changed; a game's page lists its videos.
-import { html, useState, useEffect } from "../lib/html.js";
+// Videos (docs/PLAN.md, D146, D153): walkthroughs, reviews, retrospectives and others, kept
+// in the library's Videos/<Kind>/ folders or as web links, each with the games it's about.
+// Import videos… reads a folder into a review list (each one's title, kind and date from its
+// name, its games found in its title, put right here) and brings them in as a change with a
+// preview and Undo; Add a link… keeps a web video, opened in the browser. The page is laid
+// out as the Library is (shelf.js): filtered by kind, series, creator, tag, system, game and
+// year, grouped and sorted, as tiles, lines or a table; what's picked is changed together
+// (its series, creator, kind, tags, games) or one at a time in the panel. A file plays above
+// the list (`#/videos/<id>`, video.js); a game's page lists its videos.
+import { html, useState, useEffect, useMemo } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
@@ -15,11 +17,12 @@ import { CommandBar, EditBox } from "./layout.js";
 import { Dialog, More, close, confirmDialog } from "./dialogs.js";
 import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { importFrom } from "./importpage.js";
-import { gameHash } from "./browse.js";
+import { gameHash, systemColour } from "./browse.js";
 import { Video } from "./video.js";
 import { useDroppedFiles } from "./documents.js";
 import { Icon } from "./icons.js";
 import { useRouteArg, argHash } from "./panels.js";
+import { Shelf, useShelfState, Pic, PanelActions, TagEdit, askValue, askGame, byName } from "./shelf.js";
 
 const err = (e) => e.message || String(e);
 const again = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
@@ -162,48 +165,85 @@ export async function importVideos(files = false, given = null) {
 
 export const addVideoLink = () => ui.set({ dialog: { type: "video-link" } });
 
-/** A video's details and games, changed by hand. */
-function VideoEdit({ v, off, onChange }) {
-  const [q, setQ] = useState("");
-  const [found, setFound] = useState([]);
-  useEffect(() => {
-    if (q.trim().length < 2) { setFound([]); return; }
-    let gone = false;
-    const t = setTimeout(() => api("browse_query", { query: { search: q, all: true, one_per_title: true, limit: 8 } })
-      .then((r) => { if (!gone) setFound(r.items || []); }).catch(() => { if (!gone) setFound([]); }), 200);
-    return () => { gone = true; clearTimeout(t); };
-  }, [q]);
+// ------------------------------------------------------------ the page (D153)
+
+const kindOrder = (k) => { const i = KINDS.findIndex(([x]) => x === k); return i < 0 ? 99 : i; };
+const kindName = (k) => KINDS.find(([x]) => x === k)?.[1] || k;
+const IS = { file: "A file", link: "A link", nogame: "About no game", gone: "Its file is gone" };
+const thumb = (p, px = 512) => (p ? libraryUrl(`~thumb/${px}/${p}`) : null);
+/** A video's pictures: the one chosen for it, else its games' covers. */
+const pics = (v, px) => [thumb(v.picture_path, px), ...v.games.map((g) => thumb(g.picture, px))];
+const noPic = (v) => ({ icon: v.file ? "video" : "external", colour: systemColour(v.kind) });
+
+const SORTS = [
+  ["title", "Title", (a, b) => byName(a.title, b.title)],
+  ["date", "Date", (a, b) => (a.date ? 0 : 1) - (b.date ? 0 : 1) || byName(a.date, b.date)],
+  ["length", "Length", (a, b) => (b.length || 0) - (a.length || 0)],
+  ["added", "Added", (a, b) => byName(b.added, a.added)],
+];
+const GROUPS = [["", "None"], ["kind", "Kind"], ["series", "Series"], ["creator", "Creator"], ["tag", "Tag"], ["system", "System"], ["year", "Year"]];
+const COLUMNS = [
+  ["title", "Title", (v) => v.title, "title"],
+  ["kind", "Kind", (v) => v.kind_name, null],
+  ["series", "Series", (v) => v.series || "", null],
+  ["creator", "Creator", (v) => v.source || "", null],
+  ["games", "Games", (v) => v.games.map((g) => g.title).join(", "), null],
+  ["date", "Date", (v) => v.date || "", "date"],
+  ["length", "Length", (v) => duration(v.length) || "", "length"],
+  ["size", "Size", (v) => (v.file ? size(v.size) : "A link"), null],
+];
+const COLS = "minmax(160px, 3fr) 104px minmax(80px, 1.3fr) minmax(80px, 1.3fr) minmax(100px, 2fr) 92px 64px 72px";
+
+/** What's changed of several videos at once (D153): their kind, series or creator, a tag, a game. */
+async function editMany(ids, patch) {
+  const r = await api("video_edit_many", { ids, patch });
+  again();
+  return r;
+}
+
+/** Remove videos: links are taken off the list at once (asked first); files are a change with the preview and Undo. */
+async function removeVideos(list) {
+  const ids = list.map((v) => v.id);
+  const title = list.length === 1 ? `Remove ${list[0].title}?` : `Remove ${plural(list.length, "video", "videos")}?`;
+  if (!list.some((v) => v.file)) return confirmDialog({ title, text: list.length === 1 ? "Its link is taken off the list." : "Their links are taken off the list.", button: "Remove them", run: async () => { await api("video_remove", { ids }); again(); } });
+  try {
+    const r = await api("video_remove", { ids });
+    if (r.plan) ui.set({ dialog: { type: "organise", plan: r.plan } });
+    else again();
+  } catch (e) {
+    toast(`Couldn't plan it: ${err(e)}`, 8000);
+  }
+}
+
+/** One video in the panel: its picture, its details and tags and games, changed here. */
+function VideoPanel({ v, off, tags, actions }) {
   const edit = async (patch) => {
     try {
       await api("video_edit", { id: v.id, patch });
-      onChange();
+      again();
     } catch (e) {
       toast(err(e), 8000);
     }
   };
-  const game = async (key, on) => {
-    try {
-      await api("video_game", { id: v.id, key, on });
-      onChange();
-    } catch (e) {
-      toast(err(e), 8000);
-    }
-  };
-  return html`<section class="ls-section" id="video-edit" data-id=${v.id}><h2>${v.title}</h2>
-    <div class="pick-row">
-      <${EditBox} id="video-edit-title" caption="Title" label="Title" value=${v.title} off=${off} onSave=${(x) => x && edit({ title: x })} />
-      <label class="edit-row"><span class="edit-cap">Kind</span><${KindSelect} id="video-edit-kind" value=${v.kind} off=${off} onChange=${(k) => edit({ kind: k })} /></label>
-      <${EditBox} id="video-edit-date" caption="Date" label="Date (YYYY-MM-DD)" placeholder="YYYY-MM-DD" value=${v.date || ""} off=${off} onSave=${(x) => edit({ date: x })} />
-      <${EditBox} id="video-edit-source" caption="Source" label="Who made it, or where it's from" placeholder="A channel, a site" value=${v.source || ""} off=${off} onSave=${(x) => edit({ source: x })} />
-      ${!v.file ? html`<${EditBox} id="video-edit-url" caption="Address" label="Its address" value=${v.url || ""} off=${off} onSave=${(x) => x && edit({ url: x })} />` : null}
-    </div>
+  const many = (patch) => editMany([v.id], patch).catch((e) => toast(err(e), 8000));
+  return html`<div class="shelf-panel" id="video-edit" data-id=${v.id}>
+    <${Pic} srcs=${pics(v, 512)} none=${noPic(v)} cls="lib-panel-cover" px=${64} />
+    <h2 id="video-panel-title">${v.title}</h2>
+    <p class="muted">${videoFacts(v)}</p>
+    <${PanelActions} page="video" actions=${actions} />
+    <${EditBox} id="video-edit-title" caption="Title" label="Title" value=${v.title} off=${off} onSave=${(x) => x && edit({ title: x })} />
+    <label class="edit-row"><span class="edit-cap">Kind</span><${KindSelect} id="video-edit-kind" value=${v.kind} off=${off} onChange=${(k) => edit({ kind: k })} /></label>
+    <${EditBox} id="video-edit-series" caption="Series" label="The series it's part of" placeholder="A show, a let's play" value=${v.series || ""} off=${off} onSave=${(x) => edit({ series: x })} />
+    <${EditBox} id="video-edit-source" caption="Creator" label="Who made it, or where it's from" placeholder="A channel, a site" value=${v.source || ""} off=${off} onSave=${(x) => edit({ source: x })} />
+    <${EditBox} id="video-edit-date" caption="Date" label="Date (YYYY-MM-DD)" placeholder="YYYY-MM-DD" value=${v.date || ""} off=${off} onSave=${(x) => edit({ date: x })} />
+    ${!v.file ? html`<${EditBox} id="video-edit-url" caption="Address" label="Its address" value=${v.url || ""} off=${off} onSave=${(x) => x && edit({ url: x })} />` : null}
+    <h3>Tags</h3>
+    <${TagEdit} id="video-tags" tags=${v.tags} all=${tags} off=${off} onAdd=${(t) => many({ tag_add: t })} onRemove=${(t) => many({ tag_remove: t })} />
     <h3>Games</h3>
-    ${v.games.length ? html`<ul class="ls-list" id="video-games">${v.games.map((g) => html`<li key=${g.key} data-key=${g.key}><a href=${gameHash(g.key)}>${g.title}</a>${" "}<span class="muted">${g.platform_name}</span>
-      <button type="button" class="ghost compact" data-action="drop-game" disabled=${off} onClick=${() => game(g.key, false)}>Take off</button></li>`)}</ul>` : html`<p class="muted">None yet: add the games it's about.</p>`}
-    <input type="search" class="compact" id="video-game-search" aria-label="A game to add: its title" placeholder="Add a game: its title" value=${q} disabled=${off} onInput=${(e) => setQ(e.target.value)} />
-    ${found.length ? html`<ul class="ls-list" id="video-game-found">${found.map((x) => html`<li key=${x.key} data-key=${x.key}><span>${x.title}${" "}<span class="muted">${x.platform_name}</span></span>
-      <button type="button" class="ghost compact" data-action="add-game" disabled=${off || v.games.some((g) => g.key === x.key)} onClick=${async () => { await game(x.key, true); setQ(""); }}>Add</button></li>`)}</ul>` : null}
-  </section>`;
+    ${v.games.length ? html`<ul class="ls-list shelf-games" id="video-games">${v.games.map((g) => html`<li key=${g.key} data-key=${g.key}><a href=${gameHash(g.key)}>${g.title}</a>${" "}<span class="muted">${g.platform_name}</span>
+      <button type="button" class="ghost compact" data-action="drop-game" disabled=${off} title="It isn't about this game" onClick=${() => many({ game_remove: g.key })}>Remove</button></li>`)}</ul>` : html`<p class="muted">None yet: add the games it's about.</p>`}
+    <button type="button" class="ghost compact" id="video-add-game" disabled=${off} onClick=${() => askGame({ title: "Add a game", button: "Add it", run: (g) => g && editMany([v.id], { game_add: g.key }) })}>${Icon.plus(14)} Add a game…</button>
+  </div>`;
 }
 
 export function Videos() {
@@ -211,72 +251,90 @@ export function Videos() {
   const off = !!s.library?.read_only;
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  const [kind, setKind] = useState("all");
-  const [system, setSystem] = useState("");
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState(null);
+  const [st, set] = useShelfState("videos", { sort: "title" });
   const playing = useRouteArg("videos");
   // files dropped here are imported, as videos (D78)
   useDroppedFiles(() => "videos");
-  const reload = () => api("videos").then((d) => { setData(d); setError(""); }).catch((e) => setError(err(e)));
-  useEffect(() => { if (s.library) reload(); }, [s.changes, s.library?.path]);
+  useEffect(() => {
+    if (!s.library) return;
+    api("videos").then((d) => { setData(d); setError(""); }).catch((e) => setError(err(e)));
+  }, [s.changes, s.library?.path]);
   const videos = data?.videos || [];
-  // a link is taken off at once; a file's removal is a change, shown first (its preview asks)
-  const remove = async (v) => {
-    if (!v.file) return confirmDialog({ title: `Remove ${v.title}?`, text: "Its link is taken off the list.", button: "Remove it", run: async () => { await api("video_remove", { id: v.id }); again(); } });
+  const names = useMemo(() => {
+    const m = { system: new Map(), game: new Map() };
+    for (const v of videos) for (const g of v.games) { m.system.set(g.platform, g.platform_name); m.game.set(g.key, `${g.title} (${g.platform_name})`); }
+    return m;
+  }, [data]);
+  const words = useMemo(() => {
+    const of = (f) => [...new Set(videos.flatMap(f).filter(Boolean))].sort(byName);
+    return { tags: of((v) => v.tags || []), series: of((v) => [v.series]), creators: of((v) => [v.source]) };
+  }, [data]);
+  const tags = words.tags;
+  const fields = [
+    { id: "kind", name: "Kind", of: (v) => [v.kind], label: kindName, order: (a, b) => kindOrder(a.value) - kindOrder(b.value), groupOrder: (a, b) => kindOrder(a.value) - kindOrder(b.value) },
+    { id: "series", name: "Series", of: (v) => [v.series], long: true, none: "In no series" },
+    { id: "creator", name: "Creator", of: (v) => [v.source], long: true, none: "No creator given" },
+    { id: "tag", name: "Tag", of: (v) => v.tags, long: true, none: "No tags" },
+    { id: "system", name: "System", of: (v) => v.games.map((g) => g.platform), label: (p) => names.system.get(p) || p, none: "About no game" },
+    { id: "game", name: "Game", of: (v) => v.games.map((g) => g.key), label: (k) => names.game.get(k) || k, long: true },
+    { id: "year", name: "Year", of: (v) => [v.date?.slice(0, 4)], order: "newest", groupOrder: "newest", none: "No date" },
+    { id: "is", name: "Is", of: (v) => [v.file ? "file" : "link", v.games.length ? null : "nogame", v.gone ? "gone" : null], label: (x) => IS[x] || x },
+  ];
+  const actions = (list) => {
+    const one = list.length === 1 ? list[0] : null;
+    const ids = list.map((v) => v.id);
+    const theirTags = [...new Set(list.flatMap((v) => v.tags || []))].sort(byName);
+    const common = (k) => (list.every((v) => (v[k] || "") === (list[0][k] || "")) ? list[0][k] || "" : "");
+    const fail = (e) => toast(err(e), 8000);
+    return [
+      { id: "watch", label: "Watch", icon: one && !one.file ? "external" : "video", one: true, disabled: !!one?.gone, run: () => one && watch(one) },
+      { id: "series", label: "Set the series…", icon: "stack", disabled: off, run: () => askValue({ title: "Set the series", label: "The series they're part of", value: common("series"), list: words.series, empty: true, button: "Set it", note: "Leave it empty to take them out of a series.", run: (x) => editMany(ids, { series: x }) }) },
+      { id: "creator", label: "Set the creator…", icon: "edit", disabled: off, run: () => askValue({ title: "Set the creator", label: "Who made them, or where they're from", value: common("source"), list: words.creators, empty: true, button: "Set it", run: (x) => editMany(ids, { source: x }) }) },
+      { id: "kind", label: "Set the kind…", icon: "layers", disabled: off, run: () => askValue({ title: "Set the kind", label: "Kind", value: common("kind") || "walkthrough", options: KINDS.map(([k, n]) => [k, n]), button: "Set it", run: (x) => editMany(ids, { kind: x }) }) },
+      { id: "tag-add", label: "Add a tag…", icon: "pin", disabled: off, run: () => askValue({ title: "Add a tag", label: "The tag", list: tags, button: "Add it", note: "A tag is a label of your own, such as Favourites or To watch.", run: (x) => editMany(ids, { tag_add: x }) }) },
+      { id: "tag-remove", label: "Remove a tag…", icon: "close", disabled: off || !theirTags.length, run: () => askValue({ title: "Remove a tag", label: "The tag", value: theirTags[0], options: theirTags.map((t) => [t, t]), button: "Remove it", run: (x) => editMany(ids, { tag_remove: x }) }) },
+      { id: "game-add", label: "Add a game…", icon: "gamepad", disabled: off, run: () => askGame({ title: "Add a game", button: "Add it", note: list.length > 1 ? `It's added to each of the ${list.length} videos.` : null, run: (g) => g && editMany(ids, { game_add: g.key }).catch(fail) }) },
+      { id: "picture", label: one?.picture ? "Choose another picture…" : "Choose a picture…", icon: "image", one: true, disabled: off || !isDesktop(), run: () => one && choosePicture(one) },
+      ...(one?.picture ? [{ id: "picture-off", label: "Take its picture off", icon: "close", one: true, disabled: off, run: () => api("video_picture", { id: one.id, picture: null }).then(again, fail) }] : []),
+      { id: "show", label: "Show in folder", icon: "folder", one: true, disabled: !isDesktop() || !one?.file || one?.gone, run: () => one && reveal(`${s.library.path}/${one.path}`) },
+      { id: "remove", label: "Remove…", icon: "trash", disabled: off, run: () => removeVideos(list) },
+    ];
+  };
+  const choosePicture = async (v) => {
+    const p = await ctx.platform.library.pickFile(`A picture for ${v.title}`, ["jpg", "jpeg", "png", "webp"]);
+    if (!p) return;
     try {
-      const r = await api("video_remove", { id: v.id });
-      if (r.plan) ui.set({ dialog: { type: "organise", plan: r.plan } });
-      else again();
+      await api("video_picture", { id: v.id, picture: p });
+      again();
     } catch (e) {
-      toast(`Couldn't plan it: ${err(e)}`, 8000);
+      toast(err(e), 8000);
     }
   };
+  // with videos to show, Import videos… is under ⋯, as the Library's Import… is
   const more = () => [
+    ...(videos.length ? [{ id: "video-import-more", label: "Import videos…", icon: "inbox", disabled: off || !isDesktop(), run: () => importFrom("import-videos", () => importVideos()) }] : []),
     { id: "video-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => importFrom("import-videos", () => importVideos(true)) },
     { id: "video-add-link", label: "Add a link…", icon: "external", disabled: off, run: addVideoLink },
   ];
-  const head = html`<${CommandBar} id="video-head" title="Videos" count=${data ? plural(videos.length, "video", "videos") : null}
-    primary=${html`<button type="button" class="primary compact" id="video-import" disabled=${off || !isDesktop()} onClick=${() => importFrom("import-videos", () => importVideos())}>${Icon.inbox(15)} Import videos…</button>`}
-    more=${{ id: "video-menu", title: "Import files, add a link", items: more }} />`;
-  if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
-  if (error) return html`${head}<div class="pages"><p class="warn-note" role="alert">${error}</p></div>`;
-  if (!data) return html`${head}<div class="pages"><p class="muted">Reading…</p></div>`;
-  const systems = [...new Map(videos.flatMap((v) => v.games.map((g) => [g.platform, g.platform_name]))).entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = videos.filter((v) => (kind === "all" || v.kind === kind) && (!system || v.games.some((g) => g.platform === system))
-    && words.every((w) => [v.title, v.source || "", ...v.games.map((g) => g.title)].join(" ").toLowerCase().includes(w)));
+  const primary = html`<button type="button" class="primary compact" id="video-import" disabled=${off || !isDesktop()} onClick=${() => importFrom("import-videos", () => importVideos())}>${Icon.inbox(15)} Import videos…</button>`;
+  if (!s.library) return html`<${CommandBar} id="videos-head" title="Videos" /><div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   const now = videos.find((v) => v.id === playing && v.file);
-  const editing = videos.find((v) => v.id === open);
-  return html`${head}<div class="pages videos-page" id="videos-page">
-    ${!videos.length ? html`<div class="library-settings" id="video-empty">
-      <p class="page-lead">Walkthroughs, reviews, retrospectives and other videos about your games: files kept in the library, or links to videos on the web.</p>
-      <p class="muted">Import videos… reads a folder of them, takes each one's title, kind and date from its name, finds the games in its title, and imports them into the library's Videos folder. It's on the <a href=${routeHash("import")}>Import</a> page, where files dropped on the window go too. Add a link… keeps a video on the web, opened in your browser.</p>
-      <button type="button" class="ghost compact" id="video-add-link-empty" disabled=${off} onClick=${addVideoLink}>${Icon.external(14)} Add a link…</button>
-    </div>` : html`
-      ${now ? html`<section class="ls-section video-player" id="video-player" data-id=${now.id}>
-        <div class="video-player-head"><h2>${now.title}</h2>
-          <button type="button" class="ghost compact" id="video-player-close" onClick=${() => { location.hash = routeHash("videos"); }}>${Icon.close(14)} Close</button></div>
-        ${now.gone ? html`<p class="warn-note">Its file isn't in the library any more: ${now.path}.</p>` : html`<${Video} key=${now.id} cls="video-big" rel=${now.path} src=${libraryUrl(now.path)} />`}
-        <p class="muted">${videoFacts(now)}${now.url ? html`${" · "}<a href=${now.url} onClick=${(e) => { e.preventDefault(); ctx.platform.openUrl(now.url); }}>On the web</a>` : null}</p>
-      </section>` : null}
-      <div class="pick-row video-filters" id="video-filters">
-        <div class="seg audit-tabs" role="tablist" id="video-kinds">${[["all", "All", videos.length], ...KINDS.map(([k, , label]) => [k, label, videos.filter((v) => v.kind === k).length])].filter(([k, , n]) => k === "all" || n).map(([k, label, n]) => html`<button type="button" role="tab" key=${k} data-kind=${k} aria-selected=${kind === k ? "true" : "false"} onClick=${() => setKind(k)}>${label} <span class="tab-count">${n}</span></button>`)}</div>
-        ${systems.length > 1 ? html`<select class="compact" id="video-system" aria-label="System" value=${system} onChange=${(e) => setSystem(e.target.value)}>
-          <option value="">Every system</option>${systems.map(([id, name]) => html`<option key=${id} value=${id}>${name}</option>`)}</select>` : null}
-        <input type="search" class="compact" id="video-search" aria-label="Search the videos" placeholder="Title, game or source" value=${q} onInput=${(e) => setQ(e.target.value)} />
-      </div>
-      ${shown.length ? html`<ul class="ls-list video-list" id="video-list">${shown.map((v) => html`<li key=${v.id} class=${playing === v.id ? "video-row playing" : "video-row"} data-id=${v.id} data-kind=${v.kind}>
-        <button type="button" class="ghost video-watch" data-action="watch" title=${v.file ? "Watch it here" : "Watch it in your browser"} disabled=${v.file && v.gone} onClick=${() => watch(v)}>${v.file ? Icon.video(18) : Icon.external(18)}</button>
-        <span class="video-main"><b class="video-title">${v.title}</b>
-          <small class="muted">${videoFacts(v)}</small>
-          ${v.games.length ? html`<span class="video-games">${v.games.map((g) => html`<a class="pc-badge video-chip" key=${g.key} href=${gameHash(g.key)} title=${`${g.title} (${g.platform_name})`}>${g.title}</a>`)}</span>` : null}</span>
-        <span class="seg">
-          <button type="button" class="ghost compact" data-action="edit" aria-pressed=${open === v.id ? "true" : "false"} title="Change its title, kind, date and games" onClick=${() => setOpen(open === v.id ? null : v.id)}>${Icon.edit(14)}</button>
-          ${v.file && isDesktop() && !v.gone ? html`<button type="button" class="ghost compact" data-action="show" title="Show its file in its folder" onClick=${() => reveal(`${s.library.path}/${v.path}`)}>${Icon.folder(14)}</button>` : null}
-          <button type="button" class="ghost compact" data-action="remove" disabled=${off} title="Remove it" onClick=${() => remove(v)}>${Icon.trash(14)}</button>
-        </span>
-      </li>`)}</ul>` : html`<p class="muted" id="video-none-shown">No video is ${kind !== "all" ? `a ${KINDS.find((k) => k[0] === kind)[1].toLowerCase()}` : "of these"}${system ? ` about a ${systems.find((x) => x[0] === system)?.[1]} game` : ""}${words.length ? " with those words" : ""}.</p>`}
-      ${editing ? html`<${VideoEdit} key=${editing.id} v=${editing} off=${off} onChange=${reload} />` : null}`}
+  const top = now ? html`<section class="video-player" id="video-player" data-id=${now.id}>
+    <div class="video-player-head"><h2>${now.title}</h2>
+      <button type="button" class="ghost compact" id="video-player-close" onClick=${() => { location.hash = routeHash("videos"); }}>${Icon.close(14)} Close</button></div>
+    ${now.gone ? html`<p class="warn-note">Its file isn't in the library any more: ${now.path}.</p>` : html`<${Video} key=${now.id} cls="video-big" rel=${now.path} src=${libraryUrl(now.path)} />`}
+    <p class="muted">${videoFacts(now)}${now.url ? html`${" · "}<a href=${now.url} onClick=${(e) => { e.preventDefault(); ctx.platform.openUrl(now.url); }}>On the web</a>` : null}</p>
+  </section>` : null;
+  const empty = html`<div class="library-settings" id="video-empty">
+    <p class="page-lead">Walkthroughs, reviews, retrospectives and other videos about your games: files kept in the library, or links to videos on the web.</p>
+    <p class="muted">Import videos… reads a folder of them, takes each one's title, kind and date from its name, finds the games in its title, and imports them into the library's Videos folder. It's on the <a href=${routeHash("import")}>Import</a> page, where files dropped on the window go too. Add a link… keeps a video on the web, opened in your browser.</p>
+    <button type="button" class="ghost compact" id="video-add-link-empty" disabled=${off} onClick=${addVideoLink}>${Icon.external(14)} Add a link…</button>
   </div>`;
+  return html`<${Shelf} page="videos" noun=${["video", "videos"]} title="Videos" items=${data ? videos : null} error=${error} st=${st} set=${set}
+    fields=${fields} groups=${GROUPS} sorts=${SORTS} ratio="16 / 9" columns=${COLUMNS} cols=${COLS}
+    text=${(v) => [v.title, v.source, v.series, ...(v.tags || []), ...v.games.map((g) => g.title)].join(" ")}
+    tile=${(v) => ({ pics: pics(v, 512), none: noPic(v), badge: { text: v.kind_name, colour: systemColour(v.kind) }, title: v.title, meta: [v.series, v.source, duration(v.length)].filter(Boolean).join(" · ") || (v.file ? v.date : "A link"), missing: v.gone })}
+    line=${(v) => ({ pics: pics(v, 256), none: noPic(v), badge: v.games.length ? { text: v.games.map((g) => g.title).slice(0, 2).join(", ") } : null, title: v.title, meta: [videoFacts(v), v.series].filter(Boolean).join(" · "), missing: v.gone })}
+    actions=${actions} onOpen=${watch} top=${top} primary=${videos.length ? null : primary} more=${more} moreTitle="Import files, add a link, tile size" empty=${empty}
+    panel=${(v) => html`<${VideoPanel} v=${v} off=${off} tags=${tags} actions=${actions([v]).filter((a) => ["watch", "show", "picture", "remove"].includes(a.id))} />`} />`;
 }

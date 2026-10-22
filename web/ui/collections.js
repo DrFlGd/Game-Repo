@@ -1,6 +1,6 @@
 // Collections (docs/PLAN.md, "Phase 3 design"): a collection is rules (systems, which
-// games, 1G1R and its region order, languages, flags left out, a search, DATs as
-// sources) plus games added or left out by hand, kept in the library and worked out
+// games, 1G1R and its region order, languages, flags removed, a search, DATs as
+// sources) plus games added or removed by hand, kept in the library and worked out
 // from the index when shown. It can hold groups (D75): each a part of it with a name and
 // its own way of choosing games (rules, a DAT or folders), shown as a section of its
 // games; the first group is the collection's own fields. It's saved as DATs (one per
@@ -27,7 +27,7 @@ const CARDS = [4, 8, 16, 32, 64, 128, 256, 512, 1000];
 const GB = 1e9;
 const cardName = (n) => (n >= 1000 ? `${n / 1000} TB` : `${n} GB`);
 
-/** The flags a collection can leave out, as the DATs' names say them. */
+/** The flags whose games a collection can remove, as the DATs' names say them. */
 export const FLAGS = [
   ["beta", "Betas"], ["proto", "Prototypes"], ["demo", "Demos"], ["sample", "Samples"], ["unl", "Unlicensed"],
   ["pirate", "Pirate"], ["aftermarket", "Aftermarket"], ["bios", "BIOS"], ["program", "Programs"], ["kiosk", "Kiosk"],
@@ -493,7 +493,7 @@ function RulesEditor({ rules: r, onSet, off, prefix = "rule", id = "collection-r
   const systems = [...new Map(dats.filter((d) => d.current && d.platform !== "bios").map((d) => [d.platform, d.platform_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
   const datNames = [...new Set(dats.map((d) => d.name))].sort().map((n) => [n, n]);
   const own = r.dats || [];
-  const more = [own.length ? `games of ${own.join(", ")}` : "", r.languages.length ? `languages ${r.languages.join(", ")}` : "", r.exclude.length ? `${r.exclude.length} left out` : "", r.search ? `names with "${r.search}"` : "", r.tags?.length ? `tags ${r.tags.join(", ")}` : "", r.from_dats.length ? plural(r.from_dats.length, "DAT", "DATs") : ""].filter(Boolean).join(" · ");
+  const more = [own.length ? `games of ${own.join(", ")}` : "", r.languages.length ? `languages ${r.languages.join(", ")}` : "", r.exclude.length ? `${r.exclude.length} removed` : "", r.search ? `names with "${r.search}"` : "", r.tags?.length ? `tags ${r.tags.join(", ")}` : "", r.from_dats.length ? plural(r.from_dats.length, "DAT", "DATs") : ""].filter(Boolean).join(" · ");
   const text = (k, v) => html`<input type="text" id=${`${prefix}-${k}`} class="compact" disabled=${off} value=${v} onChange=${(e) => set({ [k]: k === "search" ? e.target.value : list(e.target.value) })} />`;
   return html`<fieldset class="rules" id=${id} disabled=${off}>
     <div class="field-block"><span class="field-label">Systems</span>
@@ -508,7 +508,7 @@ function RulesEditor({ rules: r, onSet, off, prefix = "rule", id = "collection-r
     <label class="field-block"><span class="field-label">Variants</span>
       <select id=${`${prefix}-variants`} class="compact" value=${r.variants || ""} title="Translations, hacks and the like, kept in each system's custom DAT" onChange=${(e) => set({ variants: e.target.value })}>
         <option value="">With the other games</option>
-        <option value="without">Leave them out</option>
+        <option value="without">Remove them</option>
         <option value="only">Only variants</option>
       </select></label>
     <label class="check-row"><input type="checkbox" id=${`${prefix}-1g1r`} checked=${r.one_per_title} onChange=${(e) => set({ one_per_title: e.target.checked })} /> One game per title (1G1R)</label>
@@ -518,18 +518,18 @@ function RulesEditor({ rules: r, onSet, off, prefix = "rule", id = "collection-r
       <label class="check-row"><input type="checkbox" id=${`${prefix}-only-regions`} checked=${r.only_regions} onChange=${(e) => set({ only_regions: e.target.checked })} /> Only these regions</label>
     </div>
     <details class="rules-more" id=${prefix === "rule" ? "rules-more" : `${prefix}-more`}>
-      <summary>More rules <span class="muted">${more || "another DAT, languages, leave out, names, tags, DATs"}</span></summary>
+      <summary>More rules <span class="muted">${more || "another DAT, languages, what to remove, names, tags, DATs"}</span></summary>
       <div class="rules-more-body">
       <div class="field-block"><span class="field-label">Its games from these DATs, not from your audited games (optional)</span>
         <${Ticks} id=${`${prefix}-dats`} items=${datNames} value=${own} onChange=${(v) => set({ dats: v })} />
         <small class="muted">A system's translations, hacks or homebrew in a DAT of their own: the group's games are that DAT's, picked by the rules here.</small></div>
       <label class="field-block"><span class="field-label">Languages (optional)</span>${text("languages", r.languages.join(", "))}
-        <small class="muted">e.g. En, Fr: games that list none of them are left out (those that list no language are kept).</small></label>
-      <div class="field-block"><span class="field-label">Leave out</span>
+        <small class="muted">e.g. En, Fr: games that list none of them are removed (those that list no language are kept).</small></label>
+      <div class="field-block"><span class="field-label">Remove from it</span>
         <${Ticks} id=${`${prefix}-exclude`} items=${FLAGS} value=${r.exclude} onChange=${(v) => set({ exclude: v })} /></div>
       <label class="field-block"><span class="field-label">Names with (optional)</span>${text("search", r.search)}</label>
       <label class="field-block"><span class="field-label">Only variants with these tags (optional)</span>${text("tags", (r.tags || []).join(", "))}
-        <small class="muted">e.g. English Translated, Hack: the variants with none of them are left out; the other games stay.</small></label>
+        <small class="muted">e.g. English Translated, Hack: the variants with none of them are removed; the other games stay.</small></label>
       <div class="field-block"><span class="field-label">Only games in these DATs (optional)</span>
         <${Ticks} id=${`${prefix}-from-dats`} items=${datNames} value=${r.from_dats} onChange=${(v) => set({ from_dats: v })} />
         <small class="muted">A DAT of your own (a best-of list, a RetroAchievements list) picks the games, by name or by any file's hashes.</small></div>
@@ -583,7 +583,7 @@ function Properties({ c, sum, off, onSave, onPick }) {
       <div><dt>Systems</dt><dd id="prop-systems">${sum.systems.length}</dd></div>
       <div><dt>Size on disk</dt><dd id="prop-size" data-bytes=${sum.size}>${size(sum.size)}</dd></div>
       ${missing ? html`<div><dt>Games you don't have</dt><dd id="prop-missing" data-bytes=${sum.missing_size}>${missing}, about ${size(sum.missing_size)} more <span class="muted">(unpacked, as their DATs list them)</span></dd></div>` : null}
-      ${sum.removed ? html`<div><dt>Left out by hand</dt><dd>${sum.removed}</dd></div>` : null}
+      ${sum.removed ? html`<div><dt>Removed by hand</dt><dd>${sum.removed}</dd></div>` : null}
     </dl>
     <div class="field-block"><span class="field-label">Size limit</span>
       <div class="pick-row">
@@ -597,7 +597,7 @@ function Properties({ c, sum, off, onSave, onPick }) {
       </div>
       ${limit ? html`<div class="size-limit" id="collection-fit" data-over=${over ? "true" : "false"}>
         <div class="audit-bar" role="img" aria-label=${`${size(sum.size)} of ${size(limit)}`}><span style=${`width:${Math.min(100, (100 * sum.size) / limit)}%`}></span></div>
-        <p>${over ? html`<b>Over by ${size(sum.size - limit)}</b>: ${size(sum.size)} of ${size(limit)}. Sort the games biggest first to see what to leave out, or narrow the systems.`
+        <p>${over ? html`<b>Over by ${size(sum.size - limit)}</b>: ${size(sum.size)} of ${size(limit)}. Sort the games biggest first to see what to remove, or narrow the systems.`
           : html`<b>Fits</b>: ${size(sum.size)} of ${size(limit)}, ${size(limit - sum.size)} to spare.`}</p>
         <small class="muted">${size(limit)} is as Windows counts it${preset && preset !== "other" ? ` (a ${cardName(limit / GB)} card)` : ""}; the card's own file system takes a little of it, and a handheld's firmware may share it.${missing ? " Games you don't have aren't counted." : ""}</small>
       </div>` : null}
@@ -648,7 +648,7 @@ function History({ c, off, onChange }) {
       row=${(s) => html`<li key=${s.id} data-how=${s.how} data-undone=${s.undone ? "yes" : "no"}>
         <span class="op-paths"><span><b>${HOW[s.how] || s.how}</b> <span class="muted">${new Date(s.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${s.undone ? " · undone" : ""}</span></span>
           ${s.added_count ? names("history-added", "Added", s.added, s.added_count) : null}
-          ${s.removed_count ? names("history-removed", "Took out", s.removed, s.removed_count) : null}
+          ${s.removed_count ? names("history-removed", "Removed", s.removed, s.removed_count) : null}
           ${!s.added_count && !s.removed_count ? html`<span class="muted">The same games.</span>` : null}</span>
         ${s.can_undo ? html`<button type="button" class="ghost compact" data-action="undo" disabled=${off || !!busy} onClick=${() => undo(s)}>${busy === s.id ? "Undoing…" : "Undo"}</button>` : null}
       </li>`} />`}
@@ -846,7 +846,7 @@ export function Collections() {
   };
   const apply = (change) => queue(() => save(typeof change === "function" ? change(latest.current) : change));
   const quietly = (change) => apply(change).catch(() => {});
-  /** Games left out, put back or added by hand: each in the group that has them (D75). */
+  /** Games removed, put back or added by hand: each in the group that has them (D75). */
   const hand = (what) => queue(async () => {
     const r = await api("collection_hand", { id: latest.current.id, ...what });
     ui.set((st) => ({ changes: (st.changes || 0) + 1 }));
@@ -860,7 +860,7 @@ export function Collections() {
     run: (name) => apply((x) => withGroup(x, g.id, (y) => ({ ...y, name }))) } });
   const removeGroup = (g, i) => confirmDialog({
     title: `Remove the group ${g.name}?`, button: "Remove",
-    text: `Its rules and the games added or left out of it by hand go from ${c.name}, and with them its games no other group has.${i === 0 ? ` ${groupsOf(c)[1]?.name} becomes the first group.` : ""} History can undo it.`,
+    text: `Its rules and the games added to it or removed from it by hand go from ${c.name}, and with them its games no other group has.${i === 0 ? ` ${groupsOf(c)[1]?.name} becomes the first group.` : ""} History can undo it.`,
     undoable: true, run: () => apply((x) => withoutGroup(x, g.id)),
   });
   const duplicate = () => ui.set({ dialog: { type: "collection-name", title: `Duplicate ${c.name}`, value: `${c.name} (copy)`, button: "Duplicate", run: async (name) => {
@@ -869,11 +869,11 @@ export function Collections() {
     again();
   } } });
   const remove = () => confirmDialog({
-    title: `Delete ${c.name}?`, text: `The collection's rules${groupsOf(c).some((g) => g.made_from) ? ", its own DATs" : ""}${many ? ", its groups" : ""} and the games added or left out by hand are deleted. Its games, DATs saved from it and its exports aren't touched.`, button: "Delete",
+    title: `Delete ${c.name}?`, text: `The collection's rules${groupsOf(c).some((g) => g.made_from) ? ", its own DATs" : ""}${many ? ", its groups" : ""} and the games added or removed by hand are deleted. Its games, DATs saved from it and its exports aren't touched.`, button: "Delete",
     // (its address goes too, so the page doesn't ask for it again)
     run: async () => { await api("collection_delete", { id: c.id }); setFallback(null); if (arg) location.hash = routeHash("collections"); else again(); },
   });
-  const leaveOut = (keys) => hand({ leave_out: keys });
+  const removeGames = (keys) => hand({ leave_out: keys });
   const putBack = (keys) => hand({ put_back: keys });
   /** A group's systems (by id; "" is the first): those its rules name, else every one with a DAT. */
   const systemsOf = (gid = "") => {
@@ -893,7 +893,7 @@ export function Collections() {
     ui.set({ dialog: { type: "export", c, sum, only, count: picked.all && q.trim() ? only.length : picked.count } });
   };
   const openGame = (g, i) => {
-    Object.assign(opened, { query: { ...lq }, index: i, total: games.total, key: g.key });
+    Object.assign(opened, { query: { ...lq }, index: i, total: games.total, key: g.key, name: c.name });
     location.hash = gameHash(g.key);
   };
   const gameActions = show === "out" ? [
@@ -902,7 +902,7 @@ export function Collections() {
   ] : [
     { id: "open", label: "Open", icon: "external", one: true, run: () => picked.one && openGame(picked.one, picked.anchor) },
     { id: "export-these", label: "Export these…", icon: "stack", disabled: off, run: exportThese },
-    { id: "leave-out", label: "Leave out", icon: "close", disabled: off, run: async () => { leaveOut((await chosen()).map((g) => g.key)); picked.clear(); } },
+    { id: "remove-from", label: "Remove from collection", icon: "close", disabled: off, run: async () => { removeGames((await chosen()).map((g) => g.key)); picked.clear(); } },
   ];
   const barItems = () => gameActions.filter((a) => picked.count === 1 || !a.one);
   const onMenu = (e, g, i) => {
@@ -910,7 +910,7 @@ export function Collections() {
     const single = !picked.selected(g.key) || picked.count <= 1;
     picked.pickForMenu(g, i);
     const one = {
-      "open": () => openGame(g, i), "leave-out": () => leaveOut([g.key]), "put-back": () => putBack([g.key]),
+      "open": () => openGame(g, i), "remove-from": () => removeGames([g.key]), "put-back": () => putBack([g.key]),
       "export-these": () => ui.set({ dialog: { type: "export", c, sum, only: [g.key], count: 1 } }),
     };
     openMenu(e, gameActions.filter((a) => single || !a.one).map((a) => ({ ...a, run: a.id === "open" || single ? one[a.id] : a.run })));
@@ -976,7 +976,7 @@ export function Collections() {
   const views = [["games", "Games"], ["rules", c?.made_from ? "Source" : "Rules"], ["size", "Size"], ["exports", "Exported to", exports.filter((e) => e.collection === c?.id).length], ["history", "History"]];
   const sysTabs = sum && sum.systems.length > 1 ? [["", "All", sum.games], ...sum.systems.map((x) => [x.platform, x.name, x.games])] : [];
   const top = c ? html`<div class="collection-top">
-    <p id="collection-totals"><b id="collection-games">${sum.games}</b> ${sum.games === 1 ? "game" : "games"}, <b id="collection-have">${sum.have}</b> you have${sum.removed ? html`, ${sum.removed} left out by hand` : null}${sum.addons ? html`, <span id="collection-addons">${plural(sum.addons, "update or DLC", "updates and DLC")}</span>` : null}${many ? html` · <span id="collection-group-count">${plural(groups.length, "group", "groups")}</span>` : null}${` · ${plural(sum.systems.length, "system", "systems")} · ${size(sum.size)}`}${limit ? html` <span class=${sum.size > limit ? "fit over" : "fit"} id="collection-fit-line">${sum.size > limit ? `over its ${size(limit)} limit by ${size(sum.size - limit)}` : `of ${size(limit)}, fits`}</span>` : null}
+    <p id="collection-totals"><b id="collection-games">${sum.games}</b> ${sum.games === 1 ? "game" : "games"}, <b id="collection-have">${sum.have}</b> you have${sum.removed ? html`, ${sum.removed} removed by hand` : null}${sum.addons ? html`, <span id="collection-addons">${plural(sum.addons, "update or DLC", "updates and DLC")}</span>` : null}${many ? html` · <span id="collection-group-count">${plural(groups.length, "group", "groups")}</span>` : null}${` · ${plural(sum.systems.length, "system", "systems")} · ${size(sum.size)}`}${limit ? html` <span class=${sum.size > limit ? "fit over" : "fit"} id="collection-fit-line">${sum.size > limit ? `over its ${size(limit)} limit by ${size(sum.size - limit)}` : `of ${size(limit)}, fits`}</span>` : null}
       <span class="muted"> · ${sourceText(c.made_from, c.rules)}</span></p>
     ${sum.no_dat.map((x) => html`<p class="warn-note" key=${x.platform}>${x.name} has no DAT, so its games aren't known.</p>`)}
     ${sum.missing_dats.map((x) => html`<p class="warn-note" key=${x}>The DAT ${x} isn't in the library any more.</p>`)}
@@ -988,14 +988,14 @@ export function Collections() {
   if (view === "games") {
     // made empty, or only of games added by hand (D141)
     const byHand = groupsOf(c).every((g) => !g.made_from && g.rules?.include === "none");
-    const hint = show === "out" ? "These are left out by hand. Click a game to pick it (Ctrl or Shift for more, Ctrl+A for all of them), then Put back; double-click opens its page."
-      : "Click a game to pick it (Ctrl or Shift for more, Ctrl+A for all of them), then Export these… or Leave out; double-click opens its page.";
+    const hint = show === "out" ? "These were removed by hand. Click a game to pick it (Ctrl or Shift for more, Ctrl+A for all of them), then Put back; double-click opens its page."
+      : "Click a game to pick it (Ctrl or Shift for more, Ctrl+A for all of them), then Export these… or Remove from collection; double-click opens its page.";
     const tools = html`<div class="audit-tools collection-tools">
       ${sysTabs.length ? html`<select id="collection-systems" class="compact" aria-label="System" value=${platform} onChange=${(e) => setPlatform(e.target.value)}>
         ${sysTabs.map(([k, label, n]) => html`<option key=${k || "all"} value=${k}>${k ? label : "Every system"} (${n})</option>`)}</select>` : null}
       <select id="collection-show" class="compact" aria-label="Show" value=${show} onChange=${(e) => setShow(e.target.value)}>
         <option value="in">In it (${sum.games})</option>
-        <option value="out">Left out by hand (${sum.removed})</option>
+        <option value="out">Removed by hand (${sum.removed})</option>
       </select>
       <input type="search" id="collection-search" class="compact" placeholder="Search the games" aria-label="Search the games" value=${q} onInput=${(e) => setQ(e.target.value)} />
       <${ViewSwitch} id="collection-look" views=${VIEWS} value=${look} onChange=${pickLook} />
@@ -1012,7 +1012,7 @@ export function Collections() {
         ${!games.loading && !games.total ? (!q && show === "in" && byHand ? html`<div class="lib-none" id="collection-none" data-empty="hand">
           <p>No games yet. Add them here with <b>Add games…</b>, or pick games in the Library (or open a game's page) and choose <b>Add to a collection…</b>.</p>
           <div class="home-actions"><a class="button ghost" id="collection-to-library" href=${routeHash("library")}>Open the Library</a></div></div>`
-          : html`<p class="muted lib-none" id="collection-none">${q ? "No game here matches the search." : show === "out" ? "No games left out by hand." : "No games: loosen the rules, or add games by hand."}</p>`) : null}
+          : html`<p class="muted lib-none" id="collection-none">${q ? "No game here matches the search." : show === "out" ? "No games removed by hand." : "No games: loosen the rules, or add games by hand."}</p>`) : null}
         ${ready ? html`<${Games} games=${games} q=${lq} set=${(p) => { if (p.sort) { setSort(p.sort); setDesc(!!p.desc); } }} view=${look} px="medium" selected=${picked.selected} onPick=${picked.pick} onOpen=${openGame} onMenu=${onMenu} scrollRef=${scrollRef} jump=${jump} />` : null}
       </div>
     </div>`;
@@ -1025,7 +1025,7 @@ export function Collections() {
         ${c.made_from ? html`<${Source} c=${c} g=${ruled[0]} off=${off} onRead=${() => readAgain(ruled[0])} />` : null}
         <section class="ls-section collection-rules-section">
           <h2>${c.made_from ? "More rules" : "Rules"}</h2>
-          ${c.made_from ? html`<p class="muted">Every game of its own DATs is in it. Rules narrow it further: one per title, regions, flags left out.</p>` : null}
+          ${c.made_from ? html`<p class="muted">Every game of its own DATs is in it. Rules narrow it further: one per title, regions, the flags removed.</p>` : null}
           <${RulesEditor} key=${c.id} rules=${c.rules} off=${off} onSet=${rulesOf(ruled[0])} />
         </section>
         <section class="ls-section" id="collection-groups-none">
@@ -1040,7 +1040,7 @@ export function Collections() {
             <button type="button" class="ghost compact" data-action="group-rename" disabled=${off} onClick=${() => renameGroup(g)}>Rename…</button>
             <button type="button" class="ghost compact" data-action="group-remove" disabled=${off} onClick=${() => removeGroup(g, i)}>Remove…</button></div>
           ${g.made_from ? html`<${Source} c=${c} g=${g} n=${i} inner=${true} off=${off} onRead=${() => readAgain(g)} />` : null}
-          ${g.made_from ? html`<h3>More rules</h3><p class="muted">Every game of its own DATs is in it. Rules narrow it further: one per title, regions, flags left out.</p>` : null}
+          ${g.made_from ? html`<h3>More rules</h3><p class="muted">Every game of its own DATs is in it. Rules narrow it further: one per title, regions, the flags removed.</p>` : null}
           <${RulesEditor} key=${`${c.id}/${g.id}`} rules=${g.rules} off=${off} onSet=${rulesOf(g)} prefix=${i ? `rule-${i}` : "rule"} id=${i ? `collection-rules-${i}` : "collection-rules"} />
         </section>`)}
         <div class="home-actions"><button type="button" class="ghost" id="collection-add-group" disabled=${off} onClick=${addGroup}>${Icon.plus(14)} Add a group…</button></div>

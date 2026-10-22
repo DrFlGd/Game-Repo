@@ -214,6 +214,11 @@ const MIGRATIONS: &[(&str, &str)] = &[
         // D118: a system's DATs ticked *Include in Audit*, from library.json `also_dats`
         "ALTER TABLE dats ADD COLUMN also INTEGER NOT NULL DEFAULT 0;",
     ),
+    (
+        "library_folder",
+        // D155: a document's game (its key and picture) found by its folder
+        "CREATE INDEX library_folder ON library (folder);",
+    ),
 ];
 
 /// How many schema steps this build knows.
