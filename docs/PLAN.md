@@ -5359,8 +5359,9 @@ collection's page says how, with a button to the Library.
 installer: `game-repo.exe`'s icon is the folder pad), but Windows keeps the icons of
 shortcuts and pinned programs in a cache, so a taskbar pin or Start menu shortcut made
 before 0.5.38 can go on showing the old one. Each installer now asks Windows to refresh its
-icons after installing (`SHChangeNotify` with `SHCNE_ASSOCCHANGED`, and `ie4uinit.exe
--show`), and the installers themselves show the program's icon in place of NSIS's.
+icons after installing (`ie4uinit.exe -show`, started and not waited for: the installer's
+own `SHChangeNotify` hung it in CI's automated install), and the installers themselves show
+the program's icon in place of NSIS's.
 
 **D144 A review of the wording.** Every page, dialog, message and the Help page, read for
 plain, short wording and one word for one thing (the glossary in Help is the list: a
