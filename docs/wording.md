@@ -57,7 +57,7 @@ words below to the person using the app; this file is the list for whoever write
 | **waiting** | A file imported into a collection that no DAT knows yet; it joins when one does. | pending, queued |
 | **export** | Copying a collection's games (and their pictures and the rest) for a frontend, a device or a folder. | sync, deploy |
 | **export layout** | Where an export puts each thing. | template, profile |
-| **details** | What's known about a game: title, year, genre, description… | metadata (except the *Metadata* page's name), info |
+| **details** | What's known about a game: title, year, genre, description… | metadata (except the *Metadata* page's name and its *Delete metadata…*), info |
 | **pictures** | Box fronts, screenshots, logos and the rest. *Picture kinds* are the sorts of picture. | media, images, artwork (except for PC games' *art*) |
 | **source** | Where details and pictures come from (ScreenScraper, IGDB…). A collection's *Source* is what it was made from. | provider, scraper, database |
 | **scrape** | Asking the sources about your games and keeping what they say. | fetch, download metadata |

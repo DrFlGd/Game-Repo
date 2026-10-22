@@ -95,6 +95,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 - **Empty collections.** *New collection* has a fourth way, *Empty*: just a name. Add games later with *Add games…* on its page, or *Add to a collection…* in the Library or on a game's page; its page says how until it has some.
 - **ScreenScraper's threads come from your account.** Each time the account is read (*Check* in Settings › Sources, or a scrape starting), *Threads at once* shows how many it allows. A number you type is kept (at most the account's), and *Use the account's* puts it back.
 - **Include in Audit.** The tick in Audit › *DATs…* that adds another DAT to a system's audit was *Audit with it too*; it's now *Include in Audit*.
+- **Clearer wording throughout.** Every page, dialog and message of Game Repo, Game Repo Server and Game Repo Go was read for plain, short wording and one word for one thing (`docs/wording.md` has the list): a ROM is a *file* of a game, pictures are *pictures* (not media), the game page's ribbon is *Pictures*, Settings' *Metadata* section is *Details and pictures*, Game Repo Go *pairs* with the server, buttons end in "…" only when they open a dialog, and messages start with *Couldn't* and say what to do. Help's *Words used in the app* has eleven more.
 - **The new icons on the taskbar and Start menu.** Each Windows installer asks Windows to refresh its cached icons after installing, so a pin made before 0.5.38 shows the folder pad, and the installers show the program's icon.
 
 ## 0.5.44 (2026-10-21)
