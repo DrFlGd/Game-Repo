@@ -131,6 +131,7 @@ export const PAGES = [
   ]],
   ["history", "History", "Every change the app has made to your files, newest first, a day at a time.", [
     "Steps lists what a change did; Undo the newest; finish a change that was interrupted; empty what changes set aside, to free the space.",
+    "A library two computers share (on a network drive) is changed by one at a time: a change started on one waits while Game Repo on the other is changing it, saying which computer, and History shows a change running there as Running on that computer. If that computer stopped part way, its change shows as Interrupted here ten minutes later, to finish or put back.",
   ]],
   ["settings", "Settings", "How the app works for this library and this computer.", [
     "The library's name and folder, how the folders with games are scanned, systems added by hand, naming, preferred formats, and where PC games and their inbox are.",

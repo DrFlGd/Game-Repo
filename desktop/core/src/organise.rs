@@ -1499,11 +1499,12 @@ pub fn history(lib: &Library, running: &[String]) -> Result<Value> {
     ids.reverse();
     let mut out = vec![];
     let mut undo_next = true;
+    let away = crate::lock::elsewhere(lib);
     for id in ids {
         let Ok(plan) = load(lib, &id) else { continue };
         let st = read_state(lib, &id);
         let held: u64 = aside_dirs(lib, &id).iter().map(|d| dir_size(d)).sum();
-        let state = if running.contains(&id) {
+        let state = if running.contains(&id) || away.as_ref().is_some_and(|h| h.change.as_deref() == Some(id.as_str())) {
             "running"
         } else if st.undone {
             "undone"
@@ -1519,6 +1520,10 @@ pub fn history(lib: &Library, running: &[String]) -> Result<Value> {
         }
         let mut s = plan.summary();
         s["state"] = json!(state);
+        // running on another computer sharing the library (D148)
+        if let Some(h) = away.as_ref().filter(|h| h.change.as_deref() == Some(id.as_str())) {
+            s["running_on"] = json!(h.computer);
+        }
         s["done_ops"] = json!(st.done.len());
         s["can_undo"] = json!(can_undo);
         s["held"] = json!(held);
@@ -2006,6 +2011,8 @@ fn update_index(conn: &Connection, roots: &[Root], op: &Op, written: Option<&Wri
 /// turn, checked, with the index kept up to date. `progress` gets `{ item, items, name }`.
 pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress: &mut dyn FnMut(Value)) -> Result<Value> {
     lib.writable()?;
+    // another computer changing the library is waited for (D148)
+    let _lock = crate::lock::wait(lib, if plan.title.is_empty() { &plan.label } else { &plan.title }, Some(&plan.id), cancel, progress)?;
     let id = plan.id.clone();
     let path = plan_path(lib, &id);
     if !path.exists() {
@@ -2159,6 +2166,7 @@ pub fn finish(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress
 /// originals it set aside put back. Only the newest change still done can be undone.
 pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: &mut dyn FnMut(Value)) -> Result<Value> {
     lib.writable()?;
+    let _lock = crate::lock::wait(lib, "undoing a change", Some(id), cancel, progress)?;
     let hist = history(lib, &[])?;
     let entry = hist.as_array().into_iter().flatten().find(|h| h["id"] == id).cloned().ok_or_else(|| anyhow!("There's no change {id} in the history."))?;
     if entry["can_undo"] != true {
@@ -2538,6 +2546,38 @@ mod tests {
         let h = history(&f.lib, &[]).unwrap();
         assert_eq!(h[0]["state"], "undone");
         assert_eq!(h[0]["can_undo"], false);
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    // D148: a change waits while another computer is changing the library, and History says
+    // which of its changes that computer is running
+    #[test]
+    fn a_change_waits_for_another_computers_and_history_says_whose_is_running() {
+        let (f, dat) = setup("organise-lock");
+        let plan = plan(&f.ix, &f.lib, &opts(dat, "rename", "keep")).unwrap();
+        crate::lock::tests::other_computer(&f.lib, "Import 2 games", Some("theirs"), 20);
+        let stop = AtomicBool::new(false);
+        let mut said = vec![];
+        let e = run(&f.ix, &f.lib, &plan, &stop, &mut |p| {
+            said.push(p["text"].as_str().unwrap_or("").to_string());
+            stop.store(true, Ordering::Relaxed);
+        })
+        .unwrap_err();
+        assert_eq!((e.to_string().as_str(), said[0].as_str()), ("stopped", "waiting: Game Repo on OTHER-PC is changing this library (Import 2 games)"));
+        assert!(f.gb.join("beta.gb").is_file(), "nothing changed");
+        // their change, journalled and not finished, is running there (not to be finished here)
+        let mut theirs = plan.clone();
+        theirs.id = "theirs".into();
+        crate::config::write_json(&plan_path(&f.lib, "theirs"), &serde_json::to_value(&theirs).unwrap()).unwrap();
+        let h = history(&f.lib, &[]).unwrap();
+        let t = h.as_array().unwrap().iter().find(|c| c["id"] == "theirs").unwrap();
+        assert_eq!((&t["state"], &t["running_on"], &t["can_undo"]), (&json!("running"), &json!("OTHER-PC"), &json!(false)));
+        let _ = std::fs::remove_file(plan_path(&f.lib, "theirs"));
+        // left for ten minutes: that computer stopped, and the change goes ahead
+        crate::lock::tests::other_computer(&f.lib, "Import 2 games", Some("theirs"), 700);
+        let r = go(&f, &plan);
+        assert_eq!(r["done"], 1, "{r}");
+        assert!(crate::lock::holder(&f.lib).is_none(), "let go when it's done");
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 

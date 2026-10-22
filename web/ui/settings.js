@@ -287,7 +287,7 @@ function ChangeRow({ c, busy, off, act, empty }) {
   const [open, setOpen] = useState(false);
   return html`<li key=${c.id} data-change=${c.id} data-state=${c.state} data-kind=${c.kind}>
     <span class="change-label"><span>${c.label}</span><span class="muted">${new Date(c.created).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${plural(c.ops, "step", "steps")}${c.held ? ` · ${size(c.held)} set aside` : ""}</span></span>
-    <span class=${c.state === "interrupted" ? "badge review" : "badge"}>${STATE[c.state] || c.state}</span>
+    <span class=${c.state === "interrupted" ? "badge review" : "badge"} title=${c.running_on ? `Game Repo on ${c.running_on} is running it: it can be undone here once it's finished` : null}>${c.running_on ? `Running on ${c.running_on}` : STATE[c.state] || c.state}</span>
     ${c.ops ? html`<button type="button" class="ghost" data-action="steps" aria-expanded=${open ? "true" : "false"} onClick=${() => setOpen(!open)}>${open ? "Hide the steps" : "Steps"}</button>` : null}
     ${c.state === "interrupted" ? html`<button type="button" class="ghost" data-action="finish" disabled=${busy || off} onClick=${() => act(() => finishChange(c.id).then(() => "Finished it."))}>Finish</button>` : null}
     ${c.can_undo ? html`<button type="button" class="ghost" data-action="undo" disabled=${busy || off} title=${c.state === "interrupted" ? "Put back what it had done, as it was before it started" : null} onClick=${() => act(() => undoChange(c.id))}>${c.state === "interrupted" ? "Put back" : "Undo"}</button>` : null}

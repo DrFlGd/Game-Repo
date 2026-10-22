@@ -57,6 +57,7 @@ pub mod index;
 pub mod launchbox;
 pub mod layout;
 pub mod library;
+pub mod lock;
 pub mod magazines;
 pub mod magtext;
 pub mod videos;

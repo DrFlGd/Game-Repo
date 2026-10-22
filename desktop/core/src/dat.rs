@@ -617,6 +617,7 @@ pub fn import(ix: &Index, lib: &Library, path: &Path, answers: &Map<String, Valu
 /// `import`, with Stop and `progress(read, total)` in bytes (a ZIP's DATs' as unpacked).
 pub fn import_with(ix: &Index, lib: &Library, path: &Path, answers: &Map<String, Value>, cancel: &AtomicBool, progress: &mut dyn FnMut(u64, u64)) -> Result<Vec<Imported>> {
     lib.writable()?;
+    let _lock = crate::lock::take(lib, "importing DATs")?;
     let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if !is_zip(path)? {
         let total = std::fs::metadata(path)?.len();
