@@ -61,7 +61,7 @@ function System({ s, open }) {
       ${s.yours ? html`<span class="muted">you have games for it</span>` : null}
       <span class=${`bios-badge ${badge}`}>${s.have} of ${plural(all, "file", "files")}</span></summary>
     <ul class="bios-files">${s.files.map((f, i) => html`<li key=${i} class=${`bios-${f.status}`} data-status=${f.status}>
-      <code>${f.name}</code>${f.size ? html` <span class="muted">${size(f.size)}</span>` : null} · <span title=${f.at || null}>${STATUS[f.status]}</span>${f.loose === false ? html` <span class="muted">(inside a ZIP: Import BIOS files… takes it out, and exports carry it then)</span>` : null}</li>`)}</ul>
+      <code>${f.name}</code>${f.size ? html` <span class="muted">${size(f.size)}</span>` : null} · <span title=${f.at || null}>${STATUS[f.status]}</span>${f.loose === false ? html` <span class="muted">(inside a ZIP: Import BIOS files… takes it out, so exports can carry it)</span>` : null}</li>`)}</ul>
   </details></li>`;
 }
 
@@ -71,7 +71,7 @@ export async function importBios() {
     const plan = await api("bios_gather_plan");
     ui.set({ dialog: { type: "bios-gather", plan } });
   } catch (e) {
-    toast(`Couldn't plan it: ${err(e)}`, 8000);
+    toast(`Couldn't plan the import: ${err(e)}`, 8000);
   }
 }
 

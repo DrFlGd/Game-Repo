@@ -57,7 +57,7 @@ function SystemDialog({ system }) {
     setError("");
     try {
       const s = await saveSystem({ id: shownId, name, dat_names: datNames, folders, exts, media }, system?.id || null);
-      toast(editing ? `Saved ${s.name}.` : `Added ${s.name}: DATs named ${s.dat_names[0] || "as it"} are found for it.`, 6000);
+      toast(editing ? `Saved ${s.name}.` : `Added ${s.name}: DATs named ${s.dat_names[0] || "after it"} are found for it.`, 6000);
       close();
     } catch (e) {
       setError(e.message || String(e));
@@ -110,12 +110,12 @@ export function SystemsSection({ lib }) {
   };
   return html`<section class="ls-section" id="settings-systems">
     <h2>Systems</h2>
-    <p class="muted">The systems the app knows. Add one it doesn't (a DAT's system, a computer, a handheld) and its DATs, folders and files are found like any other's. Added systems are kept in the library.</p>
+    <p class="muted">The systems Game Repo knows. Add one it doesn't (a DAT's system, a computer, a handheld) and its DATs, folders and files are found like any other's. Added systems are kept in the library.</p>
     ${added.length ? html`<ul class="ls-list change-list" id="systems-added">${added.map((p) => html`<li key=${p.id} data-system=${p.id}>
       <span class="change-label"><span><b>${p.name}</b> <span class="muted">${p.id}</span></span>
         <span class="muted">${[p.dat_names?.length ? `DATs: ${p.dat_names.join(", ")}` : "No DAT names yet", p.exts?.length ? `.${p.exts.join(", .")}` : null, withDats(p.id) ? `${withDats(p.id)} DAT${withDats(p.id) === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ")}</span></span>
       <button type="button" class="ghost" data-action="edit" disabled=${off} onClick=${() => open(p)}>Change…</button>
-      <button type="button" class="ghost" data-action="remove" disabled=${off || withDats(p.id) > 0} title=${withDats(p.id) ? "Remove its DATs first (DAT files, above)" : null} onClick=${() => remove(p)}>Remove</button>
+      <button type="button" class="ghost" data-action="remove" disabled=${off || withDats(p.id) > 0} title=${withDats(p.id) ? "Remove its DATs first (Import › DAT files)" : null} onClick=${() => remove(p)}>Remove…</button>
     </li>`)}</ul>` : html`<p class="muted" id="systems-none">No systems added yet.</p>`}
     <div class="home-actions">
       <button type="button" class="ghost" id="system-add" disabled=${off} onClick=${() => open(null)}>Add a system…</button>

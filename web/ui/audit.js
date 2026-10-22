@@ -56,16 +56,16 @@ export const SET_TYPES = [
 ];
 
 const HELP = {
-  have: "Games with every ROM their DAT lists.",
-  partial: "Games with some of their ROMs (a multi-file game missing a part).",
+  have: "Games with every file their DAT lists.",
+  partial: "Games with some of their files (a multi-file game missing a part).",
   missing: "Games the DAT lists that none of your files match. Save a list of what's missing writes them as a DAT (a fixdat).",
   matched: "Files that match the DAT and are named as it names them.",
   misnamed: "Files that match the DAT under another name.",
-  baddump: "Files named as one of the DAT's ROMs that don't match it: likely corrupt, trimmed or patched copies.",
+  baddump: "Files named as one of the DAT's files that don't match it: likely corrupt, trimmed or patched copies.",
   unknown: "Files of this system that no DAT for it knows, each with the game it's likely a variant of. They stay out of the Library until they're added as variants or games of their own.",
   unknown_arcade: "Files of this system that no DAT for it knows: hacks, bootlegs or files for another system.",
-  variants: "Translations, hacks, prototypes and games no DAT lists, kept in the system's custom DAT. Each shows under its own name, with its tags, and the details and pictures of the game it's a variant of.",
-  duplicates: "Files that match the same ROM as another file. Setting them aside keeps the copy that's named right (or the first).",
+  variants: "Translations, hacks, prototypes and games no DAT lists, kept in the system's custom DAT. Each shows under its own name, with its tags and its original's details and pictures.",
+  duplicates: "More than one file for the same file of the DAT. Setting them aside keeps the copy that's named right (or the first).",
   sets: "The BIOS sets and devices the games lean on. They're kept as ZIPs of their own and copied with the games that need them.",
 };
 
@@ -107,7 +107,7 @@ function Table({ items, tab, arcade, platform, onConvert }) {
         <td>${it.kind === "bios" ? "BIOS set" : "Device"}</td><td>${it.status === "have" ? "Have" : it.status === "partial" ? "Partly there" : "Missing"}</td><td>${it.manufacturer || ""}</td>`))}</tbody></table>`;
   }
   if (games) {
-    return html`<table class="audit-table" id="audit-list-table"><thead><tr><th>Name</th><th>Region</th><th>Year</th>${arcade ? html`<th>Maker</th>` : null}<th>Flags</th><th>ROMs</th><th></th></tr></thead>
+    return html`<table class="audit-table" id="audit-list-table"><thead><tr><th>Name</th><th>Region</th><th>Year</th>${arcade ? html`<th>Maker</th>` : null}<th>Flags</th><th>Files</th><th></th></tr></thead>
       <tbody>${items.map((it) => row(it, html`<td class="audit-name" title=${it.shown || null}>${name(it, it.name)}${arcade && it.title && it.title !== it.name ? html` <span class="muted">${it.title}</span>` : null}${it.clone_of ? html` <span class="muted">clone of ${it.clone_of}</span>` : null}
           ${it.needs?.length ? html`<span class="audit-needs" title="It runs once these are in your folders too">Needs ${it.needs.map((n) => `${n.name} (${WHY[n.why] || n.why})`).join(", ")}</span>` : null}
           ${it.samples?.length ? html`<span class="muted audit-samples" title=${`Its sounds, in samples/${it.name}.zip; it runs without them`}>No sounds for ${it.samples.join(", ")}</span>` : null}</td>
@@ -144,7 +144,7 @@ function AuditDatsDialog({ platform, platformName, dats, main, custom, onDone })
     }
   };
   return html`<${Dialog} title=${`${platformName}'s DATs`} id="audit-dats-dialog" onSubmit=${submit} busy=${busy} error=${error} submitLabel="Save">
-    <p class="muted">The main DAT's counts are the totals. A DAT it's audited with too (a translation group's, say) knows files the main one doesn't: they're off Unknown, and its games are in the Library and collections beside the main DAT's.</p>
+    <p class="muted">The main DAT's counts are the totals. A DAT included in Audit (a translation group's, say) knows files the main one doesn't: they're off Unknown, and its games are in the Library and collections beside the main DAT's.</p>
     <ul class="ls-list" id="audit-dats-list">${dats.map((d) => html`<li key=${d.id} data-dat=${d.name}>
       <label class="check-row"><input type="radio" name="audit-main" checked=${m === d.id} onChange=${() => setM(d.id)} /> ${d.name} <span class="muted">${d.version}</span>${m === d.id ? html` <span class="muted">(main)</span>` : null}</label>
       <label class="check-row"><input type="checkbox" class="audit-also" disabled=${m === d.id} checked=${m !== d.id && also.includes(d.name)} onChange=${(e) => tick(d.name, e.target.checked)} /> Include in Audit</label></li>`)}
@@ -268,7 +268,7 @@ export function Audit() {
   const fixdat = async () => {
     try {
       const r = await api("audit_fixdat", { dat });
-      toast(`Wrote a fixdat of ${plural(r.games, "game", "games")} to ${r.rel || r.path}.`, { ms: 10000, actions: isDesktop() ? [{ label: "Show", run: () => reveal(r.path) }] : [] });
+      toast(`Saved a list of ${plural(r.games, "missing game", "missing games")} to ${r.rel || r.path}.`, { ms: 10000, actions: isDesktop() ? [{ label: "Show", run: () => reveal(r.path) }] : [] });
     } catch (e) { toast(`Couldn't save the list of what's missing: ${e.message || e}`, 8000); }
   };
   const copyReport = async () => {
@@ -345,11 +345,11 @@ export function Audit() {
   return html`${head}<div class="pages audit-page" id="audit-page">
     <div class="audit-pick" id="audit-pick" data-platform=${sum.dat.platform}>
       ${data.dats.length > 1 ? html`<label class="field-inline"><span>DAT</span>
-        <select id="audit-dat" class="compact" value=${String(data.main ?? sum.dat.id)} disabled=${data.dats.length < 2} title=${data.dats.length < 2 ? "Import another DAT for this system to choose between them" : "The DAT this system is audited against (kept for Home too)"}
+        <select id="audit-dat" class="compact" value=${String(data.main ?? sum.dat.id)} disabled=${data.dats.length < 2} title=${data.dats.length < 2 ? "Import another DAT for this system to choose between them" : "The main DAT, which the counts come from (on Home too)"}
           onChange=${(e) => { setViewing(null); setDatId(Number(e.target.value)); }}>
           ${data.dats.map((d) => html`<option key=${d.id} value=${String(d.id)}>${d.name} (${d.version})</option>`)}
         </select></label>` : null}
-      <button type="button" class="ghost compact" id="audit-dats" title="The main DAT, the DATs it's audited with too, and Import a DAT…" disabled=${!!s.library?.read_only}
+      <button type="button" class="ghost compact" id="audit-dats" title="The main DAT, the others included in Audit, and Import a DAT…" disabled=${!!s.library?.read_only}
         onClick=${() => ui.set({ dialog: { type: "audit-dats", platform: sum.dat.platform, platformName, dats: data.dats, main: data.main, custom: data.variants?.dat?.name, onDone: (m) => { setViewing(null); setDatId(m); } } })}>${Icon.stack(14)} DATs…</button>
       ${arc && setType ? html`<label class="field-inline"><span>Set type</span>
         <select id="audit-set-type" class="compact" value=${setType} disabled=${!!s.library?.read_only} title=${SET_TYPES.find((t) => t[0] === setType)?.[2]}
@@ -365,7 +365,7 @@ export function Audit() {
         ${" · "}<span title="1G1R: titles (a game and its clones) you have at least one version of">One per title</span> <b id="audit-1g1r">${n("groups_have")} of ${n("groups")}</b>
         ${n("by_crc") ? html` · <span class="muted" title="Files inside ZIPs matched by the checksum the ZIP records. Settings › Scanning › Scan ZIPs › Unpack and hash every file checks them in full.">${plural(n("by_crc"), "file", "files")} matched by the ZIP's checksum</span>` : null}</p>
       ${data.also?.length && !viewing ? html`<p class="muted" id="audit-also">Also in Audit: ${data.also.map((a, i) => html`<span key=${a.dat.id} data-dat=${a.dat.name}>${i ? " · " : ""}${a.dat.name} (${a.dat.version}) <b>${(a.have || 0).toLocaleString()}</b> of ${(a.games || 0).toLocaleString()}${" "}<button type="button" class="linkish audit-also-view" onClick=${() => setViewing(a.dat.id)}>Show its lists</button></span>`)}</p>` : null}
-      ${viewing && sum.dat.id === viewing ? html`<p class="warn-note" id="audit-viewing">These are the lists of ${sum.dat.name}, which ${pName} is audited with too.
+      ${viewing && sum.dat.id === viewing ? html`<p class="warn-note" id="audit-viewing">These are the lists of ${sum.dat.name}, included in Audit for ${pName}.${" "}
         <button type="button" class="linkish" id="audit-viewing-back" onClick=${() => setViewing(null)}>Back to ${data.dats.find((d) => d.id === data.main)?.name || "the main DAT"}</button></p>` : null}
       ${n("needs_tool") ? html`<p class="warn-note" id="audit-needs-tool">${plural(n("needs_tool"), "RVZ file waits", "RVZ files wait")} for dolphin-tool before ${n("needs_tool") === 1 ? "it" : "they"} can be checked. Set where it is in <a href=${routeHash("settings")}>Settings › Tools</a>, then scan.</p>` : null}
     </div>

@@ -357,7 +357,7 @@ function ImportGamesPreview({ plan }) {
     // files no DAT knows that come in wait on Audit's Unknown tab (D123)
     const loose = looseFiles(s);
     const n = loose.reduce((a, x) => a + x.files.length, 0);
-    const review = n ? { text: `${plural(n, "file", "files")} no DAT knows ${n === 1 ? "needs" : "need"} review.`, actions: [{ label: "Review them…", run: () => reviewUnknown(loose[0].platform) }] } : null;
+    const review = n ? { text: `${plural(n, "file", "files")} no DAT knows ${n === 1 ? "needs" : "need"} review.`, actions: [{ label: "Review them", run: () => reviewUnknown(loose[0].platform) }] } : null;
     const note = collectionNote(done, done ? waitingOf(s).length : 0);
     const more = review || note ? { text: [review?.text, note?.text].filter(Boolean).join(" "), actions: [...(review?.actions || []), ...(note?.actions || [])] } : null;
     close();
@@ -381,7 +381,7 @@ const DROPPED = [
   ["pc", "PC games", "Installers, archives and game folders, each into its own folder under PC/.", "import-pc"],
   ["docs", "Documents", "Manuals, guides and scans, each paired with its game.", "import-docs"],
   ["mags", "Magazines", "Issues (PDF, CBZ or CBR) into Magazines/, by magazine.", "import-mags"],
-  ["dats", "DATs", "Lists of games to audit your sets against.", "settings-dats"],
+  ["dats", "DATs", "Lists of games to audit your files against.", "settings-dats"],
   ["bios-dat", "A BIOS DAT", "A list of BIOS files to audit them against.", "import-bios"],
 ];
 
@@ -471,14 +471,14 @@ export function ImportPage() {
       <${Card} id="import-pc" icon="monitor" title="PC games" here=${at === "import-pc"} where="Installers, archives and game folders, each into its own folder under PC/.">
         <button type="button" class="ghost" id="import-pc-files" disabled=${off || !desk} onClick=${() => importPc("files")}>Files…</button>
         <button type="button" class="ghost" id="import-pc-folder" disabled=${off || !desk} onClick=${() => importPc("folder")}>A game's folder…</button>
-        <button type="button" class="ghost" id="import-pc-inbox" disabled=${off} title="Read the PC games inbox (Settings › PC games)" onClick=${() => importPc("inbox")}>The inbox</button>
+        <button type="button" class="ghost" id="import-pc-inbox" disabled=${off} title="Read the PC games inbox (Settings › PC games)" onClick=${() => importPc("inbox")}>The inbox…</button>
       <//>
       <${Card} id="import-bios" icon="chip" title="BIOS files" here=${at === "import-bios"} where="Copied or moved into the library's BIOS folder, by system, from your folders with games.">
         <button type="button" class="ghost" id="import-bios-files" disabled=${off} onClick=${importBios}>Import BIOS files…</button>
         <button type="button" class="ghost" id="import-bios-list" disabled=${off} onClick=${() => starterDats(["bios"])}>Get libretro's list…</button>
         ${desk ? html`<button type="button" class="ghost" id="import-bios-dat" disabled=${off} onClick=${() => importDats(null, { "*": "bios" })}>A BIOS DAT…</button>` : null}
       <//>
-      <${Card} id="import-docs" icon="book" title="Documents" here=${at === "import-docs"} where="Manuals, guides and scans, each paired with its game, into the game's folder.">
+      <${Card} id="import-docs" icon="book" title="Documents" here=${at === "import-docs"} where="Manuals, guides and scans, each paired with its game, into the game's library folder.">
         <button type="button" class="ghost" id="import-docs-folder" disabled=${off || !desk} onClick=${() => attachDocs({ how: "folder" })}>A folder…</button>
         <button type="button" class="ghost" id="import-docs-files" disabled=${off || !desk} onClick=${() => attachDocs({ how: "files" })}>Files…</button>
       <//>

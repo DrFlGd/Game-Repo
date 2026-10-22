@@ -167,7 +167,7 @@ export async function importDats(paths, answers = {}) {
     }
     return r;
   } catch (e) {
-    toast(`Couldn't import: ${e.message || e}`, 8000);
+    toast(`Couldn't import the DATs: ${e.message || e}`, 8000);
     return null;
   }
 }
@@ -215,7 +215,7 @@ async function runStarter(platforms) {
     const n = (r.imported || []).length;
     const extra = [r.skipped?.length ? `${r.skipped.length} already had one` : null, r.missing?.length ? `${r.missing.length} not available` : null, r.failed?.length ? `${r.failed.length} failed` : null].filter(Boolean).join(", ");
     const said = [`${n ? `Imported starter DATs for ${plural(n, "system", "systems")}` : "No starter DATs were needed"}${extra ? ` (${extra})` : ""}.`,
-      ...failedLines(r.failed, (f) => `the ${f.platform} DAT`, "Couldn't get", "DATs"), ...(r.note ? [r.note] : [])];
+      ...failedLines(r.failed, (f) => `the ${(ui.get().platforms || []).find((p) => p.id === f.platform)?.name || f.platform} DAT`, "Couldn't get", "DATs"), ...(r.note ? [r.note] : [])];
     toast(said.join(" "), r.failed?.length || r.note ? 15000 : 8000);
     await refreshGames();
     return r;
@@ -244,7 +244,7 @@ export async function makeDat(opts) {
   if (done.error) throw new Error(done.error);
   const r = done.result;
   await refreshGames();
-  toast(`Wrote ${r.name}: ${plural(r.games, "game", "games")}, ${plural(r.roms, "ROM", "ROMs")}${r.imported?.id ? `, imported for ${r.imported.platform_name}` : ""}.${r.skipped ? ` ${plural(r.skipped, "file wasn't", "files weren't")} scanned yet and ${r.skipped === 1 ? "was" : "were"} left out.` : ""}`,
+  toast(`Wrote ${r.name}: ${plural(r.games, "game", "games")}, ${plural(r.roms, "file", "files")}${r.imported?.id ? `, imported for ${r.imported.platform_name}` : ""}.${r.skipped ? ` ${plural(r.skipped, "file wasn't", "files weren't")} scanned yet and ${r.skipped === 1 ? "was" : "were"} left out.` : ""}`,
     { ms: 10000, actions: isDesktop() ? [{ label: "Show", run: () => reveal(r.path) }] : [] });
   return r;
 }

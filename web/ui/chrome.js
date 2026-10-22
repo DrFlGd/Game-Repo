@@ -35,7 +35,7 @@ export function NavHead() {
     else setPref({ navCollapsed: !nav.collapsed });
   };
   return html`<div class="nav-head-row">
-    <button type="button" class="ghost topicon nav-burger" aria-label=${narrow ? "Close the menu" : nav.collapsed ? "Expand navigation" : "Collapse navigation"} aria-expanded=${nav.open ? "true" : "false"} title="Expand or collapse navigation" onClick=${toggleNav}>${Icon.menu(18)}</button>
+    <button type="button" class="ghost topicon nav-burger" aria-label=${narrow ? "Close the menu" : nav.collapsed ? "Unfold the menu" : "Fold the menu"} aria-expanded=${nav.open ? "true" : "false"} title="Fold or unfold the menu" onClick=${toggleNav}>${Icon.menu(18)}</button>
     <a class="brand" href="#/" title="Home"><${Mark} /><span class="nav-label">Game Repo</span></a>
   </div>`;
 }

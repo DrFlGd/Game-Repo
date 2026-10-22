@@ -1066,7 +1066,7 @@ async def main():
                 check("a count in the table opens that system at that list", "#/audit/gb" in await pg.evaluate("location.hash"))
                 await pg.click("#audit-menu")
                 await pg.click('#context-menu [data-action="export-fixdat"]')
-                said = await toast_text(pg, "fixdat of 3 games")
+                said = await toast_text(pg, "list of 3 missing games")
                 await pg.click("#audit-menu")
                 await pg.click('#context-menu [data-action="save-report-csv"]')
                 await toast_text(pg, "Saved the report")
