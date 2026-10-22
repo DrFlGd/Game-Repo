@@ -133,10 +133,13 @@ pub struct Collection {
     /// What it should fit in, in bytes (an SD card's size, say); none: no limit
     #[serde(default)]
     pub size_limit: Option<u64>,
-    /// What a collection made from folders or a DAT was read from (`folders`, or `dat`),
-    /// for *Read them again…* (D49)
+    /// What a collection made from folders or a DAT was read from (`folders`, `dat`, or
+    /// `import`: folders imported into it, D140), for *Read them again…* (D49)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub made_from: Option<Value>,
+    /// Files imported into it that no DAT knew yet (D140)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub waiting: Vec<Waiting>,
     /// The first group's name (D75); empty: the collection's own
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub group_name: String,
@@ -148,6 +151,28 @@ pub struct Collection {
     pub created: String,
     #[serde(default)]
     pub modified: String,
+}
+
+/// A file imported into a collection (or a group of one) that no DAT knew (D140): it's in
+/// the library, waiting on Audit › Unknown with the system it was given, and joins the
+/// collection once a DAT knows it (added to its system's custom DAT, say).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Waiting {
+    pub platform: String,
+    /// The file's name
+    pub name: String,
+    /// What it holds: each ROM's size and hashes (lowercase hex)
+    pub roms: Vec<WaitingRom>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct WaitingRom {
+    pub size: u64,
+    pub crc32: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sha1: Option<String>,
 }
 
 /// A group of a collection (D75): a name and its own way of choosing games, as a
@@ -164,6 +189,8 @@ pub struct Group {
     pub removed: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub made_from: Option<Value>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub waiting: Vec<Waiting>,
     /// Keys a newer app added
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -179,7 +206,7 @@ impl Collection {
     pub fn all_groups(&self) -> Vec<Group> {
         let first = Group {
             id: String::new(), name: self.first_group_name(), rules: self.rules.clone(), added: self.added.clone(), removed: self.removed.clone(),
-            made_from: self.made_from.clone(), extra: Map::new(),
+            made_from: self.made_from.clone(), waiting: self.waiting.clone(), extra: Map::new(),
         };
         std::iter::once(first).chain(self.groups.iter().cloned()).collect()
     }
@@ -202,6 +229,7 @@ impl Collection {
         self.added = g.added;
         self.removed = g.removed;
         self.made_from = g.made_from;
+        self.waiting = g.waiting;
         self.group_name = if g.name.trim() == self.name.trim() { String::new() } else { g.name.trim().to_string() };
         Ok(())
     }
@@ -364,7 +392,7 @@ pub fn save(lib: &Library, mut c: Collection) -> Result<Collection> {
     }
     // (what it no longer has isn't kept from before)
     if let Some(o) = v.as_object_mut() {
-        for (k, gone) in [("made_from", c.made_from.is_none()), ("group_name", c.group_name.is_empty()), ("groups", c.groups.is_empty())] {
+        for (k, gone) in [("made_from", c.made_from.is_none()), ("waiting", c.waiting.is_empty()), ("group_name", c.group_name.is_empty()), ("groups", c.groups.is_empty())] {
             if gone {
                 o.remove(k);
             }

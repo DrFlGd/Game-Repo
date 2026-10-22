@@ -119,7 +119,7 @@ pub struct App {
 /// The commands that change the library without a job: Game Repo Server is told after
 /// them (and after every job), so the devices see the change.
 const TELLS_SERVER: &[&str] = &[
-    "addon_link", "collection_delete", "collection_from", "collection_hand", "collection_save", "collection_undo", "dat_remove", "dat_use",
+    "addon_link", "collection_delete", "collection_from", "collection_hand", "collection_save", "collection_undo", "collection_waiting_leave", "dat_remove", "dat_use",
     "library_rename", "meta_choose", "meta_clear", "meta_edit", "meta_pick", "meta_pin", "meta_set_details_from", "roots_add", "roots_remove",
     "roots_update", "systems_remove", "systems_set",
 ];
@@ -2128,6 +2128,8 @@ impl App {
                 let id = arg(&args, "id").map_err(e2s)?.to_string();
                 j(self
                     .with_index(move |ix| {
+                        // files that waited on it and a DAT knows now join it (D140)
+                        crate::subset::settle(ix, &lib, &id)?;
                         let c = collection::load(&lib, &id)?;
                         let w = collection::work_out(ix, &lib, &c)?;
                         Ok(json!({ "collection": c, "summary": w.summary() }))
@@ -2291,6 +2293,8 @@ impl App {
                 }
                 let games: Vec<i64> = args["games"].as_array().map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default();
                 let made_from = args["made_from"].clone();
+                // files imported into it that no DAT knows yet (D140)
+                let waiting: Vec<collection::Waiting> = serde_json::from_value(args["waiting"].clone()).unwrap_or_default();
                 j(self
                     .with_index(move |ix| {
                         // read again, or a group added: a step of its history, with the DATs it had kept (D67)
@@ -2301,7 +2305,7 @@ impl App {
                             Some(id) if !group_name.is_empty() => crate::subset::Target::Group(id, &group_name),
                             Some(id) => crate::subset::Target::Again(id, &group),
                         };
-                        let c = crate::subset::save(ix, &lib, into, &games, made_from)?;
+                        let c = crate::subset::save(ix, &lib, into, &games, made_from, waiting)?;
                         match before {
                             Some(b) => crate::history::record(ix, &lib, b, how, None)?,
                             None => crate::history::record(ix, &lib, crate::history::new(&c), "made", None)?,
@@ -2310,6 +2314,12 @@ impl App {
                         Ok(json!({ "collection": c, "summary": w.summary() }))
                     })
                     .await?)
+            }
+            "collection_waiting_leave" => {
+                let lib = self.library()?;
+                let c = crate::subset::leave_waiting(&lib, arg(&args, "id").map_err(e2s)?, args["group"].as_str().unwrap_or(""), arg(&args, "platform").map_err(e2s)?, arg(&args, "name").map_err(e2s)?)
+                    .map_err(e2s)?;
+                j(json!(c))
             }
             "collection_bring_plan" => {
                 let lib = self.library()?;

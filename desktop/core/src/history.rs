@@ -373,10 +373,10 @@ mod tests {
         let _turn = crate::platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let (dir, lib, ix) = fixture("history-read");
         let id_of = |n: &str| -> i64 { ix.conn().query_row("SELECT g.id FROM dat_games g JOIN dats d ON d.id = g.dat_id WHERE d.name = 'Nintendo - Game Boy' AND g.name = ?1", [n], |r| r.get(0)).unwrap() };
-        let c = crate::subset::save(&ix, &lib, crate::subset::Target::New("Read"), &[id_of("Alpha (Europe)"), id_of("Delta (World)")], json!({ "folders": [] })).unwrap();
+        let c = crate::subset::save(&ix, &lib, crate::subset::Target::New("Read"), &[id_of("Alpha (Europe)"), id_of("Delta (World)")], json!({ "folders": [] }), vec![]).unwrap();
         record(&ix, &lib, new(&c), "made", None).unwrap();
         let b = before(&ix, &lib, &c.id, "read", "").unwrap();
-        crate::subset::save(&ix, &lib, crate::subset::Target::Again(&c.id, ""), &[id_of("Delta (World)")], json!({ "folders": ["again"] })).unwrap();
+        crate::subset::save(&ix, &lib, crate::subset::Target::Again(&c.id, ""), &[id_of("Delta (World)")], json!({ "folders": ["again"] }), vec![]).unwrap();
         let step = record(&ix, &lib, b, "read", None).unwrap().unwrap();
         assert_eq!(step["removed"], json!(["gb/Alpha (Europe)"]));
         assert!(dats_dir(&lib, &c.id).unwrap().join(step["id"].as_str().unwrap()).read_dir().unwrap().count() > 0, "its DATs kept");

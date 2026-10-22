@@ -20,6 +20,7 @@ import { Dialog, close, confirmDialog } from "./dialogs.js";
 import { Preview, runPlan } from "./organise.js";
 import { Icon } from "./icons.js";
 import { CarryChoices, NO_CARRY, scrapeDialog } from "./metadata.js";
+import { reviewUnknown } from "./variants.js";
 
 /** Card sizes for a size limit, as their labels say them (64 GB: 64,000,000,000 bytes). */
 const CARDS = [4, 8, 16, 32, 64, 128, 256, 512, 1000];
@@ -48,7 +49,7 @@ async function save(c) {
 
 /** A collection's groups in order (D75): the first is its own fields (id ""), then the others. */
 function groupsOf(c) {
-  const first = { id: "", name: c.group_name || c.name, rules: c.rules, added: c.added, removed: c.removed, made_from: c.made_from };
+  const first = { id: "", name: c.group_name || c.name, rules: c.rules, added: c.added, removed: c.removed, made_from: c.made_from, waiting: c.waiting || [] };
   return [first, ...(c.groups || [])];
 }
 
@@ -56,7 +57,7 @@ function groupsOf(c) {
 function withGroup(c, id, f) {
   if (id) return { ...c, groups: (c.groups || []).map((g) => (g.id === id ? f(g) : g)) };
   const g = f(groupsOf(c)[0]);
-  return { ...c, rules: g.rules, added: g.added, removed: g.removed, made_from: g.made_from, group_name: g.name === c.name ? "" : g.name };
+  return { ...c, rules: g.rules, added: g.added, removed: g.removed, made_from: g.made_from, waiting: g.waiting || [], group_name: g.name === c.name ? "" : g.name };
 }
 
 /** The collection without one of its groups: the first's going makes the next the first. */
@@ -64,7 +65,7 @@ function withoutGroup(c, id) {
   if (id) return { ...c, groups: (c.groups || []).filter((g) => g.id !== id) };
   const [next, ...rest] = c.groups || [];
   if (!next) return c;
-  return { ...c, rules: next.rules, added: next.added || [], removed: next.removed || [], made_from: next.made_from, group_name: next.name, groups: rest };
+  return { ...c, rules: next.rules, added: next.added || [], removed: next.removed || [], made_from: next.made_from, waiting: next.waiting || [], group_name: next.name, groups: rest };
 }
 
 // ------------------------------------------------------------ dialogs
@@ -194,8 +195,11 @@ export function sourceText(m, rules) {
   if (!m) return rules?.include === "none" ? "games added by hand" : "by rules";
   if (m.kind === "dat") return `from ${baseName(m.path || "a DAT")}`;
   const n = m.paths?.length || 0;
-  return n === 1 ? `from ${baseName(m.paths[0])}` : `from ${n} folders`;
+  const from = n === 1 ? `from ${baseName(m.paths[0])}` : `from ${n} folders`;
+  return m.kind === "import" ? `imported ${from}` : from;
 }
+/** Read again, folders imported into it (D140) are read as folders. */
+const readKind = (m) => (m?.kind === "dat" ? "dat" : "folders");
 const baseName = (p) => String(p).replace(/[\\/]+$/, "").split(/[\\/]/).pop();
 
 /** New collection: by rules or empty (a name), from folders or from a DAT (read, then reviewed).
@@ -203,9 +207,9 @@ const baseName = (p) => String(p).replace(/[\\/]+$/, "").split(/[\\/]/).pop();
  *  `again` ({ id, name, made_from, group }: a collection or group made from folders or a
  *  DAT) it reads them again and goes straight to the review, which replaces its DATs. */
 function NewCollectionDialog({ way: given = "rules", again, group: into, onMade }) {
-  const [way, setWay] = useState(again ? again.made_from?.kind || "folders" : given);
+  const [way, setWay] = useState(again ? readKind(again.made_from) : given);
   const [name, setName] = useState(again?.name || "");
-  const [folders, setFolders] = useState(again?.made_from?.kind === "folders" ? again.made_from.paths || [] : []);
+  const [folders, setFolders] = useState(again && readKind(again.made_from) === "folders" ? again.made_from.paths || [] : []);
   const [typed, setTyped] = useState("");
   const [datPath, setDatPath] = useState(again?.made_from?.kind === "dat" ? again.made_from.path || "" : "");
   const [review, setReview] = useState(null);
@@ -276,7 +280,7 @@ function NewCollectionDialog({ way: given = "rules", again, group: into, onMade 
       const games = review.systems.flatMap((x) => x.games).map((g) => g.id).filter((id) => !off.has(id));
       const r = await api("collection_from", {
         name: into ? "" : name.trim(), id: again?.id || into?.id || null, group: again?.group || "", ...(into ? { group_name: name.trim() } : {}),
-        games, made_from: review.made_from,
+        games, made_from: again?.made_from?.kind === "import" ? { ...review.made_from, kind: "import" } : review.made_from,
       });
       ui.set((st) => ({ changes: (st.changes || 0) + 1 }));
       close();
@@ -312,7 +316,7 @@ function NewCollectionDialog({ way: given = "rules", again, group: into, onMade 
       </section>`)}</div>
       ${review.unknown.length ? html`<details class="field-block subset-unknown" id="subset-unknown"><summary>${plural(review.unknown.length, "file", "files")} not in any audit DAT</summary>
         <ul class="ls-list">${review.unknown.slice(0, 500).map((u, i) => html`<li key=${i} data-path=${u.path}><span class="op-to">${u.path}</span> <span class="muted">${u.why}</span></li>`)}</ul>
-        <small class="muted">Import the DAT of a system they belong to (<a href=${argHash("import", "settings-dats")} onClick=${close}>Import › DAT files</a>), then read them again.</small></details>` : null}
+        <small class="muted">Import the DAT of a system they belong to (<a href=${argHash("import", "settings-dats")} onClick=${close}>Import › DAT files</a>), then read them again. Or import the folders into a collection (<a href=${argHash("import", "import-copy")} onClick=${close}>Import › Games into the library</a>): files no DAT knows wait on it until you add them to their system's custom DAT on Audit › Unknown.</small></details>` : null}
       ${lacking ? html`<p class="muted bring-row" id="subset-lacking">${plural(lacking, "game", "games")} in the folders ${lacking === 1 ? "isn't" : "aren't"} in your audited games yet: <a href=${routeHash("import")} onClick=${close}>Import › Games into the library</a> brings ${lacking === 1 ? "it" : "them"} in.</p>` : null}
       <p class="muted">The ${what} is kept as DATs of its own (one per system, with the Audit page's DATs' names and hashes) in the library. Its games are exported from your audited games; ${way === "dat" ? "the DAT" : "the folders"} aren't changed.</p>
     <//>`;
@@ -342,7 +346,7 @@ function NewCollectionDialog({ way: given = "rules", again, group: into, onMade 
         ${isDesktop() ? html`<button type="button" class="ghost" id="new-pick-dat" onClick=${pickDat}>Choose…</button>` : null}
       </div>
       <small class="muted">It's read where it is and not imported: the Audit page's DATs stay as they are.</small></div>` : null}
-    ${again && !error ? html`<p class="muted">Reading ${sourceText(again.made_from).replace(/^from /, "")}…</p>` : null}
+    ${again && !error ? html`<p class="muted">Reading ${sourceText(again.made_from).replace(/^(imported )?from /, "")}…</p>` : null}
   <//>`;
 }
 
@@ -693,6 +697,35 @@ function Exports({ c, sum, exports, off, onChange }) {
   </section>`;
 }
 
+// ------------------------------------------------------------ files waiting on it (D140)
+
+/** The files imported into it that no DAT knows yet: each joins it once a DAT does (added to
+ *  its system's custom DAT on Audit › Unknown); Leave it stops waiting for one. */
+function Waiting({ c, off, onChange }) {
+  const [error, setError] = useState("");
+  const all = groupsOf(c).flatMap((g) => (g.waiting || []).map((w) => ({ ...w, group: g.id, groupName: g.name })));
+  if (!all.length) return null;
+  const many = groupsOf(c).length > 1;
+  const leave = async (w) => {
+    setError("");
+    try {
+      await api("collection_waiting_leave", { id: c.id, group: w.group, platform: w.platform, name: w.name });
+      onChange();
+    } catch (e) {
+      setError(err(e));
+    }
+  };
+  const n = all.length;
+  return html`<details class="warn-note collection-waiting" id="collection-waiting">
+    <summary>${plural(n, "file waits", "files wait")} on Audit › Unknown: ${n === 1 ? "it joins" : "they join"} the collection once a DAT knows ${n === 1 ? "it" : "them"}, such as the system's custom DAT, which Unknown adds files to.</summary>
+    ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
+    <ul class="ls-list">${all.map((w) => html`<li key=${`${w.group}/${w.platform}/${w.name}`} data-name=${w.name}>
+      <span class="op-to">${w.name}</span> <span class="muted">${(ui.get().platforms || []).find((p) => p.id === w.platform)?.name || w.platform}${many ? ` · ${w.groupName}` : ""}</span>
+      <button type="button" class="linkish" data-action="waiting-review" onClick=${() => reviewUnknown(w.platform)}>Review on Audit…</button>
+      <button type="button" class="linkish" data-action="waiting-leave" disabled=${off} onClick=${() => leave(w)}>Leave it</button></li>`)}</ul>
+  </details>`;
+}
+
 // ------------------------------------------------------------ its source
 
 /** What a collection or group from folders or a DAT was read from, and Read them again…
@@ -941,6 +974,7 @@ export function Collections() {
       <span class="muted"> · ${sourceText(c.made_from, c.rules)}</span></p>
     ${sum.no_dat.map((x) => html`<p class="warn-note" key=${x.platform}>${x.name} has no DAT, so its games aren't known.</p>`)}
     ${sum.missing_dats.map((x) => html`<p class="warn-note" key=${x}>The DAT ${x} isn't in the library any more.</p>`)}
+    <${Waiting} c=${c} off=${off} onChange=${again} />
     <div class="seg audit-tabs" role="tablist" id="collection-view">${views.map(([k, label, n]) => html`<button type="button" role="tab" key=${k} data-view=${k} aria-selected=${view === k ? "true" : "false"} onClick=${() => setView(k)}>${label}${n ? html` <span class="tab-count">${n}</span>` : null}</button>`)}</div>
   </div>` : null;
   if (!c) return html`${head}<div class="pages collections-page" id="collections-page">${data?.error ? html`<p class="warn-note" role="alert">${data.error}</p>` : html`<p class="muted">Reading the collection…</p>`}</div>`;

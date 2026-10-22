@@ -1819,8 +1819,13 @@ async def main():
                 await pg.wait_for_selector("#import-folders li")
                 systems_offered = await pg.eval_on_selector_all("#import-system option", "els => els.map(e => e.textContent)")
                 await pg.check('#import-mode input[value="always"]')
+                # into a new collection too (D140), named here (the folder's name is taken)
+                await pg.select_option("#import-into-pick", "new")
+                into_default = await pg.get_attribute("#import-into-name", "placeholder")
+                await pg.fill("#import-into-name", "Imported picks")
                 await pg.click("#import-games-dialog button[type=submit]")
                 await pg.wait_for_selector("#import-games-review", timeout=30000)
+                into_line = await pg.inner_text("#import-into-line")
                 offered = await pg.eval_on_selector_all("#import-games-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
                 unknown_as = await pg.input_value('#import-games-unknown li[data-folder="Wanted"] select')
                 await pg.wait_for_selector('#import-places li[data-platform="gb"][data-dir]:not([data-dir=""])')
@@ -1842,6 +1847,25 @@ async def main():
                 await pg.click("#bring-dialog button[type=submit]")
                 said = await toast_text(pg, "Imported 2 games into the library")
                 brought = [x for x in (fx / "Roms").rglob("Alpha (Europe).gb") if ".gamerepo-set-aside" not in x.parts]
+                picks = next((x for x in (json.loads(f.read_text()) for f in (library / "_library/collections").glob("*.json")) if x["name"] == "Imported picks"), {})
+                check("Import can put the games in a new collection too: the review says so, the collection is made from them, and the file no DAT knows waits on it (D140)",
+                      into_default == "Wanted" and "Imported picks" in into_line and "1 game" in into_line and "1 file" in into_line and "Imported picks is a collection of them" in said
+                      and picks.get("made_from", {}).get("kind") == "import" and [w["name"] for w in picks.get("waiting", [])] == ["homebrew.gb"] and picks.get("waiting", [{}])[0].get("platform") == "gb",
+                      (into_default, into_line, said, picks))
+                await pg.click('.sidebar a[href="#/collections"]')
+                await pg.click('#collection-panel-list .panel-link:has-text("Imported picks")')
+                await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Imported picks' && document.querySelector('#collection-games')?.textContent === '1'", timeout=30000)
+                await pg.wait_for_selector("#collection-waiting")
+                waits = await pg.eval_on_selector_all("#collection-waiting li", "els => els.map(e => e.dataset.name)")
+                await pg.click("#collection-waiting summary")
+                await pg.screenshot(path=str(out / "23f-collection-waiting.png"))
+                await pg.click('#collection-waiting li[data-name="homebrew.gb"] [data-action="waiting-leave"]')
+                await pg.wait_for_selector("#collection-waiting", state="detached")
+                left = json.loads(next(f for f in (library / "_library/collections").glob("*.json") if json.loads(f.read_text())["name"] == "Imported picks").read_text())
+                check("the collection's page lists the file waiting on Audit › Unknown, and Leave it stops waiting for it",
+                      waits == ["homebrew.gb"] and not left.get("waiting"), (waits, left.get("waiting")))
+                await pg.click('.sidebar a[href="#/import"]')
+                await pg.wait_for_selector('#import-recent-list li[data-kind="bring"]')
                 await pg.wait_for_selector('#import-recent-list li[data-kind="bring"]')
                 recent = await pg.eval_on_selector_all("#import-recent-list li", "els => els.map(e => e.dataset.kind)")
                 await pg.locator("#import-recent").scroll_into_view_if_needed()
@@ -1854,7 +1878,9 @@ async def main():
                       and brought[0].parent == Path(place) and (Path(place) / "homebrew.gb").is_file() and os.stat(brought[0]).st_nlink == 1,
                       (systems_offered[:3], unknown_as, stayed, kept, place, brought))
                 await pg.click('.sidebar a[href="#/collections"]')
-                await pg.click('#collection-panel-list .panel-link:has-text("Wanted")')
+                # (by its id: "Imported picks" is imported from Wanted)
+                wanted_id = next(x["id"] for x in (json.loads(f.read_text()) for f in (library / "_library/collections").glob("*.json")) if x["name"] == "Wanted")
+                await pg.click(f'#collection-panel-list .panel-link[data-id="{wanted_id}"]')
                 await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Wanted' && document.querySelector('#collection-have')?.textContent === '1'", timeout=30000)
                 check("a collection from folders points at Import for the games the library lacks; Import copies one into its folder with games, named as the DAT says, and scans it",
                       lacking == [["Alpha (Europe)", "missing"]] and "Import" in pointed and offered == [["Alpha (Europe)", "missing"]] and len(brought) == 1 and (wanted / "europe one.gb").is_file(), (lacking, pointed, offered, said, brought))
