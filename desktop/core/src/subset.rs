@@ -263,7 +263,7 @@ pub fn review(ix: &Index, lib: &Library, found: &[Found]) -> Result<Value> {
             let system = platforms::guess(None, &dirs[..dirs.len().saturating_sub(1)], &f.shown).filter(|p| p != "pc");
             // (its hashes: imported into a collection, it waits on it, D140)
             let roms: Vec<WaitingRom> = f.roms.iter().map(|h| WaitingRom { size: h.size, crc32: h.crc32.clone(), sha1: h.sha1.clone() }).collect();
-            unknown.push(json!({ "path": f.shown, "file": f.path, "system": system, "roms": roms, "why": "No system's audit DAT has it." }));
+            unknown.push(json!({ "path": f.shown, "file": f.path, "system": system, "roms": roms, "why": "None of the DATs Audit uses knows it." }));
         }
         for id in ids {
             games.entry(id).or_default().push((f.shown.clone(), f.path.clone()));

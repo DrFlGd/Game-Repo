@@ -830,7 +830,7 @@ pub fn plan(ix: &Index, lib: &Library, items: &[Item], mode: &str, always_copy: 
                             "roms": g.roms.iter().map(|r| json!({ "name": r.name, "size": r.size, "crc32": r.crc32, "md5": r.md5, "sha1": r.sha1 })).collect::<Vec<_>>(),
                         });
                         if d.join("game.json").is_file() {
-                            bail!("{} has a folder of another game's name in the library.", g.name);
+                            bail!("Another game already has {}'s folder in the library.", g.name);
                         }
                         (key(&d), d.join("docs"), g.name.clone(), Some(gj))
                     }

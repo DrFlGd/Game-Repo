@@ -220,7 +220,7 @@ pub fn naming(lib: &Library, platform: &str) -> Naming {
 }
 
 pub fn set_naming(lib: &Library, platform: &str, template: &str, folder: bool) -> Result<()> {
-    platforms::by_id(platform).ok_or_else(|| anyhow!("There's no platform {platform}."))?;
+    platforms::by_id(platform).ok_or_else(|| anyhow!("There's no system {platform}."))?;
     check_template(template)?;
     let mut all = lib.meta()["naming"].as_object().cloned().unwrap_or_default();
     if template.trim() == DEFAULT_TEMPLATE && !folder {
@@ -2267,7 +2267,7 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
         match r {
             Ok(()) if kept => {
                 undone += 1;
-                problems.push(json!({ "game": op.game, "to": op.to, "kept": true, "error": format!("{} was changed after the change wrote it, so it stays", to.display()) }));
+                problems.push(json!({ "game": op.game, "to": op.to, "kept": true, "error": format!("{} is different from what the change wrote, so it stays", to.display()) }));
             }
             Ok(()) => undone += 1,
             Err(e) => problems.push(json!({ "game": op.game, "to": op.to, "error": format!("{e:#}") })),

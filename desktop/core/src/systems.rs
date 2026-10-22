@@ -86,7 +86,7 @@ pub fn remove(lib: &Library, id: &str) -> Result<()> {
     lib.writable()?;
     let dats = lib.root().join(crate::library::APP_DIR).join("dats").join(id);
     if dats.read_dir().is_ok_and(|mut d| d.next().is_some()) {
-        bail!("{} has DATs: remove them first (Settings › DAT files).", platforms::name_of(id));
+        bail!("{} has DATs: remove them first (Import › DAT files).", platforms::name_of(id));
     }
     let meta = lib.meta();
     let list: Vec<Value> = meta["systems"].as_array().cloned().unwrap_or_default().into_iter().filter(|x| x["id"] != id).collect();

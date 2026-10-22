@@ -89,7 +89,7 @@ pub fn get(ix: &Index, lib: &Library, source: &str, only: &[String], again: bool
                             discs |= platforms::is_disc(p.id);
                             imported.push(v)
                         }
-                        Ok(_) => failed.push(json!({ "platform": p.id, "error": "its platform couldn't be worked out" })),
+                        Ok(_) => failed.push(json!({ "platform": p.id, "error": "its system couldn't be worked out" })),
                         Err(e) => failed.push(json!({ "platform": p.id, "error": format!("{e:#}") })),
                     }
                     found = true;

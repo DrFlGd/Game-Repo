@@ -2259,7 +2259,7 @@ impl App {
                     if cancel.load(Ordering::Relaxed) {
                         bail!("Stopped.");
                     }
-                    app.job_progress(&jid, json!({ "text": "Matching them to your audit DATs" }));
+                    app.job_progress(&jid, json!({ "text": "Matching them to your DATs" }));
                     let mut v = crate::subset::review(&ix, &lib, &found)?;
                     v["made_from"] = json!({ "kind": "folders", "paths": paths, "read": library::now() });
                     Ok(v)

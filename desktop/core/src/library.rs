@@ -184,7 +184,7 @@ impl Library {
         let meta = try_read_json_object(&meta_path).with_context(|| format!("{} can't be read", meta_path.display()))?;
         let format = meta["format"].as_u64().unwrap_or(0);
         if format > FORMAT {
-            bail!("This library was made by a newer version of Game Repo (library format {format}; this version reads up to {FORMAT}): update the server.");
+            bail!("This library was made by a newer version of Game Repo (library format {format}; this version reads up to {FORMAT}): update Game Repo Server.");
         }
         Ok(Self { root, read_only: Some("The library is open for reading only here: nothing is changed in it.".into()) })
     }
@@ -293,7 +293,7 @@ pub mod tests {
         assert!(!dir.join("lib").join(APP_DIR).join("README.txt").exists(), "not even its README");
         // one from a newer Game Repo
         std::fs::write(dir.join("lib").join(APP_DIR).join("library.json"), format!("{{\"format\": {}, \"id\": \"lib-x\"}}", FORMAT + 1)).unwrap();
-        assert!(Library::open_read_only(dir.join("lib")).unwrap_err().to_string().contains("update the server"));
+        assert!(Library::open_read_only(dir.join("lib")).unwrap_err().to_string().contains("update Game Repo Server"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -392,7 +392,7 @@ fn unusable(path: &Path, library_id: &str) -> Result<Option<String>> {
     };
     if version > schema_version() {
         return Ok(Some(format!(
-            "it was made by a newer version of Game Repo (index step {version}; this version knows {})",
+            "it was made by a newer version of Game Repo (index format {version}; this version reads up to {})",
             schema_version()
         )));
     }
