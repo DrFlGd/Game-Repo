@@ -1799,8 +1799,15 @@ impl App {
                 }
                 for (f, _, _) in fields.iter() {
                     if let Some(v) = args["keys"][*f].as_str().map(str::trim).filter(|v| !v.is_empty()) {
+                        if *f == "threads" && !v.parse::<usize>().is_ok_and(|n| (1..=16).contains(&n)) {
+                            return Err("Threads at once is a number from 1 to 16 (left empty, it's as many as your account allows).".into());
+                        }
                         keys.insert(f.to_string(), v.to_string());
                     }
+                }
+                // a field put back as it was (ScreenScraper's threads: the account's again)
+                for f in args["unset"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                    keys.remove(f);
                 }
                 if keys.is_empty() {
                     cfg.source_keys.remove(&source);

@@ -397,6 +397,18 @@ jobs:
           else
             echo "::warning title=Installer::7-Zip couldn't list Game Repo's installer, so what it carries wasn't checked"
           fi
+      - name: Game Repo Go's installer, run and removed (it asks Windows to refresh its icons, D143)
+        run: |
+          f=$(ls dist/"Game Repo Go_"*_x64-setup.exe)
+          timeout 300 "$f" /S
+          app="(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Get-ItemProperty | Where-Object DisplayName -eq 'Game Repo Go')"
+          un=$(cygpath -u "$(powershell -NoProfile -Command "$app.UninstallString" | tr -d '\r"')")
+          [ -n "$un" ] || { echo "::error title=Installer::Game Repo Go's installer didn't register it"; exit 1; }
+          echo "Installed in: $(dirname "$un")" | tee ci-out/go-installer.txt
+          ls -la "$(dirname "$un")" | tee -a ci-out/go-installer.txt
+          ls "$(dirname "$un")"/*.exe | grep -qi "game repo go\|game-repo-go\|gamerepo-client" || { echo "::error title=Installer::Game Repo Go's installer didn't install the program"; exit 1; }
+          timeout 300 "$un" /S
+          echo "Removed" | tee -a ci-out/go-installer.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: bundles-windows, path: dist/, retention-days: 3 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -20,6 +20,17 @@
   !endif
 !macroend
 
+; Windows keeps the icons of shortcuts and taskbar pins in a cache: asked to read them again,
+; a pin made before the program's icon changed shows the new one (D143). Game Repo Go's
+; installer has the same lines (go-hooks.nsh).
+!macro GR_REFRESH_ICONS
+  Push $0
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+  nsExec::Exec `"$SYSDIR\ie4uinit.exe" -show`
+  Pop $0
+  Pop $0
+!macroend
+
 ; this folder's server, stopped so its file can be replaced or removed
 !macro GR_STOP_SERVER
   Push $0
@@ -42,6 +53,7 @@
     ExecShell "runas" "$SYSDIR\cmd.exe" `/c netsh advfirewall firewall add rule name="${GR_RULE}" dir=in action=allow program="${GR_SERVER}" protocol=TCP profile=private enable=yes & netsh advfirewall firewall add rule name="${GR_RULE}" dir=in action=allow program="${GR_SERVER}" protocol=UDP localport=5353 profile=private enable=yes` SW_HIDE
   ${EndIf}
   Pop $0
+  !insertmacro GR_REFRESH_ICONS
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL

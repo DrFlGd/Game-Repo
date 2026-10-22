@@ -90,6 +90,11 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **Empty collections.** *New collection* has a fourth way, *Empty*: just a name. Add games later with *Add games…* on its page, or *Add to a collection…* in the Library or on a game's page; its page says how until it has some.
+- **ScreenScraper's threads come from your account.** Each time the account is read (*Check* in Settings › Sources, or a scrape starting), *Threads at once* shows how many it allows. A number you type is kept (at most the account's), and *Use the account's* puts it back.
+- **Include in Audit.** The tick in Audit › *DATs…* that adds another DAT to a system's audit was *Audit with it too*; it's now *Include in Audit*.
+- **The new icons on the taskbar and Start menu.** Each Windows installer asks Windows to refresh its cached icons after installing, so a pin made before 0.5.38 shows the folder pad, and the installers show the program's icon.
+
 ## 0.5.44 (2026-10-21)
 
 - **Updates are on from this version.** It's the first release signed with the update key: install it by hand once, and from then on Game Repo, Game Repo Server and Game Repo Go offer each new release themselves (on Windows, the Steam Deck and Android).

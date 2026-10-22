@@ -28,7 +28,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 /// The fields each source needs in Settings › Sources: (source, [(field, label, secret)]).
 pub const KEYS: &[(&str, &[(&str, &str, bool)])] = &[
-    ("screenscraper", &[("user", "User name", false), ("password", "Password", true), ("devid", "Developer id", false), ("devpassword", "Developer password", true), ("threads", "Threads at once (blank: as many as your account allows)", false)]),
+    ("screenscraper", &[("user", "User name", false), ("password", "Password", true), ("devid", "Developer id", false), ("devpassword", "Developer password", true), ("threads", "Threads at once", false)]),
     ("igdb", &[("client_id", "Client id", false), ("client_secret", "Client secret", true)]),
     ("thegamesdb", &[("apikey", "API key", true)]),
 ];
@@ -50,16 +50,39 @@ pub fn needs(cfg: &AppConfig, source: &str) -> Option<String> {
     }
 }
 
-/// The keys as Settings shows them: secrets are only said to be set.
-pub fn keys_json(cfg: &AppConfig, source: &str) -> Value {
+/// The keys as Settings shows them: secrets are only said to be set. ScreenScraper's
+/// threads also carry what the account allowed when it was last read (D142).
+pub fn keys_json(cfg: &AppConfig, data_dir: &Path, source: &str) -> Value {
     let Some((_, fields)) = KEYS.iter().find(|(s, _)| *s == source) else { return Value::Null };
     json!(fields
         .iter()
         .map(|(f, label, secret)| {
             let v = key(cfg, source, f);
-            json!({ "field": f, "label": label, "secret": secret, "set": v.is_some(), "value": if *secret { None } else { v } })
+            let mut k = json!({ "field": f, "label": label, "secret": secret, "set": v.is_some(), "value": if *secret { None } else { v } });
+            if (source, *f) == ("screenscraper", "threads") {
+                k["account"] = json!(ss_threads_allowed(data_dir));
+            }
+            k
         })
         .collect::<Vec<_>>())
+}
+
+/// The ScreenScraper account as last read: kept in the app's data so Settings can show
+/// how many threads it allows.
+fn ss_account_file(data_dir: &Path) -> PathBuf {
+    data_dir.join("screenscraper-account.json")
+}
+
+/// The threads ScreenScraper's account allowed when it was last read (Settings' *Check*, or
+/// a scrape starting).
+pub fn ss_threads_allowed(data_dir: &Path) -> Option<usize> {
+    let v: Value = std::fs::read(ss_account_file(data_dir)).ok().and_then(|b| serde_json::from_slice(&b).ok())?;
+    v["threads_allowed"].as_u64().filter(|n| *n > 0).map(|n| n as usize)
+}
+
+fn ss_keep_allowed(data_dir: &Path, threads: usize) {
+    let _ = std::fs::create_dir_all(data_dir);
+    let _ = std::fs::write(ss_account_file(data_dir), json!({ "threads_allowed": threads }).to_string());
 }
 
 /// The ids each source gives a system: (system, ScreenScraper, IGDB, TheGamesDB), as the
@@ -237,6 +260,9 @@ pub fn ss_configure(cfg: &AppConfig, data_dir: &Path) -> usize {
     let _ = std::fs::remove_dir_all(&fresh);
     let (allowed, per_min) = ss_get(cfg, &fresh, "ssuserInfos.php", &[]).ok().flatten().map(|v| ss_allows(&v)).unwrap_or((None, None));
     let _ = std::fs::remove_dir_all(&fresh);
+    if let Some(a) = allowed {
+        ss_keep_allowed(data_dir, a);
+    }
     let wanted = key(cfg, "screenscraper", "threads").and_then(|t| t.parse::<usize>().ok()).filter(|n| *n > 0);
     let n = match (allowed, wanted) {
         (Some(a), Some(w)) => a.min(w),
@@ -954,6 +980,7 @@ pub fn check(cfg: &AppConfig, data_dir: &Path, source: &str) -> Result<String> {
             let v = ss_get(cfg, &fresh, "ssuserInfos.php", &[])?;
             let _ = std::fs::remove_dir_all(&fresh);
             if let (Some(n), _) = v.as_ref().map(ss_allows).unwrap_or((None, None)) {
+                ss_keep_allowed(data_dir, n);
                 return Ok(format!("ScreenScraper answered: your account can scrape {n} game{} at once.", if n == 1 { "" } else { "s" }));
             }
         }

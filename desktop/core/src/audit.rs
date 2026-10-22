@@ -1386,7 +1386,7 @@ pub mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // D118: a DAT ticked *Audit with it too* knows files the main one doesn't: they're off
+    // D118: a DAT ticked *Include in Audit* knows files the main one doesn't: they're off
     // Unknown, and its games are in the Library beside the main DAT's
     #[test]
     fn a_dat_audited_with_too_takes_its_files_off_unknown_and_its_games_into_the_library() {

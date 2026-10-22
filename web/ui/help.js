@@ -83,7 +83,7 @@ export const PAGES = [
     "Organise… sorts, renames and packs a system's games; Rename to the DAT's names…, Set aside duplicates… and Convert… (to CHD, RVZ, CSO, ZIP, or unpacked) are changes too.",
     "For an arcade system (MAME, FinalBurn Neo): how many games are playable, what each needs, its BIOS sets and devices on a tab of their own, and its set type.",
     "Unknown: each file no DAT knows with the game it's likely a variant of (a translation, a hack, a prototype) and its tags, the parentheticals at the end of its name. Add puts it in the system's custom DAT as that game's variant; Edit… names it, gives it tags from the drop-down (or New tag…) and chooses its original, or none for a game of its own. Until then it stays out of the Library.",
-    "DATs…: the main DAT, whose counts are the totals, and the DATs the system is audited with too (a translation group's, say): the files they know are off Unknown, their games are in the Library, and each has its counts under the totals with Show its lists.",
+    "DATs…: the main DAT, whose counts are the totals, and the others ticked Include in Audit (a translation group's, say): the files they know are off Unknown, their games are in the Library, and each has its counts under the totals with Show its lists.",
     "Variants: the system's custom DAT, each variant with its tags and its original; Rename (its files to their names), Remove and Undo. In the Library a variant shows under its own name with its original's details and pictures, and the Tag filter finds them.",
   ]],
   ["bios", "BIOS files", "Each system's BIOS files: which you have, which are missing, and where they are (under the Audit).", [
@@ -99,7 +99,7 @@ export const PAGES = [
   ]],
   ["collections", "Collections", "Games picked from the library, to export or save as DATs. Collecting moves no files.", [
     "The collections are in the ribbon on the left; the one chosen shows its games as the Library does (grid, list or table), with its Source (or Rules), Size, Exported to and History.",
-    "New collection…: by rules, from folders (matched by hash, so the files' names don't matter), or from a DAT read where it is; a review shows the games found before it's made. Add a group… adds a group made its own way (a system's translations, say), shown as a section of its own.",
+    "New collection…: by rules, from folders (matched by hash, so the files' names don't matter), from a DAT read where it is (a review shows the games found before it's made), or empty (games are added later with Add to a collection…). Add a group… adds a group made its own way (a system's translations, say), shown as a section of its own.",
     "Pick games (Ctrl or Shift for more, Ctrl+A for all) and Export these…, or Export… the whole collection; Update… and Check an export from Exported to. An ES-DE export can put each group in a subfolder or as a system of its own, and a Knulli or ROCKNIX export in a subfolder; every export makes a custom collection or playlist of each group where the frontend or the handheld has them (ES-DE, Knulli, RetroArch, Pegasus).",
     "Leave a game out by hand, or add one; set a size limit for a card; Save as DATs… for RomVault, clrmamepro or igir.",
     "With their updates and DLC (a rule, on by default) takes the games' updates and DLC you have along; History lists each change to what's in it, a day at a time, and Undo puts one back.",

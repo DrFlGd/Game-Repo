@@ -132,7 +132,7 @@ async function makeMain(d, also) {
 export function DatsSection({ lib }) {
   const dats = useStore(ui, (st) => st.dats) || [];
   const off = !!lib.read_only;
-  // read again when shown: Audit changes the main DAT and those audited with it too
+  // read again when shown: Audit changes the main DAT and those included in Audit
   useEffect(() => { api("dats").then((d) => ui.set({ dats: d })).catch(() => {}); }, [lib.path]);
   const byPlatform = [];
   for (const d of dats) {
@@ -157,7 +157,7 @@ export function DatsSection({ lib }) {
         <span class="dat-name"><span>${d.name}</span> <span class="muted">${d.version} · ${plural(d.games, "game", "games")}${d.author ? ` · ${d.author}` : ""}</span>
           ${d.current && g.dats.filter((x) => x.name === d.name).length > 1 ? html`<span class="badge" title="The version the audit uses; the others are kept">Version used</span>` : null}
           ${several && d.main ? html`<span class="badge dat-main" title="Audit's totals are this DAT's counts">Main DAT</span>` : null}
-          ${several && d.also ? html`<span class="badge dat-also" title="Its games are audited too, and are in the Library beside the main DAT's">Audited with it too</span>` : null}</span>
+          ${several && d.also ? html`<span class="badge dat-also" title="Its games are audited too, and are in the Library beside the main DAT's">Included in Audit</span>` : null}</span>
         ${d.current ? null : html`<button type="button" class="ghost" data-action="use-dat" disabled=${off} onClick=${() => useDat(d)}>Use this version</button>`}
         ${several && d.current && !d.main && d.version !== "custom" ? html`<button type="button" class="ghost" data-action="main-dat" disabled=${off} onClick=${() => makeMain(d, also)}>Make it the main DAT</button>` : null}
         ${isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label="Show in folder" onClick=${() => reveal(`${lib.path}/${d.path}`)}>${Icon.folder(14)}</button>` : null}

@@ -147,8 +147,8 @@ function AuditDatsDialog({ platform, platformName, dats, main, custom, onDone })
     <p class="muted">The main DAT's counts are the totals. A DAT it's audited with too (a translation group's, say) knows files the main one doesn't: they're off Unknown, and its games are in the Library and collections beside the main DAT's.</p>
     <ul class="ls-list" id="audit-dats-list">${dats.map((d) => html`<li key=${d.id} data-dat=${d.name}>
       <label class="check-row"><input type="radio" name="audit-main" checked=${m === d.id} onChange=${() => setM(d.id)} /> ${d.name} <span class="muted">${d.version}</span>${m === d.id ? html` <span class="muted">(main)</span>` : null}</label>
-      <label class="check-row"><input type="checkbox" class="audit-also" disabled=${m === d.id} checked=${m !== d.id && also.includes(d.name)} onChange=${(e) => tick(d.name, e.target.checked)} /> Audit with it too</label></li>`)}
-      ${custom ? html`<li class="muted" data-dat=${custom}>${custom}: the system's variants, always audited with it</li>` : null}</ul>
+      <label class="check-row"><input type="checkbox" class="audit-also" disabled=${m === d.id} checked=${m !== d.id && also.includes(d.name)} onChange=${(e) => tick(d.name, e.target.checked)} /> Include in Audit</label></li>`)}
+      ${custom ? html`<li class="muted" data-dat=${custom}>${custom}: the system's variants, always included</li>` : null}</ul>
     ${isDesktop() ? html`<button type="button" class="ghost compact" id="audit-dats-import" onClick=${() => { close(); importFrom("settings-dats", () => importDats()); }}>${Icon.plus(14)} Import a DAT…</button>` : null}
   <//>`;
 }
@@ -364,7 +364,7 @@ export function Audit() {
           · BIOS and devices <b id="audit-sets">${arc.sets_have} of ${arc.sets}</b>` : null}
         ${" · "}<span title="1G1R: titles (a game and its clones) you have at least one version of">One per title</span> <b id="audit-1g1r">${n("groups_have")} of ${n("groups")}</b>
         ${n("by_crc") ? html` · <span class="muted" title="Files inside ZIPs matched by the checksum the ZIP records. Settings › Scanning › Scan ZIPs › Unpack and hash every file checks them in full.">${plural(n("by_crc"), "file", "files")} matched by the ZIP's checksum</span>` : null}</p>
-      ${data.also?.length && !viewing ? html`<p class="muted" id="audit-also">Audited with it too: ${data.also.map((a, i) => html`<span key=${a.dat.id} data-dat=${a.dat.name}>${i ? " · " : ""}${a.dat.name} (${a.dat.version}) <b>${(a.have || 0).toLocaleString()}</b> of ${(a.games || 0).toLocaleString()}${" "}<button type="button" class="linkish audit-also-view" onClick=${() => setViewing(a.dat.id)}>Show its lists</button></span>`)}</p>` : null}
+      ${data.also?.length && !viewing ? html`<p class="muted" id="audit-also">Also in Audit: ${data.also.map((a, i) => html`<span key=${a.dat.id} data-dat=${a.dat.name}>${i ? " · " : ""}${a.dat.name} (${a.dat.version}) <b>${(a.have || 0).toLocaleString()}</b> of ${(a.games || 0).toLocaleString()}${" "}<button type="button" class="linkish audit-also-view" onClick=${() => setViewing(a.dat.id)}>Show its lists</button></span>`)}</p>` : null}
       ${viewing && sum.dat.id === viewing ? html`<p class="warn-note" id="audit-viewing">These are the lists of ${sum.dat.name}, which ${pName} is audited with too.
         <button type="button" class="linkish" id="audit-viewing-back" onClick=${() => setViewing(null)}>Back to ${data.dats.find((d) => d.id === data.main)?.name || "the main DAT"}</button></p>` : null}
       ${n("needs_tool") ? html`<p class="warn-note" id="audit-needs-tool">${plural(n("needs_tool"), "RVZ file waits", "RVZ files wait")} for dolphin-tool before ${n("needs_tool") === 1 ? "it" : "they"} can be checked. Set where it is in <a href=${routeHash("settings")}>Settings › Tools</a>, then scan.</p>` : null}

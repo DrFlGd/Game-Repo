@@ -211,7 +211,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ),
     (
         "also_dats",
-        // D118: a system's DATs ticked *Audit with it too*, from library.json `also_dats`
+        // D118: a system's DATs ticked *Include in Audit*, from library.json `also_dats`
         "ALTER TABLE dats ADD COLUMN also INTEGER NOT NULL DEFAULT 0;",
     ),
 ];

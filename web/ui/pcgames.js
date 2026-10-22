@@ -694,15 +694,17 @@ function SourceKeys({ x, onSaved }) {
   const [typed, setTyped] = useState({});
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState(null);
-  const save = async (clear = false) => {
+  const save = async (clear = false, unset = []) => {
     setBusy(true);
     setSaid(null);
     try {
-      onSaved(await api("sources_keys_set", { source: x.id, keys: typed, clear }));
+      onSaved(await api("sources_keys_set", { source: x.id, keys: typed, clear, unset }));
       setTyped({});
       if (!clear) {
         const r = await api("sources_check", { source: x.id }).then((t) => ({ ok: true, text: t }), (e) => ({ ok: false, text: err(e) }));
         setSaid(r);
+        // Check reads ScreenScraper's account: the threads it allows
+        onSaved(await api("sources"));
       }
     } catch (e) {
       setSaid({ ok: false, text: err(e) });
@@ -713,13 +715,23 @@ function SourceKeys({ x, onSaved }) {
   const check = async () => {
     setBusy(true);
     setSaid(await api("sources_check", { source: x.id }).then((t) => ({ ok: true, text: t }), (e) => ({ ok: false, text: err(e) })));
+    await api("sources").then(onSaved, () => {});
     setBusy(false);
+  };
+  // ScreenScraper's threads: the account's when none is typed (D142)
+  const shown = (k) => {
+    if (k.field === "threads") {
+      if (k.set) return k.account ? `${k.value} (your account allows ${k.account})` : k.value;
+      return k.account ? `${k.account}, as your account allows` : "As many as your account allows";
+    }
+    return k.set ? (k.secret ? "Set (type to change)" : k.value) : "Not set";
   };
   const anySet = x.keys.some((k) => k.set);
   return html`<form class="source-keys" data-source=${x.id} onSubmit=${(e) => { e.preventDefault(); save(); }}>
     ${x.keys.map((k) => html`<label class="field-inline" key=${k.field}><span>${k.label}</span>
       <input type=${k.secret ? "password" : "text"} class="compact" name=${k.field} autocomplete="off" aria-label=${`${x.name}: ${k.label}`}
-        placeholder=${k.set ? (k.secret ? "Set (type to change)" : k.value) : "Not set"} value=${typed[k.field] ?? ""} onInput=${(e) => setTyped({ ...typed, [k.field]: e.target.value })} /></label>`)}
+        placeholder=${shown(k)} value=${typed[k.field] ?? ""} onInput=${(e) => setTyped({ ...typed, [k.field]: e.target.value })} />
+      ${k.field === "threads" && k.set ? html`<button type="button" class="linkish" data-action="threads-account" disabled=${busy} onClick=${() => save(false, ["threads"])}>Use the account's</button>` : null}</label>`)}
     <span class="pick-row">
       <button type="submit" class="ghost compact" data-action="save-keys" disabled=${busy || !Object.values(typed).some((v) => v.trim())}>Save</button>
       <button type="button" class="ghost compact" data-action="check" disabled=${busy || !anySet} onClick=${check}>Check</button>

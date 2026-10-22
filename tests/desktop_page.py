@@ -713,7 +713,7 @@ async def variants(pg, base, home, library):
     await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"variants\"] .tab-count')?.textContent === '2'", timeout=15000)
     check("Remove puts its file back on Unknown, and Undo puts the custom DAT back as it was",
           await pg.inner_text('#audit-tabs [data-tab="unknown"] .tab-count') == "0", await pg.inner_text("#audit-tabs"))
-    # D118: a second DAT for the system, ticked Audit with it too in DATs…, knows a file the
+    # D118: a second DAT for the system, ticked Include in Audit in DATs…, knows a file the
     # main one doesn't: it's off Unknown, its counts are under the totals with Show its lists
     mother = make_fixtures.rom(45, 2048)
     (gba / "Mother 3 (English Translated).gba").write_bytes(mother)
@@ -1403,7 +1403,7 @@ async def main():
                 await pg.fill("#collection-name", "Best Of")
                 await pg.click("#collection-new-dialog button[type=submit]")
                 await pg.wait_for_selector("#collection-rules")
-                check("New collection offers by rules, from folders or from a DAT, and one by rules opens on its rules", ways == ["rules", "folders", "dat"], ways)
+                check("New collection offers by rules, from folders, from a DAT or empty, and one by rules opens on its rules", ways == ["rules", "folders", "dat", "empty"], ways)
                 await pg.check('#rule-platforms input[value="gb"]')
                 await pg.wait_for_function("() => +document.querySelector('#collection-games')?.textContent > 0")
                 await pg.click('#collection-view [data-view="games"]')
@@ -1606,7 +1606,7 @@ async def main():
                 stored = json.loads(coll_file.read_text())
                 heads = await pg.eval_on_selector_all("#collection-main .collection-group h2", "els => els.map(e => e.textContent)")
                 check("Add a group… offers the New collection dialog's ways, and the group by rules is kept after the first, with its own rules",
-                      group_ways == ["rules", "folders", "dat"] and submit_label == "Add the group" and heads == ["Best Of", "Every one"]
+                      group_ways == ["rules", "folders", "dat", "empty"] and submit_label == "Add the group" and heads == ["Best Of", "Every one"]
                       and [g["name"] for g in stored.get("groups", [])] == ["Every one"] and stored["groups"][0]["rules"]["include"] == "all"
                       and stored["groups"][0]["rules"]["platforms"] == ["gb"] and stored["rules"]["include"] == "have", (group_ways, submit_label, heads, stored.get("groups")))
                 # the games view: a section for each group, with its name and count, none twice
@@ -1744,6 +1744,27 @@ async def main():
                       len(got2) == 1 and got2[0].startswith(second) and "1 game" in totals2, (got2, totals2))
                 await pg.keyboard.press("Escape")
                 await pg.fill("#collection-search", "")
+                # an empty collection (D141): a name and no games, its page says how to add them,
+                # and Add games… fills it; deleted again after
+                await pg.click("#collection-panel-new")
+                await pg.check('#collection-way input[value="empty"]')
+                await pg.fill("#collection-name", "To fill")
+                await pg.click("#collection-new-dialog button[type=submit]")
+                await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'To fill'")
+                await pg.wait_for_selector('#collection-none[data-empty="hand"] #collection-to-library')
+                empty_rules = next(x for x in (json.loads(f.read_text()) for f in (library / "_library/collections").glob("*.json")) if x["name"] == "To fill")["rules"]
+                await pg.screenshot(path=str(out / "23c2-empty-collection.png"))
+                await pg.click("#collection-add")
+                await pg.wait_for_selector("#add-games-list li input")
+                await pg.check("#add-games-list li input >> nth=0")
+                await pg.click("#add-games-dialog button[type=submit]")
+                await pg.wait_for_function("() => +document.querySelector('#collection-games')?.textContent === 1")
+                check("New collection › Empty makes one with no games (only those added by hand), its page says how to add them, and Add games… adds one",
+                      empty_rules.get("include") == "none", empty_rules)
+                await pg.click("#collection-menu")
+                await pg.click('#context-menu [data-action="collection-delete"]')
+                await pg.click("#confirm-dialog button[type=submit]")
+                await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent !== 'To fill'")
                 # from a DAT another tool made, with names of its own
                 gb2 = hashlib.sha1(picks_[1].read_bytes()).hexdigest()
                 crc2 = f"{zlib.crc32(picks_[1].read_bytes()):08x}"
@@ -2153,11 +2174,14 @@ async def main():
                 await pg.wait_for_selector('#sources li[data-source="thegamesdb"] .source-said')
                 said = await pg.inner_text('#sources li[data-source="thegamesdb"] .source-said')
                 shown = await pg.get_attribute('#sources li[data-source="thegamesdb"] input[name="apikey"]', "placeholder")
+                # ScreenScraper's threads, before its account is read (D142)
+                threads_shown = await pg.get_attribute('#sources li[data-source="screenscraper"] input[name="threads"]', "placeholder")
                 cfg = json.loads((home / "config/config.json").read_text())
                 in_library = "test-key-123" in (library / "_library/library.json").read_text()
                 check("Settings › Sources keeps a source's key on this computer (never shown again, never in the library) and Check asks the source",
-                      cfg.get("source_keys", {}).get("thegamesdb", {}).get("apikey") == "test-key-123" and "answered" in said and "test-key" not in (shown or "") and not in_library,
-                      (said, shown, cfg.get("source_keys")))
+                      cfg.get("source_keys", {}).get("thegamesdb", {}).get("apikey") == "test-key-123" and "answered" in said and "test-key" not in (shown or "") and not in_library
+                      and threads_shown == "As many as your account allows",
+                      (said, shown, threads_shown, cfg.get("source_keys")))
                 await pg.screenshot(path=str(out / "30-sources.png"))
                 await pg.click('.sidebar a[href="#/metadata"]')
                 await pg.wait_for_selector("#meta-page")
