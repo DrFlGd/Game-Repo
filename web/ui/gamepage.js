@@ -6,7 +6,8 @@
 // Each detail lists what the other sources said, and each kind of picture the other
 // sources' ones, with Use this ("Phase 6b design", D46, D47); Scrape again… and Delete
 // metadata… are in its menu (D48). Previous and Next go through the Library list it was
-// opened from. A PC game's page is the same, its details and pictures kept as any game's,
+// opened from (or a collection's, or the backlog's). Its place in the backlog is shown with
+// In progress, Completed and the rest (D157–D159). A PC game's page is the same, its details and pictures kept as any game's,
 // with a PC section for what only a PC game has: the program, Unpack, its folder and files
 // ("PC game page design", D55); its title and year name its folder, so they're its own.
 // Its menu has Remove from the library… (D129), and Identify… None of these (D128).
@@ -30,6 +31,7 @@ import { Inspector } from "./panels.js";
 import { isVideo, Video } from "./video.js";
 import { watch, videoFacts } from "./videos.js";
 import { variantDialog, undoVariants } from "./variants.js";
+import { addToBacklog, backlogDo, dayText } from "./backlog.js";
 
 const err = (e) => e.message || String(e);
 const PICTURES = { cover: "Box front", back: "Back", box3d: "3D box", screenshot: "Screenshot", titlescreen: "Title screen", marquee: "Logo", fanart: "Fan art", physical: "Cartridge or disc", video: "Video", banner: "Banner", hero: "Hero", logo: "Logo", icon: "Icon" };
@@ -252,17 +254,19 @@ export function GamePage() {
     ? save(field, (g.sources || []).find((a) => a.source === source)?.[field] ?? null)
     : changed("meta_pin", { field, source }));
   const choose = (kind, name) => changed("meta_choose", { kind, name });
-  const fromList = !!opened.query && opened.index >= 0 && opened.key === key;
+  const fromList = !!(opened.query || opened.keys) && opened.index >= 0 && opened.key === key;
   const step = async (by) => {
     const i = opened.index + by;
     if (!fromList || i < 0 || i >= opened.total) return;
-    const r = await api("browse_query", { query: { ...opened.query, offset: i, limit: 1 } });
-    if (!r.items[0]) return;
-    Object.assign(opened, { index: i, key: r.items[0].key });
+    // a list of its own (the backlog's), else the Library's query a game at a time
+    const next = opened.keys ? opened.keys[i] : (await api("browse_query", { query: { ...opened.query, offset: i, limit: 1 } })).items[0]?.key;
+    if (!next) return;
+    Object.assign(opened, { index: i, key: next });
     // in place of this game in the history, so Back goes to the list rather than through every game stepped past
-    location.replace(gameHash(r.items[0].key));
+    location.replace(gameHash(next));
   };
   const back = () => (history.length > 1 ? history.back() : (location.hash = libraryHash()));
+  const tryIt = (p) => p.catch((e) => toast(`Couldn't change the backlog: ${err(e)}`, 8000));
   const removeVariant = async () => {
     try {
       await api("variants_remove", { platform: g.platform, names: [g.variant.name] });
@@ -294,6 +298,7 @@ export function GamePage() {
     { id: "game-reveal", label: "Show in folder", icon: "folder", disabled: !isDesktop() || !(g?.pc?.dir || g?.folder_path || g?.dir), run: () => reveal(g.pc?.dir || g.folder_path || g.dir) },
     { sep: true },
     { id: "game-add", label: "Add to a collection…", icon: "collection", disabled: off || (!dat && "Collections hold games from DATs, and a PC game has none"), run: () => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } }) },
+    ...(g && !g.backlog ? [{ id: "game-backlog-add-menu", label: "Add to the backlog", icon: "list", disabled: off, run: () => tryIt(addToBacklog([{ key: g.key, title: g.title, platform: g.platform }])) }] : []),
   ];
   const head = html`<${CommandBar} id="game-head" back=${{ id: "game-back", run: back }} title=${g?.title || "A game"} count=${g ? [g.regions, g.platform_name].filter(Boolean).join(" · ") || null : null}
     tools=${fromList ? html`<span class="game-steps" id="game-steps"><button type="button" class="ghost compact" id="game-prev" title=${`The previous game in ${opened.name || "the list"} (←)`} disabled=${opened.index <= 0} onClick=${() => step(-1)}>‹ Previous</button>
@@ -316,6 +321,21 @@ export function GamePage() {
     }
   };
   const files = g.files || [];
+  const bl = g.backlog;
+  const it = { key: g.key, title: g.title, platform: g.platform };
+  // its place in the backlog (D157): to play (with its place and In progress) or completed
+  const backlog = html`<section class="ls-section" id="game-backlog" data-list=${bl?.list || "none"}><h2>Backlog</h2>
+    <p id="game-backlog-line" class=${bl ? null : "muted"}>${!bl ? "Not in the backlog."
+      : bl.list === "done" ? `Completed${bl.completed ? ` on ${dayText(bl.completed)}` : ""}.`
+      : html`<b>${bl.place}</b> of ${bl.of} to play${bl.started ? html` · <span class="bl-badge">In progress</span> since ${dayText(bl.started)}` : null}`}
+      ${bl ? html` <a href=${routeHash("backlog")} id="game-backlog-open">Open the backlog</a>` : null}</p>
+    <div class="home-actions">${!bl ? html`<button type="button" class="ghost compact" id="game-backlog-add" disabled=${off} onClick=${() => tryIt(addToBacklog([it]))}>${Icon.list(14)} Add to the backlog</button>`
+      : bl.list === "todo" ? html`<button type="button" class="ghost compact" id="game-backlog-playing" aria-pressed=${bl.started ? "true" : "false"} disabled=${off} onClick=${() => tryIt(backlogDo.playing(it, !bl.started))}>${Icon.gamepad(14)} ${bl.started ? "Not in progress" : "In progress"}</button>
+        <button type="button" class="ghost compact" id="game-backlog-complete" disabled=${off} onClick=${() => tryIt(backlogDo.complete(it))}>${Icon.check(14)} Completed</button>
+        <button type="button" class="ghost compact" id="game-backlog-remove" disabled=${off} onClick=${() => tryIt(backlogDo.remove(it))}>Remove from the backlog</button>`
+      : html`<button type="button" class="ghost compact" id="game-backlog-again" disabled=${off} onClick=${() => tryIt(backlogDo.again(it))}>${Icon.refresh(14)} Back to the backlog</button>
+        <button type="button" class="ghost compact" id="game-backlog-remove" disabled=${off} onClick=${() => tryIt(backlogDo.remove(it))}>Remove from the backlog</button>`}</div>
+  </section>`;
   // the source most details came from: named once, above them, instead of under each
   const tally = {};
   for (const [k] of FIELDS) { const f = g.scraped?.[k]; if (f && f !== "you") tally[f] = (tally[f] || 0) + 1; }
@@ -375,6 +395,7 @@ export function GamePage() {
         <button type="button" class="ghost compact" data-action="remove-from" disabled=${off} title=${`Remove it from ${c.name}`} onClick=${() => removeFrom(c)}>Remove from collection</button></li>`)}</ul>` : html`<p class="muted">In none.</p>`}
       <button type="button" class="ghost compact" id="game-add" disabled=${off} onClick=${() => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } })}>${Icon.collection(14)} Add to a collection…</button>
     </section>` : null}
+    ${backlog}
   </div>
   <${Inspector} page="game" label="Pictures" open=${false} tabs=${[{ id: "media", label: "Pictures", icon: "image", body: html`<${MediaPane} g=${g} off=${off || busy} onChoose=${choose} />` }]} /></div>`;
 }

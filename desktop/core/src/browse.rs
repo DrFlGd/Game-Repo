@@ -753,6 +753,27 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
     Ok(out)
 }
 
+/// The Library's rows for these keys, by key: each game's title, system, year, picture and
+/// whether you have it (the backlog's games, D157).
+pub fn rows_of(conn: &Connection, keys: &[String]) -> Result<HashMap<String, Value>> {
+    let mut st = conn.prepare(
+        "SELECT l.key, l.kind, l.platform, l.title, l.name, l.year, l.picture, l.have, l.developer, l.genres, l.size
+         FROM library l WHERE l.key IN (SELECT value FROM json_each(?1))",
+    )?;
+    let rows = st
+        .query_map([serde_json::to_string(keys)?], |r| {
+            let platform: String = r.get(2)?;
+            let genres: String = r.get(9)?;
+            Ok((r.get::<_, String>(0)?, json!({
+                "kind": r.get::<_, String>(1)?, "platform_name": system_name(&platform), "platform": platform, "title": r.get::<_, String>(3)?,
+                "name": r.get::<_, String>(4)?, "year": r.get::<_, Option<i64>>(5)?, "picture": r.get::<_, Option<String>>(6)?, "have": r.get::<_, i64>(7)? == 1,
+                "developer": r.get::<_, Option<String>>(8)?, "genres": genres.split(SEP).filter(|g| !g.is_empty()).collect::<Vec<_>>(), "size": r.get::<_, i64>(10)?,
+            })))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
 /// What the filters count: each filter's values over the games the other filters find.
 #[derive(Default)]
 struct Counts {
@@ -1003,6 +1024,8 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
     v["magazines"] = json!(crate::magtext::issues_of(conn, lib, key, &platform, &title)?);
     // the videos about it (D146)
     v["videos"] = json!(crate::videos::of_game(lib, key, &platform, &title));
+    // its place in the backlog (D157)
+    v["backlog"] = json!(crate::backlog::of_game(lib, key));
     Ok(v)
 }
 

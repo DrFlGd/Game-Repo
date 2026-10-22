@@ -40,6 +40,7 @@ pub mod api;
 pub mod arcade;
 pub mod archive;
 pub mod audit;
+pub mod backlog;
 pub mod bios;
 pub mod browse;
 pub mod collection;

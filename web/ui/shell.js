@@ -15,6 +15,7 @@ import { Help } from "./help.js";
 import { Coming, COMING } from "./coming.js";
 import { Audit } from "./audit.js";
 import { Collections } from "./collections.js";
+import { Backlog } from "./backlog.js";
 import { PcGames } from "./pcgames.js";
 import { Metadata } from "./metadata.js";
 import { Documents } from "./documents.js";
@@ -41,6 +42,7 @@ function Main() {
   if (route === "game" && !blocked) return html`<${GamePage} />`;
   if (route === "audit" && !blocked) return html`<${Audit} />`;
   if (route === "collections" && !blocked) return html`<${Collections} />`;
+  if (route === "backlog" && !blocked) return html`<${Backlog} />`;
   if (route === "pc" && !blocked) return html`<${PcGames} />`;
   if (route === "metadata" && !blocked) return html`<${Metadata} />`;
   if (route === "documents" && !blocked) return html`<${Documents} />`;

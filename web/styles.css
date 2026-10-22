@@ -1832,6 +1832,49 @@ html.drop-over .game-page, html.drop-over .meta-panel { outline: 2px dashed var(
   .lib-filters { max-height: 34vh; border-right: 0; border-bottom: 1px solid var(--steel-2); }
 }
 
+/* the backlog (D157-D159): to play, ranked, beside Completed; In progress highlighted */
+.panel-top-last { margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid var(--steel-2); }
+.backlog-page { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; padding: 14px 24px 18px; }
+.bl-col { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--steel-2); border-radius: var(--radius-m); background: var(--white); }
+.bl-col.drop-on { border-color: var(--ok); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 35%, transparent); }
+.bl-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 10px 14px 8px; border-bottom: 1px solid var(--steel-2); }
+.bl-head h2 { margin: 0; font-size: 17px; font-family: var(--font-head); font-stretch: var(--head-stretch); font-weight: 800; }
+.bl-note { font-size: 12.5px; }
+.bl-list { list-style: none; margin: 0; padding: 6px; overflow: auto; flex: 1; min-height: 160px; }
+.bl-row { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 5px 8px; margin: 0 0 3px; border: 1px solid transparent; border-left: 4px solid transparent; border-radius: var(--radius-s); cursor: default; user-select: none; -webkit-user-select: none; }
+.bl-row:hover { background: var(--panel); }
+.bl-row.selected { background: var(--sel); border-color: var(--accent-edge); }
+.bl-row[data-playing] { border-left-color: var(--tool); background: color-mix(in srgb, var(--tool) 14%, var(--white)); }
+.bl-row[data-playing].selected { background: color-mix(in srgb, var(--tool) 24%, var(--sel)); }
+.bl-row.moving { opacity: .4; }
+.bl-row[data-missing] .bl-cover, .bl-row[data-missing] .bl-title { opacity: .55; }
+.bl-grip { color: var(--graphite); cursor: grab; touch-action: none; font-size: 15px; line-height: 1; padding: 4px 0; }
+.bl-rank { min-width: 2ch; text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--graphite); }
+.bl-row[data-playing] .bl-rank { color: var(--ink); }
+.bl-cover { width: 44px; height: 44px; flex: none; object-fit: cover; border-radius: var(--radius-xs); background: var(--thumb-bg); display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; }
+.bl-cover.lib-cover-none { font-size: 18px; }
+.bl-text { flex: 1; min-width: 0; display: grid; }
+.bl-title { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bl-sub { font-size: 12.5px; color: var(--graphite); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bl-badge { flex: none; font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--tool); color: var(--tool-ink); white-space: nowrap; }
+.bl-buttons { display: flex; gap: 2px; flex: none; opacity: 0; }
+.bl-row:hover .bl-buttons, .bl-row.selected .bl-buttons, .bl-row:focus-within .bl-buttons { opacity: 1; }
+.bl-buttons button[aria-pressed="true"] { color: var(--tool-ink); background: var(--tool); }
+.bl-done .bl-row { min-height: 50px; }
+.bl-done .bl-cover { width: 36px; height: 36px; }
+.bl-drop { height: 0; margin: 0 6px 3px; border-top: 3px solid var(--focus); border-radius: 2px; list-style: none; }
+.bl-empty { list-style: none; padding: 14px 10px; display: grid; gap: 10px; }
+.bl-empty p { margin: 0; }
+.backlog-page.dragging, .backlog-page.dragging .bl-row { cursor: grabbing; }
+.bl-ghost { position: fixed; z-index: 50; pointer-events: none; max-width: 320px; padding: 6px 10px; border-radius: var(--radius-s); background: var(--ink); color: var(--white); font-size: 13px; font-weight: 650; box-shadow: var(--shadow); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.backlog-add-list { max-height: 320px; overflow: auto; }
+#game-backlog .bl-badge { vertical-align: 1px; }
+@media (max-width: 900px) {
+  .backlog-page { grid-template-columns: minmax(0, 1fr); overflow: auto; padding: 12px 14px; }
+  .bl-list { overflow: visible; flex: none; }
+  .bl-buttons { opacity: 1; }
+}
+
 /* the shelf (D152, D155): Videos, Magazines and Documents laid out as the Library */
 .shelf-section { content-visibility: auto; contain-intrinsic-size: auto 480px; }
 .shelf-group-head { margin-bottom: 8px; }

@@ -1111,7 +1111,7 @@ async def main():
                 active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
                 lead = await pg.inner_text("#audit-empty")
                 check("the menu's places open, with the pages still to come saying what they'll do",
-                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Export layouts", "History", "Settings", "Help", "About"]
+                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Backlog", "Export layouts", "History", "Settings", "Help", "About"]
                       and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
                 await pg.screenshot(path=str(out / "01-coming.png"))
 
@@ -2778,6 +2778,116 @@ async def main():
                 check("Save as a collection… makes the filters a collection's rules (by its games' details); the command line filters the same",
                       mine.get("rules", {}).get("details", {}).get("genre") == ["Action"] and cli.get("total") == int(action), (mine.get("rules"), cli.get("total")))
                 await pg.click('#lib-chips [data-chip="genre-Action"] button')
+
+            async with Section(pg, B, "The backlog (D157-D159)"):
+                # D157-D159: the backlog, under Collections: games added from the Library (a PC game
+                # too), ranked by dragging, In progress highlighted, Completed beside, each with Undo
+                saved_order = lambda: [g["key"] for g in json.loads((library / "_library/backlog.json").read_text())["games"]]
+                order = lambda: pg.eval_on_selector_all("#backlog-todo-list .bl-row", "els => els.map(e => e.dataset.key)")
+
+                async def drag(src, x, y):
+                    b = await pg.locator(src).bounding_box()
+                    await pg.mouse.move(b["x"] + 30, b["y"] + b["height"] / 2)
+                    await pg.mouse.down()
+                    await pg.mouse.move(b["x"] + 40, b["y"] + b["height"] / 2 + 10, steps=3)
+                    await pg.mouse.move(x, y, steps=10)
+                    await pg.mouse.up()
+
+                await pg.wait_for_selector('#lib-games .lib-tile[data-key="nes/Echo (USA)"]')
+                pc_key = await pg.get_attribute('#lib-games .lib-tile[data-key^="pc/"]', "data-key")
+                for i, k in enumerate(["gb/Alpha (USA)", pc_key, "nes/Echo (USA)"]):
+                    await pg.click(f'.lib-tile[data-key="{k}"]', modifiers=["Control"] if i else [])
+                await pg.wait_for_selector('#lib-panel[data-count="3"]')
+                await pg.click('.lib-tile[data-key="nes/Echo (USA)"]', button="right")
+                await pg.click('#context-menu [data-action="backlog"]')
+                said = await toast_text(pg, "Added 3 games to the backlog")
+                await pg.keyboard.press("Escape")
+                await pg.click("#nav-backlog")
+                await pg.wait_for_function("() => document.querySelectorAll('#backlog-todo-list .bl-row').length === 3")
+                first = await order()
+                ribbon = await pg.evaluate("() => [document.querySelector('#panel-backlog')?.getAttribute('aria-current'), document.querySelectorAll('#collection-panel-list .panel-link').length, document.querySelector('#nav-backlog')?.closest('li')?.classList.contains('nav-child')]")
+                check("Add to the backlog in the Library puts the games picked (a PC game too) in the backlog, which is under Collections in the menu and at the top of their ribbon (D157)",
+                      first == ["gb/Alpha (USA)", pc_key, "nes/Echo (USA)"] and saved_order() == first and ribbon == ["page", ribbon[1], True] and ribbon[1] > 0, (said, first, ribbon))
+                # dragged to the top
+                top = await pg.locator("#backlog-todo-list .bl-row >> nth=0").bounding_box()
+                await drag('#backlog-todo-list .bl-row[data-key="nes/Echo (USA)"]', top["x"] + 120, top["y"] + 6)
+                await pg.wait_for_function("() => document.querySelector('#backlog-todo-list .bl-row')?.dataset.key === 'nes/Echo (USA)'")
+                dragged = await order()
+                check("a game dragged to the top of To play takes the first place, and the others move down (D158)",
+                      dragged == ["nes/Echo (USA)", "gb/Alpha (USA)", pc_key] and saved_order() == dragged, dragged)
+                # In progress: highlighted, with its label, and counted
+                await pg.click('#backlog-todo-list .bl-row[data-key="gb/Alpha (USA)"] [data-action="playing"]')
+                await pg.wait_for_selector('#backlog-todo-list .bl-row[data-key="gb/Alpha (USA)"][data-playing] .bl-badge')
+                counted = await pg.inner_text("#backlog-head .page-count")
+                tint = await pg.evaluate("() => [getComputedStyle(document.querySelector('.bl-row[data-playing]')).borderLeftColor, getComputedStyle(document.querySelector('.bl-row:not([data-playing])')).borderLeftColor]")
+                started = json.loads((library / "_library/backlog.json").read_text())["games"][1].get("started")
+                check("In progress highlights a game with its label, and the bar counts it (D159)", "1 in progress" in counted and started and tint[0] != tint[1], (counted, started, tint))
+                # dragged to Completed: completed, with the date; Undo puts it back where it was
+                box = await pg.locator("#backlog-done-list").bounding_box()
+                await drag(f'#backlog-todo-list .bl-row[data-key="{pc_key}"]', box["x"] + 80, box["y"] + 30)
+                await pg.wait_for_selector(f'#backlog-done-list .bl-row[data-key="{pc_key}"]')
+                done_text = await pg.inner_text(f'#backlog-done-list .bl-row[data-key="{pc_key}"]')
+                said = await toast_text(pg, "Marked .* completed")
+                left = await order()
+                await pg.click("#toast .toast-action")
+                await pg.wait_for_selector(f'#backlog-todo-list .bl-row[data-key="{pc_key}"]')
+                check("a game dragged to Completed is in the list beside with the date it was completed; Undo puts it back in its place",
+                      "completed" in done_text and len(left) == 2 and await order() == dragged and saved_order() == dragged, (done_text, said, left, await order()))
+                await pg.click(f'#backlog-todo-list .bl-row[data-key="{pc_key}"] [data-action="complete"]')
+                await pg.wait_for_selector(f'#backlog-done-list .bl-row[data-key="{pc_key}"]')
+                # Alt+↓ a place down; Move to place… from its menu
+                await pg.click('#backlog-todo-list .bl-row[data-key="nes/Echo (USA)"] .bl-title')
+                await pg.keyboard.press("Alt+ArrowDown")
+                await pg.wait_for_function("() => document.querySelector('#backlog-todo-list .bl-row')?.dataset.key === 'gb/Alpha (USA)'")
+                stepped = await order()
+                await pg.click('#backlog-todo-list .bl-row[data-key="nes/Echo (USA)"]', button="right")
+                await pg.click('#context-menu [data-action="bl-place"]')
+                await pg.fill("#shelf-ask-value", "1")
+                await pg.click("#shelf-ask button[type=submit]")
+                await pg.wait_for_function("() => document.querySelector('#backlog-todo-list .bl-row')?.dataset.key === 'nes/Echo (USA)'")
+                check("Alt+↓ moves the game picked a place down, and Move to place… puts it where it's asked (D158)",
+                      stepped == ["gb/Alpha (USA)", "nes/Echo (USA)"] and saved_order() == ["nes/Echo (USA)", "gb/Alpha (USA)"], (stepped, saved_order()))
+                # a game opened from the backlog: its place on its page, In progress there, Previous and Next through the backlog
+                await pg.dblclick('#backlog-todo-list .bl-row[data-key="nes/Echo (USA)"] .bl-title')
+                await pg.wait_for_selector('#game-page[data-key="nes/Echo (USA)"] #game-backlog-line')
+                line = await pg.inner_text("#game-backlog-line")
+                pos = await pg.inner_text(".game-pos")
+                await pg.click("#game-backlog-playing")
+                await pg.wait_for_selector('#game-backlog-playing[aria-pressed="true"]')
+                await pg.click("#game-next")
+                await pg.wait_for_selector('#game-page[data-key="gb/Alpha (USA)"] #game-backlog-line')
+                line2 = await pg.inner_text("#game-backlog-line")
+                await pg.click("#game-back")
+                await pg.wait_for_selector('#backlog-todo-list .bl-row.selected[data-key="gb/Alpha (USA)"]')
+                playing = await pg.eval_on_selector_all("#backlog-todo-list .bl-row[data-playing]", "els => els.map(e => e.dataset.key)")
+                check("a game opened from the backlog shows its place there and In progress on its page; Previous and Next go through the backlog, and Back picks it again",
+                      line.startswith("1 of 2 to play") and pos.endswith("in the backlog") and line2.startswith("2 of 2 to play") and "In progress" in line2
+                      and sorted(playing) == ["gb/Alpha (USA)", "nes/Echo (USA)"], (line, pos, line2, playing))
+                # Add games… by title, to the top; Back to the backlog from Completed (at the bottom)
+                await pg.keyboard.press("Escape")
+                await pg.click("#backlog-add")
+                await pg.fill("#backlog-add-search", "Beta")
+                await pg.wait_for_selector("#backlog-add-list li input")
+                await pg.click("#backlog-add-list li >> nth=0 >> input")
+                await pg.click("#backlog-add-top")
+                await pg.click("#backlog-add-dialog button[type=submit]")
+                said = await toast_text(pg, "Added .* to the backlog")
+                await pg.wait_for_function("() => document.querySelector('#backlog-todo-list .bl-row')?.dataset.key.startsWith('gb/Beta')")
+                await pg.click(f'#backlog-done-list .bl-row[data-key="{pc_key}"] [data-action="again"]')
+                await pg.wait_for_function("(k) => [...document.querySelectorAll('#backlog-todo-list .bl-row')].pop()?.dataset.key === k", arg=pc_key)
+                await pg.mouse.move(5, 5)
+                await pg.screenshot(path=str(out / "52b-backlog.png"))
+                now = await order()
+                check("Add games… finds games by title and adds them at the top when asked; Back to the backlog puts a completed game at the bottom of To play",
+                      len(now) == 4 and now[0].startswith("gb/Beta") and now[-1] == pc_key and not await pg.query_selector("#backlog-done-list .bl-row"), (said, now))
+                # Delete takes one out; Ctrl+Z puts it back
+                await pg.click(f'#backlog-todo-list .bl-row[data-key="{pc_key}"] .bl-title')
+                await pg.keyboard.press("Delete")
+                await toast_text(pg, "Removed .* from the backlog")
+                gone = await order()
+                await pg.keyboard.press("Control+z")
+                await pg.wait_for_function("(k) => !!document.querySelector(`#backlog-todo-list .bl-row[data-key=\"${k}\"]`)", arg=pc_key)
+                check("Delete takes a game out of the backlog, and Ctrl+Z puts it back", pc_key not in gone and await order() == now, (gone, await order()))
 
             async with Section(pg, B, "Phase 6b: each source's answer, Delete metadata and videos"):
                 # Phase 6b: each source's answer kept apart, one picture from each source to choose

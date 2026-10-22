@@ -13,8 +13,10 @@ import { useMedia, NARROW } from "./chrome.js";
 
 /** The page's list: { route, title, icon, count, items: [{ id, label, sub, count, href,
  *  children }], current, all: { label, href, count } (an entry above the items for all of
- *  them), actions: [{ id, label, icon, run, disabled }] }, or null. An item's `children`
- *  ([{ id, label, count, run }], a collection's groups) are listed indented under it. */
+ *  them), top: [{ id, label, icon, href, count }] (entries of their own above the items:
+ *  the backlog over the collections), actions: [{ id, label, icon, run, disabled }] }, or
+ *  null. An item's `children` ([{ id, label, count, run }], a collection's groups) are
+ *  listed indented under it. */
 export const sidePanel = createStore({ spec: null });
 
 /** Show `spec` as the page's list while the page is shown. */
@@ -51,6 +53,8 @@ function Rows({ spec, onPicked }) {
   return html`<ul class="nav-list cat-panel-tree" id=${`${spec.id}-list`}>
     ${spec.all ? html`<li class="nav-row panel-all"><a class=${`nav-link${spec.current === "" ? " active" : ""}`} href=${spec.all.href} data-id="" aria-current=${spec.current === "" ? "page" : null} onClick=${onPicked}>
       <span class="nav-icon">${Icon[spec.all.icon || spec.icon]?.(15)}</span><span class="nav-label">${spec.all.label}</span>${spec.all.count != null ? html`<span class="nav-count">${spec.all.count}</span>` : null}</a></li>` : null}
+    ${(spec.top || []).map((x, i, all) => html`<li class=${`nav-row panel-top${i === all.length - 1 ? " panel-top-last" : ""}`} key=${`top-${x.id}`}><a class=${`nav-link${spec.current === x.id ? " active" : ""}`} id=${`panel-${x.id}`} href=${x.href} data-id=${x.id} aria-current=${spec.current === x.id ? "page" : null} onClick=${onPicked}>
+      <span class="nav-icon">${Icon[x.icon]?.(15)}</span><span class="nav-label">${x.label}</span>${x.count != null ? html`<span class="nav-count">${x.count}</span>` : null}</a></li>`)}
     ${spec.items.map((x) => html`<li class="nav-row" key=${x.id}>
       <a class=${`nav-link panel-link${spec.current === x.id ? " active" : ""}`} href=${x.href} data-id=${x.id} aria-current=${spec.current === x.id ? "page" : null} title=${x.sub ? `${x.label}: ${x.sub}` : x.label} onClick=${onPicked}>
         <span class="panel-link-text"><span class="nav-label">${x.label}</span>${x.sub ? html`<span class="panel-sub">${x.sub}</span>` : null}</span>

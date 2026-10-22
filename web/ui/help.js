@@ -46,6 +46,7 @@ export const TERMS = [
   ["documents", "Documents", "Guides, FAQs, manuals, maps, posters and scans of your own, kept with their games (or by system) and searchable by their words."],
   ["magazines", "Magazines", "Issues of game magazines (PDF, CBZ or CBR), kept by magazine in the library's Magazines folder, each with its number, date and cover. A list of issues (a CSV or a DAT) says which ones you're missing."],
   ["videos", "Videos", "Walkthroughs, reviews, retrospectives and other videos about your games: files kept by kind in the library's Videos folder, or links to videos on the web (opened in your browser). Each lists the games it's about, and a game's page lists its videos."],
+  ["backlog", "Backlog", "The games you mean to play, in the order you'll play them, beside the ones you've completed (under Collections). One to a library, kept in _library/backlog.json; it takes PC games too."],
   ["text-recognition", "Text recognition", "Reading the words in a picture of a page: a scanned magazine's, or a comic book's. Game Repo uses Windows' own (in the languages Windows has), or Tesseract when it's found (Settings › Tools); a PDF's own text needs none. What it reads is kept with the issue, searched on the Documents page, and looked through for the titles of your games."],
   ["bios", "BIOS files", "The firmware files emulators need, audited against libretro's list and imported into the library's BIOS folder. The app never downloads them or says where to get them."],
   ["arcade", "Arcade sets", "MAME's and FinalBurn Neo's games: a ZIP per machine named by its short name (sf2.zip), clones leaning on their parents, BIOS sets (neogeo.zip) and devices as ZIPs of their own, hard disks as CHDs in a folder named for the machine, and sounds in samples/. BIOS sets and devices aren't counted as games."],
@@ -128,6 +129,12 @@ export const PAGES = [
     "Pick games (Ctrl or Shift for more, Ctrl+A for all) and Export these…, or Export… the whole collection; Update… and Check an export from Exported to. An ES-DE export can put each group in a subfolder or as a system of its own, and a Knulli or ROCKNIX export in a subfolder; every export makes a custom collection or playlist of each group where the frontend or the handheld has them (ES-DE, Knulli, RetroArch, Pegasus).",
     "Remove a game from it by hand, or add one; set a size limit for a card; Save as DATs… for RomVault, clrmamepro or igir.",
     "With their updates and DLC (a rule, on by default) takes the games' updates and DLC you have along; History lists each change to what's in it, a day at a time, and Undo puts one back.",
+  ]],
+  ["backlog", "Backlog", "The games you mean to play, ranked, beside the ones you've completed (under Collections, and at the top of their ribbon).", [
+    "Add games… finds games by their titles (yours, or every game in the DATs); in the Library, pick games and choose Add to the backlog, or use the button on a game's page. PC games can go in too.",
+    "The first game in To play is the one to play next. Drag a game to its place, or use its menu (Move to the top, Move up, Move down, Move to the bottom, Move to place…), or Alt+↑ and Alt+↓.",
+    "In progress marks a game you're playing (as many as you like): it's highlighted, and its page says since when. Completed moves it to the list beside, the newest first, with the date; drag it back, or Back to the backlog, to play it again.",
+    "Every change has Undo (Ctrl+Z too). A game opened from either list (a double click or Enter) has Previous and Next through it.",
   ]],
   ["layouts", "Export layouts", "Where an export puts things for ES-DE, RetroArch, Pegasus, LaunchBox, Playnite, a device's firmware or a folder.", [
     "See a layout as a folder tree with a collection's games, change it, and Save as new…; edit its JSON, or import one.",

@@ -761,6 +761,8 @@ export function Collections() {
   const id = arg || fallback;
   const [data, setData] = useState(null);
   const [exports, setExports] = useState([]);
+  // how many games the backlog has to play, for its place at the top of the ribbon (D157)
+  const [backlogCount, setBacklogCount] = useState(null);
   const [view, setView] = useState("games");
   // the games in it, or those left out by hand (a filter of the one view, finding 6)
   const [show, setShow] = useState("in");
@@ -787,10 +789,11 @@ export function Collections() {
   useEffect(() => {
     if (!s.library) return;
     let gone = false;
-    Promise.all([api("collections"), api("exports")]).then(([cs, ex]) => {
+    Promise.all([api("collections"), api("exports"), api("backlog").catch(() => null)]).then(([cs, ex, bl]) => {
       if (gone) return;
       setAll(cs);
       setExports(ex);
+      setBacklogCount(bl?.games?.length ?? null);
       if (!cs.some((c) => c.id === id)) {
         if (arg) history.replaceState(null, "", argHash("collections", cs[0]?.id || ""));
         setFallback(cs[0]?.id || null);
@@ -893,7 +896,7 @@ export function Collections() {
     ui.set({ dialog: { type: "export", c, sum, only, count: picked.all && q.trim() ? only.length : picked.count } });
   };
   const openGame = (g, i) => {
-    Object.assign(opened, { query: { ...lq }, index: i, total: games.total, key: g.key, name: c.name });
+    Object.assign(opened, { query: { ...lq }, keys: null, index: i, total: games.total, key: g.key, name: c.name });
     location.hash = gameHash(g.key);
   };
   const gameActions = show === "out" ? [
@@ -925,9 +928,11 @@ export function Collections() {
   /** The games view at a group's section. */
   const toGroup = (i) => { setView("games"); setShow("in"); setPlatform(""); setJump({ value: i }); };
 
-  // the collections, in the ribbon beside the menu; the current one's groups under it
-  useSidePanel(Array.isArray(all) && all.length ? {
+  // the collections, in the ribbon beside the menu; the current one's groups under it, and
+  // the backlog at its top (D157)
+  useSidePanel(Array.isArray(all) ? {
     id: "collection-panel", route: "collections", title: "Collections", icon: "collection", count: all.length, current: id,
+    top: [{ id: "backlog", label: "Backlog", icon: "list", href: routeHash("backlog"), count: backlogCount }],
     items: all.map((x) => ({
       id: x.id, label: x.name, sub: `${sourceText(x.made_from, x.rules)}${x.groups?.length ? ` · ${x.groups.length + 1} groups` : ""}`, href: argHash("collections", x.id),
       children: x.id === c?.id && many ? groups.map((g, i) => ({ id: g.id || "first", label: g.name, count: g.games, run: () => toGroup(i) })) : null,
