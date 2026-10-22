@@ -400,7 +400,7 @@ jobs:
       - name: Game Repo Go's installer, run and removed (it asks Windows to refresh its icons, D143)
         run: |
           f=$(ls dist/"Game Repo Go_"*_x64-setup.exe)
-          timeout 300 "$f" /S
+          timeout 300 "$f" /S || { echo "::error title=Installer::Game Repo Go's installer didn't finish"; tasklist | tee ci-out/go-installer-running.txt; exit 1; }
           app="(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Get-ItemProperty | Where-Object DisplayName -eq 'Game Repo Go')"
           un=$(cygpath -u "$(powershell -NoProfile -Command "$app.UninstallString" | tr -d '\r"')")
           [ -n "$un" ] || { echo "::error title=Installer::Game Repo Go's installer didn't register it"; exit 1; }

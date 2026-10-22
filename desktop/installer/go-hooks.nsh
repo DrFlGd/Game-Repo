@@ -4,9 +4,7 @@
 ; Repo Server's installers do the same in hooks.nsh.)
 
 !macro NSIS_HOOK_POSTINSTALL
-  Push $0
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
-  nsExec::Exec `"$SYSDIR\ie4uinit.exe" -show`
-  Pop $0
-  Pop $0
+  ; not waited for: where no one is signed in to Windows (an automated install) it can wait for ever
+  Exec `"$SYSDIR\ie4uinit.exe" -show`
 !macroend

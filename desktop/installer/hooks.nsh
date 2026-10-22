@@ -24,11 +24,9 @@
 ; a pin made before the program's icon changed shows the new one (D143). Game Repo Go's
 ; installer has the same lines (go-hooks.nsh).
 !macro GR_REFRESH_ICONS
-  Push $0
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
-  nsExec::Exec `"$SYSDIR\ie4uinit.exe" -show`
-  Pop $0
-  Pop $0
+  ; not waited for: where no one is signed in to Windows (an automated install) it can wait for ever
+  Exec `"$SYSDIR\ie4uinit.exe" -show`
 !macroend
 
 ; this folder's server, stopped so its file can be replaced or removed
