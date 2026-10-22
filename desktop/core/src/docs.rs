@@ -223,18 +223,25 @@ pub fn unread(conn: &Connection) -> Result<i64> {
     Ok(conn.query_row(&format!("SELECT COUNT(*) FROM docs WHERE text_read = 0 AND {readable}"), [], |r| r.get(0))?)
 }
 
-/// The documents whose text can be read.
+/// The documents whose text can be read (a magazine's issue: once it's been read, D145).
 const EXT_SQL: &str = "(lower(name) LIKE '%.pdf' OR lower(name) LIKE '%.txt' OR lower(name) LIKE '%.md' OR lower(name) LIKE '%.markdown' OR lower(name) LIKE '%.nfo'
-                        OR lower(name) LIKE '%.htm' OR lower(name) LIKE '%.html' OR lower(name) LIKE '%.diz')";
+                        OR lower(name) LIKE '%.htm' OR lower(name) LIKE '%.html' OR lower(name) LIKE '%.diz' OR kind = 'magazine')";
 
-/// The text of a document, for search: a PDF's (when it has text, not just scans), a
-/// text file's, a web page's without its tags. At most 1 MB of it.
+/// The text of a document, for search: a magazine issue's as it was read (D145), a PDF's
+/// (when it has text, not just scans), a text file's, a web page's without its tags. At
+/// most 1 MB of it.
 pub fn text_of(path: &Path) -> String {
     const MAX: usize = 1 << 20;
+    if let Some(t) = crate::magtext::kept_text(path) {
+        return t;
+    }
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let e = ext(&name);
     let mut s = if e == "pdf" {
         pdf_text(path).unwrap_or_default()
+    } else if !TEXT.contains(&e.as_str()) {
+        // a comic's pictures have no text until it's read (Magazines)
+        String::new()
     } else {
         let Ok(b) = std::fs::read(path) else { return String::new() };
         let t = String::from_utf8_lossy(&b[..b.len().min(4 * MAX)]).into_owned();

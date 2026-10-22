@@ -58,6 +58,7 @@ pub mod launchbox;
 pub mod layout;
 pub mod library;
 pub mod magazines;
+pub mod magtext;
 pub mod makedat;
 pub mod meta;
 pub mod organise;

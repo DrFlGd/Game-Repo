@@ -45,6 +45,7 @@ export const TERMS = [
   ["game-library-folder", "A game's library folder", "Where a game's details, pictures and documents are kept: _library/games/<system>/<the DAT's name for it>/. It follows the game by its files' hashes, so renaming a ROM doesn't lose anything."],
   ["documents", "Documents", "Guides, FAQs, manuals, maps, posters and scans of your own, kept with their games (or by system) and searchable by their words."],
   ["magazines", "Magazines", "Issues of game magazines (PDF, CBZ or CBR), kept by magazine in the library's Magazines folder, each with its number, date and cover. A list of issues (a CSV or a DAT) says which ones you're missing."],
+  ["text-recognition", "Text recognition", "Reading the words in a picture of a page: a scanned magazine's, or a comic book's. Game Repo uses Windows' own (in the languages Windows has), or Tesseract when it's found (Settings › Tools); a PDF's own text needs none. What it reads is kept with the issue, searched on the Documents page, and looked through for the titles of your games."],
   ["bios", "BIOS files", "The firmware files emulators need, audited against libretro's list and imported into the library's BIOS folder. The app never downloads them or says where to get them."],
   ["arcade", "Arcade sets", "MAME's and FinalBurn Neo's games: a ZIP per machine named by its short name (sf2.zip), clones leaning on their parents, BIOS sets (neogeo.zip) and devices as ZIPs of their own, hard disks as CHDs in a folder named for the machine, and sounds in samples/. BIOS sets and devices aren't counted as games."],
   ["set-type", "Set type", "How an arcade system's ZIPs are made up: non-merged (every game's ZIP holds all it needs but its BIOS's), split (a clone's ZIP holds only what its parent's doesn't) or merged (a parent's ZIP holds its clones' too). Chosen on the Audit page or in Settings › Systems; Organise builds ZIPs that way, and an export is always non-merged."],
@@ -79,6 +80,8 @@ export const PAGES = [
   ["magazines", "Magazines", "Your magazines, each issue by its cover, readable here (under the Library).", [
     "Import magazines… (Import › Magazines) from files or a folder: each file's magazine, number and date are read from its name for you to check, then imported (copied, linked or moved, with Undo).",
     "Open an issue to read it (a PDF, or a comic book a page at a time); give it a cover by dropping a picture on it; Import a list… of a magazine's issues to see which you're missing, and Save a list of what's missing.",
+    "Read their text reads each issue page by page (its own text, or by text recognition), once for each file: the Documents page then finds an issue by its words, and the viewer's Text shows a page's text with them marked.",
+    "Games, on an issue, lists the games whose titles are in its text, with their pages: ticked when sure, and listed on their game's page (In magazines). Tick or untick them, or add one by its title and page.",
     "An export can carry the magazines into a Magazines folder (What it carries in the Export dialog).",
   ]],
   ["import", "Import", "Everything that comes into the library, in one place.", [

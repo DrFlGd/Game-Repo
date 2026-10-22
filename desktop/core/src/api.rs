@@ -2085,6 +2085,32 @@ impl App {
                 }))
                 .await?)
             }
+            // the issues' text read, and the games in it found (D145): one magazine's, or every one's
+            "magazine_read" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let title = args["title"].as_str().filter(|t| !t.is_empty()).map(String::from);
+                let again = args["again"].as_bool().unwrap_or(false);
+                let label = "Reading magazines' text";
+                self.not_running(label)?;
+                j(self.spawn_job(label, move |app, jid, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    crate::magtext::read_issues(&ix, &lib, title.as_deref(), again, &cancel, &mut |p| app.job_progress(&jid, p))
+                }))
+            }
+            "magazine_text" => {
+                let lib = self.library()?;
+                let rel = arg(&args, "path").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || crate::magtext::text_of(&lib, &rel))).await?)
+            }
+            "magazine_game" => {
+                // a game found in an issue ticked or unticked, or one added by hand ("ticked": null takes it off)
+                let lib = self.library()?;
+                let (title, file, key) = (arg(&args, "title").map_err(e2s)?.to_string(), arg(&args, "file").map_err(e2s)?.to_string(), arg(&args, "key").map_err(e2s)?.to_string());
+                let ticked = args["ticked"].as_bool();
+                let page = args["page"].as_u64().map(|p| p as u32);
+                j(self.with_index(move |ix| crate::magtext::set_game(ix, &lib, &title, &file, &key, ticked, page)).await?)
+            }
             other => Err(format!("unknown command {other}")),
         }
     }

@@ -21,6 +21,7 @@ import { PcSettings, SourcesSettings, SteamSettings } from "./pcgames.js";
 import { Icon } from "./icons.js";
 import { ServePanel } from "./serve.js";
 import { UpdatePanel } from "./updates.js";
+import { readMagazines } from "./magazines.js";
 
 function RenameForm({ lib }) {
   const [name, setName] = useState(lib.name || "");
@@ -394,6 +395,8 @@ function ToolsSection() {
       ${isDesktop() ? html`<button type="button" class="ghost" data-action="choose" onClick=${() => pick(t)}>Choose…</button>` : null}
       ${t.set ? html`<button type="button" class="ghost" data-action="clear" onClick=${() => set(t.id, null)}>Clear</button>` : null}
     </li>`)}</ul>
+    <p class="muted" id="tools-text">Magazines' scanned pages are read with Windows' own text recognition, or with Tesseract when it's found (on Linux and the Steam Deck, only Tesseract).${" "}
+      <button type="button" class="linkish" id="settings-read-magazines" disabled=${!!ui.get().library?.read_only} onClick=${() => readMagazines()}>Read every magazine's text</button></p>
     ${!isDesktop() ? html`<form class="pick-row" id="tools-form" onSubmit=${(e) => { e.preventDefault(); const f = e.target; set(f.tool.value, f.path.value); }}>
       <select name="tool" class="compact" aria-label="Tool">${r.tools.map((t) => html`<option key=${t.id} value=${t.id}>${t.id}</option>`)}</select>
       <input type="text" name="path" id="tools-path" placeholder="Its path" aria-label="Its path" />

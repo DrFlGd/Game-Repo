@@ -5382,6 +5382,19 @@ so search finds it and the viewer can highlight it.
   comparison. An issue's page lists the games found, with the pages they're on, ticked
   when sure; the ticks are kept in `magazine.json` and can be changed (and games added by
   hand). A game's page lists the issues that cover it, opened at the page.
+- **As built (2026-10-22, `magtext.rs`).** A PDF page with fewer than 20 letters and
+  digits of its own is read as a picture: Windows draws it from the PDF itself
+  (Windows.Data.Pdf, in the same Windows PowerShell 5.1 script as the recognition,
+  `ocr.ps1`), while Tesseract is given the page's largest picture (a JPEG as it is, 8-bit
+  grey or colour pixels as a PNG; other kinds stay unread, with a note). Pages left unread
+  for want of a reader are read again once there is one. A title is *sure* (ticked) when it
+  has two words or more that aren't small everyday words or numbers and 8 letters or more
+  (6 for a game you have); shorter titles are found, not ticked, only for games you have;
+  the longest title at each place in the text wins. A title several systems have gives the
+  ones you have, else the first. A tick changed or a game added by hand stays when the
+  issue is read again. The viewer's *Text* shows the page's text with the words searched
+  for (or the game's title) marked; the PDF itself isn't marked. Started from the
+  Magazines page (*Read their text*, and every magazine's in its menu) or Settings › Tools.
 
 **D146 D: videos.** Videos get a section of their own, like magazines: *Videos* in the
 sidebar, kept in the library as `Videos/<Kind>/<Title>.<ext>` (kind *Walkthrough*,

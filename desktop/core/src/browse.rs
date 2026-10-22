@@ -999,6 +999,8 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
         _ => v["files"] = json!([]),
     }
     v["collections"] = json!(collections_of(ix, lib, key)?);
+    // the magazines' issues that cover it (D145)
+    v["magazines"] = json!(crate::magtext::issues_of(conn, lib, key, &platform, &title)?);
     Ok(v)
 }
 

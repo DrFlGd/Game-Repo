@@ -227,7 +227,7 @@ pub fn words(title: &str) -> Vec<String> {
 }
 
 /// Words too common to find a title by.
-const COMMON: &[&str] = &["the", "of", "and", "a", "an", "no", "de", "la", "le", "to", "in", "on", "for", "game", "edition", "version"];
+pub(crate) const COMMON: &[&str] = &["the", "of", "and", "a", "an", "no", "de", "la", "le", "to", "in", "on", "for", "game", "edition", "version"];
 
 fn bigrams(s: &str) -> HashSet<(char, char)> {
     let c: Vec<char> = s.chars().collect();

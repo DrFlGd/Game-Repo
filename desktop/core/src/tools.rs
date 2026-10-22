@@ -2,7 +2,8 @@
 //! folder, then on the PATH, then at the path set for each in *Settings › Tools*
 //! (a path set there is tried first). Nothing is ever downloaded. Game Repo reads
 //! and writes CHD, CSO and ZSO itself (its CHDs hold the same data, with the same
-//! SHA1, as `chdman`'s), so the one tool it uses is `dolphin-tool`, for RVZ.
+//! SHA1, as `chdman`'s), so the one tool it uses is `dolphin-tool`, for RVZ; besides it,
+//! innoextract for GOG installers and Tesseract for magazines' text (D145).
 
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -27,6 +28,11 @@ pub const TOOLS: &[Tool] = &[
         id: "innoextract",
         names: &["innoextract"],
         what: "Finds a GOG installer's game id and unpacks GOG installers (PC games). From constexpr.org/innoextract.",
+    },
+    Tool {
+        id: "tesseract",
+        names: &["tesseract"],
+        what: "Reads the text in magazines' scanned pages, in place of Windows' own text recognition (on Linux and the Steam Deck, the only way). From github.com/tesseract-ocr.",
     },
 ];
 

@@ -42,12 +42,11 @@ function Snippet({ text }) {
 // ------------------------------------------------------------ the viewer
 
 /** A PDF in the system's viewer (from the library's own address), with page and zoom
- *  (Model Library's document viewer, reading from the library only). */
-function PdfView({ url, title }) {
-  const [page, setPage] = useState(1);
+ *  (Model Library's document viewer, reading from the library only). The page (from 1) is
+ *  the viewer's, so a magazine's text follows it. */
+function PdfView({ url, title, page, setPage }) {
   const [zoom, setZoom] = useState("page-width");
-  useEffect(() => { setPage(1); }, [url]);
-  const move = (n) => setPage((p) => Math.max(1, Math.min(99999, p + n)));
+  const move = (n) => setPage(Math.max(1, Math.min(99999, page + n)));
   const fragment = zoom === "fit-page" ? "view=Fit" : zoom === "page-width" ? "view=FitH" : `zoom=${zoom}`;
   const address = `${url}#toolbar=0&navpanes=0&page=${page}&${fragment}`;
   return html`<div class="pdf-viewer" aria-label="PDF document">
@@ -65,18 +64,17 @@ function PdfView({ url, title }) {
   </div>`;
 }
 
-/** A comic book archive (CBZ or CBR), a page at a time (D68). */
-function ComicView({ path, title }) {
+/** A comic book archive (CBZ or CBR), a page at a time (D68); `page` from 1, as the PDF's. */
+function ComicView({ path, title, page: shown, setPage: show }) {
   const [count, setCount] = useState(null);
-  const [page, setPage] = useState(0);
   useEffect(() => {
     setCount(null);
-    setPage(0);
     api("magazine_pages", { path }).then((r) => setCount(r.count)).catch(() => setCount(0));
   }, [path]);
   if (count === null) return html`<p class="muted">Opening…</p>`;
   if (!count) return html`<p class="muted" id="comic-empty">There are no pictures in this file.</p>`;
-  const move = (n) => setPage((p) => Math.max(0, Math.min(count - 1, p + n)));
+  const page = Math.max(0, Math.min(count - 1, shown - 1));
+  const move = (n) => show(Math.max(0, Math.min(count - 1, page + n)) + 1);
   return html`<div class="pdf-viewer comic-viewer" id="comic-view" aria-label="Comic book" tabIndex="0"
       onKeyDown=${(e) => { if (e.key === "ArrowRight" || e.key === "PageDown") move(1); else if (e.key === "ArrowLeft" || e.key === "PageUp") move(-1); }}>
     <div class="pdf-controls" role="toolbar" aria-label="Page controls">
@@ -88,15 +86,53 @@ function ComicView({ path, title }) {
   </div>`;
 }
 
-/** One document: its kind and title (changed here), and the document itself. */
-function DocView({ id, off, onChange, onClose }) {
+/** Words to look for, as the text is compared: lower case, without accents. */
+const plain = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const wordsOf = (s) => plain(s).split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1);
+
+/** A magazine page's text (D145), with the words looked for marked. */
+function PageText({ text, page, find }) {
+  const t = text.pages?.[page - 1];
+  if (t === undefined) return html`<div class="doc-page-text" id="doc-page-text"><p class="muted">There's no page ${page}.</p></div>`;
+  if (!t.trim()) {
+    const unread = (text.unread || []).includes(page);
+    return html`<div class="doc-page-text" id="doc-page-text"><p class="muted">${unread ? `Page ${page}'s text couldn't be read.${text.note ? ` ${text.note}` : ""}` : `There's no text on page ${page}.`}</p></div>`;
+  }
+  const want = wordsOf(find);
+  const parts = want.length ? t.split(/([\p{L}\p{N}]+)/u) : [t];
+  return html`<div class="doc-page-text" id="doc-page-text" aria-label=${`Page ${page}'s text`}>${parts.map((p, i) => (want.length && want.some((w) => plain(p).startsWith(w)) ? html`<mark key=${i}>${p}</mark>` : p))}</div>`;
+}
+
+/** One document: its kind and title (changed here), and the document itself; `page` to
+ *  open it at (from 1), and `find`: words a magazine's page text has marked, its first
+ *  page with them all opened when no page is given. */
+function DocView({ id, off, onChange, onClose, page: start, find }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(start || 1);
+  const [text, setText] = useState(null);
+  const [showText, setShowText] = useState(!!find);
   const kinds = useStore(docsState, (s) => s.kinds);
   useEffect(() => {
     setD(null);
     setError("");
-    api("docs_get", { id }).then(setD).catch((e) => setError(err(e)));
+    setText(null);
+    setPage(start || 1);
+    api("docs_get", { id }).then((x) => {
+      setD(x);
+      // a magazine's issue: its text, as it was read (D145)
+      if (x.path.startsWith("Magazines/")) {
+        api("magazine_text", { path: x.path }).then((t) => {
+          if (!t) return;
+          setText(t);
+          const want = wordsOf(find);
+          if (!start && want.length) {
+            const at = t.pages.findIndex((p) => { const w = plain(p); return want.every((x) => w.includes(x)); });
+            if (at >= 0) setPage(at + 1);
+          }
+        }).catch(() => {});
+      }
+    }).catch((e) => setError(err(e)));
   }, [id]);
   const set = async (patch) => {
     try {
@@ -124,10 +160,12 @@ function DocView({ id, off, onChange, onClose }) {
       </select>
       ${isDesktop() ? html`<button type="button" class="ghost compact" id="doc-open" title="Open it in its own program" onClick=${() => ctx.platform.library.openPath(d.full)}>${Icon.external(14)} Open</button>
         <button type="button" class="ghost compact" title="Show in folder" aria-label="Show in folder" onClick=${() => reveal(d.full)}>${Icon.folder(14)}</button>` : null}
+      ${text ? html`<button type="button" class="ghost compact" id="doc-text-toggle" aria-pressed=${showText ? "true" : "false"} title="The page's text, as it was read" onClick=${() => setShowText(!showText)}>${Icon.search(14)} Text</button>` : null}
     </div>
+    ${text && showText ? html`<${PageText} text=${text} page=${page} find=${find} />` : null}
     <div class="doc-body">
-      ${d.view === "pdf" ? html`<${PdfView} url=${url} title=${d.title} />`
-        : d.view === "comic" ? html`<${ComicView} path=${d.path} title=${d.title} />`
+      ${d.view === "pdf" ? html`<${PdfView} url=${url} title=${d.title} page=${page} setPage=${setPage} />`
+        : d.view === "comic" ? html`<${ComicView} path=${d.path} title=${d.title} page=${page} setPage=${setPage} />`
         : d.view === "image" ? html`<img class="doc-image" src=${url} alt=${d.title} />`
         : d.view === "audio" ? html`<audio class="doc-audio" src=${url} controls preload="metadata"></audio>`
         : d.view === "text" || d.view === "markdown" ? html`<div class="doc-text-view" id="doc-text" dangerouslySetInnerHTML=${{ __html: d.html || "" }}></div>`
@@ -140,7 +178,7 @@ function DocView({ id, off, onChange, onClose }) {
 const docsState = createStore({ kinds: [] });
 const loadKinds = (kinds) => { if (kinds?.length) docsState.set({ kinds: kinds.map(({ id, name }) => ({ id, name })) }); };
 
-function DocDialog({ id }) {
+function DocDialog({ id, page, find }) {
   useEffect(() => { if (!docsState.get().kinds.length) api("docs_list", { limit: 1, offset: 1 }).then((r) => loadKinds(r.kinds)).catch(() => {}); }, []);
   // Esc closes it, and so does going to another page (review M36); a field being edited
   // takes its own Esc first
@@ -155,12 +193,13 @@ function DocDialog({ id }) {
   const off = !!ui.get().library?.read_only;
   return html`<div class="dialog-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget) close(); }}>
     <div class="dialog wide doc-dialog" id="doc-dialog" role="dialog" aria-modal="true" aria-label="Document">
-      <${DocView} id=${id} off=${off} onChange=${again} onClose=${close} />
+      <${DocView} id=${id} off=${off} onChange=${again} onClose=${close} page=${page} find=${find} />
     </div></div>`;
 }
 
-/** Show a document over the page. */
-export const viewDoc = (id) => ui.set({ dialog: { type: "doc", id } });
+/** Show a document over the page: at `page` (from 1), with `find`'s words marked in a
+ *  magazine page's text. */
+export const viewDoc = (id, { page = null, find = "" } = {}) => ui.set({ dialog: { type: "doc", id, page, find } });
 
 // ------------------------------------------------------------ Import documents…
 
@@ -335,7 +374,7 @@ export function useDroppedFiles(fn) {
 
 export function DocDialogs({ dialog }) {
   if (dialog.type === "docs-import") return html`<${DocsImportDialog} key=${dialog.paths.join("|")} ...${dialog} />`;
-  if (dialog.type === "doc") return html`<${DocDialog} key=${dialog.id} id=${dialog.id} />`;
+  if (dialog.type === "doc") return html`<${DocDialog} key=${`${dialog.id}:${dialog.page || ""}`} id=${dialog.id} page=${dialog.page} find=${dialog.find} />`;
   return null;
 }
 
@@ -443,7 +482,7 @@ export function Documents() {
           </button></li>`)}</ul>
         ${list.items.length < list.total ? html`<div class="home-actions"><button type="button" class="ghost" id="docs-more" onClick=${more}>Show ${Math.min(PAGE, list.total - list.items.length)} more (${list.total - list.items.length} left)</button></div>` : null}
       </div>
-      ${current ? html`<${DocView} key=${current} id=${current} off=${off} onChange=${() => setTick((t) => t + 1)} />` : html`<aside class="pc-panel pc-panel-empty"><p class="muted">Pick a document to read it here.</p></aside>`}
+      ${current ? html`<${DocView} key=${current} id=${current} off=${off} find=${q} onChange=${() => setTick((t) => t + 1)} />` : html`<aside class="pc-panel pc-panel-empty"><p class="muted">Pick a document to read it here.</p></aside>`}
     </div>
   </div>`;
 }

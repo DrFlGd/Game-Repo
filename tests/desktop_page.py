@@ -127,6 +127,26 @@ def png(w, h, rgb):
 COVER, WIDE = png(60, 90, (40, 90, 160)), png(184, 69, (200, 140, 40))
 
 
+def text_pdf(pages):
+    """A real PDF whose pages are a line of text each (a magazine with its own text, D145)."""
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", None, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    kids = []
+    for t in pages:
+        stream = f"BT /F1 14 Tf 30 400 Td ({t}) Tj ET".encode()
+        objs.append(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
+        objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 595] /Contents %d 0 R /Resources << /Font << /F1 3 0 R >> >> >>" % len(objs))
+        kids.append(len(objs))
+    objs[1] = b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(b"%d 0 R" % k for k in kids), len(kids))
+    out, at = bytearray(b"%PDF-1.4\n"), []
+    for i, o in enumerate(objs, 1):
+        at.append(len(out))
+        out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % x for x in at)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    return bytes(out)
+
+
 TGDB = [{"id": 501, "game_title": "Alpha", "release_date": "1990-04-21", "overview": "Alpha's overview, from the stand-in.", "players": 2, "developers": [7], "genres": [1]},
         {"id": 502, "game_title": "Beta", "release_date": "1991-06-01", "overview": "Beta's overview.", "players": 1, "developers": [7], "genres": [1]}]
 
@@ -386,7 +406,8 @@ async def magazines(pg, base, home, library):
     with zipfile.ZipFile(mags / "Game Fan 001 (1992-10).cbz", "w") as z:
         for n in ("p1.png", "p2.png", "p10.png"):
             z.writestr(n, COVER)
-    (mags / "Game Fan 002 (1992-11).pdf").write_bytes(b"%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n")
+    # a PDF with its own text, and no picture on its first page
+    (mags / "Game Fan 002 (1992-11).pdf").write_bytes(text_pdf(["Letters to the editor, and what is coming next month", "Sonic the Hedgehog 2 reviewed: the fastest game there is"]))
     with zipfile.ZipFile(mags / "Retro Gamer" / "100.cbz", "w") as z:
         z.writestr("cover.png", WIDE)
     await pg.click('.sidebar a[href="#/magazines"]')
@@ -454,6 +475,31 @@ async def magazines(pg, base, home, library):
     check("a list of issues (a CSV) says which are missing, and they're saved as a list of their own",
           "Game Fan 003 (1992-12)" in missing and "Game Fan 001" not in missing and "2 of the 3 listed" in totals and len(saved) == 1 and "Game Fan,3" in saved[0].read_text(),
           (missing, totals, said, [x.name for x in saved]))
+    # D145: the issues' text read (the PDF's own; the comic's pages by text recognition where
+    # there's a reader, else left unread), kept beside them, searched, and shown in the viewer
+    before = await pg.inner_text("#mag-text")
+    await pg.click("#mag-read")
+    said = await toast_text(pg, "Read 2 issues")
+    await pg.wait_for_function("() => document.querySelector('#mag-text')?.dataset.unread === '0'", timeout=30000)
+    after = await pg.inner_text("#mag-text")
+    kept = json.loads((fan / ".text" / "Game Fan 002 (1992-11).pdf.json").read_text()) if (fan / ".text" / "Game Fan 002 (1992-11).pdf.json").is_file() else {}
+    check("Read their text reads a magazine's issues page by page and keeps the text beside them",
+          "isn't read yet" in before and "Every issue's text is read" in after and "5 pages" in said and "Hedgehog" in "".join(kept.get("pages", [])[1:2]),
+          (before, after, said, kept))
+    await pg.click('#mag-issues li[data-number="2"] [data-action="games"]')
+    await pg.wait_for_selector("#mag-games")
+    games = await pg.inner_text("#mag-games")
+    check("an issue's games are found in its text (none here: this library has no DATs)", "No game's title is in its text" in games and "Games in No. 2" in games, games)
+    await pg.click('.sidebar a[href="#/documents"]')
+    await pg.fill("#docs-search", "hedgehog")
+    await pg.wait_for_selector('#docs-list .pc-row:has-text("Game Fan 2")', timeout=15000)
+    await pg.click('#docs-list .pc-row:has-text("Game Fan 2")')
+    await pg.wait_for_selector("#doc-view #doc-page-text mark")
+    marked = await pg.inner_text("#doc-page-text mark")
+    at = await pg.input_value("#doc-view .pdf-page-label input")
+    await pg.screenshot(path=str(out / "63-magazine-text.png"))
+    check("Documents' search finds an issue by its text; the viewer opens at the page with it, its text shown with the word marked",
+          marked == "Hedgehog" and at == "2", (marked, at))
 
 
 async def import_by_system(pg, base, home, library):

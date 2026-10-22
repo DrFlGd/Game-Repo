@@ -1541,6 +1541,13 @@ input[type="search"]:focus-visible, input[type="text"]:focus-visible, select:foc
 .comic-page { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 8px; }
 .comic-page img { display: block; max-width: 100%; max-height: 70vh; object-fit: contain; cursor: pointer; }
 .doc-panel .comic-page img { max-height: 100%; }
+.mag-issue .seg { flex-wrap: wrap; }
+.mag-game-list li { align-items: center; }
+.mag-game-pages { display: inline-flex; flex-wrap: wrap; gap: 2px 8px; }
+.mag-game-page { flex: 0 0 80px; width: 80px; }
+.doc-page-text { max-height: 30vh; overflow: auto; margin: 0 0 8px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.45;
+  background: var(--panel); border: 1px solid var(--steel-2); border-radius: var(--radius-s); }
+.doc-page-text mark { background: color-mix(in srgb, var(--accent-edge) 35%, transparent); color: inherit; padding: 0 1px; border-radius: 2px; }
 
 /* PC games (Phase 4) */
 .pc-body { display: grid; grid-template-columns: minmax(260px, 420px) minmax(0, 1fr); gap: 0 24px; align-items: start; }
