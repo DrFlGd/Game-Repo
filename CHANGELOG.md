@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.47 (2026-10-22)
+
 - **The backlog.** A new page under *Collections* (and at the top of the collections' list beside the menu): the games you mean to play, numbered in the order you'll play them, with the games you've completed beside them, the newest first, each with the date. Drag a game to its place (or use its menu, or Alt+↑ and Alt+↓), drag it to *Completed* when you've finished it, and mark the ones you're playing *In progress*: they're highlighted in your skin's colour. Add games from the Library (*Add to the backlog*, with any number picked, PC games too), from a game's page (which shows its place in the backlog) or with *Add games…*. Every change has Undo, and a game opened from the backlog has Previous and Next through it.
 
 ## 0.5.46 (2026-10-22)
