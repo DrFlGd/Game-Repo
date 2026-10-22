@@ -61,17 +61,22 @@ function New-Key([string]$password) {
     [void][version]::TryParse(((Get-Item -LiteralPath $exe).VersionInfo.ProductVersion -replace '[^0-9.].*$', ''), [ref]$version)
     if (-not $version -or $version -lt $first) { throw "The Game Repo installed ($exe, version $version) is older than $first, which makes the key. Install the newest from https://github.com/$repo/releases first." }
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    $errors = Join-Path ([IO.Path]::GetTempPath()) ('gamerepo-key-' + [guid]::NewGuid() + '.txt')
     $env:GAMEREPO_UPDATE_KEY_PASSWORD = $password
     try {
-        $p = Start-Process -FilePath $exe -ArgumentList @('--make-update-key', ('"' + $dir + '"')) -Wait -PassThru -NoNewWindow -RedirectStandardError $errors
-        $said = if (Test-Path -LiteralPath $errors) { (Get-Content -LiteralPath $errors -Raw) } else { '' }
+        # not Start-Process: in Windows PowerShell, with its messages redirected, a program that
+        # ends quickly sometimes has no exit code
+        $start = New-Object System.Diagnostics.ProcessStartInfo $exe
+        $start.Arguments = '--make-update-key "' + $dir + '"'
+        $start.UseShellExecute = $false
+        $start.RedirectStandardError = $true
+        $p = [System.Diagnostics.Process]::Start($start)
+        $said = $p.StandardError.ReadToEnd()
+        $p.WaitForExit()
         if ($p.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $privateFile) -or -not (Test-Path -LiteralPath $publicFile)) {
             throw "Game Repo couldn't make the key (exit $($p.ExitCode)): $said"
         }
     } finally {
         Remove-Item Env:\GAMEREPO_UPDATE_KEY_PASSWORD -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $errors -ErrorAction SilentlyContinue
     }
 }
 
