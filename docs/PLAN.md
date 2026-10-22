@@ -5305,6 +5305,109 @@ Windows and the Steam Deck (D134).
   for updates* finds 9.9.9, an APK changed after signing is refused, the right one brings
   Android's installer to the front, and backed out of, the page says it wasn't installed.
 
+### Jerred's list of 2026-10-22: a folder imported into a collection, fixes, and C, D and F (D140–D149)
+
+Jerred, 2026-10-22: he wants to import a folder of games and make a collection of them,
+where some are in the library already, some aren't, and some no DAT knows. Collections ›
+*From folders* only matches files to games the DATs know, so the rest would be missing.
+His answer: *Import into a collection* on the Import page, which brings in what's new and
+sends unknown files through Audit's *Unknown* tab (D123) to the custom DAT; *From folders*
+stays as it is, a read-only match. He agreed to Claude's shape for it (below) and queued,
+from the roadmap's options, C (magazines' text), D (videos) and F (smaller fixes), with
+five fixes of his own. D140–D149 are Claude's defaults, followed unless he says otherwise.
+Built in this order, each a pull request: D140–D143 (the import into a collection and the
+fixes), the wording (D144), C (D145), D (D146), F (D147–D149).
+
+**D140 Import into a collection.** Import › *Games into the library* gets one more choice
+under its games: *Also put these games in a collection*, either *A new collection* (a
+name, the folder's by default) or one there is, which gets a new group named after the
+folder (D75). What goes in is every game the import's folders hold that a DAT knows, ticked
+in the import's list: those the library has already (they aren't imported again) and those
+the import brings in. The collection or group is kept as From folders keeps one, as DATs of
+its own, one per system, with `made_from` `{kind: "import", paths}` (D49), so *Read again*
+works on it as on any other, with its history (D67).
+- **Files no DAT knows wait for it.** The import's unknown files given a system (not those
+  left out) go to Audit's *Unknown* tab as now, and the collection keeps them in its
+  `waiting` list (each file's SHA1, size and name). When one is added to the custom DAT
+  (as a variant or a game of its own, D123), or a DAT imported later knows it, its game
+  joins the collection's DAT for its system, as a step of its history; a file taken off
+  *Unknown* without being added (*Leave it*) leaves the list. The collection's page says
+  "N files are waiting on Audit › Unknown" with a link, and its games list shows them as
+  waiting.
+- **On the page** it's one line under the import's games ("Also put these games in a
+  collection: [No ▾]"), with the name under it when *A new collection* is chosen.
+- **From folders matches every DAT of a system.** Collections › *From folders* (and *From
+  a DAT*) match against the same DATs as the Library: the main DAT, the ones ticked
+  *Include in Audit* (D118) and the custom DAT (D119), so a variant already added isn't
+  called unknown. It stays a read-only match; a game the library doesn't have is still
+  shown with the link to the import.
+
+**D141 Empty collections.** *New collection* gets a fourth way, *Empty*: a name, and no
+games (rules *Only the games added by hand*). Games are added later with *Add to a
+collection…* in the Library or on a game's page, or by changing its rules. An empty
+collection's page says how, with a button to the Library.
+
+**D142 Two fixes.**
+- *Audit with it too* (D118) becomes *Include in Audit*.
+- ScreenScraper's *Threads at once* is filled in from the account: each time the account
+  is read (Settings › Sources › *Check*, or a scrape starting) its `maxthreads` is kept
+  (`threads_allowed`), and the field shows it, marked *as your account allows*. A number
+  typed in is kept as the user's own (at most the account's); emptied, it goes back to
+  the account's.
+
+**D143 The taskbar's icon.** The programs carry the new icons (checked in 0.5.44's
+installer: `game-repo.exe`'s icon is the folder pad), but Windows keeps the icons of
+shortcuts and pinned programs in a cache, so a taskbar pin or Start menu shortcut made
+before 0.5.38 can go on showing the old one. Each installer now asks Windows to refresh its
+icons after installing (`SHChangeNotify` with `SHCNE_ASSOCCHANGED`, and `ie4uinit.exe
+-show`), and the installers themselves show the program's icon in place of NSIS's.
+
+**D144 A review of the wording.** Every page, dialog, message and the Help page, read for
+plain, short wording and one word for one thing (the glossary in Help is the list: a
+*system*, a *source*, *the library*, *audited games*, *variants*, *unknown files* and so on,
+each used one way). The changes are one pull request with the glossary as
+`docs/wording.md`, which later work follows; what's changed is listed in its notes.
+
+**D145 C: magazines' text, and the games each issue covers.** Each issue's text is read
+page by page and kept beside it (`Magazines/<Title>/.text/<file>.json`, the pages' text),
+so search finds it and the viewer can highlight it.
+- **Text.** A PDF's own text where it has some; otherwise (a scanned PDF, a CBZ or a CBR)
+  its pages are read with Windows' own OCR (Windows.Media.Ocr, in the languages Windows has
+  installed, nothing to install); Tesseract is used instead when it's in `tools/`, on PATH
+  or set in Settings › Tools (D14). Reading a magazine's issues is a job with progress and
+  Stop, done once per file (by its size and time), started from the magazine's page or
+  Settings.
+- **Games.** Each page's text is matched against the titles of the library's games (and
+  their systems' DATs, so a game not owned is found too): whole titles, with D120's name
+  comparison. An issue's page lists the games found, with the pages they're on, ticked
+  when sure; the ticks are kept in `magazine.json` and can be changed (and games added by
+  hand). A game's page lists the issues that cover it, opened at the page.
+
+**D146 D: videos.** Videos get a section of their own, like magazines: *Videos* in the
+sidebar, kept in the library as `Videos/<Kind>/<Title>.<ext>` (kind *Walkthrough*,
+*Review*, *Retrospective* or *Other*), with `videos.json` holding each one's title, kind,
+date, length, source and the games it's about. *Import videos…* reads folders (MP4, M4V,
+MOV, WebM, MKV, AVI), guesses the games from the file name (D120's comparison), and brings
+them in as an Organise change with Undo. A video can also be a web link (YouTube and the
+like, opened in the browser). The Videos page lists them with filters by kind, game and
+system; a game's page lists its videos; the player is the one game pages use now
+(`web/ui/video.js`). Exports and devices don't take videos for now.
+
+**D147 F: shorter dialogs** (review finding 5). A dialog says what it does in one line;
+the rest goes behind *More about this* or into Help. Organise, bring-in, the PC import,
+Scrape and the export dialogs first, then the rest in the same pass.
+
+**D148 F: two computers, one library** (M9). A change (an Organise plan, an import, a
+custom DAT's change) takes a lock file in `_library/journal/` naming the computer and when
+it started, refreshed while it runs. Another computer that finds a fresh lock says "Game
+Repo on <computer> is changing this library" and waits or lets the person stop; a lock
+not refreshed for ten minutes is old and taken over. Undo and finishing a change the other
+computer left work as now once the lock is free.
+
+**D149 F: very large DATs** (M15). DAT files are read as they're parsed (from a
+`BufReader`, a zip's member as a stream) instead of whole into memory, with progress and
+Stop, so a 300 MB MAME listxml takes a fraction of the memory it does now.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -5450,7 +5553,7 @@ Windows and the Steam Deck (D134).
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D140). D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D150). D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -5509,5 +5612,10 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     DATs per system on the Audit page (built, "Phase 10 notes, part 2"). Later: Android games (APKs), added to the roadmap
     by Jerred, 2026-10-20.
 16. In-app updates ("In-app updates", D134–D137; "Game Repo Go's updates on Android",
-    D139): Windows, the Steam Deck and Android built; Jerred makes the signing key once
-    with `tools/updater_key.cmd`.
+    D139): Windows, the Steam Deck and Android built; Jerred made the signing key, and
+    0.5.44 is the first signed release.
+17. Jerred's list of 2026-10-22 (D140–D149), in this order: the import into a collection
+    with empty collections and the fixes (D140–D143), the wording (D144), magazines' text
+    and games (C, D145), videos (D, D146), then shorter dialogs, the lock for two
+    computers and large DATs read as a stream (F, D147–D149). Later: 9d (the server on the
+    NAS, access away from home with Tailscale, muOS-style handhelds) and Android games.
