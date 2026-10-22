@@ -140,7 +140,7 @@ pub fn set_with_windows(program: &Path, on: bool) -> Result<()> {
     }
     let out = c.output()?;
     if !out.status.success() && on {
-        bail!("Windows didn't take it: {}", String::from_utf8_lossy(&out.stderr).trim());
+        bail!("Couldn't make Game Repo Server start with Windows: {}", String::from_utf8_lossy(&out.stderr).trim());
     }
     Ok(())
 }

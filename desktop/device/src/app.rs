@@ -234,7 +234,7 @@ impl App {
             let (a, b) = (me.clone(), me.clone());
             let queue = Queue::open(
                 data.join("queue.json"),
-                Box::new(move || a.upgrade().ok_or_else(|| anyhow!("The client is closing."))?.ctx()),
+                Box::new(move || a.upgrade().ok_or_else(|| anyhow!("Game Repo Go is closing."))?.ctx()),
                 Box::new(move || {
                     if let Some(app) = b.upgrade() {
                         (app.events)("queue");
@@ -435,7 +435,7 @@ impl App {
             "remove" | "remove_media" => {
                 let asks: Vec<RemoveAsk> = arg(args, "asks")?;
                 if cmd == "remove_media" && asks.iter().any(|a| a.kinds.is_empty()) {
-                    bail!("Say which media to remove.");
+                    bail!("Say which pictures or manuals to remove.");
                 }
                 let d = self.device()?;
                 let r = removing::remove(&d, &self.found(&d), &asks)?;
@@ -1027,7 +1027,7 @@ impl App {
         let (rows, _) = self.rows()?;
         let row = rows.iter().find(|r| (!id.is_empty() && r.id == id) || (!key.is_empty() && r.key == key)).ok_or_else(|| anyhow!("That game isn't on this device."))?;
         if row.key.is_empty() {
-            bail!("The library doesn't have {}, so it has no media for it.", row.name);
+            bail!("The library doesn't have {}, so it has no pictures or manuals for it.", row.name);
         }
         // the game's files as the device has them, so its media's named for them (and a
         // game from elsewhere is taken into the record with them)

@@ -58,7 +58,7 @@ export function DevicePage() {
     // the games ticked in one list, played longest ago first
     if (ids.length) setSort("played");
     const frees = (d?.games || []).filter((g) => ids.includes(g.id)).reduce((a, g) => a + g.size, 0);
-    setRoom(ids.length ? `Selected the ${plural(ids.length, "game")} played longest ago, freeing ${bytes(frees)} of the ${bytes(need)} needed. Change what's selected if you like, then choose Remove….`
+    setRoom(ids.length ? `Selected the ${plural(ids.length, "game")} played longest ago, freeing ${bytes(frees)} of the ${bytes(need)} needed. Change what's selected if you like, then choose Remove… to free the space.`
       : "There's nothing on this device to remove.");
   }).catch((e) => say(message(e)));
   const name = (id) => s.systems.find((x) => x.id === id)?.name || id;
@@ -82,11 +82,11 @@ export function DevicePage() {
       <span class=${`badge go-from go-from-${lack ? "missing" : r.from}`} title=${why}>${from}</span>
       ${open_ ? html`<div class="go-row-more">
         ${r.media.length ? html`<ul class="go-sizes">${r.media.map(([k, size]) => html`<li key=${k}><span>${kindName(k)}</span><span class="muted">${bytes(size)}</span>
-            <button type="button" class="ghost" onClick=${() => showDialog({ type: "remove", asks: [{ id: r.id, key: r.key, kinds: [k] }], media: true, title: `Remove ${kindName(k).toLowerCase()} of ${r.name}` })}>Remove</button></li>`)}</ul>`
+            <button type="button" class="ghost" onClick=${() => showDialog({ type: "remove", asks: [{ id: r.id, key: r.key, kinds: [k] }], media: true, title: `Remove ${kindName(k).toLowerCase()} of ${r.name}` })}>Remove…</button></li>`)}</ul>`
           : html`<p class="muted">No pictures or manual on this device.</p>`}
         <div class="go-row-do">
           ${r.key && lack ? html`<button type="button" class="primary go-row-again" onClick=${() => showDialog({ type: "add", keys: [r.key] })}>Download again…</button>` : null}
-          ${r.key && !lack ? html`<button type="button" class="ghost" onClick=${() => showDialog({ type: "add-media", row: r })}>Add media…</button>
+          ${r.key && !lack ? html`<button type="button" class="ghost" onClick=${() => showDialog({ type: "add-media", row: r })}>Add pictures and manuals…</button>
             <button type="button" class="ghost" onClick=${() => open({ page: "game", key: r.key })}>In the library</button>` : null}
           <button type="button" class="ghost danger-text" onClick=${() => showDialog({ type: "remove", asks: [{ id: r.id, key: r.key }], title: `Remove ${r.name}`, done: removed })}>Remove…</button>
         </div>
@@ -126,7 +126,7 @@ export function RoomDialog({ run }) {
   return html`<${Dialog} title="Make room" id="room-dialog" onSubmit=${() => { closeDialog(); run(need); }} disabled=${need <= 0} submitLabel="Select games to remove">
     <label class="field-block"><span>Room needed, in GB</span>
       <input id="room-gb" type="number" min="0" step="any" value=${gb} onInput=${(e) => setGb(e.currentTarget.value)} />
-      <small class="muted">Games played longest ago are selected first, then those never played, the oldest first. Nothing is removed until you choose Remove….</small>
+      <small class="muted">Games played longest ago are selected first, then those never played, the oldest first. Nothing is removed until you choose Remove… and confirm.</small>
     </label>
   <//>`;
 }
@@ -167,7 +167,7 @@ export function RemoveDialog({ asks, media = false, title, done }) {
         <p class="muted">Another game on this device needs ${r.kept.length === 1 ? "this" : "these"}, so ${r.kept.length === 1 ? "it stays" : "they stay"}:</p>
         <ul class="go-files">${r.kept.map((f) => html`<li><span class="go-file">${f.path}</span><span class="muted">${bytes(f.size)}</span></li>`)}</ul></div>` : null}
       ${r.gone?.length ? html`<p class="muted" id="remove-gone">${r.gone.length === 1 ? "1 file isn't" : `${count(r.gone.length)} files aren't`} on this device any more (was a folder changed in Settings?), so ${r.gone.length === 1 ? "it's" : "they're"} only taken off Game Repo Go's list.</p>` : null}
-      ${r.entries.length ? html`<p class="muted">${plural(r.entries.length, "entry", "entries")} in ES-DE's game lists go too${r.lines.length ? `, and ${plural(r.lines.length, "line")} in its custom collections` : ""}.</p>` : null}
+      ${r.entries.length ? html`<p class="muted">${plural(r.entries.length, "entry", "entries")} in ES-DE's gamelists go too${r.lines.length ? `, and ${plural(r.lines.length, "line")} in its custom collections` : ""}.</p>` : null}
       ${going.some((f) => f.place === "pc") ? html`<p class="muted" id="remove-pc">A PC game's files from the library go${info.kind === "windows" ? ", with its Start menu shortcut" : ", with its Steam shortcut"}. Files it made itself, such as saves and settings, stay in its folder.</p>` : null}
       <p class="muted">Saves are never touched. Files are set aside first, so a removal cut short (the battery, say) can be finished or put back.</p>
     ` : null}

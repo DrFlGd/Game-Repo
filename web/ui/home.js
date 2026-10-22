@@ -18,7 +18,7 @@ function libraryItems() {
   return [
     ...(isDesktop() ? [{ id: "show-library", label: "Show in folder", icon: "folder", run: showLibraryFolder }] : []),
     { id: "scan-full", label: "Scan, unpacking ZIPs", icon: "refresh", title: "Read every file inside ZIPs in full this time", run: () => scan(true) },
-    { id: "check-index", label: "Check the index", icon: "database", title: "Check the app's database on this computer for damage", run: checkIndex },
+    { id: "check-index", label: "Check the index", icon: "database", title: "Check the index on this computer for damage", run: checkIndex },
     ...(isDesktop() ? [{ sep: true }, { id: "open-another", label: "Open another library…", icon: "folder", run: () => openLibrary() }] : []),
   ];
 }

@@ -824,7 +824,7 @@ async def main():
             await pg.wait_for_selector("#add-pc")
             said = await pg.inner_text("#add-dialog")
             await shot(pg, "18-phone-add-pc-game")
-            check("Download… says where a PC game goes, and that the library unpacks it first", str(pc_games) in said and "being unpacked on the library first" in said, said)
+            check("Download… says where a PC game goes, and that the library unpacks it first", str(pc_games) in said and "being unpacked in the library first" in said, said)
             fake = None
             if sys.platform.startswith("linux"):
                 # Steam running while it downloads (D125): its shortcut waits for Steam to close

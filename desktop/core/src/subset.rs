@@ -2,11 +2,12 @@
 //! design", D49): the files of a few folders from anywhere, or the games of a DAT read in
 //! place, matched by hash against each system's audit DAT, reviewed, then kept as DATs
 //! of the collection's own (`_library/collections/<id>/`, one per system, with the full
-//! set's names and hashes) that its rules take their games from.
+//! set's names and hashes) that its rules take their games from. Games imported from
+//! folders can go into one too (D140), with the files no DAT knew waiting on it.
 
 use crate::archive;
 use crate::audit::{self, GAMES};
-use crate::collection::{self, Collection, Game, Rules};
+use crate::collection::{self, Collection, Game, Rules, Waiting, WaitingRom};
 use crate::dat;
 use crate::hash::{self, Hashes};
 use crate::index::Index;
@@ -170,14 +171,22 @@ pub fn read_dat(path: &Path) -> Result<Vec<Found>> {
     Ok(out)
 }
 
-/// Each system's audit DAT (the BIOS files aside): DAT id → system.
+/// Each system's audit DATs (the BIOS files aside): its main DAT, the others included in
+/// its audit (D118) and its custom DAT of variants (D119), as Audit has them (D140).
+/// DAT id → system.
 fn audit_dats(conn: &Connection, lib: &Library) -> Result<HashMap<i64, String>> {
     let mut q = conn.prepare("SELECT DISTINCT platform FROM dats WHERE current = 1 AND platform != ?1")?;
     let systems: Vec<String> = q.query_map([crate::bios::ID], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     let mut out = HashMap::new();
     for p in systems {
         if let Some(id) = audit::primary_dat(conn, lib, &p)? {
-            out.insert(id, p);
+            out.insert(id, p.clone());
+            for a in audit::also_dats(conn, lib, &p)? {
+                out.insert(a, p.clone());
+            }
+        }
+        if let Some(c) = crate::variants::custom_dat(conn, &p)? {
+            out.insert(c, p);
         }
     }
     Ok(out)
@@ -252,7 +261,9 @@ pub fn review(ix: &Index, lib: &Library, found: &[Found]) -> Result<Value> {
             // the system it may be, from the folders it's in and its extension
             let dirs: Vec<&str> = f.shown.split('/').collect();
             let system = platforms::guess(None, &dirs[..dirs.len().saturating_sub(1)], &f.shown).filter(|p| p != "pc");
-            unknown.push(json!({ "path": f.shown, "file": f.path, "system": system, "why": "No system's audit DAT has it." }));
+            // (its hashes: imported into a collection, it waits on it, D140)
+            let roms: Vec<WaitingRom> = f.roms.iter().map(|h| WaitingRom { size: h.size, crc32: h.crc32.clone(), sha1: h.sha1.clone() }).collect();
+            unknown.push(json!({ "path": f.shown, "file": f.path, "system": system, "roms": roms, "why": "None of the DATs Audit uses knows it." }));
         }
         for id in ids {
             games.entry(id).or_default().push((f.shown.clone(), f.path.clone()));
@@ -278,30 +289,32 @@ pub fn review(ix: &Index, lib: &Library, found: &[Found]) -> Result<Value> {
             None => true,
         }
     });
-    // each game's name, system and status in the full set
-    let mut by_dat: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
+    // each game's name, system and status in the full set: a system's DATs together
+    let mut by_system: BTreeMap<String, BTreeMap<i64, HashSet<i64>>> = BTreeMap::new();
     for id in games.keys() {
         let d: i64 = conn.query_row("SELECT dat_id FROM dat_games WHERE id = ?1", [id], |r| r.get(0))?;
-        by_dat.entry(d).or_default().push(*id);
+        by_system.entry(dats.get(&d).cloned().unwrap_or_default()).or_default().entry(d).or_default().insert(*id);
     }
     let mut systems = vec![];
-    for (dat_id, ids) in by_dat {
-        let platform = dats.get(&dat_id).cloned().unwrap_or_default();
-        let wanted: HashSet<i64> = ids.into_iter().collect();
-        let mut q = conn.prepare(&format!("WITH {GAMES} SELECT gs.id, gs.name, gs.status FROM gs ORDER BY gs.name"))?;
-        let mut rows = q.query([dat_id])?;
+    for (platform, by_dat) in by_system {
         let mut list = vec![];
-        while let Some(r) = rows.next()? {
-            let id: i64 = r.get(0)?;
-            if wanted.contains(&id) {
-                let from: Vec<&str> = games[&id].iter().map(|(s, _)| s.as_str()).collect();
-                let files: Vec<&str> = games[&id].iter().map(|(_, p)| p.as_str()).collect();
-                list.push(json!({ "id": id, "name": r.get::<_, String>(1)?, "status": r.get::<_, String>(2)?, "from": from, "files": files }));
+        for (dat_id, wanted) in &by_dat {
+            let mut q = conn.prepare_cached(&format!("WITH {GAMES} SELECT gs.id, gs.name, gs.status FROM gs ORDER BY gs.name"))?;
+            let mut rows = q.query([dat_id])?;
+            while let Some(r) = rows.next()? {
+                let id: i64 = r.get(0)?;
+                if wanted.contains(&id) {
+                    let from: Vec<&str> = games[&id].iter().map(|(s, _)| s.as_str()).collect();
+                    let files: Vec<&str> = games[&id].iter().map(|(_, p)| p.as_str()).collect();
+                    list.push(json!({ "id": id, "name": r.get::<_, String>(1)?, "status": r.get::<_, String>(2)?, "from": from, "files": files, "dat": dat_id }));
+                }
             }
         }
+        list.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
         let have = list.iter().filter(|g| g["status"] == "have").count();
         let places = crate::addgame::places(Some(conn), lib, &platform);
-        systems.push(json!({ "platform": platform, "name": platforms::name_of(&platform), "dat": dat_id, "games": list, "have": have, "places": places }));
+        let main = audit::primary_dat(conn, lib, &platform)?.or(by_dat.keys().next().copied());
+        systems.push(json!({ "platform": platform, "name": platforms::name_of(&platform), "dat": main, "games": list, "have": have, "places": places }));
     }
     systems.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
     Ok(json!({
@@ -330,10 +343,10 @@ pub enum Target<'a> {
 
 /// Save the games chosen (DAT game ids of the audit DATs) as a collection, or a group of
 /// one, made from folders or a DAT, kept as DATs of its own. `made_from` says what it was
-/// read from.
-pub fn save(ix: &Index, lib: &Library, into: Target, games: &[i64], made_from: Value) -> Result<Collection> {
+/// read from; `waiting`, the files imported into it that no DAT knows yet (D140).
+pub fn save(ix: &Index, lib: &Library, into: Target, games: &[i64], made_from: Value, waiting: Vec<Waiting>) -> Result<Collection> {
     lib.writable()?;
-    if games.is_empty() {
+    if games.is_empty() && waiting.is_empty() {
         bail!("None of the games was found in your audited games, so there's nothing to make a collection of.");
     }
     let conn = ix.conn();
@@ -377,10 +390,23 @@ pub fn save(ix: &Index, lib: &Library, into: Target, games: &[i64], made_from: V
         std::fs::write(&p, text).with_context(|| format!("couldn't write {}", p.display()))?;
         files.push(lib.relative(&p).unwrap_or_else(|| p.display().to_string()));
     }
+    // the systems of the files waiting too; with none of its games known yet, only those
+    // that join it later (added by hand)
+    let mut systems: Vec<String> = by.keys().cloned().collect();
+    for w in &waiting {
+        if !systems.contains(&w.platform) {
+            systems.push(w.platform.clone());
+        }
+    }
+    systems.sort();
+    let include = if by.is_empty() { "none" } else { "all" };
     c.change_group(&group, |g| {
+        if !waiting.is_empty() {
+            g.waiting = waiting;
+        }
         g.rules = Rules {
-            platforms: by.keys().cloned().collect(),
-            include: "all".into(),
+            platforms: systems,
+            include: include.into(),
             one_per_title: false,
             only_regions: false,
             languages: vec![],
@@ -392,6 +418,64 @@ pub fn save(ix: &Index, lib: &Library, into: Target, games: &[i64], made_from: V
         };
         g.made_from = Some(made_from);
     })?;
+    collection::save(lib, c)
+}
+
+/// The files waiting on a collection (D140) that a DAT knows now (added to their system's
+/// custom DAT, say) join it: each game is added to the group it waited on, as a step of the
+/// collection's history. Returns how many joined.
+pub fn settle(ix: &Index, lib: &Library, id: &str) -> Result<usize> {
+    let c = collection::load(lib, id)?;
+    if c.all_groups().iter().all(|g| g.waiting.is_empty()) || lib.writable().is_err() {
+        return Ok(0);
+    }
+    let conn = ix.conn();
+    let dats = audit_dats(conn, lib)?;
+    let mut name_of = conn.prepare("SELECT d.platform, g.name FROM dat_games g JOIN dats d ON d.id = g.dat_id WHERE g.id = ?1")?;
+    // (group, the file, the games it is)
+    let mut joined: Vec<(String, Waiting, Vec<(String, String)>)> = vec![];
+    for g in c.all_groups() {
+        for w in &g.waiting {
+            let roms: Vec<Hashes> = w.roms.iter().map(|r| Hashes { size: r.size, crc32: r.crc32.clone(), sha1: r.sha1.clone(), ..Default::default() }).collect();
+            let ids = games_of(conn, &dats, &roms)?;
+            if ids.is_empty() {
+                continue;
+            }
+            let games = ids.iter().map(|i| name_of.query_row([i], |r| Ok((r.get(0)?, r.get(1)?)))).collect::<rusqlite::Result<_>>()?;
+            joined.push((g.id.clone(), w.clone(), games));
+        }
+    }
+    if joined.is_empty() {
+        return Ok(0);
+    }
+    let before = crate::history::before(ix, lib, id, "", "")?;
+    let mut c = c;
+    for (group, w, games) in &joined {
+        c.change_group(group, |g| {
+            g.waiting.retain(|x| x != w);
+            for (platform, name) in games {
+                let k = format!("{platform}/{name}");
+                g.removed.retain(|x| *x != k);
+                if !g.added.contains(&k) {
+                    g.added.push(k);
+                }
+                if !g.rules.platforms.is_empty() && !g.rules.platforms.contains(platform) {
+                    g.rules.platforms.push(platform.clone());
+                }
+            }
+        })?;
+    }
+    collection::save(lib, c)?;
+    crate::history::record(ix, lib, before, "hand", None)?;
+    Ok(joined.len())
+}
+
+/// A file waiting on a collection's group (by its system and name) taken off: it stays in
+/// the library, and the collection no longer waits for it (D140).
+pub fn leave_waiting(lib: &Library, id: &str, group: &str, platform: &str, name: &str) -> Result<Collection> {
+    lib.writable()?;
+    let mut c = collection::load(lib, id)?;
+    c.change_group(group, |g| g.waiting.retain(|w| !(w.platform == platform && w.name == name)))?;
     collection::save(lib, c)
 }
 
@@ -760,7 +844,7 @@ mod tests {
         assert_eq!(r["unknown"][0]["path"], "Best of GB/notes.txt");
         // saved: its own DAT, which the collection takes its games from
         let ids: Vec<i64> = gb["games"].as_array().unwrap().iter().map(|g| g["id"].as_i64().unwrap()).collect();
-        let c = save(&ix, &lib, Target::New("Best of GB"), &ids, json!({ "folders": [sub.display().to_string()] })).unwrap();
+        let c = save(&ix, &lib, Target::New("Best of GB"), &ids, json!({ "folders": [sub.display().to_string()] }), vec![]).unwrap();
         assert_eq!(c.rules.from_files.len(), 1);
         assert!(lib.root().join(&c.rules.from_files[0]).is_file());
         let w = collection::work_out(&ix, &lib, &c).unwrap();
@@ -776,11 +860,11 @@ mod tests {
         let r = review(&ix, &lib, &read_dat(&dir.join("mine.dat")).unwrap()).unwrap();
         assert_eq!((r["games"].as_u64(), r["unknown"][0]["path"].as_str()), (Some(1), Some("mystery")), "{r}");
         // read again with fewer games: its DAT is replaced
-        let c = save(&ix, &lib, Target::Again(&c.id, ""), &ids[..1], json!({ "dat": "mine.dat" })).unwrap();
+        let c = save(&ix, &lib, Target::Again(&c.id, ""), &ids[..1], json!({ "dat": "mine.dat" }), vec![]).unwrap();
         assert_eq!(collection::work_out(&ix, &lib, &c).unwrap().games().count(), 1);
         // a group of it made from the folder: its own DATs in its own folder, named for it,
         // and the game the first group has isn't repeated in it
-        let c = save(&ix, &lib, Target::Group(&c.id, "From the folder"), &ids, json!({ "folders": [sub.display().to_string()] })).unwrap();
+        let c = save(&ix, &lib, Target::Group(&c.id, "From the folder"), &ids, json!({ "folders": [sub.display().to_string()] }), vec![]).unwrap();
         let g = &c.groups[0];
         assert_eq!((g.name.as_str(), g.made_from.is_some()), ("From the folder", true));
         assert!(g.rules.from_files[0].contains(&format!("{}/{}/", c.id, g.id)) && g.rules.from_files[0].ends_with("Best of GB - From the folder - Game Boy.dat"), "{:?}", g.rules.from_files);
@@ -796,6 +880,64 @@ mod tests {
         assert!(!dats_dir(&lib, &c.id).unwrap().exists());
         assert_eq!(collection::work_out(&ix, &lib, &copy).unwrap().games().count(), 3);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_folder_imported_into_a_collection_keeps_its_unknown_files_waiting_until_a_dat_knows_them() {
+        use crate::audit::tests::{dat_xml, import, rom_xml, run_scan, write};
+        let f = crate::audit::tests::fixture("subset-waiting");
+        let gba = f.dir.join("Roms/GBA");
+        write(&gba.join("Tetris Worlds (USA).gba"), &rom(44, 1024));
+        write(&gba.join("Dark Eden (Prototype).gba"), &rom(42, 4096));
+        let dat = dat_xml("Nintendo - Game Boy Advance", "20261001", &[
+            ("Tetris Worlds (USA)", None, rom_xml("Tetris Worlds (USA).gba", &rom(44, 1024))),
+            ("Zeta (Japan)", None, rom_xml("Zeta (Japan).gba", &rom(45, 2048))),
+        ]);
+        write(&f.dir.join("dats/gba.dat"), dat.as_bytes());
+        run_scan(&f, false);
+        let main = import(&f, "gba.dat")[0]["id"].as_i64().unwrap();
+        // a folder of picks: one the library has, one it lacks, and one no DAT knows
+        let picks = f.dir.join("Elsewhere/Picks");
+        write(&picks.join("tetris.gba"), &rom(44, 1024));
+        write(&picks.join("zeta.gba"), &rom(45, 2048));
+        write(&picks.join("Dark Eden (Prototype).gba"), &rom(42, 4096));
+        let none = AtomicBool::new(false);
+        let found = read_folders(&[picks.clone()], None, &none, &mut |_| {}).unwrap();
+        let r = review(&f.ix, &f.lib, &found).unwrap();
+        let games: Vec<(&str, &str)> = r["systems"][0]["games"].as_array().unwrap().iter().map(|g| (g["name"].as_str().unwrap(), g["status"].as_str().unwrap())).collect();
+        assert_eq!(games, [("Tetris Worlds (USA)", "have"), ("Zeta (Japan)", "missing")], "{r}");
+        let eden = &r["unknown"][0];
+        assert_eq!((eden["path"].as_str(), eden["roms"][0]["size"].as_u64()), (Some("Picks/Dark Eden (Prototype).gba"), Some(4096)), "{r}");
+        // imported into a new collection: the games known, and the file no DAT knows waiting
+        let ids: Vec<i64> = r["systems"][0]["games"].as_array().unwrap().iter().map(|g| g["id"].as_i64().unwrap()).collect();
+        let waiting = vec![Waiting { platform: "gba".into(), name: "Dark Eden (Prototype).gba".into(), roms: serde_json::from_value(eden["roms"].clone()).unwrap() }];
+        let c = save(&f.ix, &f.lib, Target::New("Picks"), &ids, json!({ "kind": "import", "paths": [picks] }), waiting.clone()).unwrap();
+        crate::history::record(&f.ix, &f.lib, crate::history::new(&c), "made", None).unwrap();
+        assert_eq!((collection::work_out(&f.ix, &f.lib, &c).unwrap().games().count(), c.waiting.len()), (2, 1));
+        assert_eq!(settle(&f.ix, &f.lib, &c.id).unwrap(), 0, "no DAT knows it yet");
+        // added to the custom DAT (Audit › Unknown), it joins the collection, as a step of its history
+        let l = audit::list(&f.ix, &f.lib, main, "unknown", "", 0, 100).unwrap();
+        let file = l["items"][0]["id"].as_i64().unwrap();
+        crate::variants::add(&f.ix, &f.lib, "gba", &[crate::variants::Add { files: vec![file], name: "Dark Eden (Prototype)".into(), original: None }]).unwrap();
+        assert_eq!(settle(&f.ix, &f.lib, &c.id).unwrap(), 1);
+        let c = collection::load(&f.lib, &c.id).unwrap();
+        let mut got: Vec<String> = collection::work_out(&f.ix, &f.lib, &c).unwrap().games().map(|g| g.name.clone()).collect();
+        got.sort();
+        assert_eq!((got.as_slice(), c.waiting.len()), (["Dark Eden (Prototype)", "Tetris Worlds (USA)", "Zeta (Japan)"].map(String::from).as_slice(), 0));
+        let steps = crate::history::steps(&f.lib, &c.id).unwrap();
+        assert_eq!((steps[0]["how"].as_str(), steps[0]["added"][0].as_str()), (Some("hand"), Some("gba/Dark Eden (Prototype)")), "{steps:?}");
+        // From folders matches the custom DAT too now
+        let r = review(&f.ix, &f.lib, &found).unwrap();
+        assert_eq!((r["games"].as_u64(), r["unknown"].as_array().map(Vec::len)), (Some(3), Some(0)), "{r}");
+        // a collection of files no DAT knows: none of its games yet, only those that join it
+        let stranger = Waiting { platform: "gba".into(), name: "Stranger.gba".into(), roms: vec![WaitingRom { size: 512, crc32: "0badf00d".into(), sha1: None }] };
+        let s = save(&f.ix, &f.lib, Target::New("Strangers"), &[], json!({ "kind": "import", "paths": [] }), vec![stranger]).unwrap();
+        assert_eq!((s.rules.include.as_str(), s.rules.platforms.as_slice(), collection::work_out(&f.ix, &f.lib, &s).unwrap().games().count()), ("none", ["gba".to_string()].as_slice(), 0));
+        // left: the collection no longer waits for it
+        let s = leave_waiting(&f.lib, &s.id, "", "gba", "Stranger.gba").unwrap();
+        assert!(s.waiting.is_empty());
+        assert!(save(&f.ix, &f.lib, Target::New("Nothing"), &[], json!({}), vec![]).is_err());
+        let _ = std::fs::remove_dir_all(&f.dir);
     }
 
     #[test]

@@ -15,6 +15,7 @@ import { PcDialogs } from "./pcgames.js";
 import { MetaDialogs } from "./metadata.js";
 import { DocDialogs } from "./documents.js";
 import { MagazineDialogs } from "./magazines.js";
+import { VideoDialogs } from "./videos.js";
 import { BiosDialogs } from "./bios.js";
 import { ImportDialogs } from "./importpage.js";
 import { LayoutDialogs } from "./layouts.js";
@@ -58,10 +59,19 @@ export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger =
   </div>`;
 }
 
-/** A question with a button that does it: `{ title, text (one or more paragraphs), button, cancel, run }`. */
+/** What a dialog needn't say at once, folded under *More about this* (D147): a dialog says
+ *  what it does in one line, and the rest is here or in Help. */
+export function More({ id, children }) {
+  return html`<details class="more-about" id=${id}><summary>More about this</summary>${children}</details>`;
+}
+
+/** A question with a button that does it: `{ title, text (one or more paragraphs), button, cancel, run }`.
+ *  The first paragraph says it; the rest are under More about this (D147). */
 function AskDialog({ title, text, button, cancel = "Not now", run }) {
+  const [first, ...rest] = [].concat(text);
   return html`<${Dialog} title=${title} id="ask-dialog" onSubmit=${() => { close(); run(); }} submitLabel=${button} cancelLabel=${cancel}>
-    ${[].concat(text).map((t, i) => html`<p key=${i} class=${i ? "muted" : null}>${t}</p>`)}
+    <p>${first}</p>
+    ${rest.length ? html`<${More} id="ask-more">${rest.map((t, i) => html`<p key=${i}>${t}</p>`)}<//>` : null}
   <//>`;
 }
 
@@ -110,7 +120,7 @@ function PlatformSelect({ id, value, onChange, none }) {
     ${isNew ? html`<span class="new-system">
       <input type="text" id=${`${id}-name`} class="compact" maxlength="80" placeholder="The system's name, e.g. Satellaview" aria-label="The new system's name" value=${value.name}
         onInput=${(e) => onChange({ ...value, name: e.target.value, id: value.idTyped ? value.id : idFromName(e.target.value) })} />
-      <input type="text" id=${`${id}-id`} class="compact system-id" maxlength="40" placeholder="its id" aria-label="The new system's id (its folder name on export)" title="Its id: the folder exports use" value=${value.id}
+      <input type="text" id=${`${id}-id`} class="compact system-id" maxlength="40" placeholder="Folder name" aria-label="The new system's folder name (for exports)" title="Its folder name: the folder exports use" value=${value.id}
         onInput=${(e) => onChange({ ...value, id: e.target.value.trim().toLowerCase(), idTyped: true })} />
     </span>` : null}
   </span>`;
@@ -140,7 +150,7 @@ function DatPlatformDialog({ asks, answers }) {
     }
   };
   return html`<${Dialog} title="Which system are these DATs for?" id="dat-platform-dialog" onSubmit=${submit} busy=${busy || !ready} error=${error} submitLabel="Import">
-    <p>The app couldn't tell from ${asks.length === 1 ? "this DAT's name" : "these DATs' names"}. Choose a system, or add a new one. Your answer is kept in the library, so newer versions are recognised.</p>
+    <p>Game Repo couldn't tell from ${asks.length === 1 ? "this DAT's name" : "these DATs' names"}. Choose a system, or add a new one. Your answer is kept in the library, so newer versions are recognised.</p>
     ${asks.map((a, i) => html`<div class="field-block" key=${a.name}><span class="field-label">${a.name}</span>
       <small class="muted">${a.file}</small>
       <${PlatformSelect} id=${`dat-platform-${i}`} value=${picked[a.name]} none="Choose…" onChange=${(v) => setPicked((p) => ({ ...p, [a.name]: v }))} /></div>`)}
@@ -174,7 +184,7 @@ function MakeDatDialog() {
       <p>Add the folder (Import › Folders with games) and scan it first: the DAT is made from what the scan read.</p><//>`;
   }
   return html`<${Dialog} title="Make a DAT from a folder" id="make-dat-dialog" onSubmit=${submit} busy=${busy || !name.trim() || !root || (typeof platform === "object" && !answered(platform))} error=${error} submitLabel="Make the DAT">
-    <p class="muted">Each file (or ZIP) the last scan found becomes a game in a standard (Logiqx) DAT, saved in the library's <code>_library/made-dats</code> folder. ZIPs are read in full so every ROM has its full hash.</p>
+    <p class="muted">Each file (or ZIP) the last scan found becomes a game in a standard (Logiqx) DAT.</p>
     <label class="field-block"><span class="field-label">Folder with games</span>
       <select id="make-dat-root" class="compact" value=${root} onChange=${(e) => setRoot(e.target.value)}>
         ${roots.map((r) => html`<option key=${r.id} value=${r.id}>${r.dir}</option>`)}
@@ -185,6 +195,7 @@ function MakeDatDialog() {
       <input type="text" id="make-dat-name" maxlength="150" placeholder="e.g. My Game Boy set" value=${name} onInput=${(e) => setName(e.target.value)} /></label>
     <div class="field-block"><span class="field-label">Import it to audit against</span>
       <${PlatformSelect} id="make-dat-platform" value=${platform} none="Don't import it" onChange=${setPlatform} /></div>
+    <${More} id="make-dat-more"><p>It's saved in the library's <code>_library/made-dats</code> folder. ZIPs are read in full, so every file in them has its full hash.</p><//>
   <//>`;
 }
 
@@ -197,5 +208,5 @@ export function Dialogs() {
   if (dialog.type === "make-dat") return html`<${MakeDatDialog} ...${dialog} />`;
   if (dialog.type === "organise") return html`<${OrganiseDialog} key=${dialog.plan?.id || "new"} ...${dialog} />`;
   if (dialog.type === "convert") return html`<${ConvertDialog} ...${dialog} />`;
-  return SystemDialogs({ dialog }) || CollectionDialogs({ dialog }) || PcDialogs({ dialog }) || MetaDialogs({ dialog }) || DocDialogs({ dialog }) || MagazineDialogs({ dialog }) || BiosDialogs({ dialog }) || ImportDialogs({ dialog }) || LayoutDialogs({ dialog }) || BrowseDialogs({ dialog }) || VariantDialogs({ dialog }) || AuditDialogs({ dialog });
+  return SystemDialogs({ dialog }) || CollectionDialogs({ dialog }) || PcDialogs({ dialog }) || MetaDialogs({ dialog }) || DocDialogs({ dialog }) || MagazineDialogs({ dialog }) || VideoDialogs({ dialog }) || BiosDialogs({ dialog }) || ImportDialogs({ dialog }) || LayoutDialogs({ dialog }) || BrowseDialogs({ dialog }) || VariantDialogs({ dialog }) || AuditDialogs({ dialog });
 }

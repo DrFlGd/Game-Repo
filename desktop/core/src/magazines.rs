@@ -54,8 +54,30 @@ pub struct Issue {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sha1: Option<String>,
     pub added: String,
+    /// The games found in its text, and those added by hand (magtext.rs, D145)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub games: Vec<IssueGame>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+/// A game an issue covers: found in its text (ticked when its title is sure), or added by hand.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct IssueGame {
+    /// The game's key in the Library: `<system>/<DAT name>`, `pc/<id>`
+    pub key: String,
+    pub title: String,
+    pub platform: String,
+    /// The pages (from 1) it's on
+    pub pages: Vec<u32>,
+    pub ticked: bool,
+    /// Its title is sure to be the game's
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub sure: bool,
+    /// Ticked, unticked or added by hand: kept when the issue is read again
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub hand: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -82,7 +104,7 @@ pub fn list(lib: &Library) -> Vec<(PathBuf, Magazine)> {
     v
 }
 
-fn by_title(lib: &Library, title: &str) -> Result<(PathBuf, Magazine)> {
+pub(crate) fn by_title(lib: &Library, title: &str) -> Result<(PathBuf, Magazine)> {
     list(lib).into_iter().find(|(_, m)| m.title.eq_ignore_ascii_case(title)).ok_or_else(|| anyhow!("There's no magazine {title}."))
 }
 
@@ -419,7 +441,7 @@ pub fn set_cover(lib: &Library, title: &str, file: &str, picture: &Path) -> Resu
 // ------------------------------------------------------------ pages and covers
 
 /// What a CBZ or CBR really is, by its first bytes (a CBR is often a ZIP).
-fn comic_kind(p: &Path) -> Option<&'static str> {
+pub(crate) fn comic_kind(p: &Path) -> Option<&'static str> {
     let mut b = [0u8; 6];
     let n = std::fs::File::open(p).ok()?.read(&mut b).ok()?;
     let b = &b[..n];
@@ -596,14 +618,25 @@ pub fn overview(ix: &Index, lib: &Library) -> Result<Value> {
         for i in &m.issues {
             let rel = lib.relative(&dir.join(&i.file)).unwrap_or_default();
             let doc: Option<i64> = conn.query_row("SELECT id FROM docs WHERE path = ?1", [&rel], |r| r.get(0)).ok();
+            let text = crate::magtext::kept(&dir.join(&i.file)).map(|k| json!({ "pages": k.pages.len(), "unread": k.unread.len(), "note": k.note }));
+            let games: Vec<Value> = i
+                .games
+                .iter()
+                .map(|g| {
+                    let mut v = serde_json::to_value(g).unwrap_or_default();
+                    v["platform_name"] = json!(crate::browse::system_name(&g.platform));
+                    v
+                })
+                .collect();
             issues.push(json!({
                 "number": i.number, "date": i.date, "file": i.file, "path": rel, "size": i.size, "doc": doc, "title": issue_title(&m.title, i),
-                "cover": i.cover, "gone": !dir.join(&i.file).is_file(),
+                "cover": i.cover, "gone": !dir.join(&i.file).is_file(), "games": games, "text": text,
             }));
         }
+        let (read, unread) = crate::magtext::state(&dir, &m);
         let a = audit.iter().find(|a| norm(a["title"].as_str().unwrap_or("")) == norm(&m.title));
         out.push(json!({
-            "title": m.title, "publisher": m.publisher, "folder": lib.relative(&dir), "issues": issues,
+            "title": m.title, "publisher": m.publisher, "folder": lib.relative(&dir), "issues": issues, "read": read, "unread": unread,
             "missing": a.map(|a| a["missing"].clone()).unwrap_or(json!([])), "listed": a.map(|a| a["listed"].clone()).unwrap_or(json!(0)),
         }));
     }
@@ -613,7 +646,7 @@ pub fn overview(ix: &Index, lib: &Library) -> Result<Value> {
             out.push(json!({ "title": a["title"], "publisher": null, "folder": null, "issues": [], "missing": a["missing"], "listed": a["listed"], "none": true }));
         }
     }
-    Ok(json!({ "magazines": out, "lists": lists(lib) }))
+    Ok(json!({ "magazines": out, "lists": lists(lib), "reader": crate::magtext::reader().map(|r| r.id()) }))
 }
 
 // ------------------------------------------------------------ lists to audit against

@@ -28,6 +28,7 @@ import { opened, gameHash, systemColour } from "./browse.js";
 import { Icon } from "./icons.js";
 import { Inspector } from "./panels.js";
 import { isVideo, Video } from "./video.js";
+import { watch, videoFacts } from "./videos.js";
 import { variantDialog, undoVariants } from "./variants.js";
 
 const err = (e) => e.message || String(e);
@@ -266,7 +267,7 @@ export function GamePage() {
     try {
       await api("variants_remove", { platform: g.platform, names: [g.variant.name] });
       ui.set((x) => ({ changes: (x.changes || 0) + 1 }));
-      toast(`Took ${g.variant.name} out of the custom DAT: its file is on Audit's Unknown tab again.`, { ms: 10000, actions: [{ label: "Undo", run: () => undoVariants(g.platform) }] });
+      toast(`Took ${g.variant.name} out of the custom DAT: its file is on Audit › Unknown again.`, { ms: 10000, actions: [{ label: "Undo", run: () => undoVariants(g.platform) }] });
       back();
     } catch (e) { toast(`Couldn't take it out: ${err(e)}`, 8000); }
   };
@@ -330,7 +331,7 @@ export function GamePage() {
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
         ${main ? html`<p class="muted game-main-source" id="game-main-source">Details from ${sourceName(main)}, unless a detail says otherwise.</p>` : null}
         <div class="game-fields">${FIELDS.map(([k, l]) => html`<${Detail} key=${k} g=${g} field=${k} label=${l} off=${off || busy} main=${main} onSave=${save} onUnmark=${unmark} onUse=${use} />`)}</div>
-        <p class="muted">${off ? "" : "Click a detail to change it. "}${pc ? "Its title and year name its folder, which is renamed with them; the rest is kept in the library and stays when it's identified again." : "What you change here is kept in the game's folder and stays when it's scraped again."}</p>
+        <p class="muted">${off ? "" : "Click a detail to change it. "}${pc ? "Its title and year name its folder, which is renamed with them; the rest is kept in the library and stays when it's identified again." : "What you change here is kept in its library folder and stays when it's scraped again."}</p>
         ${Object.keys(g.ids || {}).length ? html`<p class="muted" id="game-ids">Its ids at the sources: ${Object.entries(g.ids).map(([k, v]) => `${sourceName(k)} ${v}`).join(" · ")}</p>` : null}
       </section>
     </div>
@@ -346,10 +347,20 @@ export function GamePage() {
         : html`<p class="muted">None yet.${dat ? " Attach your own (or drop files on this page), or scrape its manual." : pc ? " Attach your own (or drop files on this page): a manual, a guide, a map." : ""}</p>`}
       ${(dat || pc) && isDesktop() ? html`<button type="button" class="ghost compact" id="game-attach" disabled=${off} onClick=${() => attach()}>${Icon.file(14)} Attach documents…</button>` : null}
     </section>
+    ${g.magazines?.length ? html`<section class="ls-section" id="game-magazines"><h2>In magazines</h2>
+      <ul class="ls-list">${g.magazines.map((x) => html`<li key=${x.path} data-path=${x.path}><span>${x.title}</span>
+        <span class="mag-game-pages">${x.pages.length ? x.pages.map((p) => html`<button type="button" class="linkish" key=${p} data-page=${p} disabled=${!x.doc} title=${`Read page ${p}`} onClick=${() => viewDoc(x.doc, { page: p, find: g.title })}>p. ${p}</button>`)
+          : html`<button type="button" class="linkish" disabled=${!x.doc} onClick=${() => viewDoc(x.doc, { find: g.title })}>Read it</button>`}</span></li>`)}</ul>
+    </section>` : null}
+    ${g.videos?.length ? html`<section class="ls-section" id="game-videos"><h2>Videos</h2>
+      <ul class="ls-list">${g.videos.map((v) => html`<li key=${v.id} data-id=${v.id}><span class="op-paths">
+        <button type="button" class="linkish" data-action="watch" title=${v.file ? "Watch it on the Videos page" : "Watch it in your browser"} disabled=${v.file && v.gone} onClick=${() => watch(v)}>${v.file ? Icon.video(14) : Icon.external(14)} ${v.title}</button>
+        <span class="muted">${videoFacts(v)}</span></span></li>`)}</ul>
+    </section>` : null}
     ${pc ? null : html`<section class="ls-section" id="game-files"><h2>Files</h2>
       ${files.length ? html`<ul class="ls-list">${files.map((f, i) => html`<li key=${i} data-missing=${f.missing ? "yes" : "no"}>
         <span class="op-paths"><span class="op-to" title=${f.path}>${dir ? f.path : shortPath(f.path, 3)}</span>
-          <span class="muted">${[f.kind, f.size ? size(f.size) : null, f.roms?.length > 1 ? plural(f.roms.length, "ROM", "ROMs") : null, f.missing ? "gone since the last scan" : null].filter(Boolean).join(" · ")}</span></span>
+          <span class="muted">${[f.kind, f.size ? size(f.size) : null, f.roms?.length > 1 ? plural(f.roms.length, "file", "files") : null, f.missing ? "gone since the last scan" : null].filter(Boolean).join(" · ")}</span></span>
         ${isDesktop() && !f.missing && !dir ? html`<button type="button" class="ghost compact" onClick=${() => reveal(f.path)}>Show</button>` : null}</li>`)}</ul>`
         : html`<p class="muted">${g.kind === "dat" && !g.have ? "You don't have it: the audit lists what to look for." : "No files."}</p>`}
       ${dat && g.have && g.dat_id && ui.get().platforms?.find((p) => p.id === g.platform)?.formats?.length ? html`<button type="button" class="ghost compact" id="game-convert" disabled=${off} onClick=${() => convertDialog({ dat: g.dat_id, platform: g.platform, platformName: g.platform_name, games: [g.name] })}>${Icon.convert(14)} Convert…</button>` : null}
@@ -357,7 +368,7 @@ export function GamePage() {
         <dt>In the DAT</dt><dd>${g.dat || ""}</dd>
         <dt>Name</dt><dd>${g.name}</dd>
         ${g.regions ? html`<dt>Regions</dt><dd>${g.regions}</dd>` : null}
-        <dt>ROMs</dt><dd>${(g.roms || []).length}</dd></dl>` : null}
+        <dt>Files</dt><dd>${(g.roms || []).length}</dd></dl>` : null}
     </section>`}
     ${dat ? html`<section class="ls-section" id="game-collections"><h2>Collections</h2>
       ${g.collections?.length ? html`<ul class="ls-list">${g.collections.map((c) => html`<li key=${c.id} data-id=${c.id}><a href=${routeHash("collections")}>${c.name}</a>
@@ -365,5 +376,5 @@ export function GamePage() {
       <button type="button" class="ghost compact" id="game-add" disabled=${off} onClick=${() => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } })}>${Icon.collection(14)} Add to a collection…</button>
     </section>` : null}
   </div>
-  <${Inspector} page="game" label="Media" open=${false} tabs=${[{ id: "media", label: "Media", icon: "image", body: html`<${MediaPane} g=${g} off=${off || busy} onChoose=${choose} />` }]} /></div>`;
+  <${Inspector} page="game" label="Pictures" open=${false} tabs=${[{ id: "media", label: "Pictures", icon: "image", body: html`<${MediaPane} g=${g} off=${off || busy} onChoose=${choose} />` }]} /></div>`;
 }

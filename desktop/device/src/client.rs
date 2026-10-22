@@ -160,7 +160,7 @@ pub fn info(address: &str) -> Result<(Info, String)> {
     }
     let info: Info = serde_json::from_slice(&body)?;
     if info.api > api::API {
-        bail!("The server is newer than this client (its API is {}, this client's {}): update the client.", info.api, api::API);
+        bail!("Game Repo Server is newer than Game Repo Go: update Go first.");
     }
     Ok((info, seen))
 }

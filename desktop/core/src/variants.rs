@@ -227,7 +227,7 @@ pub fn words(title: &str) -> Vec<String> {
 }
 
 /// Words too common to find a title by.
-const COMMON: &[&str] = &["the", "of", "and", "a", "an", "no", "de", "la", "le", "to", "in", "on", "for", "game", "edition", "version"];
+pub(crate) const COMMON: &[&str] = &["the", "of", "and", "a", "an", "no", "de", "la", "le", "to", "in", "on", "for", "game", "edition", "version"];
 
 fn bigrams(s: &str) -> HashSet<(char, char)> {
     let c: Vec<char> = s.chars().collect();
@@ -595,6 +595,7 @@ fn check_free(conn: &Connection, main: i64, name: &str) -> Result<()> {
 /// already there by that name. Variants then take their originals' details and pictures.
 pub fn add(ix: &Index, lib: &Library, platform: &str, adds: &[Add]) -> Result<Value> {
     lib.writable()?;
+    let _lock = crate::lock::take(lib, "changing a custom DAT")?;
     let conn = ix.conn();
     let main = main_dat(conn, lib, platform)?;
     let mut d = read(lib, platform)?;
@@ -647,6 +648,7 @@ pub fn add(ix: &Index, lib: &Library, platform: &str, adds: &[Add]) -> Result<Va
 /// Change a variant: its name (and so its tags) and its original (`None`: a game of its own).
 pub fn edit(ix: &Index, lib: &Library, platform: &str, name: &str, new_name: &str, original: Option<String>) -> Result<Value> {
     lib.writable()?;
+    let _lock = crate::lock::take(lib, "changing a custom DAT")?;
     let conn = ix.conn();
     let main = main_dat(conn, lib, platform)?;
     let new_name = new_name.trim().to_string();
@@ -699,6 +701,7 @@ fn old_folder(conn: &Connection, platform: &str, name: &str) -> Result<Option<St
 /// Take variants out of the custom DAT: their files are unknown again.
 pub fn remove(ix: &Index, lib: &Library, platform: &str, names: &[String]) -> Result<Value> {
     lib.writable()?;
+    let _lock = crate::lock::take(lib, "changing a custom DAT")?;
     let mut d = read(lib, platform)?;
     let before = d.games.len();
     d.games.retain(|g| !names.contains(&g.name));
@@ -712,6 +715,7 @@ pub fn remove(ix: &Index, lib: &Library, platform: &str, names: &[String]) -> Re
 /// Put back the custom DAT as it was before its last change.
 pub fn undo(ix: &Index, lib: &Library, platform: &str) -> Result<Value> {
     lib.writable()?;
+    let _lock = crate::lock::take(lib, "changing a custom DAT")?;
     let Some(last) = version_files(lib, platform).pop() else {
         bail!("There's no earlier version of the custom DAT to go back to.");
     };

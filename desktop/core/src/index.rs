@@ -211,7 +211,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ),
     (
         "also_dats",
-        // D118: a system's DATs ticked *Audit with it too*, from library.json `also_dats`
+        // D118: a system's DATs ticked *Include in Audit*, from library.json `also_dats`
         "ALTER TABLE dats ADD COLUMN also INTEGER NOT NULL DEFAULT 0;",
     ),
 ];
@@ -392,7 +392,7 @@ fn unusable(path: &Path, library_id: &str) -> Result<Option<String>> {
     };
     if version > schema_version() {
         return Ok(Some(format!(
-            "it was made by a newer version of Game Repo (index step {version}; this version knows {})",
+            "it was made by a newer version of Game Repo (index format {version}; this version reads up to {})",
             schema_version()
         )));
     }

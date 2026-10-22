@@ -167,7 +167,7 @@ export async function importDats(paths, answers = {}) {
     }
     return r;
   } catch (e) {
-    toast(`Couldn't import: ${e.message || e}`, 8000);
+    toast(`Couldn't import the DATs: ${e.message || e}`, 8000);
     return null;
   }
 }
@@ -190,10 +190,10 @@ async function offerFolderRenames() {
 export function starterDats(platforms = null) {
   const bios = platforms?.length === 1 && platforms[0] === "bios";
   ui.set({ dialog: { type: "ask", title: bios ? "Get libretro's list of BIOS files?" : "Get starter DATs?",
-    text: bios ? ["libretro's System.dat lists the BIOS files its emulators look for, with their hashes, for each system. It's downloaded from libretro's public copy on GitHub and imported, so the library's BIOS files can be audited against it.",
-      "It lists the files, not the files themselves: those are yours to find. A BIOS DAT you import yourself is used beside it."]
-      : ["No-Intro's DATs for the cartridge systems and Redump's for the disc systems are downloaded from libretro's public copies on GitHub and imported, for each system that has no DAT yet, with libretro's list of BIOS files.",
-      "They can be a little behind the newest, and libretro's copies of Redump's DATs list only one track of each disc. A DAT you import yourself becomes the version in use."],
+    text: bios ? ["It lists the BIOS files libretro's emulators look for, with their hashes, so the library's can be audited against it.",
+      "libretro's System.dat is downloaded from its public copy on GitHub and imported. It lists the files, not the files themselves: those are yours to find. A BIOS DAT you import yourself is used beside it."]
+      : ["No-Intro's DATs for the cartridge systems and Redump's for the disc systems are downloaded and imported, for each system that has no DAT yet.",
+      "They come from libretro's public copies on GitHub, with libretro's list of BIOS files. They can be a little behind the newest, and libretro's copies of Redump's DATs list only one track of each disc. A DAT you import yourself becomes the version in use."],
     button: bios ? "Download it" : "Download them", run: () => runStarter(platforms) } });
 }
 
@@ -215,7 +215,7 @@ async function runStarter(platforms) {
     const n = (r.imported || []).length;
     const extra = [r.skipped?.length ? `${r.skipped.length} already had one` : null, r.missing?.length ? `${r.missing.length} not available` : null, r.failed?.length ? `${r.failed.length} failed` : null].filter(Boolean).join(", ");
     const said = [`${n ? `Imported starter DATs for ${plural(n, "system", "systems")}` : "No starter DATs were needed"}${extra ? ` (${extra})` : ""}.`,
-      ...failedLines(r.failed, (f) => `the ${f.platform} DAT`, "Couldn't get", "DATs"), ...(r.note ? [r.note] : [])];
+      ...failedLines(r.failed, (f) => `the ${(ui.get().platforms || []).find((p) => p.id === f.platform)?.name || f.platform} DAT`, "Couldn't get", "DATs"), ...(r.note ? [r.note] : [])];
     toast(said.join(" "), r.failed?.length || r.note ? 15000 : 8000);
     await refreshGames();
     return r;
@@ -244,7 +244,7 @@ export async function makeDat(opts) {
   if (done.error) throw new Error(done.error);
   const r = done.result;
   await refreshGames();
-  toast(`Wrote ${r.name}: ${plural(r.games, "game", "games")}, ${plural(r.roms, "ROM", "ROMs")}${r.imported?.id ? `, imported for ${r.imported.platform_name}` : ""}.${r.skipped ? ` ${plural(r.skipped, "file wasn't", "files weren't")} scanned yet and ${r.skipped === 1 ? "was" : "were"} left out.` : ""}`,
+  toast(`Wrote ${r.name}: ${plural(r.games, "game", "games")}, ${plural(r.roms, "file", "files")}${r.imported?.id ? `, imported for ${r.imported.platform_name}` : ""}.${r.skipped ? ` ${plural(r.skipped, "file wasn't", "files weren't")} scanned yet and ${r.skipped === 1 ? "was" : "were"} left out.` : ""}`,
     { ms: 10000, actions: isDesktop() ? [{ label: "Show", run: () => reveal(r.path) }] : [] });
   return r;
 }

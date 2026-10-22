@@ -21,6 +21,7 @@ import { PcSettings, SourcesSettings, SteamSettings } from "./pcgames.js";
 import { Icon } from "./icons.js";
 import { ServePanel } from "./serve.js";
 import { UpdatePanel } from "./updates.js";
+import { readMagazines } from "./magazines.js";
 
 function RenameForm({ lib }) {
   const [name, setName] = useState(lib.name || "");
@@ -69,7 +70,7 @@ export function RootsSection({ lib }) {
   const off = !!lib.read_only;
   return html`<section class="ls-section" id="settings-folders">
     <h2>Folders with games</h2>
-    <p class="muted">Games you keep in folders of your own, on this computer or a network drive: they stay where they are, and are scanned and audited there. Nothing in them changes unless you organise it. The list is kept in the library; on another computer a folder can be pointed where it is there.</p>
+    <p class="muted">Games you keep in folders of your own, on this computer or a network drive: they stay where they are, and are scanned and audited there. Nothing in them changes unless you organise it. The list is kept in the library; on another computer, Point it elsewhere… says where a folder is there.</p>
     ${roots.length ? html`<ul class="ls-list root-list" id="roots">${roots.map((r) => html`<li key=${r.id} data-root=${r.id}>
       <span class="root-path"><span title=${r.dir}>${r.dir}</span>
         ${r.found ? null : html`<span class="warn-text">Not found on this computer</span>`}
@@ -132,7 +133,7 @@ async function makeMain(d, also) {
 export function DatsSection({ lib }) {
   const dats = useStore(ui, (st) => st.dats) || [];
   const off = !!lib.read_only;
-  // read again when shown: Audit changes the main DAT and those audited with it too
+  // read again when shown: Audit changes the main DAT and those included in Audit
   useEffect(() => { api("dats").then((d) => ui.set({ dats: d })).catch(() => {}); }, [lib.path]);
   const byPlatform = [];
   for (const d of dats) {
@@ -147,17 +148,17 @@ export function DatsSection({ lib }) {
     custom: g.dats.find((d) => d.version === "custom")?.name, onDone: () => refreshGames() } });
   return html`<section class="ls-section" id="settings-dats">
     <h2>DAT files</h2>
-    <p class="muted">The DATs your sets are audited against. Each is copied into the library (<code>_library/dats</code>); importing a newer version keeps the older one, and the newest is used unless you choose another. A system with several DATs has a main one, whose counts are Audit's totals.</p>
+    <p class="muted">The DATs your games are audited against. Each is copied into the library (<code>_library/dats</code>); importing a newer version keeps the older one, and the newest is used unless you choose another. A system with several DATs has a main one, whose counts are Audit's totals.</p>
     ${byPlatform.length ? byPlatform.map((g) => {
       const several = usable(g).length > 1;
       const also = usable(g).filter((d) => d.also).map((d) => d.name);
       return html`<div class="dat-group" key=${g.platform} data-platform=${g.platform}><div class="dat-group-head"><h3>${g.name}</h3>
-        ${several ? html`<button type="button" class="ghost compact dat-roles" title="The main DAT and the DATs it's audited with too" disabled=${off} onClick=${() => openDats(g)}>${Icon.stack(14)} DATs…</button>` : null}</div>
+        ${several ? html`<button type="button" class="ghost compact dat-roles" title="The main DAT, and the DATs included in Audit" disabled=${off} onClick=${() => openDats(g)}>${Icon.stack(14)} DATs…</button>` : null}</div>
       <ul class="ls-list dat-list">${g.dats.map((d) => html`<li key=${d.id} data-dat=${d.id} data-name=${d.name}>
         <span class="dat-name"><span>${d.name}</span> <span class="muted">${d.version} · ${plural(d.games, "game", "games")}${d.author ? ` · ${d.author}` : ""}</span>
           ${d.current && g.dats.filter((x) => x.name === d.name).length > 1 ? html`<span class="badge" title="The version the audit uses; the others are kept">Version used</span>` : null}
           ${several && d.main ? html`<span class="badge dat-main" title="Audit's totals are this DAT's counts">Main DAT</span>` : null}
-          ${several && d.also ? html`<span class="badge dat-also" title="Its games are audited too, and are in the Library beside the main DAT's">Audited with it too</span>` : null}</span>
+          ${several && d.also ? html`<span class="badge dat-also" title="Its games are audited too, and are in the Library beside the main DAT's">Included in Audit</span>` : null}</span>
         ${d.current ? null : html`<button type="button" class="ghost" data-action="use-dat" disabled=${off} onClick=${() => useDat(d)}>Use this version</button>`}
         ${several && d.current && !d.main && d.version !== "custom" ? html`<button type="button" class="ghost" data-action="main-dat" disabled=${off} onClick=${() => makeMain(d, also)}>Make it the main DAT</button>` : null}
         ${isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label="Show in folder" onClick=${() => reveal(`${lib.path}/${d.path}`)}>${Icon.folder(14)}</button>` : null}
@@ -219,7 +220,7 @@ function NamingSection({ lib }) {
           <button type="submit" class="ghost" id="naming-save" disabled=${off || template === n.template || !!error}>Save</button>
           ${template !== n.default ? html`<button type="button" class="ghost" disabled=${off} onClick=${() => { setTemplate(n.default); save({ template: n.default }); }}>Use the DAT's names</button>` : null}
         </div>
-        <small class="muted">Fields: ${(example?.fields || n.fields).map((f) => html`<code key=${f}>{${f}}</code> `)}. Brackets left empty by a field a game doesn't have are dropped.</small>
+        <small class="muted">Fields: ${(example?.fields || n.fields).map((f, i) => html`${i ? ", " : ""}<code key=${f}>{${f}}</code>`)}. Brackets left empty by a field a game doesn't have are dropped.</small>
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : html`<ul class="naming-examples" id="naming-examples">${(example?.examples || []).map(([from, to]) => html`<li key=${from}><span class="muted">${from}</span> → <code>${to}</code></li>`)}</ul>`}
       </form>
       <label class="check-row"><input type="checkbox" id="naming-folder" checked=${n.folder} disabled=${off} onChange=${(e) => save({ folder: e.target.checked })} /> A folder for each game</label>` : null}`}
@@ -258,8 +259,8 @@ function MetadataSection({ lib }) {
   // a column for each kind that takes any space, biggest first
   const kindsShown = sizes?.kinds ? Object.entries(sizes.kinds).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k]) => k) : [];
   return html`<section class="ls-section" id="settings-metadata">
-    <h2>Metadata</h2>
-    <p class="muted">Each source's answer is kept in the game's folder, and each detail is taken from the first source in the usual order (the Scrape dialog's) that has it, unless you choose one here or on a game's page.</p>
+    <h2>Details and pictures</h2>
+    <p class="muted">Each source's answer is kept in the game's library folder, and each detail is taken from the first source in the usual order (the Scrape dialog's) that has it, unless you choose one here or on a game's page.</p>
     ${c ? html`<div class="prefer-grid" id="details-from">${c.fields.map((f) => html`<label class="field-inline" key=${f.id}><span>${f.name}</span>
       <select class="compact" data-field=${f.id} value=${c.from[f.id] || ""} disabled=${off || busy} onChange=${(e) => choose(f.id, e.target.value)}>
         <option value="">Usual order</option>
@@ -286,7 +287,7 @@ function ChangeRow({ c, busy, off, act, empty }) {
   const [open, setOpen] = useState(false);
   return html`<li key=${c.id} data-change=${c.id} data-state=${c.state} data-kind=${c.kind}>
     <span class="change-label"><span>${c.label}</span><span class="muted">${new Date(c.created).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${plural(c.ops, "step", "steps")}${c.held ? ` · ${size(c.held)} set aside` : ""}</span></span>
-    <span class=${c.state === "interrupted" ? "badge review" : "badge"}>${STATE[c.state] || c.state}</span>
+    <span class=${c.state === "interrupted" ? "badge review" : "badge"} title=${c.running_on ? `Game Repo on ${c.running_on} is running it: it can be undone here once it's finished` : null}>${c.running_on ? `Running on ${c.running_on}` : STATE[c.state] || c.state}</span>
     ${c.ops ? html`<button type="button" class="ghost" data-action="steps" aria-expanded=${open ? "true" : "false"} onClick=${() => setOpen(!open)}>${open ? "Hide the steps" : "Steps"}</button>` : null}
     ${c.state === "interrupted" ? html`<button type="button" class="ghost" data-action="finish" disabled=${busy || off} onClick=${() => act(() => finishChange(c.id).then(() => "Finished it."))}>Finish</button>` : null}
     ${c.can_undo ? html`<button type="button" class="ghost" data-action="undo" disabled=${busy || off} title=${c.state === "interrupted" ? "Put back what it had done, as it was before it started" : null} onClick=${() => act(() => undoChange(c.id))}>${c.state === "interrupted" ? "Put back" : "Undo"}</button>` : null}
@@ -394,6 +395,8 @@ function ToolsSection() {
       ${isDesktop() ? html`<button type="button" class="ghost" data-action="choose" onClick=${() => pick(t)}>Choose…</button>` : null}
       ${t.set ? html`<button type="button" class="ghost" data-action="clear" onClick=${() => set(t.id, null)}>Clear</button>` : null}
     </li>`)}</ul>
+    <p class="muted" id="tools-text">Magazines' scanned pages are read with Windows' own text recognition, or with Tesseract when it's found (on Linux and the Steam Deck, only Tesseract).${" "}
+      <button type="button" class="linkish" id="settings-read-magazines" disabled=${!!ui.get().library?.read_only} onClick=${() => readMagazines()}>Read every magazine's text</button></p>
     ${!isDesktop() ? html`<form class="pick-row" id="tools-form" onSubmit=${(e) => { e.preventDefault(); const f = e.target; set(f.tool.value, f.path.value); }}>
       <select name="tool" class="compact" aria-label="Tool">${r.tools.map((t) => html`<option key=${t.id} value=${t.id}>${t.id}</option>`)}</select>
       <input type="text" name="path" id="tools-path" placeholder="Its path" aria-label="Its path" />
@@ -406,7 +409,7 @@ function LayoutsSection() {
   return html`<section class="ls-section" id="settings-layouts">
     <h2>Export layouts</h2>
     <p class="muted">Where an export puts the games, gamelists, pictures, manuals and BIOS files for ES-DE, muOS, Knulli, ROCKNIX, RetroArch, Pegasus, LaunchBox, Playnite or a plain folder. Copy one and change it for a new firmware or frontend, seeing what it would write as you go.</p>
-    <div class="home-actions"><a class="button ghost" id="settings-layouts-link" href=${routeHash("layouts")}>${Icon.layers(15)} Export layouts…</a></div>
+    <div class="home-actions"><a class="button ghost" id="settings-layouts-link" href=${routeHash("layouts")}>${Icon.layers(15)} Export layouts</a></div>
   </section>`;
 }
 
@@ -451,7 +454,7 @@ export function Settings() {
           <div class="pick-row"><span class="pick-path" id="library-path">${lib.path}</span>
             ${isDesktop() ? html`<button type="button" class="ghost" onClick=${showLibraryFolder}>Show in folder</button>
               <button type="button" class="ghost" id="open-library" title="Open a library, or make a new one in an empty folder" onClick=${() => openLibrary()}>Open another library…</button>` : null}</div>
-          <small class="muted">The library's settings, each game's details, scraped media and your documents are kept in this folder, so you can move, copy or sync it and open it again here.</small>
+          <small class="muted">The library's settings, each game's details and pictures, and your documents are kept in this folder, so you can move, copy or sync it and open it again here.</small>
         </div>
         <${IndexSettings} index=${s.index} />` : html`<p class="muted">No library is open.</p>`}
       ${!lib && isDesktop() ? html`<div><button type="button" class="ghost" id="open-library" title="Open a library, or make a new one in an empty folder" onClick=${() => openLibrary()}>Open another library…</button></div>` : null}

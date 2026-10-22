@@ -644,9 +644,17 @@ pub(crate) mod tests {
         // asked three games at a time, as the account allows, and each game said once, in order
         assert_eq!(scrapers::ss_configure(&cfg, &data), 3);
         assert_eq!(items, (1..=8).collect::<Vec<u64>>());
+        // what the account allows is kept, and Settings shows it in the empty field (D142)
+        assert_eq!(scrapers::ss_threads_allowed(&data), Some(3));
+        let threads = |cfg: &AppConfig| scrapers::keys_json(cfg, &data, "screenscraper").as_array().unwrap().iter().find(|k| k["field"] == "threads").cloned().unwrap();
+        assert_eq!((threads(&cfg)["set"].as_bool(), threads(&cfg)["account"].as_u64()), (Some(false), Some(3)));
         // fewer, if Settings says so
         cfg.source_keys.get_mut("screenscraper").unwrap().insert("threads".into(), "2".into());
         assert_eq!(scrapers::ss_configure(&cfg, &data), 2);
+        assert_eq!((threads(&cfg)["value"].as_str(), threads(&cfg)["account"].as_u64()), (Some("2"), Some(3)));
+        // more than the account allows: the account's
+        cfg.source_keys.get_mut("screenscraper").unwrap().insert("threads".into(), "9".into());
+        assert_eq!(scrapers::ss_configure(&cfg, &data), 3);
         cfg.source_keys.get_mut("screenscraper").unwrap().remove("threads");
         // eight games on disk: Alpha (Europe) by its hash (and by name), the other Alpha and the three Betas by name, Delta unsure
         assert_eq!((r["games"].as_u64(), r["found"].as_u64(), r["look"].as_u64()), (Some(8), Some(5), Some(1)), "{r}");

@@ -31,7 +31,7 @@ export const TREE = `_library/                       the app's own files
   collections/<id>/             a collection's own DATs, when it was made from folders or a DAT
   exports/<id>.json             what each export wrote, for Update and Check
   fixdats/  reports/            what's missing as DATs, and saved audit reports
-  made-dats/                    DATs you made from your own sets
+  made-dats/                    DATs you made from folders of your own
   layouts/                      export layouts of your own (JSON), for Export…
   journal/                      every change to your files, for Undo
 BIOS/<system>/                  BIOS files, imported from the BIOS files page

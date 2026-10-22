@@ -625,7 +625,7 @@ fn run_tool(args: &[&str], input: &Path, output: &Path, more: &[&str], cancel: &
         .with_context(|| format!("couldn't run {}", tool.display()))?;
     let out = image::wait_stopping(&mut child, cancel)?;
     if !out.status.success() || !output.is_file() {
-        bail!("dolphin-tool failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+        bail!("dolphin-tool couldn't convert it: {}", String::from_utf8_lossy(&out.stderr).trim());
     }
     Ok(())
 }

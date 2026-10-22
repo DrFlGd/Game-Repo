@@ -295,7 +295,7 @@ export function LibraryPage() {
           ${sync.of ? html`<progress max=${sync.of} value=${sync.done}></progress>` : html`<progress></progress>`}
         </div>`
         : empty && sync.error ? html`<div class="go-note warn-note" role="alert" id="go-sync-error">
-          <span>${sync.error} Nothing of the library is kept on this device yet.</span>
+          <span>${sync.error} Nothing from the library is kept on this device yet.</span>
           <button type="button" class="ghost" onClick=${() => call("sync").catch(() => {})}>Try again</button>
         </div>` : null}
       <${Games} ask=${ask} rev=${s.rev} picked=${s.picked} place=${s.q ? "Search" : placeName(s.where, s.systems, s.collections)} />

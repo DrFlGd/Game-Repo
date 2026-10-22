@@ -5360,7 +5360,8 @@ installer: `game-repo.exe`'s icon is the folder pad), but Windows keeps the icon
 shortcuts and pinned programs in a cache, so a taskbar pin or Start menu shortcut made
 before 0.5.38 can go on showing the old one. Each installer now asks Windows to refresh its
 icons after installing (`SHChangeNotify` with `SHCNE_ASSOCCHANGED`, and `ie4uinit.exe
--show`), and the installers themselves show the program's icon in place of NSIS's.
+-show`, not waited for), and the installers themselves show the program's icon in place of
+NSIS's. CI runs Game Repo Go's installer and its uninstaller silently to check it.
 
 **D144 A review of the wording.** Every page, dialog, message and the Help page, read for
 plain, short wording and one word for one thing (the glossary in Help is the list: a
@@ -5382,6 +5383,19 @@ so search finds it and the viewer can highlight it.
   comparison. An issue's page lists the games found, with the pages they're on, ticked
   when sure; the ticks are kept in `magazine.json` and can be changed (and games added by
   hand). A game's page lists the issues that cover it, opened at the page.
+- **As built (2026-10-22, `magtext.rs`).** A PDF page with fewer than 20 letters and
+  digits of its own is read as a picture: Windows draws it from the PDF itself
+  (Windows.Data.Pdf, in the same Windows PowerShell 5.1 script as the recognition,
+  `ocr.ps1`), while Tesseract is given the page's largest picture (a JPEG as it is, 8-bit
+  grey or colour pixels as a PNG; other kinds stay unread, with a note). Pages left unread
+  for want of a reader are read again once there is one. A title is *sure* (ticked) when it
+  has two words or more that aren't small everyday words or numbers and 8 letters or more
+  (6 for a game you have); shorter titles are found, not ticked, only for games you have;
+  the longest title at each place in the text wins. A title several systems have gives the
+  ones you have, else the first. A tick changed or a game added by hand stays when the
+  issue is read again. The viewer's *Text* shows the page's text with the words searched
+  for (or the game's title) marked; the PDF itself isn't marked. Started from the
+  Magazines page (*Read their text*, and every magazine's in its menu) or Settings › Tools.
 
 **D146 D: videos.** Videos get a section of their own, like magazines: *Videos* in the
 sidebar, kept in the library as `Videos/<Kind>/<Title>.<ext>` (kind *Walkthrough*,
@@ -5393,9 +5407,39 @@ like, opened in the browser). The Videos page lists them with filters by kind, g
 system; a game's page lists its videos; the player is the one game pages use now
 (`web/ui/video.js`). Exports and devices don't take videos for now.
 
+- **As built (2026-10-22, `videos.rs`, `web/ui/videos.js`).** The kinds' folders are
+  plural: `Videos/Walkthroughs/`, `Reviews/`, `Retrospectives/`, `Other/`. A name's kind
+  comes from its words (*longplay*, *playthrough*, *let's play*, *speedrun* are
+  walkthroughs; *history of*, *documentary*, *making of* retrospectives; *review*, *AVGN*
+  reviews), else from a folder named for a kind; its date from a full date in it
+  (2019-04-12, 2019-04, or yt-dlp's 20190412; a bare year is taken as the game's, not the
+  video's); a yt-dlp name's `[id]` gives its source (YouTube) and its address. The games
+  are found in the title by D145's title finder (D120's comparison of words, across the
+  library's games and their DATs), as a video's name holds more than the title. The
+  length is read from the file's header (MP4, M4V and MOV's `mvhd`, Matroska and WebM's
+  `Info`, AVI's `avih`, or OpenDML's `dmlh`), nothing else read. A video imported again
+  is known by its *print* (its size and first and last megabyte, hashed) rather than a
+  full hash, as videos are large. A link's source is named from its address (YouTube,
+  Vimeo, Twitch, the Internet Archive, else the site). A file plays on the Videos page
+  (`#/videos/<id>`); Remove… sets a file aside as an Organise change with Undo, and takes
+  a link off the list at once. A video's file keeps its name and folder when its title or
+  kind changes.
+
 **D147 F: shorter dialogs** (review finding 5). A dialog says what it does in one line;
 the rest goes behind *More about this* or into Help. Organise, bring-in, the PC import,
 Scrape and the export dialogs first, then the rest in the same pass.
+
+- **As built (2026-10-22, `More` in `web/ui/dialogs.js`).** *More about this* is a folded
+  `<details>` at the foot of a dialog (or under the line it adds to). Organise…'s and
+  Convert…'s previews say in one line that every file is checked and the change can be
+  undone; Organise… keeps its TorrentZip and disc-image notes and the naming under More.
+  The imports' previews (games, PC games, documents, magazines, videos, BIOS files) say
+  where each goes and whether the files stay or move, with the folder names and the
+  manifests under More. Export's preview and choices, Save as DATs, a collection's
+  review, a new group, Scrape…'s note on how the sources are asked, Identify's, Add to
+  Steam's, Audit's DATs, Make a DAT, and Import into a collection's waiting files do the
+  same. An ask dialog (Get starter DATs?) shows its first paragraph and folds the rest.
+  Warnings (not enough space, Steam running, no source ready) stay in sight.
 
 **D148 F: two computers, one library** (M9). A change (an Organise plan, an import, a
 custom DAT's change) takes a lock file in `_library/journal/` naming the computer and when
@@ -5404,9 +5448,26 @@ Repo on <computer> is changing this library" and waits or lets the person stop; 
 not refreshed for ten minutes is old and taken over. Undo and finishing a change the other
 computer left work as now once the lock is free.
 
+- **As built (2026-10-22, `lock.rs`).** The lock is `_library/journal/change.lock`, JSON
+  naming the computer, this run of the app, what it's doing, the Organise change's id,
+  when it started and when it was last refreshed (every minute, by a thread of its own).
+  It's fresh when either the time it says or the file's own time is under ten minutes
+  old, as two computers' clocks may not agree. Every Organise change and Undo waits for
+  it (the progress says "waiting: Game Repo on X is changing this library (…)", and Stop
+  ends the wait); importing DATs and a custom DAT's changes, being quick, say who has it
+  and to try again. A change within a change (an import's Organise step) is let through.
+  History shows the other computer's change as running, with its computer's name.
+
 **D149 F: very large DATs** (M15). DAT files are read as they're parsed (from a
 `BufReader`, a zip's member as a stream) instead of whole into memory, with progress and
 Stop, so a 300 MB MAME listxml takes a fraction of the memory it does now.
+
+- **As built (2026-10-22, `dat.rs`).** `parse_file` reads a DAT through a `BufReader`, and
+  a ZIP's DATs member by member as a stream, each copied to `_library/dats/` as it's read
+  and renamed into place once it's parsed, so no DAT is held whole in memory. The import
+  says how far through the file it is (each megabyte) and Stop ends it. A 120 MB
+  synthetic listxml took 218 MB at most, from 328 MB; what's left is the parsed games
+  themselves and SQLite's cache.
 
 ## 8. Working in a cloud session
 

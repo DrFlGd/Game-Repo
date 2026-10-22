@@ -142,7 +142,7 @@ function Filters({ q, facets, set, collections }) {
   return html`<aside class="lib-filters" id="lib-filters" aria-label="Filters">
     <div class="lib-switches">
       <label class="check-row" title="Every game in the systems' DATs, so the games you've scraped but don't have can be browsed too"><input type="checkbox" id="lib-all" checked=${q.all} onChange=${(e) => set({ all: e.target.checked })} /> Every game in the DATs</label>
-      <label class="check-row" title="One game of each title, in the collection rules' region order (USA, World, Europe, Japan)"><input type="checkbox" id="lib-one" checked=${q.one_per_title} onChange=${(e) => set({ one_per_title: e.target.checked })} /> One per title</label>
+      <label class="check-row" title="One version of each game: the first in the region order USA, World, Europe, Japan"><input type="checkbox" id="lib-one" checked=${q.one_per_title} onChange=${(e) => set({ one_per_title: e.target.checked })} /> One per title</label>
       ${f.look || q.look ? html`<label class="check-row"><input type="checkbox" id="lib-look" checked=${q.look} onChange=${(e) => set({ look: e.target.checked })} /> Needs a look <span class="lib-count">${(f.look || 0).toLocaleString()}</span></label>` : null}
     </div>
     <${Values} id="platform" name="System" values=${f.platform} chosen=${q.platform} onToggle=${toggle("platform")} />
@@ -429,7 +429,7 @@ function Inspector({ count, keyOf, actions, overview, off }) {
   }
   if (!keyOf) {
     return html`<aside class="lib-panel lib-panel-empty" id="lib-panel">
-      ${overview ? html`<p><b>${overview.have.toLocaleString()}</b> games in the library, across ${plural(overview.systems, "system", "systems")}${overview.all > overview.have ? html`; <span class="muted">${overview.all.toLocaleString()} in the DATs</span>` : null}.</p>` : null}
+      ${overview ? html`<p><b>${overview.have.toLocaleString()}</b> ${overview.have === 1 ? "game" : "games"} in the library, across ${plural(overview.systems, "system", "systems")}${overview.all > overview.have ? html`; <span class="muted">${overview.all.toLocaleString()} in the DATs</span>` : null}.</p>` : null}
       <p class="muted">Pick a game to see it here; double-click (or Enter) opens its page. Ctrl+A selects every game shown, for a collection, a scrape or a conversion.</p></aside>`;
   }
   if (error) return html`<aside class="lib-panel" id="lib-panel"><p class="warn-note" role="alert">${error}</p></aside>`;
@@ -448,7 +448,7 @@ function Inspector({ count, keyOf, actions, overview, off }) {
     ${d.description ? html`<p class="lib-panel-text">${d.description}</p>` : null}
     ${facts.length ? html`<dl class="pc-facts">${facts.map(([k, v]) => html`<dt key=${`k${k}`}>${k}</dt><dd key=${`v${k}`}>${v}</dd>`)}</dl>` : html`<p class="muted">No details yet: ${g.kind === "pc" ? "Identify… on its page" : "Scrape…"} fills them in.</p>`}
     ${g.docs?.length ? html`<p class="muted">${plural(g.docs.length, "document", "documents")}</p>` : null}
-    ${g.addons?.have ? html`<p class="muted" id="lib-panel-addons">${plural(g.addons.have, "update or DLC", "updates and DLC")} of ${g.addons.items.length}</p>` : null}
+    ${g.addons?.have ? html`<p class="muted" id="lib-panel-addons">Updates and DLC: ${g.addons.have} of ${g.addons.items.length}</p>` : null}
     ${g.collections?.length ? html`<p class="muted">In ${g.collections.map((c) => c.name).join(", ")}</p>` : null}
   </aside>`;
 }
@@ -574,7 +574,7 @@ function SaveAsCollection({ q }) {
   };
   return html`<${Dialog} title="Save as a collection" id="lib-save-dialog" onSubmit=${run} busy=${busy} error=${error} submitLabel="Save">
     <label class="field-block"><span class="field-label">Its name</span><input type="text" id="lib-save-name" value=${name} placeholder="From the Library" onInput=${(e) => setName(e.target.value)} /></label>
-    <p class="muted">The filters become its rules, so it keeps up as games are added and scraped. ${q.collection ? "(In a collection isn't carried over.) " : ""}${q.platform.includes("pc") ? "PC games aren't in collections. " : ""}It leaves out betas, demos and the like, as a new collection does.</p>
+    <p class="muted">The filters become its rules, so it keeps up as games are added and scraped. ${q.collection ? "The In a collection filter isn't carried over. " : ""}${q.platform.includes("pc") ? "PC games aren't in collections. " : ""}It leaves out betas, demos and the like, as a new collection does.</p>
   <//>`;
 }
 
@@ -679,7 +679,7 @@ export function Browse() {
   });
   const more = () => [
     { head: "Cover size" },
-    ...Object.keys(SIZES).map((k) => ({ id: `size-${k}`, label: k[0].toUpperCase() + k.slice(1), icon: px === k ? "check" : null, run: () => pickSize(k), disabled: view !== "grid" ? "In the grid" : false })),
+    ...Object.keys(SIZES).map((k) => ({ id: `size-${k}`, label: k[0].toUpperCase() + k.slice(1), icon: px === k ? "check" : null, run: () => pickSize(k), disabled: view !== "grid" ? "Only in the grid" : false })),
     { sep: true },
     { id: "lib-import", label: "Import…", icon: "inbox", run: () => { location.hash = routeHash("import"); } },
     { sep: true },
@@ -728,6 +728,6 @@ export async function renameFolders() {
     if (!plan.ops) { toast(plan.left ? `Nothing to rename: ${plural(plan.left, "folder is", "folders are")} left as they are (see why in the preview).` : "Every game's library folder has its game's name already.", 8000); if (!plan.left) return; }
     ui.set({ dialog: { type: "organise", plan, platformName: "" } });
   } catch (e) {
-    toast(`Couldn't plan it: ${err(e)}`, 8000);
+    toast(`Couldn't plan the renaming: ${err(e)}`, 8000);
   }
 }

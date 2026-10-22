@@ -124,7 +124,7 @@ fn check_place(lib: &Library, dir: &Path, others: &[Root]) -> Result<PathBuf> {
             bail!("{} is already a folder with games.", dir.display());
         }
         if d.starts_with(&o) {
-            bail!("{} is inside {}, which is already scanned.", dir.display(), r.dir.display());
+            bail!("{} is inside {}, which is already a folder with games.", dir.display(), r.dir.display());
         }
         if o.starts_with(&d) {
             bail!("{} holds {}, which is already a folder with games: remove that one first.", dir.display(), r.dir.display());

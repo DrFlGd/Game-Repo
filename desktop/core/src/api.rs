@@ -119,7 +119,7 @@ pub struct App {
 /// The commands that change the library without a job: Game Repo Server is told after
 /// them (and after every job), so the devices see the change.
 const TELLS_SERVER: &[&str] = &[
-    "addon_link", "collection_delete", "collection_from", "collection_hand", "collection_save", "collection_undo", "dat_remove", "dat_use",
+    "addon_link", "collection_delete", "collection_from", "collection_hand", "collection_save", "collection_undo", "collection_waiting_leave", "dat_remove", "dat_use",
     "library_rename", "meta_choose", "meta_clear", "meta_edit", "meta_pick", "meta_pin", "meta_set_details_from", "roots_add", "roots_remove",
     "roots_update", "systems_remove", "systems_set",
 ];
@@ -641,7 +641,7 @@ impl App {
         if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
             return self.collection_call(cmd, args).await;
         }
-        if ["layout", "bios", "magazine"].iter().any(|p| cmd.starts_with(p)) {
+        if ["layout", "bios", "magazine", "video"].iter().any(|p| cmd.starts_with(p)) {
             return self.device_call(cmd, args).await;
         }
         if cmd.starts_with("serve_") {
@@ -799,13 +799,22 @@ impl App {
                 };
                 let answers = args["answers"].as_object().cloned().unwrap_or_default();
                 let data_dir = self.paths.data_dir.clone();
-                j(self.spawn_job("Importing DATs", move |app, id, _| {
+                j(self.spawn_job("Importing DATs", move |app, id, cancel| {
                     let ix = Self::job_index(&data_dir, &lib)?;
                     let (mut imported, mut ask, mut failed) = (vec![], vec![], vec![]);
                     for (i, p) in paths.iter().enumerate() {
+                        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                            bail!("stopped");
+                        }
                         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                        app.job_progress(&id, json!({ "item": i + 1, "items": paths.len(), "name": name }));
-                        match dat::import(&ix, &lib, p, &answers) {
+                        let of = if paths.len() > 1 { format!(" ({} of {})", i + 1, paths.len()) } else { String::new() };
+                        app.job_progress(&id, json!({ "text": format!("{name}{of}"), "name": name }));
+                        // read as it's parsed (D149): how far into the file, for a big one
+                        let mut told = |done: u64, total: u64| {
+                            let pc = if total > 0 { done * 100 / total } else { 0 };
+                            app.job_progress(&id, json!({ "text": format!("{name}{of}, {pc}% read"), "name": name, "done": done, "total": total }));
+                        };
+                        match dat::import_with(&ix, &lib, p, &answers, &cancel, &mut told) {
                             Ok(done) => {
                                 for d in done {
                                     match d {
@@ -816,6 +825,7 @@ impl App {
                                     }
                                 }
                             }
+                            Err(_) if cancel.load(std::sync::atomic::Ordering::Relaxed) => bail!("stopped"),
                             Err(e) => failed.push(json!({ "path": p.display().to_string(), "error": format!("{e:#}") })),
                         }
                     }
@@ -1183,6 +1193,8 @@ impl App {
                     "bring" => "Importing games",
                     "docs" => "Importing documents",
                     "magazines" => "Importing magazines",
+                    "videos" => "Importing videos",
+                    "video_remove" => "Removing a video",
                     "bios" => "Importing BIOS files",
                     "metadata" => "Deleting metadata",
                     "pc_remove" => "Removing a PC game",
@@ -1799,8 +1811,15 @@ impl App {
                 }
                 for (f, _, _) in fields.iter() {
                     if let Some(v) = args["keys"][*f].as_str().map(str::trim).filter(|v| !v.is_empty()) {
+                        if *f == "threads" && !v.parse::<usize>().is_ok_and(|n| (1..=16).contains(&n)) {
+                            return Err("Threads at once is a number from 1 to 16 (left empty, it's as many as your account allows).".into());
+                        }
                         keys.insert(f.to_string(), v.to_string());
                     }
+                }
+                // a field put back as it was (ScreenScraper's threads: the account's again)
+                for f in args["unset"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                    keys.remove(f);
                 }
                 if keys.is_empty() {
                     cfg.source_keys.remove(&source);
@@ -2078,6 +2097,103 @@ impl App {
                 }))
                 .await?)
             }
+            // the issues' text read, and the games in it found (D145): one magazine's, or every one's
+            "magazine_read" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let title = args["title"].as_str().filter(|t| !t.is_empty()).map(String::from);
+                let again = args["again"].as_bool().unwrap_or(false);
+                let label = "Reading magazines' text";
+                self.not_running(label)?;
+                j(self.spawn_job(label, move |app, jid, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    crate::magtext::read_issues(&ix, &lib, title.as_deref(), again, &cancel, &mut |p| app.job_progress(&jid, p))
+                }))
+            }
+            "magazine_text" => {
+                let lib = self.library()?;
+                let rel = arg(&args, "path").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || crate::magtext::text_of(&lib, &rel))).await?)
+            }
+            "magazine_game" => {
+                // a game found in an issue ticked or unticked, or one added by hand ("ticked": null takes it off)
+                let lib = self.library()?;
+                let (title, file, key) = (arg(&args, "title").map_err(e2s)?.to_string(), arg(&args, "file").map_err(e2s)?.to_string(), arg(&args, "key").map_err(e2s)?.to_string());
+                let ticked = args["ticked"].as_bool();
+                let page = args["page"].as_u64().map(|p| p as u32);
+                j(self.with_index(move |ix| crate::magtext::set_game(ix, &lib, &title, &file, &key, ticked, page)).await?)
+            }
+            // the Videos page (D146)
+            "videos" => {
+                let lib = self.library()?;
+                j(blocking(Box::new(move || Ok(crate::videos::overview(&lib)))).await?)
+            }
+            "video_items" => {
+                // the videos in the files and folders picked, and the games in their titles (a job)
+                let lib = self.library()?;
+                let paths: Vec<PathBuf> = args["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).map(PathBuf::from).collect();
+                if paths.is_empty() {
+                    return Err("Choose the videos or a folder of them.".into());
+                }
+                let label = "Reading the videos";
+                self.not_running(label)?;
+                j(self.spawn_job(label, move |app, jid, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    let items = crate::videos::read_items(&ix, &lib, &paths, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    let mut items = serde_json::to_value(&items)?;
+                    for g in items.as_array_mut().into_iter().flatten().flat_map(|it| it["games"].as_array_mut().into_iter().flatten()) {
+                        g["platform_name"] = json!(crate::browse::system_name(g["platform"].as_str().unwrap_or("")));
+                    }
+                    Ok(json!({ "items": items }))
+                }))
+            }
+            "video_plan" => {
+                let lib = self.library()?;
+                let items: Vec<crate::videos::Item> = serde_json::from_value(args["items"].clone()).map_err(|e| e.to_string())?;
+                let mode = args["mode"].as_str().unwrap_or("copy").to_string();
+                let always_copy = args["always_copy"].as_bool().unwrap_or(false);
+                j(blocking(Box::new(move || {
+                    let plan = crate::videos::plan(&lib, &items, &mode, always_copy)?;
+                    organise::save_pending(&data_dir, &plan)?;
+                    Ok(plan.summary())
+                }))
+                .await?)
+            }
+            "video_link" => {
+                let lib = self.library()?;
+                let (url, title) = (arg(&args, "url").map_err(e2s)?.to_string(), arg(&args, "title").map_err(e2s)?.to_string());
+                let kind = args["kind"].as_str().filter(|k| !k.is_empty()).map(String::from);
+                let date = args["date"].as_str().map(String::from);
+                j(self.with_index(move |ix| crate::videos::add_link(ix, &lib, &url, &title, kind.as_deref(), date.as_deref())).await?)
+            }
+            "video_edit" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let patch = args["patch"].clone();
+                j(blocking(Box::new(move || crate::videos::edit(&lib, &id, &patch))).await?)
+            }
+            "video_game" => {
+                // a game added to a video ("on": true), or taken off
+                let lib = self.library()?;
+                let (id, key) = (arg(&args, "id").map_err(e2s)?.to_string(), arg(&args, "key").map_err(e2s)?.to_string());
+                let on = args["on"].as_bool().unwrap_or(true);
+                j(self.with_index(move |ix| crate::videos::set_game(ix, &lib, &id, &key, on)).await?)
+            }
+            "video_remove" => {
+                // a link taken off at once; a file's removal planned, for the preview and Undo
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || {
+                    Ok(match crate::videos::remove(&lib, &id)? {
+                        Some(plan) => {
+                            organise::save_pending(&data_dir, &plan)?;
+                            json!({ "plan": plan.summary() })
+                        }
+                        None => json!({ "removed": true }),
+                    })
+                }))
+                .await?)
+            }
             other => Err(format!("unknown command {other}")),
         }
     }
@@ -2121,6 +2237,8 @@ impl App {
                 let id = arg(&args, "id").map_err(e2s)?.to_string();
                 j(self
                     .with_index(move |ix| {
+                        // files that waited on it and a DAT knows now join it (D140)
+                        crate::subset::settle(ix, &lib, &id)?;
                         let c = collection::load(&lib, &id)?;
                         let w = collection::work_out(ix, &lib, &c)?;
                         Ok(json!({ "collection": c, "summary": w.summary() }))
@@ -2250,7 +2368,7 @@ impl App {
                     if cancel.load(Ordering::Relaxed) {
                         bail!("Stopped.");
                     }
-                    app.job_progress(&jid, json!({ "text": "Matching them to your audit DATs" }));
+                    app.job_progress(&jid, json!({ "text": "Matching them to your DATs" }));
                     let mut v = crate::subset::review(&ix, &lib, &found)?;
                     v["made_from"] = json!({ "kind": "folders", "paths": paths, "read": library::now() });
                     Ok(v)
@@ -2284,6 +2402,8 @@ impl App {
                 }
                 let games: Vec<i64> = args["games"].as_array().map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default();
                 let made_from = args["made_from"].clone();
+                // files imported into it that no DAT knows yet (D140)
+                let waiting: Vec<collection::Waiting> = serde_json::from_value(args["waiting"].clone()).unwrap_or_default();
                 j(self
                     .with_index(move |ix| {
                         // read again, or a group added: a step of its history, with the DATs it had kept (D67)
@@ -2294,7 +2414,7 @@ impl App {
                             Some(id) if !group_name.is_empty() => crate::subset::Target::Group(id, &group_name),
                             Some(id) => crate::subset::Target::Again(id, &group),
                         };
-                        let c = crate::subset::save(ix, &lib, into, &games, made_from)?;
+                        let c = crate::subset::save(ix, &lib, into, &games, made_from, waiting)?;
                         match before {
                             Some(b) => crate::history::record(ix, &lib, b, how, None)?,
                             None => crate::history::record(ix, &lib, crate::history::new(&c), "made", None)?,
@@ -2303,6 +2423,12 @@ impl App {
                         Ok(json!({ "collection": c, "summary": w.summary() }))
                     })
                     .await?)
+            }
+            "collection_waiting_leave" => {
+                let lib = self.library()?;
+                let c = crate::subset::leave_waiting(&lib, arg(&args, "id").map_err(e2s)?, args["group"].as_str().unwrap_or(""), arg(&args, "platform").map_err(e2s)?, arg(&args, "name").map_err(e2s)?)
+                    .map_err(e2s)?;
+                j(json!(c))
             }
             "collection_bring_plan" => {
                 let lib = self.library()?;

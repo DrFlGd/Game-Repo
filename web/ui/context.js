@@ -4,7 +4,7 @@ export const ctx = {};
 export function setContext(values) { Object.assign(ctx, values); }
 
 /** The pages, by route. The ones still to come (`phase`, coming.js) show what they'll do. */
-export const PAGES = ["home", "library", "game", "import", "audit", "bios", "collections", "layouts", "pc", "metadata", "documents", "magazines", "history", "settings", "help", "about"];
+export const PAGES = ["home", "library", "game", "import", "audit", "bios", "collections", "layouts", "pc", "metadata", "documents", "magazines", "videos", "history", "settings", "help", "about"];
 
 /** Where a route lives in the URL, and back. */
 export const routeHash = (route) => (route === "home" ? "#/" : `#/${route}`);

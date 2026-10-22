@@ -957,7 +957,7 @@ fn plan_with(ix: &Index, lib: &Library, o: &Options, given: Option<collection::C
                     if !platforms_added.contains(&vars["folder"]) {
                         platforms_added.push(vars["folder"].clone());
                     }
-                    (merge_launchbox(old.as_deref(), &vars["folder"], &rows), "The platform's list in LaunchBox: an entry for each game exported, with the details chosen; the rest of it is kept, and the list as it was is set aside.")
+                    (merge_launchbox(old.as_deref(), &vars["folder"], &rows), "The system's list in LaunchBox: an entry for each game exported, with the details chosen; the rest of it is kept, and the list as it was is set aside.")
                 }
                 _ => {
                     laid.lists.push((at.clone(), gamerepo_wire::List {

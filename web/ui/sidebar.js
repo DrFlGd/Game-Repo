@@ -1,4 +1,4 @@
-// The menu on the left, by what each page does (D71–D72): Home; the Library with PC games and Magazines under it;
+// The menu on the left, by what each page does (D71–D72): Home; the Library with PC games, Magazines and Videos under it;
 // Import; Audit with BIOS files, Metadata and Documents under it; Collections; Export layouts; History; the pages
 // each phase still brings; Settings, Help and About. In a narrow window it's a drawer; on a wide one it folds to its icons.
 import { html } from "../lib/html.js";
@@ -36,6 +36,7 @@ export function Sidebar() {
         <${NavLink} route="library" label="Library" icon="grid" current=${s.route === "game" ? "library" : s.route} off=${!s.open} />
         <${NavLink} route="pc" label="PC games" icon="monitor" current=${s.route} off=${!s.open} child=${true} />
         <${NavLink} route="magazines" label="Magazines" icon="stack" current=${s.route} off=${!s.open} child=${true} />
+        <${NavLink} route="videos" label="Videos" icon="video" current=${s.route} off=${!s.open} child=${true} />
         <${NavLink} route="import" label="Import" icon="inbox" current=${s.route} off=${!s.open} />
         <${NavLink} route="audit" label="Audit" icon="audit" current=${s.route} off=${!s.open} />
         <${NavLink} route="bios" label="BIOS files" icon="chip" current=${s.route} off=${!s.open} child=${true} />

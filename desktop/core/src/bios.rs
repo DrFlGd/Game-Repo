@@ -275,7 +275,7 @@ pub fn report(ix: &Index, lib: &Library) -> Result<String> {
         }
         out.push_str(&format!("{}{}\n", sys["name"].as_str().unwrap_or(""), if sys["yours"] == true { "" } else { " (no games of it in the library)" }));
         for f in missing {
-            let why = if f["status"] == "wrong" { format!("  (a file of its name isn't it: {})", f["at"].as_str().unwrap_or("")) } else { String::new() };
+            let why = if f["status"] == "wrong" { format!("  (a file of its name, but not this one: {})", f["at"].as_str().unwrap_or("")) } else { String::new() };
             out.push_str(&format!("  {}{why}\n", f["name"].as_str().unwrap_or("")));
         }
         out.push('\n');

@@ -67,7 +67,7 @@ function UnpairDialog({ library }) {
     }
   };
   return html`<${Dialog} title="Unpair from the library" id="unpair-dialog" onSubmit=${unpair} busy=${busy} error=${error} danger=${true} submitLabel="Unpair">
-    <p>This device forgets ${library || "the library"} and its copy of the list. The games on this device stay, and the library is told it can forget this device.</p>
+    <p>This device forgets ${library || "the library"} and its list of games. The games on this device stay, and the library is told it can forget this device.</p>
   <//>`;
 }
 

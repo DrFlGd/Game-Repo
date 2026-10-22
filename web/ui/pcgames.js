@@ -18,7 +18,7 @@ import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, size, libraryUrl, shortPath, baseName } from "./library.js";
 import { reveal } from "./games.js";
 import { CommandBar, SearchNote } from "./layout.js";
-import { Dialog, close } from "./dialogs.js";
+import { Dialog, More, close } from "./dialogs.js";
 import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { Icon } from "./icons.js";
 import { gameHash } from "./browse.js";
@@ -111,7 +111,8 @@ export function IdentifyDialog({ title, query = "", year = null, platform = "pc"
         <button type="button" class="ghost" data-action="pick" disabled=${busy} onClick=${() => pick(x)}>This one</button>
       </li>`)}</ul>
       ${r.errors?.map((e) => html`<p class="warn-note identify-error" key=${e.source} data-source=${e.source}>${e.name || e.source}: ${e.error}</p>`)}
-      ${r.needs?.length ? html`<p class="muted identify-needs" id="identify-needs" title=${r.needs.map((e) => `${e.name}: ${e.text}`).join("\n")}>${r.needs.length === 1 ? `${r.needs[0].name} isn't set up` : `${r.needs.length} sources aren't set up (${r.needs.map((e) => e.name).join(", ")})`}, so ${r.needs.length === 1 ? "it wasn't" : "they weren't"} asked. <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a></p>` : null}` : html`<p class="muted">The sources are asked in the order Settings › Sources gives, or just the one chosen beside the year. Picking a result keeps its id and details with the game and gets its artwork.</p>`}
+      ${r.needs?.length ? html`<p class="muted identify-needs" id="identify-needs" title=${r.needs.map((e) => `${e.name}: ${e.text}`).join("\n")}>${r.needs.length === 1 ? `${r.needs[0].name} isn't set up` : `${r.needs.length} sources aren't set up (${r.needs.map((e) => e.name).join(", ")})`}, so ${r.needs.length === 1 ? "it wasn't" : "they weren't"} asked. <a href=${routeHash("settings")} onClick=${() => { close(); setTimeout(() => document.getElementById("settings-sources")?.scrollIntoView(), 200); }}>Settings › Sources</a></p>` : null}` : html`<p class="muted">Picking a result keeps its id and details with the game, and gets its pictures.</p>
+      <${More} id="identify-more"><p>The sources are asked in the order Settings › Sources gives, or just the one chosen beside the year.</p><//>`}
     ${onNone ? html`<p class="muted" id="identify-none-row">Not one of these, and in no source at all?${" "}<button type="button" class="linkish" id="identify-none-of-these" disabled=${busy} onClick=${() => pick(null)}>None of these</button>:${" "}${noneNote}</p>` : null}
   <//>`;
 }
@@ -191,7 +192,8 @@ function ImportDialog({ paths, restore }) {
     return html`<${Dialog} title=${plan.title || plan.label} id="pc-import-dialog" wide=${true} sticky=${true} onSubmit=${() => { close(); if (!nothing) runPlan(plan).then(again); }} busy=${plan.short} submitLabel=${nothing ? "OK" : "Import"}
       cancelLabel="Back" onCancel=${() => setPlan(null)}>
       <${Preview} plan=${plan} />
-      <p class="muted">Each game gets its own folder in the PC games folder, with a game.json that says what it is. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."} Artwork from the sources is fetched afterwards.</p>
+      <p class="muted">Each game gets its own folder in the PC games folder. ${how !== "move" ? "Your files stay where they are." : "The files are moved; Undo puts them back."}</p>
+      <${More} id="pc-import-more"><p>A game.json in its folder says what it is, and artwork from the sources is fetched afterwards.</p><//>
     <//>`;
   }
   const included = (items || []).filter((i) => i.include).length;
@@ -319,7 +321,7 @@ function SteamDialog() {
   const off = info.running || busy || !pv;
   const last = info.users.find((u) => u.id === user)?.last_written;
   return html`<${Dialog} title="Add to Steam" id="steam-dialog" wide=${true} onSubmit=${() => write("steam_write")} busy=${off || !(pv?.add.length || pv?.update.length || pv?.remove.length)} error=${error} submitLabel="Write the shortcuts">
-    <p class="muted">Each PC game with a program becomes a non-Steam game in your Steam library, with its artwork in Steam's grid. Your own shortcuts are kept, and shortcuts.vdf is backed up first.</p>
+    <p class="muted">Each PC game with a program becomes a non-Steam game in your Steam library, with its artwork.</p>
     ${info.running ? html`<p class="warn-note" role="alert" id="steam-running">Steam is running. Close it first (Steam › Exit): it rewrites its shortcuts when it closes, so changes made now would be lost.</p>` : null}
     <label class="field-block"><span class="field-label">Steam user</span>
       <select id="steam-user" class="compact" value=${user} onChange=${(e) => setUser(e.target.value)}>
@@ -333,6 +335,7 @@ function SteamDialog() {
       ${pv.without_program.length ? html`<p class="muted" id="steam-without">Without a program to start, so left out: ${pv.without_program.join(", ")}. Set one in the game's panel.</p>` : null}
       ${last?.written ? html`<p class="muted">Last written ${last.written.slice(0, 16).replace("T", " ")}. <button type="button" class="linkish" id="steam-remove" disabled=${off} onClick=${() => write("steam_remove")}>Remove the app's shortcuts</button></p>` : null}
     </div>` : null}
+    <${More} id="steam-more"><p>The artwork goes in Steam's grid. Your own shortcuts are kept, and Steam's shortcuts.vdf is backed up first.</p><//>
   <//>`;
 }
 
@@ -392,7 +395,7 @@ function AddGameDialog({ platform: given, files: givenFiles }) {
     <div class="field-block"><span class="field-label">The game</span>
       ${isDesktop() ? html`<div class="pick-row"><span class="pick-path" id="add-files">${files.length ? files.join(", ") : "Nothing chosen"}</span>
         <button type="button" class="ghost" id="add-pick-files" onClick=${pickFiles}>Choose…</button></div>`
-        : html`<textarea id="add-files-typed" rows="2" placeholder="Its file's path (one per line)" onInput=${(e) => setTyped(e.target.value)}>${typed}</textarea>`}
+        : html`<textarea id="add-files-typed" rows="2" placeholder="Its files' paths, one per line" onInput=${(e) => setTyped(e.target.value)}>${typed}</textarea>`}
       <small class="muted">A ROM, a ZIP or 7z of one, or a disc (its cue sheet brings its tracks).</small></div>
     <label class="field-block"><span class="field-label">System</span>
       <select id="add-platform" class="compact" value=${platform} onChange=${(e) => setPlatform(e.target.value)}>
@@ -426,7 +429,7 @@ function AddResultsDialog({ added }) {
   return html`<${Dialog} title=${`Imported into ${added.platform_name}`} id="add-results-dialog" onSubmit=${close} submitLabel="Done" cancelLabel=${null}>
     <ul class="ls-list" id="add-results">${files.map((f) => html`<li key=${f.path} data-matched=${f.game ? "yes" : "no"} data-named=${f.named ? "yes" : "no"}>
       <span class="identify-label"><span><b>${f.file}</b></span>
-        <span class="muted">${f.game ? (f.named ? `${f.game}, named as its DAT says.` : `${f.game} in its DAT. Organise… (Rename these, on the Audit page's Misnamed list) gives it the DAT's name.`)
+        <span class="muted">${f.game ? (f.named ? `${f.game}, named as its DAT says.` : `${f.game} in its DAT. Rename to the DAT's names… on Audit › Misnamed gives it that name.`)
           : f.identity ? `Identified: ${f.identity.title}${f.identity.year ? ` (${f.identity.year})` : ""}` : f.dat ? "No DAT knows this file." : "There's no DAT for this system to check it against."}</span></span>
       ${!f.game && f.sha1 ? html`<button type="button" class="ghost" data-action="identify" onClick=${() => identify(f)}>Identify…</button>` : null}
     </li>`)}</ul>
@@ -623,7 +626,7 @@ export function PcGames() {
   if (data.error) return html`${head}<div class="pages"><p class="warn-note" role="alert">${data.error}</p></div>`;
   if (!games.length) {
     return html`${head}<div class="pages"><div class="library-settings" id="pc-empty">
-      <p class="page-lead">${Icon.monitor(18)} Import installers, zipped games and game folders into one layout: each game in its own folder, with what it is and how it starts.</p>
+      <p class="page-lead">${Icon.monitor(18)} Import installers, zipped games and game folders, each into a folder of its own with what it is and how it starts.</p>
       <section class="ls-section">
         <h2>To start</h2>
         <p>Drop GOG installers, archives, disc images or game folders into an inbox folder and press Import…, or pick them. Imports are made on the <a href=${routeHash("import")}>Import</a> page.</p>
@@ -694,15 +697,17 @@ function SourceKeys({ x, onSaved }) {
   const [typed, setTyped] = useState({});
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState(null);
-  const save = async (clear = false) => {
+  const save = async (clear = false, unset = []) => {
     setBusy(true);
     setSaid(null);
     try {
-      onSaved(await api("sources_keys_set", { source: x.id, keys: typed, clear }));
+      onSaved(await api("sources_keys_set", { source: x.id, keys: typed, clear, unset }));
       setTyped({});
       if (!clear) {
         const r = await api("sources_check", { source: x.id }).then((t) => ({ ok: true, text: t }), (e) => ({ ok: false, text: err(e) }));
         setSaid(r);
+        // Check reads ScreenScraper's account: the threads it allows
+        onSaved(await api("sources"));
       }
     } catch (e) {
       setSaid({ ok: false, text: err(e) });
@@ -713,13 +718,23 @@ function SourceKeys({ x, onSaved }) {
   const check = async () => {
     setBusy(true);
     setSaid(await api("sources_check", { source: x.id }).then((t) => ({ ok: true, text: t }), (e) => ({ ok: false, text: err(e) })));
+    await api("sources").then(onSaved, () => {});
     setBusy(false);
+  };
+  // ScreenScraper's threads: the account's when none is typed (D142)
+  const shown = (k) => {
+    if (k.field === "threads") {
+      if (k.set) return k.account ? `${k.value} (your account allows ${k.account})` : k.value;
+      return k.account ? `${k.account}, as your account allows` : "As many as your account allows";
+    }
+    return k.set ? (k.secret ? "Set (type to change)" : k.value) : "Not set";
   };
   const anySet = x.keys.some((k) => k.set);
   return html`<form class="source-keys" data-source=${x.id} onSubmit=${(e) => { e.preventDefault(); save(); }}>
     ${x.keys.map((k) => html`<label class="field-inline" key=${k.field}><span>${k.label}</span>
       <input type=${k.secret ? "password" : "text"} class="compact" name=${k.field} autocomplete="off" aria-label=${`${x.name}: ${k.label}`}
-        placeholder=${k.set ? (k.secret ? "Set (type to change)" : k.value) : "Not set"} value=${typed[k.field] ?? ""} onInput=${(e) => setTyped({ ...typed, [k.field]: e.target.value })} /></label>`)}
+        placeholder=${shown(k)} value=${typed[k.field] ?? ""} onInput=${(e) => setTyped({ ...typed, [k.field]: e.target.value })} />
+      ${k.field === "threads" && k.set ? html`<button type="button" class="linkish" data-action="threads-account" disabled=${busy} onClick=${() => save(false, ["threads"])}>Use the account's</button>` : null}</label>`)}
     <span class="pick-row">
       <button type="submit" class="ghost compact" data-action="save-keys" disabled=${busy || !Object.values(typed).some((v) => v.trim())}>Save</button>
       <button type="button" class="ghost compact" data-action="check" disabled=${busy || !anySet} onClick=${check}>Check</button>

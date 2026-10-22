@@ -397,6 +397,24 @@ jobs:
           else
             echo "::warning title=Installer::7-Zip couldn't list Game Repo's installer, so what it carries wasn't checked"
           fi
+      - name: Game Repo Go's installer, run and removed (it asks Windows to refresh its icons, D143)
+        run: |
+          f=$(ls dist/"Game Repo Go_"*_x64-setup.exe)
+          # what's running (and whether it got as far as registering) if it doesn't finish
+          stuck() { powershell -NoProfile -Command "Get-CimInstance Win32_Process | Sort-Object ProcessId | Format-Table -AutoSize -Wrap ProcessId, ParentProcessId, Name, CommandLine; Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Get-ItemProperty | Select-Object DisplayName, InstallLocation" | tee ci-out/go-installer-running.txt; }
+          # Git Bash would make /S a path (S:/), and the installer would wait for a click
+          MSYS_NO_PATHCONV=1 "$f" /S & pid=$!
+          for i in $(seq 60); do kill -0 $pid 2>/dev/null || break; sleep 5; done
+          if kill -0 $pid 2>/dev/null; then echo "::error title=Installer::Game Repo Go's installer didn't finish"; stuck; kill $pid; exit 1; fi
+          wait $pid
+          app="(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Get-ItemProperty | Where-Object DisplayName -eq 'Game Repo Go')"
+          un=$(cygpath -u "$(powershell -NoProfile -Command "$app.UninstallString" | tr -d '\r"')")
+          [ -n "$un" ] || { echo "::error title=Installer::Game Repo Go's installer didn't register it"; exit 1; }
+          echo "Installed in: $(dirname "$un")" | tee ci-out/go-installer.txt
+          ls -la "$(dirname "$un")" | tee -a ci-out/go-installer.txt
+          ls "$(dirname "$un")"/*.exe | grep -qi "game repo go\|game-repo-go\|gamerepo-client" || { echo "::error title=Installer::Game Repo Go's installer didn't install the program"; exit 1; }
+          MSYS_NO_PATHCONV=1 timeout 300 "$un" /S
+          echo "Removed" | tee -a ci-out/go-installer.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: bundles-windows, path: dist/, retention-days: 3 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

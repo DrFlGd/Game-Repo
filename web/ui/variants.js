@@ -107,7 +107,7 @@ export function UnknownTable({ items, platform, off }) {
     ${off ? null : html`<div class="unknown-bar" id="unknown-bar">
       <span class="muted">${picked.length ? `${plural(picked.length, "file", "files")} ticked` : "Tick files to add them together."}</span>
       <button type="button" class="ghost compact" id="unknown-add-ticked" disabled=${busy || !withOne.length} title="Each as a variant of the game suggested for it, under its own name"
-        onClick=${addTicked}>${Icon.plus(14)} Add the ticked as variants${withOne.length ? ` (${withOne.length})` : ""}</button>
+        onClick=${addTicked}>${Icon.plus(14)} Add the ticked files as variants${withOne.length ? ` (${withOne.length})` : ""}</button>
       ${picked.length > 1 ? html`<button type="button" class="ghost compact" id="unknown-add-one" disabled=${busy} title="One game of several files, such as a cue sheet and its tracks" onClick=${asOne}>Add as one game…</button>` : null}
     </div>`}
     <table class="audit-table" id="audit-list-table"><thead><tr>

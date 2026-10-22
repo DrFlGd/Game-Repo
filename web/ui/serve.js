@@ -99,7 +99,7 @@ export function ServePanel({ call, alone = false }) {
   const portOk = Number.isInteger(portNumber) && portNumber >= 1024 && portNumber <= 65535;
   return html`<section class="ls-section serve-panel" id="settings-serve" data-running=${s.running ? "yes" : "no"}>
     <h2>${alone ? "Game Repo Server" : "Serve to devices"}</h2>
-    <p class="muted">Phones and handhelds on your home network browse the library and download games into ES-DE's folders, with Game Repo's app on the device. The library is only read: nothing in it changes.${alone ? "" : " Game Repo Server does the serving, so it can keep going when Game Repo is closed."}</p>
+    <p class="muted">Phones and handhelds on your home network browse the library and download games into ES-DE's folders, with Game Repo Go on the device. The library is only read: nothing in it changes.${alone ? "" : " Game Repo Server does the serving, so it can keep going when Game Repo is closed."}</p>
     ${!s.installed ? html`<p class="warn-note" role="alert" id="serve-missing">Game Repo Server isn't installed beside Game Repo: install Game Repo again.</p>` : null}
 
     ${alone ? null : html`<label class="check-row"><input type="checkbox" id="serve-on" checked=${busy === "Starting" || (s.running && busy !== "Stopping")} disabled=${!!busy || !s.installed}
@@ -123,7 +123,7 @@ export function ServePanel({ call, alone = false }) {
       ${code ? html`<div class="serve-code-row"><span class="serve-code" id="serve-code" aria-label=${`Pairing code ${code[0].split("").join(" ")}`}>${code[0].slice(0, 3)} ${code[0].slice(3)}</span>
           <span class="muted" id="serve-code-left">for ${left(code[1])}</span>
           <button type="button" class="ghost" id="serve-unpair" disabled=${!!busy} onClick=${() => run("Ending the pairing", "serve_unpair")}>Cancel</button></div>
-        <small class="muted">In Game Repo's app on the device, choose this computer (or type its address) and enter the code.</small>`
+        <small class="muted">In Game Repo Go on the device, choose this computer (or type its address) and enter the code.</small>`
       : html`<div><button type="button" class="ghost" id="serve-pair" disabled=${!!busy} onClick=${() => run("Making a code", "serve_pair")}>Pair a device…</button></div>
         <small class="muted">Shows a code for ten minutes that a device enters once; after that it connects by itself.</small>`}
     </div>` : null}
@@ -131,7 +131,7 @@ export function ServePanel({ call, alone = false }) {
     ${s.running || devices.length ? html`<div class="field-block"><span class="field-label">Devices</span>
       ${devices.length ? html`<ul class="ls-list" id="serve-devices">${devices.map((d) => html`<li key=${d.id} data-device=${d.id}>
         <span><b>${d.name}</b> <span class="muted">${[d.kind, d.holding?.games ? `${plural(d.holding.games, "game", "games")} (${bytes(d.holding.size)})` : "no games from here yet", seen(d.seen)].filter(Boolean).join(" · ")}</span></span>
-        ${removing === d.id ? html`<span class="serve-confirm">Remove it? It'll need a new code to connect again.</span>
+        ${removing === d.id ? html`<span class="serve-confirm">Remove it? It'll need a new code to pair again.</span>
             <button type="button" class="primary danger" data-action="remove-yes" disabled=${!!busy} onClick=${async () => { await run("Removing", "serve_remove_device", { id: d.id }); setRemoving(null); setSaid(`Removed ${d.name}.`); }}>Remove</button>
             <button type="button" class="ghost" data-action="remove-no" onClick=${() => setRemoving(null)}>Keep</button>`
           : html`<button type="button" class="ghost" data-action="remove" disabled=${!!busy || !s.running} onClick=${() => setRemoving(d.id)}>Remove…</button>`}

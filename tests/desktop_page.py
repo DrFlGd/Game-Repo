@@ -31,7 +31,7 @@ with thumbnails, a filter with counts kept in the address, the search, selecting
 the table sorted and grouped, a game's page with a detail edited and a file dropped
 on it, Next, and the filters saved as a collection; (Phase 6b) each source's answer kept, a box from
 another source chosen and a detail used from it on a game's page, Scrape again…,
-Delete metadata… with Undo, and Settings › Metadata's sizes;
+Delete metadata… with Undo, and Settings › Details and pictures' sizes;
 renaming the library, with Undo; opening a folder that already holds games
 leaves them as they were, and switching back from the recent list; the theme
 and skin follow the settings and are kept; a library from a newer app opens
@@ -125,6 +125,26 @@ def png(w, h, rgb):
 
 
 COVER, WIDE = png(60, 90, (40, 90, 160)), png(184, 69, (200, 140, 40))
+
+
+def text_pdf(pages):
+    """A real PDF whose pages are a line of text each (a magazine with its own text, D145)."""
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", None, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    kids = []
+    for t in pages:
+        stream = f"BT /F1 14 Tf 30 400 Td ({t}) Tj ET".encode()
+        objs.append(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
+        objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 595] /Contents %d 0 R /Resources << /Font << /F1 3 0 R >> >> >>" % len(objs))
+        kids.append(len(objs))
+    objs[1] = b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(b"%d 0 R" % k for k in kids), len(kids))
+    out, at = bytearray(b"%PDF-1.4\n"), []
+    for i, o in enumerate(objs, 1):
+        at.append(len(out))
+        out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % x for x in at)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    return bytes(out)
 
 
 TGDB = [{"id": 501, "game_title": "Alpha", "release_date": "1990-04-21", "overview": "Alpha's overview, from the stand-in.", "players": 2, "developers": [7], "genres": [1]},
@@ -386,7 +406,8 @@ async def magazines(pg, base, home, library):
     with zipfile.ZipFile(mags / "Game Fan 001 (1992-10).cbz", "w") as z:
         for n in ("p1.png", "p2.png", "p10.png"):
             z.writestr(n, COVER)
-    (mags / "Game Fan 002 (1992-11).pdf").write_bytes(b"%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n")
+    # a PDF with its own text, and no picture on its first page
+    (mags / "Game Fan 002 (1992-11).pdf").write_bytes(text_pdf(["Letters to the editor, and what is coming next month", "Sonic the Hedgehog 2 reviewed: the fastest game there is"]))
     with zipfile.ZipFile(mags / "Retro Gamer" / "100.cbz", "w") as z:
         z.writestr("cover.png", WIDE)
     await pg.click('.sidebar a[href="#/magazines"]')
@@ -454,6 +475,120 @@ async def magazines(pg, base, home, library):
     check("a list of issues (a CSV) says which are missing, and they're saved as a list of their own",
           "Game Fan 003 (1992-12)" in missing and "Game Fan 001" not in missing and "2 of the 3 listed" in totals and len(saved) == 1 and "Game Fan,3" in saved[0].read_text(),
           (missing, totals, said, [x.name for x in saved]))
+    # D145: the issues' text read (the PDF's own; the comic's pages by text recognition where
+    # there's a reader, else left unread), kept beside them, searched, and shown in the viewer
+    before = await pg.inner_text("#mag-text")
+    await pg.click("#mag-read")
+    said = await toast_text(pg, "Read 2 issues")
+    await pg.wait_for_function("() => document.querySelector('#mag-text')?.dataset.unread === '0'", timeout=30000)
+    after = await pg.inner_text("#mag-text")
+    kept = json.loads((fan / ".text" / "Game Fan 002 (1992-11).pdf.json").read_text()) if (fan / ".text" / "Game Fan 002 (1992-11).pdf.json").is_file() else {}
+    check("Read their text reads a magazine's issues page by page and keeps the text beside them",
+          "isn't read yet" in before and "Every issue's text is read" in after and "5 pages" in said and "Hedgehog" in "".join(kept.get("pages", [])[1:2]),
+          (before, after, said, kept))
+    await pg.click('#mag-issues li[data-number="2"] [data-action="games"]')
+    await pg.wait_for_selector("#mag-games")
+    games = await pg.inner_text("#mag-games")
+    check("an issue's games are found in its text (none here: this library has no DATs)", "No game's title is in its text" in games and "Games in No. 2" in games, games)
+    await pg.click('.sidebar a[href="#/documents"]')
+    await pg.fill("#docs-search", "hedgehog")
+    await pg.wait_for_selector('#docs-list .pc-row:has-text("Game Fan 2")', timeout=15000)
+    await pg.click('#docs-list .pc-row:has-text("Game Fan 2")')
+    await pg.wait_for_selector("#doc-view #doc-page-text mark")
+    marked = await pg.inner_text("#doc-page-text mark")
+    at = await pg.input_value("#doc-view .pdf-page-label input")
+    await pg.screenshot(path=str(out / "63-magazine-text.png"))
+    check("Documents' search finds an issue by its text; the viewer opens at the page with it, its text shown with the word marked",
+          marked == "Hedgehog" and at == "2", (marked, at))
+
+
+def mp4_bytes(seconds):
+    """An MP4's header saying how long it is (there's nothing in it to play)."""
+    box = lambda name, body: struct.pack(">I", len(body) + 8) + name + body
+    mvhd = bytearray(100)
+    mvhd[12:16] = struct.pack(">I", 1000)
+    mvhd[16:20] = struct.pack(">I", seconds * 1000)
+    return box(b"ftyp", b"isom\0\0\x02\0isomiso2") + box(b"moov", box(b"mvhd", bytes(mvhd)))
+
+
+async def videos(pg, base, home, library):
+    """Videos (D146): a folder of them read, put right and brought in by kind; one watched,
+    the list filtered, a link added and changed, and a file removed with Undo."""
+    vids = home / "Videos in"
+    (vids / "Reviews").mkdir(parents=True)
+    (vids / "Super Metroid - Longplay [dQw4w9WgXcQ].mp4").write_bytes(mp4_bytes(5400))
+    (vids / "Reviews" / "20190412 Mega Man 2.mp4").write_bytes(mp4_bytes(600))
+    await pg.click('.sidebar a[href="#/videos"]')
+    await pg.wait_for_selector("#videos-page #video-empty")
+    pick(vids, base)
+    await pg.click("#video-import")
+    await pg.wait_for_selector("#video-items li", timeout=30000)
+    read = await pg.eval_on_selector_all("#video-items li", "els => Object.fromEntries(els.map(e => [e.dataset.name, [e.querySelector('.video-item-title').value, e.querySelector('.video-item-kind').value, e.querySelector('.video-item-date').value, e.querySelector('.pc-item-name .muted').textContent]]))")
+    await pg.fill('#video-items li[data-name="20190412 Mega Man 2.mp4"] .video-item-title', "Mega Man 2, reviewed")
+    await pg.screenshot(path=str(out / "64-videos-import.png"))
+    await pg.click("#video-import-dialog button[type=submit]")
+    await pg.wait_for_selector("#organise-totals")
+    totals = await pg.inner_text("#organise-totals")
+    head = await pg.evaluate("() => [document.querySelector('#video-import-dialog h2').textContent, location.hash]")
+    await pg.click("#video-import-dialog button[type=submit]")
+    await toast_text(pg, "Imported 2 videos")
+    await pg.click('.sidebar a[href="#/videos"]')
+    await pg.wait_for_selector("#video-list li", timeout=15000)
+    listed = await pg.eval_on_selector_all("#video-list li", "els => els.map(e => [e.querySelector('.video-title').textContent, e.dataset.kind, e.querySelector('small').textContent])")
+    on_disk = sorted(p.relative_to(library).as_posix() for p in (library / "Videos").rglob("*.mp4"))
+    metroid = read.get("Super Metroid - Longplay [dQw4w9WgXcQ].mp4", ["", "", "", ""])
+    check("Import videos… reads each one's title, kind and date from its name (or its folder's), its length from its header; they're put right and brought into Videos/<kind>/ (the originals stay)",
+          metroid[:3] == ["Super Metroid - Longplay", "walkthrough", ""] and "1:30:00" in metroid[3]
+          and read.get("20190412 Mega Man 2.mp4", [None])[:3] == ["Mega Man 2", "review", "2019-04-12"]
+          and head == ["Import 2 videos", "#/import/import-videos"] and "2 videos" in totals
+          and on_disk == ["Videos/Reviews/Mega Man 2, reviewed.mp4", "Videos/Walkthroughs/Super Metroid - Longplay.mp4"]
+          and (vids / "Super Metroid - Longplay [dQw4w9WgXcQ].mp4").is_file()
+          and [x[0] for x in listed] == ["Mega Man 2, reviewed", "Super Metroid - Longplay"] and "YouTube" in listed[1][2] and "1:30:00" in listed[1][2],
+          (read, head, totals, on_disk, listed))
+    await pg.click('#video-list li[data-kind="walkthrough"] [data-action="watch"]')
+    await pg.wait_for_selector("#video-player")
+    playing = await pg.evaluate("() => [location.hash.startsWith('#/videos/'), !!document.querySelector('#video-player video, #video-player [data-video=\"cant-play\"]'), document.querySelector('#video-player h2').textContent]")
+    await pg.click('#video-kinds [data-kind="review"]')
+    reviews = await pg.eval_on_selector_all("#video-list li", "els => els.map(e => e.dataset.kind)")
+    await pg.click('#video-kinds [data-kind="all"]')
+    await pg.fill("#video-search", "metroid")
+    found = await pg.eval_on_selector_all("#video-list li .video-title", "els => els.map(e => e.textContent)")
+    await pg.fill("#video-search", "")
+    await pg.screenshot(path=str(out / "65-videos.png"))
+    await pg.click("#video-player-close")
+    await pg.wait_for_selector("#video-player", state="detached")
+    check("a video file plays on the Videos page (#/videos/<id>), and the list filters by kind and by words",
+          playing == [True, True, "Super Metroid - Longplay"] and reviews == ["review"] and found == ["Super Metroid - Longplay"], (playing, reviews, found))
+    await pg.click("#video-menu")
+    await pg.click('#context-menu [data-action="video-add-link"]')
+    await pg.wait_for_selector("#video-link-dialog")
+    await pg.fill("#video-link-url", "https://www.youtube.com/watch?v=abcdefghijk")
+    await pg.fill("#video-link-title", "The History of Metroid")
+    await pg.click("#video-link-dialog button[type=submit]")
+    await toast_text(pg, "Added The History of Metroid")
+    await pg.wait_for_selector('#video-list li[data-kind="retrospective"]')
+    link = await pg.inner_text('#video-list li[data-kind="retrospective"] small')
+    await pg.click('#video-list li[data-kind="retrospective"] [data-action="edit"]')
+    await pg.wait_for_selector("#video-edit")
+    await pg.fill("#video-edit-date", "2021-03")
+    await pg.press("#video-edit-date", "Enter")
+    await pg.wait_for_function("() => document.querySelector('#video-list li[data-kind=\"retrospective\"] small')?.textContent.includes('2021-03')")
+    kept = json.loads((library / "Videos" / "videos.json").read_text())
+    link_kept = next((v for v in kept.get("videos", []) if v.get("url", "").endswith("abcdefghijk")), {})
+    check("Add a link… keeps a web video (its kind from its title, its source from its address), and its date is changed on the page",
+          "Retrospective" in link and "YouTube" in link and "a link" in link and link_kept.get("date") == "2021-03" and "file" not in link_kept, (link, link_kept))
+    await pg.click('#video-list li[data-kind="review"] [data-action="remove"]')
+    await pg.wait_for_selector("#organise-dialog #organise-totals")
+    remove_head = await pg.inner_text("#organise-dialog h2")
+    await pg.click("#organise-dialog button[type=submit]")
+    said = await toast_text(pg, "Removed the video")
+    await pg.wait_for_function("() => !document.querySelector('#video-list li[data-kind=\"review\"]')", timeout=15000)
+    gone = not (library / "Videos/Reviews/Mega Man 2, reviewed.mp4").exists()
+    await pg.click("#toast button:has-text('Undo')")
+    await toast_text(pg, "Undone")
+    await pg.wait_for_selector('#video-list li[data-kind="review"]', timeout=15000)
+    check("Remove… sets a video's file aside as a change, with the preview, and Undo brings it back",
+          remove_head == "Remove the video Mega Man 2, reviewed" and gone and (library / "Videos/Reviews/Mega Man 2, reviewed.mp4").is_file(), (remove_head, said, gone))
 
 
 async def import_by_system(pg, base, home, library):
@@ -713,7 +848,7 @@ async def variants(pg, base, home, library):
     await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"variants\"] .tab-count')?.textContent === '2'", timeout=15000)
     check("Remove puts its file back on Unknown, and Undo puts the custom DAT back as it was",
           await pg.inner_text('#audit-tabs [data-tab="unknown"] .tab-count') == "0", await pg.inner_text("#audit-tabs"))
-    # D118: a second DAT for the system, ticked Audit with it too in DATs…, knows a file the
+    # D118: a second DAT for the system, ticked Include in Audit in DATs…, knows a file the
     # main one doesn't: it's off Unknown, its counts are under the totals with Show its lists
     mother = make_fixtures.rom(45, 2048)
     (gba / "Mother 3 (English Translated).gba").write_bytes(mother)
@@ -843,7 +978,7 @@ async def updates_in_the_app(pg, base, home, library):
 
 
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app)]
+             ("updates", updates_in_the_app), ("videos", videos)]
 
 
 async def main():
@@ -894,7 +1029,7 @@ async def main():
                 active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
                 lead = await pg.inner_text("#audit-empty")
                 check("the menu's places open, with the pages still to come saying what they'll do",
-                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Export layouts", "History", "Settings", "Help", "About"]
+                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Export layouts", "History", "Settings", "Help", "About"]
                       and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
                 await pg.screenshot(path=str(out / "01-coming.png"))
 
@@ -1066,7 +1201,7 @@ async def main():
                 check("a count in the table opens that system at that list", "#/audit/gb" in await pg.evaluate("location.hash"))
                 await pg.click("#audit-menu")
                 await pg.click('#context-menu [data-action="export-fixdat"]')
-                said = await toast_text(pg, "fixdat of 3 games")
+                said = await toast_text(pg, "list of 3 missing games")
                 await pg.click("#audit-menu")
                 await pg.click('#context-menu [data-action="save-report-csv"]')
                 await toast_text(pg, "Saved the report")
@@ -1150,6 +1285,13 @@ async def main():
                 await pg.click("#organise-pick")
                 await pg.wait_for_function("(p) => document.querySelector('#organise-out')?.value === p", arg=str(sorted_dir))
                 await pg.select_option("#organise-format", "zip")
+                # one line says what it does; the rest is folded under More about this (D147)
+                more = pg.locator("#organise-dialog #organise-more")
+                folded = [await more.count(), await more.evaluate("m => m.open"), await pg.locator("#organise-more > p").first.is_visible()]
+                await pg.click("#organise-more > summary")
+                opened = [await more.evaluate("m => m.open"), await pg.locator("#organise-more > p", has_text="TorrentZip").is_visible()]
+                check("Organise… keeps what it needn't say at once under More about this, which opens on a click (D147)",
+                      folded == [1, False, False] and opened == [True, True], (folded, opened))
                 await pg.screenshot(path=str(out / "14-organise.png"))
                 await pg.click("#organise-dialog button[type=submit]")
                 await pg.wait_for_selector("#organise-totals")
@@ -1403,7 +1545,7 @@ async def main():
                 await pg.fill("#collection-name", "Best Of")
                 await pg.click("#collection-new-dialog button[type=submit]")
                 await pg.wait_for_selector("#collection-rules")
-                check("New collection offers by rules, from folders or from a DAT, and one by rules opens on its rules", ways == ["rules", "folders", "dat"], ways)
+                check("New collection offers by rules, from folders, from a DAT or empty, and one by rules opens on its rules", ways == ["rules", "folders", "dat", "empty"], ways)
                 await pg.check('#rule-platforms input[value="gb"]')
                 await pg.wait_for_function("() => +document.querySelector('#collection-games')?.textContent > 0")
                 await pg.click('#collection-view [data-view="games"]')
@@ -1606,7 +1748,7 @@ async def main():
                 stored = json.loads(coll_file.read_text())
                 heads = await pg.eval_on_selector_all("#collection-main .collection-group h2", "els => els.map(e => e.textContent)")
                 check("Add a group… offers the New collection dialog's ways, and the group by rules is kept after the first, with its own rules",
-                      group_ways == ["rules", "folders", "dat"] and submit_label == "Add the group" and heads == ["Best Of", "Every one"]
+                      group_ways == ["rules", "folders", "dat", "empty"] and submit_label == "Add the group" and heads == ["Best Of", "Every one"]
                       and [g["name"] for g in stored.get("groups", [])] == ["Every one"] and stored["groups"][0]["rules"]["include"] == "all"
                       and stored["groups"][0]["rules"]["platforms"] == ["gb"] and stored["rules"]["include"] == "have", (group_ways, submit_label, heads, stored.get("groups")))
                 # the games view: a section for each group, with its name and count, none twice
@@ -1744,6 +1886,27 @@ async def main():
                       len(got2) == 1 and got2[0].startswith(second) and "1 game" in totals2, (got2, totals2))
                 await pg.keyboard.press("Escape")
                 await pg.fill("#collection-search", "")
+                # an empty collection (D141): a name and no games, its page says how to add them,
+                # and Add games… fills it; deleted again after
+                await pg.click("#collection-panel-new")
+                await pg.check('#collection-way input[value="empty"]')
+                await pg.fill("#collection-name", "To fill")
+                await pg.click("#collection-new-dialog button[type=submit]")
+                await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'To fill'")
+                await pg.wait_for_selector('#collection-none[data-empty="hand"] #collection-to-library')
+                empty_rules = next(x for x in (json.loads(f.read_text()) for f in (library / "_library/collections").glob("*.json")) if x["name"] == "To fill")["rules"]
+                await pg.screenshot(path=str(out / "23c2-empty-collection.png"))
+                await pg.click("#collection-add")
+                await pg.wait_for_selector("#add-games-list li input")
+                await pg.check("#add-games-list li input >> nth=0")
+                await pg.click("#add-games-dialog button[type=submit]")
+                await pg.wait_for_function("() => +document.querySelector('#collection-games')?.textContent === 1")
+                check("New collection › Empty makes one with no games (only those added by hand), its page says how to add them, and Add games… adds one",
+                      empty_rules.get("include") == "none", empty_rules)
+                await pg.click("#collection-menu")
+                await pg.click('#context-menu [data-action="collection-delete"]')
+                await pg.click("#confirm-dialog button[type=submit]")
+                await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent !== 'To fill'")
                 # from a DAT another tool made, with names of its own
                 gb2 = hashlib.sha1(picks_[1].read_bytes()).hexdigest()
                 crc2 = f"{zlib.crc32(picks_[1].read_bytes()):08x}"
@@ -1798,8 +1961,13 @@ async def main():
                 await pg.wait_for_selector("#import-folders li")
                 systems_offered = await pg.eval_on_selector_all("#import-system option", "els => els.map(e => e.textContent)")
                 await pg.check('#import-mode input[value="always"]')
+                # into a new collection too (D140), named here (the folder's name is taken)
+                await pg.select_option("#import-into-pick", "new")
+                into_default = await pg.get_attribute("#import-into-name", "placeholder")
+                await pg.fill("#import-into-name", "Imported picks")
                 await pg.click("#import-games-dialog button[type=submit]")
                 await pg.wait_for_selector("#import-games-review", timeout=30000)
+                into_line = await pg.inner_text("#import-into-line")
                 offered = await pg.eval_on_selector_all("#import-games-systems li", "els => els.map(e => [e.dataset.name, e.dataset.status])")
                 unknown_as = await pg.input_value('#import-games-unknown li[data-folder="Wanted"] select')
                 await pg.wait_for_selector('#import-places li[data-platform="gb"][data-dir]:not([data-dir=""])')
@@ -1821,19 +1989,40 @@ async def main():
                 await pg.click("#bring-dialog button[type=submit]")
                 said = await toast_text(pg, "Imported 2 games into the library")
                 brought = [x for x in (fx / "Roms").rglob("Alpha (Europe).gb") if ".gamerepo-set-aside" not in x.parts]
+                picks = next((x for x in (json.loads(f.read_text()) for f in (library / "_library/collections").glob("*.json")) if x["name"] == "Imported picks"), {})
+                check("Import can put the games in a new collection too: the review says so, the collection is made from them, and the file no DAT knows waits on it (D140)",
+                      into_default == "Wanted" and "Imported picks" in into_line and "1 game" in into_line and "1 file" in into_line and "Imported picks is a collection of them" in said
+                      and picks.get("made_from", {}).get("kind") == "import" and [w["name"] for w in picks.get("waiting", [])] == ["homebrew.gb"] and picks.get("waiting", [{}])[0].get("platform") == "gb",
+                      (into_default, into_line, said, picks))
+                await pg.click('.sidebar a[href="#/collections"]')
+                await pg.click('#collection-panel-list .panel-link:has-text("Imported picks")')
+                await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Imported picks' && document.querySelector('#collection-games')?.textContent === '1'", timeout=30000)
+                await pg.wait_for_selector("#collection-waiting")
+                waits = await pg.eval_on_selector_all("#collection-waiting li", "els => els.map(e => e.dataset.name)")
+                await pg.click("#collection-waiting summary")
+                await pg.screenshot(path=str(out / "23f-collection-waiting.png"))
+                await pg.click('#collection-waiting li[data-name="homebrew.gb"] [data-action="waiting-leave"]')
+                await pg.wait_for_selector("#collection-waiting", state="detached")
+                left = json.loads(next(f for f in (library / "_library/collections").glob("*.json") if json.loads(f.read_text())["name"] == "Imported picks").read_text())
+                check("the collection's page lists the file waiting on Audit › Unknown, and Leave it stops waiting for it",
+                      waits == ["homebrew.gb"] and not left.get("waiting"), (waits, left.get("waiting")))
+                await pg.click('.sidebar a[href="#/import"]')
+                await pg.wait_for_selector('#import-recent-list li[data-kind="bring"]')
                 await pg.wait_for_selector('#import-recent-list li[data-kind="bring"]')
                 recent = await pg.eval_on_selector_all("#import-recent-list li", "els => els.map(e => e.dataset.kind)")
                 await pg.locator("#import-recent").scroll_into_view_if_needed()
                 await pg.screenshot(path=str(out / "23e-recent-imports.png"))
                 check("the import review lists the games before where each system's go (review M42); its preview says what it will do with one word for it (M40); Recent imports lists it (D78)",
-                      games_first and bring_head == ["Import 2 games into the library", "2 games to import.", "Import"] and recent and recent[0] == "bring" and all(k in ("bring", "add", "import", "docs", "magazines", "bios") for k in recent),
+                      games_first and bring_head == ["Import 2 games into the library", "2 games to import.", "Import"] and recent and recent[0] == "bring" and all(k in ("bring", "add", "import", "docs", "magazines", "videos", "bios") for k in recent),
                       (games_first, bring_head, recent))
                 check("Import offers every system or one, and copy, always copy or move; its window stays put and comes back where it was; each system's games go to the folder its games are in, and a file no DAT knows to its folder's system",
                       systems_offered[0].startswith("Every system") and "Game Boy" in systems_offered and unknown_as == "gb" and stayed and kept == "gb" and len(brought) == 1
                       and brought[0].parent == Path(place) and (Path(place) / "homebrew.gb").is_file() and os.stat(brought[0]).st_nlink == 1,
                       (systems_offered[:3], unknown_as, stayed, kept, place, brought))
                 await pg.click('.sidebar a[href="#/collections"]')
-                await pg.click('#collection-panel-list .panel-link:has-text("Wanted")')
+                # (by its id: "Imported picks" is imported from Wanted)
+                wanted_id = next(x["id"] for x in (json.loads(f.read_text()) for f in (library / "_library/collections").glob("*.json")) if x["name"] == "Wanted")
+                await pg.click(f'#collection-panel-list .panel-link[data-id="{wanted_id}"]')
                 await pg.wait_for_function("() => document.querySelector('#collection-title')?.textContent === 'Wanted' && document.querySelector('#collection-have')?.textContent === '1'", timeout=30000)
                 check("a collection from folders points at Import for the games the library lacks; Import copies one into its folder with games, named as the DAT says, and scans it",
                       lacking == [["Alpha (Europe)", "missing"]] and "Import" in pointed and offered == [["Alpha (Europe)", "missing"]] and len(brought) == 1 and (wanted / "europe one.gb").is_file(), (lacking, pointed, offered, said, brought))
@@ -2153,11 +2342,14 @@ async def main():
                 await pg.wait_for_selector('#sources li[data-source="thegamesdb"] .source-said')
                 said = await pg.inner_text('#sources li[data-source="thegamesdb"] .source-said')
                 shown = await pg.get_attribute('#sources li[data-source="thegamesdb"] input[name="apikey"]', "placeholder")
+                # ScreenScraper's threads, before its account is read (D142)
+                threads_shown = await pg.get_attribute('#sources li[data-source="screenscraper"] input[name="threads"]', "placeholder")
                 cfg = json.loads((home / "config/config.json").read_text())
                 in_library = "test-key-123" in (library / "_library/library.json").read_text()
                 check("Settings › Sources keeps a source's key on this computer (never shown again, never in the library) and Check asks the source",
-                      cfg.get("source_keys", {}).get("thegamesdb", {}).get("apikey") == "test-key-123" and "answered" in said and "test-key" not in (shown or "") and not in_library,
-                      (said, shown, cfg.get("source_keys")))
+                      cfg.get("source_keys", {}).get("thegamesdb", {}).get("apikey") == "test-key-123" and "answered" in said and "test-key" not in (shown or "") and not in_library
+                      and threads_shown == "As many as your account allows",
+                      (said, shown, threads_shown, cfg.get("source_keys")))
                 await pg.screenshot(path=str(out / "30-sources.png"))
                 await pg.click('.sidebar a[href="#/metadata"]')
                 await pg.wait_for_selector("#meta-page")
@@ -2584,12 +2776,12 @@ async def main():
                 await pg.click("#game-menu")
                 await pg.click('#context-menu [data-action="game-scrape-again"]')
                 await pg.wait_for_selector("#scrape-dialog #scrape-sources")
-                # review M42, D80: what's fetched is a line, its choices behind Change what's fetched…
+                # review M42, D80: what's scraped is a line, its choices behind Change what's scraped…
                 short = await pg.evaluate("() => { const d = document.querySelector('#scrape-dialog'); return [!document.querySelector('#scrape-media'), d.scrollHeight <= d.clientHeight + 2, document.querySelector('#scrape-what-text')?.textContent || ''] }")
                 await pg.screenshot(path=str(out / "56b-scrape-short.png"))
                 await pg.click("#scrape-change")
                 await pg.wait_for_selector("#scrape-dialog #scrape-variants")
-                check("the Scrape window fits without scrolling, what's fetched in one line, its choices behind Change what's fetched… (D80)", short[0] and short[1] and "detail" in short[2], short)
+                check("the Scrape window fits without scrolling, what's scraped in one line, its choices behind Change what's scraped… (D80)", short[0] and short[1] and "detail" in short[2], short)
                 again = await pg.evaluate("() => [document.querySelector('input[name=scrape-existing][value=replace]').checked, document.querySelector('#scrape-fresh').checked, document.querySelector('#scrape-dialog h2, #scrape-dialog .dialog-title')?.textContent || '']")
                 check("Scrape again… is the Scrape dialog set to replace and ask the sources afresh", again[0] and again[1] and "again" in again[2], again)
                 await pg.keyboard.press("Escape")
@@ -2616,7 +2808,7 @@ async def main():
                 await pg.click("#meta-sizes-work")
                 await pg.wait_for_selector('#meta-sizes tr[data-platform="gb"]')
                 shown = await pg.inner_text("#settings-metadata")
-                check("Settings › Metadata shows what the metadata takes, by system and kind, and which source each detail comes from",
+                check("Settings › Details and pictures shows the space they take, by system and kind, and which source each detail comes from",
                       "Game Boy" in shown and "Box front" in shown and sizes.get("kinds", {}).get("cover", 0) > 0 and await pg.locator('#details-from select[data-field="description"]').count() == 1, (shown[:300], sizes.get("kinds")))
                 await pg.screenshot(path=str(out / "55-settings-metadata.png"), full_page=True)
 

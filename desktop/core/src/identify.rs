@@ -81,7 +81,7 @@ pub fn sources(cfg: &AppConfig, data_dir: &Path) -> Value {
         .into_iter()
         .map(|(id, on)| {
             let (_, name, pc) = SOURCES.iter().find(|(x, _, _)| *x == id).copied().unwrap_or(("", "", false));
-            let mut v = json!({ "id": id, "name": name, "on": on, "pc_only": pc, "needs": crate::scrapers::needs(cfg, &id), "keys": crate::scrapers::keys_json(cfg, &id) });
+            let mut v = json!({ "id": id, "name": name, "on": on, "pc_only": pc, "needs": crate::scrapers::needs(cfg, &id), "keys": crate::scrapers::keys_json(cfg, data_dir, &id) });
             if id == "launchbox" {
                 v["database"] = launchbox::status(data_dir);
             }
