@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.46 (2026-10-22)
+
 - **The Library keeps your place.** Its filters, search, order, grouping and view stay as they were while you're on other pages (and after a restart): the menu's *Library* and a game page's *Back* go back to them, with the game you came back from picked and in view.
 - **Previous and Next on a game's page.** *‹ Previous* and *Next ›* go to the game before or after it in the list you opened it from, the Library's (as filtered and sorted) or a collection's, and say where you are ("12 of 340 in the Library"). Opening a game with the panel's *Open* keeps the list now too.
 - **Videos, laid out as the Library.** Tiles (a picture you choose, else the game's cover), a list or a table; filter down the left by kind, series, creator, tag, system, game and year, with how many each has; group by kind, series, creator, tag, system or year; sort by title, date, length or when added. Pick several (Ctrl or Shift and a click, Ctrl+A) to set their series, creator or kind, add or remove a tag, or add a game together; one picked shows in the panel, where its details, tags, games and picture are changed.
