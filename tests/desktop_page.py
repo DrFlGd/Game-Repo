@@ -3033,6 +3033,8 @@ async def main():
                 check("a collection's systems are listed under it in the ribbon, with their counts; one shows just its games, and the collection all of them again (D171)",
                       [r[0] for r in sys_rows] == ["system-gb", "system-nes"] and sys_rows[1][1].endswith("1") and nes_only == ["nes/Echo (USA)"] and active == "system-nes", (sys_rows, nes_only, active))
                 await pg.evaluate("(id) => window.__TAURI__.core.invoke('api', { cmd: 'collection_delete', args: { id } })", two)
+                await pg.click("#nav-library")
+                await pg.wait_for_selector('#lib-games .lib-tile[data-key^="pc/"]')
 
             async with Section(pg, B, "The backlog (D157-D159)"):
                 # D157-D159: the backlog, under Collections: games added from the Library (a PC game
