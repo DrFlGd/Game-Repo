@@ -1393,6 +1393,8 @@ struct State {
     finished: bool,
     undone: bool,
     emptied: bool,
+    /// set-aside files deleted one by one (D168), by where they were held
+    deleted: HashSet<String>,
 }
 
 fn read_state(lib: &Library, id: &str) -> State {
@@ -1406,6 +1408,7 @@ fn read_state(lib: &Library, id: &str) -> State {
             Some("emptied") => s.emptied = true,
             _ => {}
         }
+        s.deleted.extend(v["deleted"].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from));
         if let Some(i) = v["op"].as_u64() {
             s.done.insert(i as usize, v);
         }
@@ -2210,6 +2213,12 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
         if matches!(op.op.as_str(), "rename" | "move") {
             touched.extend(Path::new(&op.from[0].path).parent().map(Path::to_path_buf));
         }
+        // a step whose set-aside file was deleted (D168) stays as it is: what it replaced can't come back
+        if let Some(gone) = rec["aside"].as_array().into_iter().flatten().find(|p| p[1].as_str().is_some_and(|h| st.deleted.contains(h))) {
+            undone += 1;
+            problems.push(json!({ "game": op.game, "to": op.to, "kept": true, "error": format!("{} was deleted from what was set aside, so this step stays", gone[0].as_str().unwrap_or("")) }));
+            continue;
+        }
         let mut kept = false;
         let r = (|| -> Result<()> {
             let copied = rec["copied"] == true;
@@ -2353,6 +2362,82 @@ fn remove_empty_tree(d: &Path) {
     if let Some(parent) = d.parent().filter(|p| p.file_name().is_some_and(|n| n == SET_ASIDE)) {
         let _ = std::fs::remove_dir(parent);
     }
+}
+
+/// What a change set aside that's still held (D168), step by step: where each was, where
+/// it's held, its game and size (a folder's, for a folder set aside whole).
+pub fn aside_files(lib: &Library, id: &str) -> Result<Vec<Value>> {
+    let plan = load(lib, id)?;
+    let st = read_state(lib, id);
+    let mut steps: Vec<(&usize, &Value)> = st.done.iter().collect();
+    steps.sort_by_key(|(i, _)| **i);
+    let mut out = vec![];
+    for (i, rec) in steps {
+        let game = plan.ops.get(*i).map(|o| o.game.as_str()).unwrap_or("");
+        for pair in rec["aside"].as_array().into_iter().flatten() {
+            let (Some(from), Some(held)) = (pair[0].as_str(), pair[1].as_str()) else { continue };
+            // undone (it's back), emptied or deleted: not held any more
+            let Ok(m) = std::fs::symlink_metadata(held) else { continue };
+            if st.deleted.contains(held) {
+                continue;
+            }
+            let size = if m.is_dir() { dir_size(Path::new(held)) } else { m.len() };
+            out.push(json!({ "held": held, "from": from, "game": game, "size": size, "folder": m.is_dir() }));
+        }
+    }
+    Ok(out)
+}
+
+/// Every change's set-aside files (the changes holding any), newest change first.
+pub fn aside_all(lib: &Library) -> Result<Value> {
+    let mut out = vec![];
+    for h in history(lib, &[])?.as_array().into_iter().flatten().filter(|h| h["held"].as_u64().unwrap_or(0) > 0) {
+        let Some(id) = h["id"].as_str() else { continue };
+        let files = aside_files(lib, id)?;
+        if !files.is_empty() {
+            out.push(json!({ "id": id, "label": h["label"], "created": h["created"], "kind": h["kind"], "state": h["state"], "files": files }));
+        }
+    }
+    Ok(json!(out))
+}
+
+/// Delete some of what a change set aside, for good (D168): `held` are where they're held,
+/// each one this change set aside. Undo leaves the steps they came from as they are.
+pub fn delete_set_aside(lib: &Library, id: &str, held: &[String]) -> Result<Value> {
+    lib.writable()?;
+    let plan = load(lib, id)?;
+    let st = read_state(lib, id);
+    let own: HashSet<&str> = st.done.values().flat_map(|r| r["aside"].as_array().into_iter().flatten()).filter_map(|p| p[1].as_str()).collect();
+    if let Some(x) = held.iter().find(|h| !own.contains(h.as_str())) {
+        bail!("{x} isn't one of the files {} set aside.", plan.label);
+    }
+    let (mut freed, mut gone) = (0, vec![]);
+    for h in held {
+        let p = Path::new(h);
+        let Ok(m) = std::fs::symlink_metadata(p) else { continue };
+        if m.is_dir() {
+            freed += dir_size(p);
+            std::fs::remove_dir_all(p)
+        } else {
+            freed += m.len();
+            std::fs::remove_file(p)
+        }
+        .with_context(|| format!("couldn't delete {h}"))?;
+        gone.push(h.clone());
+        // the folders it was in, once empty, up to the set-aside folder itself
+        for d in p.ancestors().skip(1) {
+            if std::fs::remove_dir(d).is_err() {
+                break;
+            }
+            if d.file_name().is_some_and(|n| n == SET_ASIDE || n == "set-aside") {
+                break;
+            }
+        }
+    }
+    if !gone.is_empty() {
+        log(lib, id, &json!({ "deleted": gone }))?;
+    }
+    Ok(json!({ "freed": freed, "deleted": gone.len() }))
 }
 
 /// Delete what a change set aside (or every change's, with `None`). The only step that deletes.
@@ -2789,6 +2874,48 @@ mod tests {
         assert_eq!(r["done"], 3, "{r}");
         assert_eq!(history(&f.lib, &[]).unwrap()[0]["state"], "done");
         assert!(out.join("Delta (World).zip").is_file() && out.join("Beta (Europe).gb").is_file());
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    // D168: what a change set aside, listed, and some of it deleted for good
+    #[test]
+    fn set_aside_files_are_listed_and_deleted_one_by_one() {
+        let (f, dat) = setup("organise-aside-some");
+        let p = plan(&f.ix, &f.lib, &opts(dat, "rename", "zip")).unwrap();
+        let r = go(&f, &p);
+        assert_eq!(failed_at(&r).len(), 0, "{r}");
+        let files = aside_files(&f.lib, &p.id).unwrap();
+        assert!(files.len() >= 2, "{files:?}");
+        assert!(files.iter().all(|x| Path::new(x["held"].as_str().unwrap()).exists()), "{files:?}");
+        assert!(files.iter().all(|x| x["size"].as_u64().unwrap() > 0 && !x["game"].as_str().unwrap().is_empty()), "{files:?}");
+        let all = aside_all(&f.lib).unwrap();
+        assert_eq!((all[0]["id"].as_str(), all[0]["files"].as_array().unwrap().len()), (Some(p.id.as_str()), files.len()), "{all}");
+        let held_before = history(&f.lib, &[]).unwrap()[0]["held"].as_u64().unwrap();
+        // only what this change set aside can be deleted
+        let stranger = f.gb.join("My Hack.gb").display().to_string();
+        assert!(delete_set_aside(&f.lib, &p.id, &[stranger.clone()]).is_err());
+        assert!(Path::new(&stranger).is_file());
+        let one = files[0].clone();
+        let d = delete_set_aside(&f.lib, &p.id, &[one["held"].as_str().unwrap().to_string()]).unwrap();
+        assert_eq!((d["deleted"].as_u64(), d["freed"].as_u64()), (Some(1), one["size"].as_u64()), "{d}");
+        assert!(!Path::new(one["held"].as_str().unwrap()).exists());
+        assert_eq!(aside_files(&f.lib, &p.id).unwrap().len(), files.len() - 1);
+        let h = history(&f.lib, &[]).unwrap();
+        assert_eq!((h[0]["held"].as_u64(), h[0]["can_undo"].as_bool()), (Some(held_before - one["size"].as_u64().unwrap()), Some(true)), "{h}");
+        // Undo puts the rest back; the step whose original was deleted stays as it is
+        let u = back(&f, &p.id);
+        assert_eq!(u["finished"], true, "{u}");
+        let kept: Vec<&Value> = u["problems"].as_array().unwrap().iter().filter(|x| x["kept"] == true).collect();
+        assert_eq!(kept.len(), 1, "{u}");
+        assert!(kept[0]["error"].as_str().unwrap().contains("deleted"), "{u}");
+        assert!(Path::new(kept[0]["to"].as_str().unwrap()).is_file(), "its zip stays: {u}");
+        // (another file of the same step stays set aside with it)
+        for x in &files[1..] {
+            let back = Path::new(x["from"].as_str().unwrap()).exists();
+            assert_eq!(back, x["game"] != one["game"], "{x}");
+        }
+        assert!(aside_files(&f.lib, &p.id).unwrap().iter().all(|x| x["game"] == one["game"]));
+        assert_eq!(history(&f.lib, &[]).unwrap()[0]["state"], "undone");
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 

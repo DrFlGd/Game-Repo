@@ -29,7 +29,7 @@ export const TERMS = [
   ["addons", "Updates and DLC", "Updates, DLC and patches for a game, from a DAT of their own (No-Intro's \"Updates and DLC\") or named so: an (Update), [UPD], (DLC) or (Patch) tag, or a Switch, 3DS or Wii U title ID. Each belongs to the game with its title ID, else the one with the same title and region, else the game whose title its name starts with; Link to another game… puts one right. Files no DAT lists are suggested for their game on Audit › Unknown. They're audited with their own DAT, shown with their game (or as games of their own: untick Updates and DLC with their game in the Library), and go with it into collections and exports."],
   ["organise", "Organise", "Changing files the library already holds: copying, renaming or moving a system's games to their DAT names (Organise…), Rename to the DAT's names…, Set aside duplicates…, Convert… to another format or unpack."],
   ["change", "Change", "Anything that moves, copies, renames, converts or writes files: organising, importing, exporting and the rest. Each is shown as a preview first, nothing happens until you confirm it, every file written is read back and checked, and it can be undone from the message afterwards or from History."],
-  ["set-aside", "Set aside", "What a change does instead of deleting: the file goes to a hidden .gamerepo-set-aside folder on the same drive, so Undo can bring it back. It's deleted only when you empty it (History)."],
+  ["set-aside", "Set aside", "What a change does instead of deleting: the file goes to a hidden .gamerepo-set-aside folder on the same drive, so Undo can bring it back. It's deleted only when you empty it, or delete it on its own (History › Set aside)."],
   ["undo", "Undo", "Putting a change back, from the message after it or from History: the newest change first."],
   ["duplicates", "Duplicates", "More than one file for the same file of a DAT. Set aside duplicates… keeps the one organising would keep and sets the others aside."],
   ["collection", "Collection", "Games picked from the library for an export, made by rules (systems, regions, one per title, details), from folders, or from a DAT, and kept in the library. A collection can hold groups (say, a system's games and its translations), each made its own way. Collecting never copies files; exporting copies its games from your folders with games."],
@@ -72,6 +72,7 @@ export const PAGES = [
     "Save as a collection… keeps the filters as a collection's rules.",
   ]],
   ["pc", "PC games", "Your PC games, each in its own folder with what it is and how it starts (under the Library).", [
+    "Laid out as the Library is: filters down the left (year, genre, developer, publisher, store, players, what it has, whether its program is set), Grid, List or Table, Sort and Group by; the one picked shows in the panel on the right, a double click opens its page, and a right click has its menu.",
     "Import… from the inbox, or Import files… and Import a game's folder… (each opens Import › PC games); Unpack GOG installers and archives; choose the program it starts with.",
     "On the import's list, No match keeps a game no source has (one a search took for another) as a game of its own, under the title you give it. An installer or unpacked copy that goes into a game you have replaces its own (Replaces its installer): the old one is set aside, and Undo brings it back. Patches, DLC and extras add up.",
     "Remove from the library… (in its panel, or its page's ⋯ menu) sets aside its folder and its details, pictures and documents, with the preview first and Undo after. A Steam shortcut Add to Steam… made stays until Add to Steam… is run again.",
@@ -121,10 +122,10 @@ export const PAGES = [
     "Delete metadata… or Scrape again… for a system or a game (with a preview and Undo); Import documents… from a folder.",
   ]],
   ["documents", "Documents", "Your guides, manuals and other documents, searchable and readable here (under the Audit).", [
-    "Search their words, filter by kind, system, game, where they're from and whether their words are read, grouped by game, kind or system, as a list or tiles of their first pages; the one picked is read in the panel (a double click opens it larger). Import documents… pairs files with games for you to check first.",
+    "Search their words, filter by kind, system, game, where they're from and whether their words are read, grouped by game, kind or system, as a list or a grid of their first pages (small groups side by side); the one picked is read in the panel (a double click opens it larger). Import documents… pairs files with games for you to check first.",
   ]],
   ["collections", "Collections", "Games picked from the library, to export or save as DATs. Collecting moves no files.", [
-    "The collections are in the ribbon on the left; the one chosen shows its games as the Library does (grid, list or table), with its Source (or Rules), Size, Exported to and History.",
+    "The collections are in the ribbon on the left; the one chosen shows its games as the Library does (grid, list or table), with its Source (or Rules), Size, Exported to and History. Under it in the ribbon are its groups and its systems: a system shows just its games, and clicking it again (or the collection) shows them all.",
     "New collection…: by rules, from folders (matched by hash, so the files' names don't matter), from a DAT read where it is (a review shows the games found before it's made), or empty (games are added later with Add to a collection…). Add a group… adds a group made its own way (a system's translations, say), shown as a section of its own.",
     "Pick games (Ctrl or Shift for more, Ctrl+A for all) and Export these…, or Export… the whole collection; Update… and Check an export from Exported to. An ES-DE export can put each group in a subfolder or as a system of its own, and a Knulli or ROCKNIX export in a subfolder; every export makes a custom collection or playlist of each group where the frontend or the handheld has them (ES-DE, Knulli, RetroArch, Pegasus).",
     "Remove a game from it by hand, or add one; set a size limit for a card; Save as DATs… for RomVault, clrmamepro or igir.",
@@ -141,6 +142,7 @@ export const PAGES = [
   ]],
   ["history", "History", "Every change the app has made to your files, newest first, a day at a time.", [
     "Steps lists what a change did; Undo the newest; finish a change that was interrupted; empty what changes set aside, to free the space.",
+    "Set aside (a tab, and a button on each change that holds files) lists every file set aside, with its game, where it was and its size: tick the ones you don't want and Delete… them for good. Undo then leaves the steps they came from as they are.",
     "A library two computers share (on a network drive) is changed by one at a time: a change started on one waits while Game Repo on the other is changing it, saying which computer, and History shows a change running there as Running on that computer. If that computer stopped part way, its change shows as Interrupted here ten minutes later, to finish or put back.",
   ]],
   ["settings", "Settings", "How the app works for this library and this computer.", [

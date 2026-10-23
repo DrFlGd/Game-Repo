@@ -12,7 +12,7 @@ import { useStore } from "../lib/store.js";
 import { ui, THEMES, SKINS, setTheme, setSkin } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { api, toast, isDesktop, openLibrary, renameLibrary, showLibraryFolder, checkIndex, undoable, size, plural, followJob } from "./library.js";
-import { undoChange, finishChange, CONVERT_FORMATS, ChangeSteps } from "./organise.js";
+import { undoChange, finishChange, CONVERT_FORMATS, ChangeSteps, AsideFiles } from "./organise.js";
 import { addRoot, updateRoot, repointRoot, removeRoot, scanSettings, setScanSettings, importDats, starterDats, useDat, removeDat, refreshGames, reveal } from "./games.js";
 import { addSystemDialog, redumpDialog } from "./addsystem.js";
 import { confirmDialog } from "./dialogs.js";
@@ -285,17 +285,20 @@ function MetadataSection({ lib }) {
 const STATE = { done: "Done", undone: "Undone", interrupted: "Interrupted", running: "Running" };
 
 /** One change in a history: what it was, when, its state and buttons, and its steps
- *  opened under it (D78). */
+ *  (D78) or what it set aside (D168) opened under it. */
 function ChangeRow({ c, busy, off, act, empty }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState("");
+  const flip = (k) => setOpen(open === k ? "" : k);
   return html`<li key=${c.id} data-change=${c.id} data-state=${c.state} data-kind=${c.kind}>
     <span class="change-label"><span>${c.label}</span><span class="muted">${new Date(c.created).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${plural(c.ops, "step", "steps")}${c.held ? ` · ${size(c.held)} set aside` : ""}</span></span>
     <span class=${c.state === "interrupted" ? "badge review" : "badge"} title=${c.running_on ? `Game Repo on ${c.running_on} is running it: it can be undone here once it's finished` : null}>${c.running_on ? `Running on ${c.running_on}` : STATE[c.state] || c.state}</span>
-    ${c.ops ? html`<button type="button" class="ghost" data-action="steps" aria-expanded=${open ? "true" : "false"} onClick=${() => setOpen(!open)}>${open ? "Hide the steps" : "Steps"}</button>` : null}
+    ${c.ops ? html`<button type="button" class="ghost" data-action="steps" aria-expanded=${open === "steps" ? "true" : "false"} onClick=${() => flip("steps")}>${open === "steps" ? "Hide the steps" : "Steps"}</button>` : null}
+    ${c.held && empty ? html`<button type="button" class="ghost" data-action="aside" aria-expanded=${open === "aside" ? "true" : "false"} title="What it set aside: look through it, and delete what you don't want" onClick=${() => flip("aside")}>${open === "aside" ? "Hide what's set aside" : "Set aside"}</button>` : null}
     ${c.state === "interrupted" ? html`<button type="button" class="ghost" data-action="finish" disabled=${busy || off} onClick=${() => act(() => finishChange(c.id).then(() => "Finished it."))}>Finish</button>` : null}
     ${c.can_undo ? html`<button type="button" class="ghost" data-action="undo" disabled=${busy || off} title=${c.state === "interrupted" ? "Put back what it had done, as it was before it started" : null} onClick=${() => act(() => undoChange(c.id))}>${c.state === "interrupted" ? "Put back" : "Undo"}</button>` : null}
     ${c.held && c.state !== "running" && empty ? html`<button type="button" class="ghost" data-action="empty" disabled=${busy || off} onClick=${() => empty(c)}>Empty…</button>` : null}
-    ${open ? html`<${ChangeSteps} id=${c.id} />` : null}
+    ${open === "steps" ? html`<${ChangeSteps} id=${c.id} />` : null}
+    ${open === "aside" ? html`<${AsideFiles} id=${c.id} label=${c.label} off=${off || busy || c.state === "running"} />` : null}
   </li>`;
 }
 
@@ -338,11 +341,34 @@ export function ChangeHistory({ lib, id, kinds = null, limit = 0, none = "No cha
     ${children ? children({ held, empty, busy, off }) : null}`;
 }
 
+/** Everything set aside (D168), change by change, newest first: each file picked to be
+ *  deleted for good. */
+function SetAside({ lib }) {
+  const changes = useStore(ui, (st) => st.changes);
+  const [list, setList] = useState(null);
+  useEffect(() => {
+    let gone = false;
+    api("change_aside").then((r) => { if (!gone) setList(r); }).catch((e) => { if (!gone) setList({ error: e.message || String(e) }); });
+    return () => { gone = true; };
+  }, [lib.path, changes]);
+  if (!list) return html`<p class="muted">Reading…</p>`;
+  if (list.error) return html`<p class="warn-note" role="alert">${list.error}</p>`;
+  if (!list.length) return html`<p class="muted" id="aside-none">Nothing is set aside.</p>`;
+  const total = list.reduce((t, c) => t + c.files.reduce((n, f) => n + (f.size || 0), 0), 0);
+  const off = !!lib.read_only;
+  return html`<p id="aside-total"><b>${size(total)}</b> set aside by ${plural(list.length, "change", "changes")}. Pick what to delete for good; the rest stays, so Undo can still bring it back.</p>
+    <div class="aside-changes" id="aside-changes">${list.map((c) => html`<section class="aside-change" key=${c.id} data-change=${c.id}>
+      <h3>${c.label} <span class="muted">${new Date(c.created).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span></h3>
+      <${AsideFiles} id=${c.id} label=${c.label} files=${c.files} off=${off || c.state === "running"} /></section>`)}</div>`;
+}
+
 export function HistorySection({ lib }) {
+  const [tab, setTab] = useState("changes");
   return html`<section class="ls-section" id="settings-history">
     <h2>Changes to your files</h2>
-    <p class="muted">The changes the app has made to your files, kept in the library (<code>_library/journal</code>), a day at a time. Steps lists what a change did. The newest can be undone. Files a change replaced are set aside in <code>.gamerepo-set-aside</code> at the top of their folder until you empty them.</p>
-    <${ChangeHistory} lib=${lib} id="history">${({ held, empty, busy, off }) => (held ? html`<div class="home-actions"><button type="button" class="ghost" id="history-empty" disabled=${busy || off} onClick=${() => empty(null)}>Empty everything set aside (${size(held)})…</button></div>` : null)}<//>
+    <p class="muted">The changes the app has made to your files, kept in the library (<code>_library/journal</code>), a day at a time. Steps lists what a change did. The newest can be undone. Files a change replaced are set aside in <code>.gamerepo-set-aside</code> at the top of their folder until you empty them, or delete them one by one.</p>
+    <div class="seg audit-tabs history-tabs" role="tablist" id="history-tabs">${[["changes", "Changes"], ["aside", "Set aside"]].map(([k, label]) => html`<button type="button" role="tab" key=${k} data-tab=${k} aria-selected=${tab === k ? "true" : "false"} onClick=${() => setTab(k)}>${label}</button>`)}</div>
+    ${tab === "aside" ? html`<${SetAside} lib=${lib} />` : html`<${ChangeHistory} lib=${lib} id="history">${({ held, empty, busy, off }) => (held ? html`<div class="home-actions"><button type="button" class="ghost" id="history-empty" disabled=${busy || off} onClick=${() => empty(null)}>Empty everything set aside (${size(held)})…</button></div>` : null)}<//>`}
   </section>`;
 }
 

@@ -1242,6 +1242,15 @@ async def main():
             pg.on("pageerror", lambda e: errors.append(str(e)))
             pg.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
             pg.on("console", lambda m: errors.append(f"{m.text} ({m.location.get('url', '')})") if m.type == "error" and "net::ERR_" not in m.text else None)
+
+            async def refused(r):
+                # a call the backend refused says which and why, where it came in the log
+                if r.status >= 400 and r.url.endswith("/invoke/api"):
+                    try:
+                        print("API REFUSED:", (r.request.post_data or "")[:300], "->", (await r.text())[:300])
+                    except Exception:
+                        pass
+            pg.on("response", lambda r: asyncio.ensure_future(refused(r)))
             await pg.goto(B)
             await pg.wait_for_selector("#first-run", timeout=30000)
 
@@ -1580,6 +1589,22 @@ async def main():
                 await pg.click('#history li:first-child [data-action="undo"]')
                 await toast_text(pg, "Undone")
                 gone = not sorted_dir.exists() or not any(sorted_dir.iterdir())
+                # what's set aside, looked through (D168): under its change, and on the Set aside tab
+                await pg.click('#history li[data-kind="aside"] [data-action="aside"]')
+                await pg.wait_for_selector('#history li[data-kind="aside"] .aside-file')
+                under = await pg.eval_on_selector_all('#history li[data-kind="aside"] .aside-file', "els => els.map(e => e.textContent)")
+                await pg.click('#history-tabs [data-tab="aside"]')
+                await pg.wait_for_selector("#aside-changes .aside-file")
+                aside_tab = await pg.eval_on_selector_all("#aside-changes .aside-change", "els => els.map(e => [e.querySelector('h3').textContent, e.querySelectorAll('.aside-file').length])")
+                await pg.locator("#aside-changes .aside-file input").first.check()
+                await pg.click('#aside-changes [data-action="aside-delete"]')
+                ask = await pg.inner_text("#confirm-dialog")
+                await pg.screenshot(path=str(out / "16b-history-aside.png"))
+                await pg.click("#confirm-dialog-cancel")
+                await pg.click('#history-tabs [data-tab="changes"]')
+                check("History shows what a change set aside, under it and on the Set aside tab, each file to delete for good (D168)",
+                      len(under) == 1 and "alpha again.gb" in under[0] and "from" in under[0] and aside_tab and aside_tab[0][1] == 1
+                      and "duplicates" in aside_tab[0][0].lower() and "can't be undone" in ask, (under, aside_tab, ask))
                 await pg.click("#history-empty")
                 await pg.click("#confirm-dialog button[type=submit]")
                 await toast_text(pg, "Freed")
@@ -2335,7 +2360,7 @@ async def main():
                 said = await toast_text(pg, "Imported 2 PC games", timeout=30000)
                 check("the PC import has the Import page's three ways in (D79) and a present-tense preview (M40)", pc_how == ["copy", "always", "move"] and pc_title == "Import 2 PC games", (pc_how, pc_title))
                 await pg.click("#nav-pc")
-                await pg.wait_for_selector("#pc-list li:nth-child(2)")
+                await pg.wait_for_function("() => document.querySelectorAll('#pcgames-items [data-id]').length === 2")
                 made = sorted(x.name for x in (library / "PC").iterdir()) if (library / "PC").is_dir() else []
                 alpha_dir = library / "PC/Alpha Strike (2001)"
                 alpha = json.loads((alpha_dir / "game.json").read_text()) if (alpha_dir / "game.json").exists() else {}
@@ -2343,7 +2368,7 @@ async def main():
                 check("each PC game gets its own folder with a game.json, and the artwork the sources offered",
                       made == ["Alpha Strike (2001)", "Zeta Quest (1999)"] and alpha.get("ids") == {"steam": "4000"} and (alpha_dir / "install/Alpha Strike.zip").is_file()
                       and (library / "PC/Zeta Quest (1999)/extracted/bin/zeta.exe").is_file() and len(art) == 1 and (inbox / "Alpha Strike.zip").is_file(), (said, made, alpha, art))
-                await pg.click('#pc-list .pc-row:has-text("Alpha Strike")')
+                await pg.click('#pcgames-items [data-id]:has-text("Alpha Strike")')
                 await pg.wait_for_selector('#pc-unpack-section [data-action="unpack"]')
                 await pg.click('#pc-unpack-section [data-action="unpack"]')
                 await toast_text(pg, "Unpacked")
@@ -2357,7 +2382,33 @@ async def main():
                       "extracted/Alpha Strike/alpha.exe" in programs and (alpha_dir / "extracted/Alpha Strike/data/level1.dat").is_file()
                       and alpha["launch"]["program"] == "extracted/Alpha Strike/alpha.exe", (programs, alpha.get("launch")))
                 await pg.screenshot(path=str(out / "25-pc-game.png"))
-                await pg.click('#pc-list .pc-row:has-text("Zeta Quest")')
+                # laid out as the Library is (D169): filters by year, store and the rest, Grid, List and Table, groups
+                years = await pg.eval_on_selector_all("#filter-pcgames-year [data-value]", "els => els.map(e => e.dataset.value)")
+                stores = await pg.eval_on_selector_all("#filter-pcgames-store [data-value]", "els => els.map(e => e.dataset.value)")
+                await pg.click('#filter-pcgames-year [data-value="1999"] input')
+                await pg.wait_for_function("() => document.querySelectorAll('#pcgames-items [data-id]').length === 1")
+                only_1999 = await pg.inner_text("#pcgames-items [data-id]")
+                pc_chips = await pg.eval_on_selector_all("#pcgames-chips [data-chip]", "els => els.map(e => e.dataset.chip)")
+                await pg.click("#pcgames-clear")
+                await pg.wait_for_function("() => document.querySelectorAll('#pcgames-items [data-id]').length === 2")
+                await pg.click('#pcgames-view [data-view="table"]')
+                await pg.wait_for_selector('#pcgames-items.shelf-tables [role="row"][data-id]')
+                pc_cols = await pg.eval_on_selector_all('.shelf-thead [role="columnheader"]', "els => els.map(e => e.textContent.replace(/[▴▾]/g, '').trim())")
+                await pg.click("#pcgames-group")
+                await pg.click('#context-menu [data-action="pcgames-group-store"]')
+                await pg.wait_for_selector('#pcgames-items .shelf-group-head[data-group="gog"]')
+                pc_groups = await pg.eval_on_selector_all("#pcgames-items .shelf-group-head h2", "els => els.map(e => e.textContent)")
+                await pg.click('#pcgames-view [data-view="list"]')
+                await pg.wait_for_selector("#pcgames-items.shelf-lists .lib-line")
+                await pg.screenshot(path=str(out / "25b-pc-shelf.png"))
+                await pg.click("#pcgames-group")
+                await pg.click('#context-menu [data-action="pcgames-group-none"]')
+                await pg.click('#pcgames-view [data-view="grid"]')
+                await pg.wait_for_selector("#pcgames-items.shelf-grids .lib-tile")
+                check("PC games are laid out as the Library (D169): filters by year and store, Grid, List and Table with their details, and groups",
+                      years == ["2001", "1999"] and "gog" in stores and "Zeta Quest" in only_1999 and pc_chips == ["year-1999"]
+                      and {"Title", "Year", "Developer", "Publisher", "Genres", "Store"} <= set(pc_cols) and "GOG" in pc_groups, (years, stores, only_1999, pc_chips, pc_cols, pc_groups))
+                await pg.click('#pcgames-items [data-id]:has-text("Zeta Quest")')
                 await pg.click("#pc-identify")
                 await pg.wait_for_selector('#identify-results li[data-source="gog"]')
                 sources = await pg.eval_on_selector_all("#identify-results li", "els => els.map(e => e.dataset.source)")
@@ -2389,6 +2440,8 @@ async def main():
                 await pg.click("#identify-dialog-cancel")
                 await pg.wait_for_selector("#identify-dialog", state="detached")
                 check("Identify can search one source, chosen beside the year", only == ["gog"], only)
+                # (a game picked, the bar is the selection's, as the Library's is)
+                await pg.click("#bar-clear")
                 await pg.click("#pc-steam")
                 await pg.wait_for_selector("#steam-preview")
                 preview = await pg.inner_text("#steam-preview")
@@ -2403,7 +2456,7 @@ async def main():
                 # answer added by Identify…, a picture and a detail taken from another source, and
                 # a document dropped on it
                 zeta_key = f"pc/{zeta_json['id']}"
-                await pg.click('#pc-list .pc-row:has-text("Zeta Quest")')
+                await pg.click('#pcgames-items [data-id]:has-text("Zeta Quest")')
                 await pg.click("#pc-open")
                 await pg.wait_for_selector(f'#game-page[data-key="{zeta_key}"][data-kind="pc"] #game-pc #pc-parts')
                 parts = await pg.evaluate("() => [!!document.querySelector('#game-pc #pc-program, #game-pc #pc-no-program'), !!document.querySelector('#game-pc #pc-reveal'), document.querySelector('#game-pc-line')?.textContent || '', !!document.querySelector('#game-files')]")
@@ -2490,6 +2543,19 @@ async def main():
                       and lost_json.get("title") == "Zeta Quest Lost" and not lost_json.get("ids") and (lost_dir / "install/Zeta Quest (1999).zip").is_file()
                       and not any(f["kind"] == "install" for f in zeta_now["files"]), (said, aside_rows, alpha["files"], held, lost_json, zeta_now["files"]))
 
+                # the installer it replaced, deleted for good from History's Set aside tab (D168)
+                await pg.click('.sidebar a[href="#/history"]')
+                await pg.click('#history-tabs [data-tab="aside"]')
+                await pg.wait_for_selector('#aside-changes .aside-file[data-held$="Alpha Strike.zip"]')
+                await pg.check('#aside-changes .aside-file[data-held$="Alpha Strike.zip"] input')
+                await pg.click('#aside-changes .aside-change:has(.aside-file[data-held$="Alpha Strike.zip"]) [data-action="aside-delete"]')
+                await pg.click("#confirm-dialog button[type=submit]")
+                said = await toast_text(pg, "Deleted 1 file")
+                await pg.wait_for_function("() => !document.querySelector('#aside-changes .aside-file[data-held$=\"Alpha Strike.zip\"]')")
+                check("a file deleted from Set aside is gone for good, and no longer listed (D168)",
+                      held and not held[0].exists() and (alpha_dir / "install/Alpha Strike (2001).zip").is_file(), (said, held))
+                await pg.click('#history-tabs [data-tab="changes"]')
+
                 # Remove from the library… on Alpha Strike's panel: the preview, gone, then Undo
                 alpha_meta = library / f"_library/games/pc/{alpha['id']}"
                 tree = lambda d: {str(p.relative_to(d)): p.read_bytes() for p in d.rglob("*") if p.is_file() and not any(x.startswith(".gamerepo") for x in p.relative_to(d).parts)} if d.is_dir() else {}
@@ -2497,7 +2563,7 @@ async def main():
                 pc_keys = """async () => { const inv = (cmd, args = {}) => window.__TAURI__.core.invoke('api', { cmd, args }); await inv('browse');
                     return (await inv('browse_query', { query: { platform: ['pc'], limit: 50 } })).items.map((i) => i.key); }"""
                 await pg.click("#nav-pc")
-                await pg.click('#pc-list .pc-row:has-text("Alpha Strike")')
+                await pg.click('#pcgames-items [data-id]:has-text("Alpha Strike")')
                 await pg.wait_for_selector("#pc-remove")
                 await pg.click("#pc-remove")
                 await pg.wait_for_selector("#organise-dialog #organise-list li")
@@ -2507,7 +2573,7 @@ async def main():
                 await pg.screenshot(path=str(out / "26f-pc-remove.png"))
                 await pg.click("#organise-dialog button[type=submit]")
                 said = await toast_text(pg, "Removed Alpha Strike from the library", timeout=30000)
-                await pg.wait_for_function("() => document.querySelector('#pc-list') && ![...document.querySelectorAll('#pc-list .pc-row')].some((e) => e.textContent.includes('Alpha Strike'))")
+                await pg.wait_for_function("() => document.querySelector('#pcgames-items') && ![...document.querySelectorAll('#pcgames-items [data-id]')].some((e) => e.textContent.includes('Alpha Strike'))")
                 keys = await pg.evaluate(pc_keys)
                 check("Remove from the library… (D129) previews every file of its folder and its details set aside, game.json last, and says its Steam shortcut stays",
                       removing[0] == "Remove Alpha Strike from the library" and int(removing[1] or 0) == len(alpha_before) + len(alpha_meta_before) and set(removing[2]) == {"aside"}
@@ -2517,12 +2583,12 @@ async def main():
                       and list((library / "PC/.gamerepo-set-aside").glob("*/Alpha Strike (2001)/game.json")), (said, keys))
                 await pg.click("#toast .toast-action")
                 await toast_text(pg, "Undone", timeout=30000)
-                await pg.wait_for_selector('#pc-list .pc-row:has-text("Alpha Strike")')
+                await pg.wait_for_selector('#pcgames-items [data-id]:has-text("Alpha Strike")')
                 keys = await pg.evaluate(pc_keys)
                 check("Undo brings the removed game back as it was, in PC games and the Library",
                       tree(alpha_dir) == alpha_before and tree(alpha_meta) == alpha_meta_before and f"pc/{alpha['id']}" in keys, (sorted(tree(alpha_dir)), keys))
                 # Identify…'s None of these on a game you have (D128): its ids go, its title and details stay
-                await pg.click('#pc-list .pc-row:has-text("Alpha Strike")')
+                await pg.click('#pcgames-items [data-id]:has-text("Alpha Strike")')
                 await pg.click("#pc-identify")
                 await pg.wait_for_selector("#identify-results li")
                 await pg.click("#identify-none-of-these")
@@ -2536,7 +2602,8 @@ async def main():
                       and "identified_by" not in shared and "Delete metadata" in said and (alpha_meta / "media").is_dir(), (said, alpha.get("ids"), answers, shared.get("identified_by")))
                 # Find details… (D138) asks about the games matched to no source, and leaves alone
                 # one said to be none of theirs
-                await pg.click("#pc-menu")
+                await pg.click("#bar-clear")
+                await pg.click("#pcgames-menu")
                 await pg.click('#context-menu [data-action="pc-find-details"]')
                 await pg.wait_for_selector("#pc-found-dialog")
                 listed = await pg.eval_on_selector_all("#pc-found-dialog li b", "els => els.map(e => e.textContent)")
@@ -2547,7 +2614,7 @@ async def main():
                 check("Find details… leaves a game said to be no source's alone",
                       "Alpha Strike" not in listed and json.loads((alpha_dir / "game.json").read_text()).get("ids") == {}, (listed, found_text))
                 # and on a game's page, in its ⋯ menu; once it's run, back to PC games
-                await pg.click('#pc-list .pc-row:has-text("Zeta Quest Lost")')
+                await pg.click('#pcgames-items [data-id]:has-text("Zeta Quest Lost")')
                 await pg.click("#pc-open")
                 await pg.wait_for_selector(f'#game-page[data-key="pc/{lost_json.get("id")}"]')
                 await pg.click("#game-menu")
@@ -2681,6 +2748,16 @@ async def main():
                 await pg.click('#docs-list .pc-row:has-text("Beta")')
                 await pg.wait_for_selector("#doc-view #doc-text strong")
                 await pg.click('#filter-docs-kind [data-value="guide"] input')
+                # the grid (D170): a game's documents beside the next game's, not a row each
+                await pg.wait_for_selector("#doc-view", state="detached")
+                await pg.click('#docs-view [data-view="grid"]')
+                await pg.wait_for_function("() => document.querySelectorAll('#docs-list.shelf-grids .doc-tile').length === 4")
+                doc_rows = await pg.evaluate("() => [...document.querySelectorAll('#docs-list .shelf-section')].map((s) => Math.round(s.getBoundingClientRect().top))")
+                await pg.screenshot(path=str(out / "34b-documents-grid.png"))
+                await pg.click('#docs-view [data-view="list"]')
+                await pg.wait_for_selector("#docs-list.shelf-lists .pc-row")
+                check("Documents' grid puts each game's documents beside the next game's (D170), not one game to a row",
+                      len(doc_rows) >= 3 and len(set(doc_rows)) < len(doc_rows), doc_rows)
                 cli = cli_json("docs", "--home", str(home), "--search", "waterfall", "--json")
                 check("Documents lists every document, searches their words with the words marked, and shows one (Markdown made into text); the command line searches them too",
                       listed == 4 and zeta_doc.startswith("Zeta Quest | ") and "PC" in zeta_doc and "Alpha Manual" in hit and "zebrafish" in hit.lower() and "zebrafish button" in text and cli.get("total") == 1 and cli["items"][0]["kind"] == "guide",
@@ -2949,6 +3026,24 @@ async def main():
                 check("Save as a collection… makes the filters a collection's rules (by its games' details); the command line filters the same",
                       mine.get("rules", {}).get("details", {}).get("genre") == ["Action"] and cli.get("total") == int(action), (mine.get("rules"), cli.get("total")))
                 await pg.click('#lib-chips [data-chip="genre-Action"] button')
+                # a collection of two systems (D171): each under its name in the ribbon, a click to just its games
+                two = await pg.evaluate("""async () => { const inv = (cmd, args = {}) => window.__TAURI__.core.invoke('api', { cmd, args });
+                    const r = await inv('collection_save', { collection: { id: '', name: 'Two systems', rules: { platforms: ['gb', 'nes'], include: 'have' } } }); return r.collection.id; }""")
+                await pg.evaluate("(id) => { location.hash = '#/collections/' + id; }", two)
+                await pg.wait_for_selector('#collection-panel-list .panel-child[data-id="system-nes"]')
+                sys_rows = await pg.eval_on_selector_all("#collection-panel-list .panel-child", "els => els.map(e => [e.dataset.id, e.innerText.replace(/\\s+/g, ' ').trim()])")
+                await pg.click('#collection-panel-list .panel-child[data-id="system-nes"]')
+                await pg.wait_for_function("() => document.querySelector('#collection-systems')?.value === 'nes' && document.querySelectorAll('#lib-games [data-key]').length === 1")
+                nes_only = await pg.eval_on_selector_all("#lib-games [data-key]", "els => els.map(e => e.dataset.key)")
+                active = await pg.get_attribute('#collection-panel-list .panel-child.active', "data-id")
+                await pg.screenshot(path=str(out / "52-collection-systems.png"))
+                await pg.click('#collection-panel-list .panel-link[aria-current="page"]')
+                await pg.wait_for_function("() => document.querySelector('#collection-systems')?.value === '' && document.querySelectorAll('#lib-games [data-key]').length > 1")
+                check("a collection's systems are listed under it in the ribbon, with their counts; one shows just its games, and the collection all of them again (D171)",
+                      [r[0] for r in sys_rows] == ["system-gb", "system-nes"] and sys_rows[1][1].endswith("1") and nes_only == ["nes/Echo (USA)"] and active == "system-nes", (sys_rows, nes_only, active))
+                await pg.evaluate("(id) => window.__TAURI__.core.invoke('api', { cmd: 'collection_delete', args: { id } })", two)
+                await pg.click("#nav-library")
+                await pg.wait_for_selector('#lib-games .lib-tile[data-key^="pc/"]')
 
             async with Section(pg, B, "The backlog (D157-D159)"):
                 # D157-D159: the backlog, under Collections: games added from the Library (a PC game

@@ -546,8 +546,8 @@ export function Documents() {
         ${list.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
         ${!list.loading && !items.length ? html`<p class="muted lib-none" id="docs-none">${st.search ? "No document has those words." : "No document matches these filters."}</p>` : null}
         <div class=${`shelf-items shelf-${view}s`} id="docs-list" data-total=${list.total} role="list" style=${`--tile:${SIZES[st.size] || SIZES.medium}px;--ratio:3 / 4`}>
-          ${sections.map((sec) => html`<section class="shelf-section" key=${sec.value ?? "all"} data-group=${sec.value ?? ""}>
-            ${sec.value != null ? html`<div class="lib-group shelf-group-head" data-group=${sec.value}><h2>${sec.name}</h2>${sec.count != null ? html`<span class="muted">${plural(sec.count, "document", "documents")}</span>` : null}
+          ${sections.map((sec) => html`<section class="shelf-section" key=${sec.value ?? "all"} data-group=${sec.value ?? ""} style=${`--n:${sec.items.length}`}>
+            ${sec.value != null ? html`<div class="lib-group shelf-group-head" data-group=${sec.value}><h2 title=${sec.name}>${sec.name}</h2>${sec.count != null ? html`<span class="muted">${plural(sec.count, "document", "documents")}</span>` : null}
               ${group === "game" && sec.items[0]?.game_key ? html`<a class="shelf-group-link" href=${gameHash(sec.items[0].game_key)} title="Its page">${Icon.gamepad(14)} Its page</a>` : null}</div>` : null}
             <div class=${`shelf-${view}`}>${sec.items.map(draw)}</div></section>`)}
         </div>

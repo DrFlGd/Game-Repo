@@ -248,6 +248,8 @@ button.tag-link { font-family: inherit; line-height: inherit; min-height: 0; }
 /* a collection's groups (D75): under it in the ribbon, a section each on its Rules tab */
 .panel-child { padding: 4px 8px; font-size: 13px; color: var(--graphite); }
 .panel-child:hover { color: var(--ink); }
+.panel-child.active { color: var(--ink); font-weight: 600; }
+.panel-child-head { padding: 6px 8px 1px; font-size: 12px; font-weight: 650; color: var(--graphite); }
 .collection-hint { display: inline-flex; align-items: center; color: var(--graphite); cursor: help; }
 .collection-hint:focus-visible { outline: 2px solid var(--focus); border-radius: 50%; }
 .group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
@@ -1586,6 +1588,13 @@ a.video-chip:hover { border-color: var(--accent-edge); }
 .pc-cover-none { display: inline-flex; align-items: center; justify-content: center; font-weight: 700; color: var(--graphite); text-transform: uppercase; }
 .pc-panel { position: sticky; top: 0; display: grid; gap: 10px; align-content: start; padding: 14px; background: var(--panel); border: 1px solid var(--steel-2); border-radius: var(--radius-m); max-height: calc(100vh - 150px); overflow: auto; min-width: 0; }
 .pc-panel-empty { min-height: 120px; align-content: center; text-align: center; }
+/* beside the PC games shelf (D169): the panel's own card goes */
+.lib-panel .pc-panel { position: static; padding: 0; background: none; border: 0; border-radius: 0; max-height: none; overflow: visible; }
+.lib-panel .pc-panel-head { gap: 10px; }
+.lib-panel .pc-panel-head h2 { font-size: 17px; overflow-wrap: anywhere; }
+.lib-panel .pc-cover.big { width: 72px; height: 108px; }
+.lib-panel .pc-parts h3 { margin: 4px 0 2px; font-size: 13px; }
+.lib-panel .pc-program select, .lib-panel .pc-program input { flex: 1 1 100%; min-width: 0; }
 .pc-hero { width: 100%; max-height: 160px; object-fit: cover; border-radius: var(--radius-s); }
 .pc-panel-head { display: flex; gap: 14px; align-items: flex-start; }
 .pc-panel-head h2 { margin: 0 0 4px; font-size: 19px; }
@@ -1883,6 +1892,14 @@ html.drop-over .game-page, html.drop-over .meta-panel { outline: 2px dashed var(
 .shelf-group-head .shelf-group-more { margin-left: auto; padding: 2px 6px; min-height: 0; }
 .shelf-group-link { margin-left: auto; display: inline-flex; gap: 4px; align-items: center; font-size: 12.5px; }
 .shelf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile, 160px), 1fr)); gap: 14px; padding: 4px 0 14px; }
+/* in the grid the groups flow side by side (D170): a game with one manual doesn't take a row of its own */
+.shelf-grids { display: flex; flex-wrap: wrap; gap: 0 28px; align-items: flex-start; }
+.shelf-grids > .shelf-section { flex: 0 1 calc(var(--n, 1) * (var(--tile, 160px) + 14px) - 14px); min-width: min(var(--tile, 160px), 100%); max-width: 100%; contain-intrinsic-size: auto var(--tile, 160px) auto 300px; }
+.shelf-grids > .shelf-section:only-child { flex-basis: 100%; }
+.shelf-grids .shelf-grid { grid-template-columns: repeat(auto-fill, minmax(min(var(--tile, 160px), 100%), 1fr)); }
+.shelf-grids .shelf-group-head { flex-wrap: wrap; gap: 0 8px; min-width: 0; }
+.shelf-grids .shelf-group-head h2 { flex: 1 1 100%; min-width: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.shelf-grids .shelf-group-head .shelf-group-link { margin-left: 0; }
 .shelf-grid .lib-tile { height: auto; }
 .shelf-grid .lib-tile-art { flex: none; width: 100%; aspect-ratio: var(--ratio, 1); }
 .shelf-list { display: grid; gap: 2px; padding: 4px 0 12px; }
@@ -2054,6 +2071,19 @@ html.drop-over-import #main-root { outline: 2px dashed var(--accent-edge); outli
 .change-step .op-kind { flex: none; width: 7.5em; font-weight: 600; }
 .change-step .op-paths { display: grid; min-width: 0; overflow-wrap: anywhere; }
 .change-steps > button { justify-self: start; }
+/* what a change set aside (D168), each file picked to delete it for good */
+.aside-files { max-height: 420px; gap: 3px; }
+.aside-bar { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding-bottom: 4px; position: sticky; top: 0; background: var(--steel); z-index: 1; }
+.aside-file { align-items: center; padding: 2px 0; }
+.aside-file > input { flex: none; margin: 0; }
+.aside-file .op-paths { flex: 1; }
+.aside-file .aside-size { flex: none; white-space: nowrap; }
+.aside-file > button { flex: none; padding: 2px 6px; min-height: 0; }
+.history-tabs { margin: 4px 0 10px; }
+.aside-changes { display: grid; gap: 12px; }
+.aside-change h3 { margin: 0 0 4px; font-size: 14px; }
+.aside-change h3 .muted { font-weight: 400; font-size: 12.5px; margin-left: 6px; }
+.aside-change .change-steps { border-left: 0; padding-left: 0; }
 .history-names > summary { cursor: pointer; }
 .history-names-list { display: grid; gap: 1px; padding: 2px 0 4px 14px; max-height: 260px; overflow: auto; }
 .how-control .check-row .muted { font-size: 12.5px; }

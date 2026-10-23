@@ -17,11 +17,12 @@ import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { api, toast, followJob, isDesktop, plural, size, libraryUrl, shortPath, baseName } from "./library.js";
 import { reveal } from "./games.js";
-import { CommandBar, SearchNote } from "./layout.js";
+import { CommandBar } from "./layout.js";
 import { Dialog, More, close } from "./dialogs.js";
 import { Preview, runPlan, HowControl, howArgs } from "./organise.js";
 import { Icon } from "./icons.js";
-import { gameHash } from "./browse.js";
+import { gameHash, systemColour } from "./browse.js";
+import { Shelf, useShelfState, byName } from "./shelf.js";
 import { importFrom } from "./importpage.js";
 
 const err = (e) => e.message || String(e);
@@ -558,8 +559,9 @@ export const pcLine = (g) => [g.source && g.source !== "other" ? g.source.toUppe
 
 // ------------------------------------------------------------ a game's panel
 
-/** A game's panel on this page: its cover and title, the way to its page (its details,
- *  pictures and documents are there, D55), Identify…, and what only a PC game has. */
+/** A game's panel on this page, beside the shelf: its cover and title, the way to its page
+ *  (its details, pictures and documents are there, D55), Identify…, and what only a PC game
+ *  has. */
 function GamePanel({ id, off, onChange, onRemove, version }) {
   const [g, setG] = useState(null);
   const [error, setError] = useState("");
@@ -570,10 +572,10 @@ function GamePanel({ id, off, onChange, onRemove, version }) {
     onPick: async (x) => { await api("identify_pick", { source: x.source, id: x.id, game: id, retitle: true }); onChange(); },
     onNone: async () => { await unmatchPc(g); onChange(); }, noneNote: "its ids at the sources go, and its title stays.",
   });
-  if (error && !g) return html`<aside class="pc-panel" id="pc-panel"><p class="warn-note" role="alert">${error}</p></aside>`;
-  if (!g) return html`<aside class="pc-panel" id="pc-panel"><p class="muted">Reading…</p></aside>`;
+  if (error && !g) return html`<div class="shelf-panel pc-panel" id="pc-panel"><p class="warn-note" role="alert">${error}</p></div>`;
+  if (!g) return html`<div class="shelf-panel pc-panel" id="pc-panel"><p class="muted">Reading…</p></div>`;
   const d = g.details || {};
-  return html`<aside class="pc-panel" id="pc-panel" data-id=${g.id}>
+  return html`<div class="shelf-panel pc-panel" id="pc-panel" data-id=${g.id}>
     ${g.media?.hero || g.media?.banner ? html`<img class="pc-hero" src=${libraryUrl(g.media.hero || g.media.banner)} alt="" />` : null}
     <div class="pc-panel-head">
       <${Cover} media=${g.media} title=${g.title} cls="pc-cover big" />
@@ -588,68 +590,112 @@ function GamePanel({ id, off, onChange, onRemove, version }) {
     </div>
     <p class="muted">Its details, pictures and documents are on its page, where they're changed as any game's are.</p>
     <${PcParts} g=${g} off=${off} onChange=${async () => { await load(); onChange(); }} />
-  </aside>`;
+  </div>`;
 }
 
-// ------------------------------------------------------------ the page
+// ------------------------------------------------------------ the page (D169)
+
+const STORES = { gog: "GOG", steam: "Steam", epic: "Epic", itch: "itch.io", humble: "Humble", other: "Other" };
+const HAS = { program: "A program to start it", unpacked: "Its files, unpacked", install: "An installer or archive", patch: "Patches", dlc: "DLC", extra: "Extras", cover: "A cover", description: "A description" };
+const yearText = (g) => String(g.year || yearOf(String(g.details?.released || "").slice(0, 4)) || "");
+const listOf = (v) => (Array.isArray(v) ? v : v ? String(v).split(/\s*[,;/]\s*/) : []).filter(Boolean);
+const SORTS = [
+  ["title", "Title", (a, b) => byName(a.title, b.title) || byName(yearText(a), yearText(b))],
+  ["year", "Year", (a, b) => (yearText(a) ? 0 : 1) - (yearText(b) ? 0 : 1) || byName(yearText(a), yearText(b)) || byName(a.title, b.title)],
+  ["rating", "Rating", (a, b) => (b.details?.rating ?? -1) - (a.details?.rating ?? -1) || byName(a.title, b.title)],
+  ["size", "Size", (a, b) => (b.size || 0) - (a.size || 0)],
+  ["added", "Added", (a, b) => byName(b.imported, a.imported) || byName(a.title, b.title)],
+];
+const GROUPS = [["", "None"], ["decade", "Decade"], ["year", "Year"], ["genre", "Genre"], ["developer", "Developer"], ["publisher", "Publisher"], ["store", "Store"]];
+const COLUMNS = [
+  ["title", "Title", (g) => g.title, "title"],
+  ["year", "Year", (g) => yearText(g), "year"],
+  ["developer", "Developer", (g) => g.details?.developer || "", null],
+  ["publisher", "Publisher", (g) => g.details?.publisher || "", null],
+  ["genres", "Genres", (g) => listOf(g.details?.genres).join(", "), null],
+  ["store", "Store", (g) => (g.source ? STORES[g.source] || g.source : ""), null],
+  ["size", "Size", (g) => size(g.size), "size"],
+];
+const COLS = "minmax(160px, 2.4fr) 56px minmax(90px, 1.3fr) minmax(90px, 1.3fr) minmax(90px, 1.3fr) 72px 80px";
+const thumb = (rel, px = 256) => (rel ? libraryUrl(`~thumb/${px}/${rel}`) : null);
 
 export function PcGames() {
   const s = useStore(ui, (st) => ({ library: st.library, changes: st.changes }));
   const [data, setData] = useState(null);
-  const [q, setQ] = useState("");
-  const [sel, setSel] = useState(null);
+  const [st, set] = useShelfState("pcgames", { sort: "title" });
   const [tick, setTick] = useState(0);
+  // a game being removed leaves the shelf (and its panel closes) as the change starts, until
+  // the list is read without it: Undo brings it back
+  const [removed, setRemoved] = useState(null);
   const off = !!s.library?.read_only;
   useEffect(() => {
     if (!s.library) return;
     let gone = false;
-    api("pc_games").then((d) => { if (!gone) setData(d); }).catch((e) => { if (!gone) setData({ error: err(e) }); });
+    api("pc_games").then((d) => {
+      if (gone) return;
+      setData(d);
+      setRemoved((r) => (r && (d?.games || []).some((g) => g.id === r) ? r : null));
+    }).catch((e) => { if (!gone) setData({ error: err(e) }); });
     return () => { gone = true; };
   }, [s.library?.path, s.changes, tick]);
-  const games = data?.games || [];
-  const shown = q ? games.filter((g) => `${g.title} ${g.year || ""}`.toLowerCase().includes(q.toLowerCase())) : games;
-  const menu = () => [
+  const games = (data?.games || []).filter((g) => g.id !== removed);
+  const openPage = (g) => { location.hash = gameHash(`pc/${g.id}`); };
+  const identify = (g) => identifyDialog({
+    title: `Identify ${g.title}`, query: g.title, year: g.year, platform: "pc",
+    onPick: async (x) => { await api("identify_pick", { source: x.source, id: x.id, game: g.id, retitle: true }); again(); },
+    onNone: async () => { await unmatchPc(g); again(); }, noneNote: "its ids at the sources go, and its title stays.",
+  });
+  const fields = [
+    { id: "year", name: "Year", of: (g) => [yearText(g)], order: "newest", none: "No year" },
+    { id: "decade", name: "Decade", hidden: true, of: (g) => [yearText(g) ? `${yearText(g).slice(0, 3)}0` : null], label: (d) => `${d}s`, none: "No year" },
+    { id: "genre", name: "Genre", of: (g) => listOf(g.details?.genres), long: true, none: "No genre" },
+    { id: "developer", name: "Developer", of: (g) => [g.details?.developer], long: true, none: "No developer" },
+    { id: "publisher", name: "Publisher", of: (g) => [g.details?.publisher], long: true, none: "No publisher" },
+    { id: "store", name: "Store", of: (g) => [g.source], label: (x) => STORES[x] || x, none: "No store" },
+    { id: "players", name: "Players", of: (g) => [g.details?.players != null ? String(g.details.players) : null] },
+    { id: "has", name: "Has", of: (g) => [g.launch ? "program" : null, g.extracted ? "unpacked" : null, ...["install", "patch", "dlc", "extra"].filter((k) => (g.files || []).some((f) => f.kind === k)), g.media?.cover ? "cover" : null, g.details?.description ? "description" : null], label: (x) => HAS[x] || x },
+    { id: "program", name: "Program", of: (g) => [g.launch ? "set" : "none"], label: (x) => (x === "set" ? "Set" : "Not set yet") },
+  ];
+  const actions = (list) => {
+    const one = list.length === 1 ? list[0] : null;
+    return [
+      { id: "open", label: "Open its page", icon: "external", one: true, run: () => one && openPage(one) },
+      { id: "identify", label: "Identify…", icon: "search", one: true, disabled: off, run: () => one && identify(one) },
+      { id: "show", label: "Show in folder", icon: "folder", one: true, disabled: !isDesktop(), run: () => one && reveal(one.dir) },
+      { id: "remove", label: "Remove from the library…", icon: "trash", one: true, disabled: off, run: () => one && removePc(one.id, () => setRemoved(one.id)) },
+    ];
+  };
+  const more = () => [
     { id: "pc-import-files", label: "Import files…", icon: "file", disabled: off || !isDesktop(), run: () => importFrom("import-pc", () => importPc("files")) },
     { id: "pc-import-folder", label: "Import a game's folder…", icon: "folder", disabled: off || !isDesktop(), run: () => importFrom("import-pc", () => importPc("folder")) },
     { id: "pc-find-details", label: "Find details…", icon: "search", disabled: off || !games.length, run: findDetails },
     { sep: true },
     { id: "pc-settings", label: "Settings › PC games", icon: "cog", run: () => { location.hash = "#/settings"; setTimeout(() => document.getElementById("settings-pc")?.scrollIntoView(), 200); } },
   ];
-  const head = html`<${CommandBar} id="pc-head" title="PC games" count=${data?.games ? plural(games.length, "game", "games") : null}
-    search=${games.length ? html`<input type="search" id="pc-search" class="compact" placeholder="Search the PC games" aria-label="Search the PC games" value=${q} onInput=${(e) => setQ(e.target.value)} />` : null}
-    primary=${html`<span class="cmd-buttons">
-      <button type="button" class="ghost compact" id="pc-steam" disabled=${!games.length} title="Your PC games as non-Steam games, with their artwork" onClick=${() => ui.set({ dialog: { type: "steam" } })}>${Icon.gamepad(15)} Add to Steam…</button>
-      <button type="button" class="primary compact" id="pc-import" disabled=${off} title=${data?.inbox ? `Read the inbox (${data.inbox}${data.inbox_waiting ? `: ${plural(data.inbox_waiting, "thing", "things")} in it` : ""})` : "Choose what to import"} onClick=${() => importFrom("import-pc", () => importPc(data?.inbox ? "inbox" : "files"))}>${Icon.inbox(15)} Import…</button></span>`}
-    more=${{ id: "pc-menu", title: "Import files or a folder, find details, settings", items: menu }} />`;
-  if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
-  if (!data) return html`${head}<div class="pages"><p class="muted">Reading the PC games…</p></div>`;
-  if (data.error) return html`${head}<div class="pages"><p class="warn-note" role="alert">${data.error}</p></div>`;
-  if (!games.length) {
-    return html`${head}<div class="pages"><div class="library-settings" id="pc-empty">
-      <p class="page-lead">${Icon.monitor(18)} Import installers, zipped games and game folders, each into a folder of its own with what it is and how it starts.</p>
-      <section class="ls-section">
-        <h2>To start</h2>
-        <p>Drop GOG installers, archives, disc images or game folders into an inbox folder and press Import…, or pick them. Imports are made on the <a href=${routeHash("import")}>Import</a> page.</p>
-        <p class="muted">PC games go to <code id="pc-folder">${data.folder}</code>. ${data.inbox ? html`The inbox is <code id="pc-inbox">${data.inbox}</code>.` : html`Choose an inbox in <a href=${routeHash("settings")} onClick=${() => setTimeout(() => document.getElementById("settings-pc")?.scrollIntoView(), 200)}>Settings › PC games</a>.`}</p>
-        <div class="home-actions"><button type="button" class="primary" id="pc-first" disabled=${off} onClick=${() => importFrom("import-pc", () => importPc(data.inbox ? "inbox" : "files"))}>Import…</button></div>
-      </section>
-    </div></div>`;
-  }
-  const current = sel && games.some((g) => g.id === sel) ? sel : null;
-  return html`${head}<div class="pages pc-page" id="pc-page">
-    <div class="pc-body">
-      <div class="pc-list-wrap">
-        <${SearchNote} q=${q} found=${plural(shown.length, "game", "games")} onClear=${() => setQ("")} />
-        <ul class="pc-list" id="pc-list" data-total=${games.length}>${shown.map((g) => html`<li key=${g.id}>
-          <button type="button" class=${`pc-row${current === g.id ? " active" : ""}`} data-id=${g.id} aria-pressed=${current === g.id ? "true" : "false"} onClick=${() => setSel(g.id)}>
-            <${Cover} media=${g.media} title=${g.title} />
-            <span class="pc-row-main"><span class="pc-row-title">${g.title}${g.year ? html` <span class="muted">(${g.year})</span>` : null}</span>
-              <span class="muted pc-row-meta">${[g.source && g.source !== "other" ? g.source.toUpperCase() : null, size(g.size), g.launch ? null : "no program yet"].filter(Boolean).join(" · ")}</span></span>
-          </button></li>`)}</ul>
-      </div>
-      ${current ? html`<${GamePanel} key=${current} id=${current} off=${off} version=${`${tick}-${s.changes}`} onChange=${() => setTick((t) => t + 1)} onRemove=${() => setSel(null)} />` : html`<aside class="pc-panel pc-panel-empty"><p class="muted">Pick a game to see its details, set the program that starts it, or unpack it.</p></aside>`}
-    </div>
-  </div>`;
+  const primary = html`<span class="cmd-buttons">
+    <button type="button" class="ghost compact" id="pc-steam" disabled=${!games.length} title="Your PC games as non-Steam games, with their artwork" onClick=${() => ui.set({ dialog: { type: "steam" } })}>${Icon.gamepad(15)} Add to Steam…</button>
+    <button type="button" class="primary compact" id="pc-import" disabled=${off} title=${data?.inbox ? `Read the inbox (${data.inbox}${data.inbox_waiting ? `: ${plural(data.inbox_waiting, "thing", "things")} in it` : ""})` : "Choose what to import"} onClick=${() => importFrom("import-pc", () => importPc(data?.inbox ? "inbox" : "files"))}>${Icon.inbox(15)} Import…</button></span>`;
+  if (!s.library) return html`<${CommandBar} id="pcgames-head" title="PC games" /><div class="pages"><p class="page-lead">Open a library first.</p></div>`;
+  const empty = data && !data.error ? html`<div class="library-settings" id="pc-empty">
+    <p class="page-lead">${Icon.monitor(18)} Import installers, zipped games and game folders, each into a folder of its own with what it is and how it starts.</p>
+    <section class="ls-section">
+      <h2>To start</h2>
+      <p>Drop GOG installers, archives, disc images or game folders into an inbox folder and press Import…, or pick them. Imports are made on the <a href=${routeHash("import")}>Import</a> page.</p>
+      <p class="muted">PC games go to <code id="pc-folder">${data.folder}</code>. ${data.inbox ? html`The inbox is <code id="pc-inbox">${data.inbox}</code>.` : html`Choose an inbox in <a href=${routeHash("settings")} onClick=${() => setTimeout(() => document.getElementById("settings-pc")?.scrollIntoView(), 200)}>Settings › PC games</a>.`}</p>
+      <div class="home-actions"><button type="button" class="primary" id="pc-first" disabled=${off} onClick=${() => importFrom("import-pc", () => importPc(data.inbox ? "inbox" : "files"))}>Import…</button></div>
+    </section>
+  </div>` : null;
+  const none = { icon: "monitor", colour: systemColour("pc") };
+  const store = (g) => (g.source && g.source !== "other" ? STORES[g.source] || g.source : null);
+  return html`<${Shelf} page="pcgames" noun=${["game", "games"]} title="PC games" items=${data?.games ? games : null} error=${data?.error} st=${st} set=${set}
+    fields=${fields} groups=${GROUPS} sorts=${SORTS} ratio="2 / 3" columns=${COLUMNS} cols=${COLS}
+    text=${(g) => [g.title, yearText(g), g.details?.developer, g.details?.publisher, ...listOf(g.details?.genres), store(g), ...Object.values(g.ids || {})].filter(Boolean).join(" ")}
+    tile=${(g) => ({ pics: [thumb(g.media?.cover), thumb(g.media?.banner || g.media?.hero)], none, badge: st.group === "store" || !store(g) ? null : { text: store(g), colour: systemColour(g.source) },
+      title: g.title, meta: [st.group === "year" || st.group === "decade" ? null : yearText(g), st.group === "developer" ? null : g.details?.developer].filter(Boolean).join(" · ") || size(g.size) })}
+    line=${(g) => ({ pics: [thumb(g.media?.cover, 128), thumb(g.media?.icon, 128)], none, title: yearText(g) ? `${g.title} (${yearText(g)})` : g.title,
+      meta: [store(g), g.details?.developer, size(g.size), g.launch ? null : "no program yet"].filter(Boolean).join(" · ") })}
+    actions=${actions} onOpen=${openPage} primary=${primary} more=${more} moreTitle="Import files or a folder, find details, settings, tile size" empty=${empty}
+    panel=${(g) => html`<${GamePanel} id=${g.id} off=${off} version=${`${tick}-${s.changes}`} onChange=${() => setTick((t) => t + 1)} onRemove=${() => setRemoved(g.id)} />`} />`;
 }
 
 // ------------------------------------------------------------ Settings
