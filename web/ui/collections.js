@@ -147,7 +147,7 @@ function AddGamesDialog({ c, groups = [], group: given = "", systemsOf, onDone }
     ${found?.error ? html`<p class="warn-note" role="alert">${found.error}</p>` : null}
     <ul class="ls-list organise-list" id="add-games-list">${(Array.isArray(found) ? found : []).map((g) => html`<li key=${g.key} data-name=${g.name}>
       <label class="check-row"><input type="checkbox" checked=${added.includes(g.key)} onChange=${() => add(g)} /> ${g.name}</label>
-      <span class="muted">${[g.regions, g.status === "have" ? "you have it" : "not in the library"].filter(Boolean).join(" · ")}</span></li>`)}</ul>
+      <span class="muted">${[g.regions, g.discs ? `${g.discs} discs` : null, g.status === "have" ? "you have it" : "not in the library"].filter(Boolean).join(" · ")}</span></li>`)}</ul>
     ${Array.isArray(found) && !found.length ? html`<p class="muted">No other games match.</p>` : null}
   <//>`;
 }

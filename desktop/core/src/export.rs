@@ -337,7 +337,8 @@ fn only_these(systems: &[collection::System], only: &[String]) -> Vec<collection
             let all = keys.contains(format!("{}/*", s.platform).as_str());
             let mut s = s.clone();
             if !all {
-                s.games.retain(|g| keys.contains(format!("{}/{}", g.platform, g.name).as_str()));
+                // (a game on several discs is picked by its first disc, D175)
+                s.games.retain(|g| keys.contains(g.key().as_str()) || g.set.as_deref().is_some_and(|k| keys.contains(k)));
                 // and the add-ons of those
                 let names: HashSet<&str> = s.games.iter().map(|g| g.name.as_str()).collect();
                 let addons = s.addons.iter().filter(|a| names.contains(a.base.as_str())).cloned().collect();
@@ -541,8 +542,9 @@ fn plan_with(ix: &Index, lib: &Library, o: &Options, given: Option<collection::C
         }
         // a game on several discs is one game for ES-DE: its discs in a folder named for
         // the playlist of them inside it (D94)
+        // (of the discs here: a collection has every disc of a game on several, D175)
         let discs = if l.es_de.is_some() && l.games.style != "naming" && platforms::m3u_folders(&s.platform) {
-            disc_sets(names.iter().map(String::as_str))
+            disc_sets(s.games.iter().filter(|g| g.status != "missing").map(|g| g.name.as_str()))
         } else {
             Discs::default()
         };

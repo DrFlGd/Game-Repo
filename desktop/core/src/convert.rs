@@ -279,10 +279,17 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
     let roots = roots::list(lib);
     let naming = organise::naming(lib, &d.platform);
     let mut games = organise::load_games(conn, &roots, o.dat_id)?;
+    // a game on several discs is converted whole (D174): one of its discs picks them all
+    let names: Vec<String> = conn.prepare("SELECT name FROM dat_games WHERE dat_id = ?1")?.query_map([o.dat_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let discs = crate::export::disc_sets(names.iter().map(String::as_str));
     if let Some(only) = &o.games {
-        let only: HashSet<&str> = only.iter().map(String::as_str).collect();
+        let mut only: HashSet<&str> = only.iter().map(String::as_str).collect();
+        let more: Vec<&str> = only.iter().filter_map(|n| discs.of.get(*n)).flat_map(|&i| discs.sets[i].2.iter().map(String::as_str)).collect();
+        only.extend(more);
         games.retain(|g| only.contains(g.fields.name.as_str()));
     }
+    // each disc's CHD, converted now or already one, for its game's playlist
+    let mut chds: HashMap<String, (PathBuf, bool)> = HashMap::new();
     let label = labels(&name, &o.to, o.out.as_deref());
     let mut p = new_plan(lib, &d, if o.to == "extract" { "extract" } else { "convert" }, label, &o.to, o.out.as_deref());
     let mut taken: HashSet<String> = HashSet::new();
@@ -301,6 +308,9 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             continue;
         }
         let before = p.ops.len();
+        if o.to == "chd" && image_kind(&chosen).as_deref() == Some("chd") && discs.of.contains_key(&g.fields.name) {
+            chds.insert(g.fields.name.clone(), (PathBuf::from(&chosen[0].1.src.path), false));
+        }
         let r = if o.to == "extract" {
             plan_extract(conn, &roots, &naming, g, &chosen, o, &mut p, &mut taken)
         } else {
@@ -311,6 +321,11 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
                 p.games += 1;
                 if p.ops.len() == before {
                     p.in_place += 1;
+                }
+                if let Some(op) = p.ops[before..].iter().find(|op| op.op == "convert" && o.to == "chd") {
+                    if discs.of.contains_key(&g.fields.name) {
+                        chds.insert(g.fields.name.clone(), (PathBuf::from(&op.to), true));
+                    }
                 }
             }
             Ok(false) => {
@@ -323,6 +338,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             }
         }
     }
+    playlists(&discs, &chds, &mut p, &mut taken);
     // space on each drive written to: up to the size of what's converted
     let mut need: BTreeMap<String, (u64, PathBuf)> = BTreeMap::new();
     for op in &p.ops {
@@ -338,6 +354,42 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         p.space.push(json!({ "drive": drive, "needed": bytes, "free": free, "short": bytes > free }));
     }
     Ok(p)
+}
+
+/// A game on several discs converted to CHDs is kept together with an `.m3u` playlist of
+/// them (D174), which the emulators open as one game and change discs from: written in their
+/// folder, named for the game, when two or more of its discs are CHDs there after the change
+/// and one of them is new. One that's there already is left as it is.
+fn playlists(discs: &crate::export::Discs, chds: &HashMap<String, (PathBuf, bool)>, p: &mut Plan, taken: &mut HashSet<String>) {
+    for (_, base, names) in &discs.sets {
+        let had: Vec<&(PathBuf, bool)> = names.iter().filter_map(|n| chds.get(n)).collect();
+        if had.len() < 2 || !had.iter().any(|(_, new)| *new) {
+            continue;
+        }
+        let dir = had[0].0.parent().map(Path::to_path_buf).unwrap_or_default();
+        if had.iter().any(|(c, _)| organise::key(c.parent().unwrap_or(Path::new(""))) != organise::key(&dir)) {
+            p.left.push(json!({ "path": base, "why": "Its discs' CHDs aren't in one folder, so no .m3u playlist is written for them." }));
+            continue;
+        }
+        // named as its first disc's CHD is, without the disc
+        let stem = had[0].0.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = platforms::disc_of(&stem).map(|d| d.0).unwrap_or_else(|| base.clone());
+        let to = dir.join(format!("{}.m3u", organise::safe_name(&name)));
+        let text: String = had.iter().map(|(c, _)| format!("{}\n", c.file_name().unwrap_or_default().to_string_lossy())).collect();
+        if to.exists() {
+            if std::fs::read_to_string(&to).ok().as_deref() != Some(text.as_str()) {
+                p.left.push(json!({ "path": to.display().to_string(), "why": "A playlist of that name is there already, so it's left as it is." }));
+            }
+            continue;
+        }
+        if !taken.insert(organise::key(&to)) {
+            continue;
+        }
+        p.ops.push(Op {
+            op: "text".into(), game: names[0].clone(), to: to.display().to_string(), from: vec![], size: text.len() as u64, names: vec![text], aside: vec![],
+            note: Some("The discs' playlist: an emulator opens it as one game.".into()),
+        });
+    }
 }
 
 /// Where a game's results go: the output folder, else beside its files.
@@ -392,7 +444,9 @@ fn plan_convert(
     }
     let ext = &o.to;
     let to = dest_dir(o, sources.iter().find(|s| !cue::is_sheet(s.member.as_deref().unwrap_or(&s.rel))).unwrap_or(&sources[0]));
-    let to = if naming.folder && o.out.is_some() { to.join(&base) } else { to }.join(format!("{base}.{ext}"));
+    // (a game's discs share its folder, D174)
+    let folder = platforms::disc_of(&base).map(|d| organise::safe_name(&d.0)).unwrap_or_else(|| base.clone());
+    let to = if naming.folder && o.out.is_some() { to.join(&folder) } else { to }.join(format!("{base}.{ext}"));
     claim(taken, &to)?;
     let aside = if o.out.is_none() { originals(conn, &sources, &mut p.left)? } else { vec![] };
     let size = sources.iter().map(|s| s.size).sum();
@@ -717,6 +771,38 @@ mod tests {
         let u = organise::undo(&f.ix, &f.lib, &p.id, &AtomicBool::new(false), &mut |_| {}).unwrap();
         assert_eq!(u["undone"], 1, "{u}");
         assert_eq!(tree(&roms).into_iter().filter(|(k, _)| !k.starts_with(".gamerepo")).collect::<BTreeMap<_, _>>(), before);
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    // D174: a game on several discs converted to CHDs is kept with a playlist of them
+    #[test]
+    fn a_game_on_two_discs_becomes_two_chds_and_its_playlist() {
+        let f = fixture("convert-discs");
+        let disc = |n: u32| crate::audit::tests::rom(n, 70 * 2048);
+        let ps2 = f.dir.join("Roms/PS2");
+        let mut games: Vec<(&str, Option<&str>, String)> = vec![];
+        for (n, seed) in [("Quest (USA) (Disc 1)", 41), ("Quest (USA) (Disc 2)", 42)] {
+            write(&ps2.join(format!("{n}.iso")), &disc(seed));
+            games.push((n, None, rom_xml(&format!("{n}.iso"), &disc(seed))));
+        }
+        write(&f.dir.join("dats/ps2.dat"), crate::audit::tests::dat_xml("Sony - PlayStation 2", "2026", &games).as_bytes());
+        run_scan(&f, false);
+        let id = import(&f, "ps2.dat")[0]["id"].as_i64().unwrap();
+        // one disc picked (as the Library's one game is): both are converted, and the playlist written
+        let p = plan(&f.ix, &f.lib, &Options { dat_id: id, to: "chd".into(), games: Some(vec!["Quest (USA) (Disc 1)".into()]), out: None }).unwrap();
+        assert_eq!(p.ops.iter().map(|o| o.op.as_str()).collect::<Vec<_>>(), ["convert", "convert", "text"], "{:#?}", p);
+        let r = go(&f, &p);
+        assert_eq!(r["done"], 3, "{r}");
+        assert_eq!(std::fs::read_to_string(ps2.join("Quest (USA).m3u")).unwrap(), "Quest (USA) (Disc 1).chd\nQuest (USA) (Disc 2).chd\n");
+        assert!(ps2.join("Quest (USA) (Disc 2).chd").is_file() && !ps2.join("Quest (USA) (Disc 2).iso").exists());
+        // the playlist isn't a file no DAT knows, and there's nothing more to do
+        run_scan(&f, false);
+        assert_eq!(names(&f, id, "unknown"), Vec::<String>::new());
+        let again = plan(&f.ix, &f.lib, &opts(id, "chd", None)).unwrap();
+        assert_eq!((again.ops.len(), again.in_place), (0, 2), "{:#?}", again);
+        // undone: the ISOs are back and the playlist gone
+        organise::undo(&f.ix, &f.lib, &p.id, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        assert!(!ps2.join("Quest (USA).m3u").exists() && ps2.join("Quest (USA) (Disc 1).iso").is_file());
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 

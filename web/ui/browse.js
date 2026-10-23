@@ -284,6 +284,14 @@ function GroupHead({ g, group, q }) {
 
 const ADDON_KINDS = { update: "Update", dlc: "DLC", patch: "Patch" };
 
+/** A game on several discs, as a line (D174): how many, and which aren't there. */
+export const discsLine = (discs) => {
+  const list = (ds) => (ds.length === 1 ? `disc ${ds[0].disc}` : `discs ${ds.slice(0, -1).map((d) => d.disc).join(", ")} and ${ds[ds.length - 1].disc}`);
+  const missing = discs.filter((d) => !d.have), part = discs.filter((d) => d.have && d.partial);
+  const said = [missing.length && missing.length < discs.length ? `${list(missing)} ${missing.length === 1 ? "is" : "are"} missing` : null,
+    part.length ? `${list(part)} ${part.length === 1 ? "is" : "are"} there in part` : null].filter(Boolean);
+  return `${discs.length} discs${said.length ? `: ${said.join(", ")}` : missing.length ? "" : ", all in the library"}`;
+};
 /** What an update, DLC or patch is, as a row or its page says it: "Update v1.1" (D163). */
 export const addonLabel = (a) => [ADDON_KINDS[a.kind] || a.kind, a.version].filter(Boolean).join(" ");
 
@@ -291,7 +299,7 @@ function Tile({ g, i, on, onPick, onOpen, onMenu, px }) {
   if (!g) return html`<div class="lib-tile lib-wait" aria-hidden="true"><span class="lib-cover lib-cover-wait"></span></div>`;
   return html`<button type="button" class=${`lib-tile${on ? " selected" : ""}${g.have ? "" : " lib-missing"}`} data-key=${g.key} data-index=${i} data-addon=${g.addon?.kind || null} aria-pressed=${on ? "true" : "false"} title=${`${g.title}${g.year ? ` (${g.year})` : ""} · ${g.platform_name}`}
     onClick=${(e) => onPick(e, g, i)} onDblClick=${() => onOpen(g, i)} onContextMenu=${(e) => onMenu(e, g, i)}>
-    <span class="lib-tile-art"><${Cover} g=${g} px=${px} /><span class="lib-badge" style=${`border-color:${systemColour(g.platform)}`}>${g.platform_name}</span>${g.addon ? html`<span class="lib-badge lib-badge-addon">${addonLabel(g.addon)}</span>` : null}</span>
+    <span class="lib-tile-art"><${Cover} g=${g} px=${px} /><span class="lib-badge" style=${`border-color:${systemColour(g.platform)}`}>${g.platform_name}</span>${g.addon ? html`<span class="lib-badge lib-badge-addon">${addonLabel(g.addon)}</span>` : null}${g.discs > 1 ? html`<span class="lib-badge lib-badge-discs">${g.discs} discs</span>` : null}</span>
     <span class="lib-tile-title">${g.title}</span>
     <span class="lib-tile-meta muted">${[g.regions, g.year, g.developer].filter(Boolean).join(" · ") || (g.have ? "" : "Not in the library")}</span>
   </button>`;
@@ -303,7 +311,7 @@ function Line({ g, i, on, onPick, onOpen, onMenu }) {
     onClick=${(e) => onPick(e, g, i)} onDblClick=${() => onOpen(g, i)} onContextMenu=${(e) => onMenu(e, g, i)}>
     <${Cover} g=${g} px=${128} cls="lib-cover small" />
     <span class="lib-line-main"><span class="lib-line-title">${g.title}${g.year ? html` <span class="muted">(${g.year})</span>` : null}</span>
-      <span class="muted">${[g.addon ? addonLabel(g.addon) : null, g.platform_name, g.regions, g.developer, g.genres?.slice(0, 2).join(", "), g.have ? null : "not in the library"].filter(Boolean).join(" · ")}</span></span>
+      <span class="muted">${[g.addon ? addonLabel(g.addon) : null, g.platform_name, g.regions, g.discs > 1 ? `${g.discs} discs` : null, g.developer, g.genres?.slice(0, 2).join(", "), g.have ? null : "not in the library"].filter(Boolean).join(" · ")}</span></span>
     ${g.rating != null ? html`<span class="lib-stars" title=${`${Math.round(g.rating * 100)}%`}>${stars(g.rating)}</span>` : null}
   </button>`;
 }
@@ -490,7 +498,7 @@ function Inspector({ count, keyOf, actions, overview, off, onOpen }) {
   return html`<aside class="lib-panel" id="lib-panel" data-key=${g.key}>
     ${picture ? html`<img class="lib-panel-cover" src=${libraryUrl(`~thumb/512/${picture}`)} alt="" />` : html`<span class="lib-panel-cover lib-cover-none" style=${`background:${systemColour(g.platform)}`} aria-hidden="true">${(g.title || "?").slice(0, 1)}</span>`}
     <h2 id="lib-panel-title">${g.title}${g.year ? html` <span class="muted">(${g.year})</span>` : null}</h2>
-    <p class="muted">${[g.platform_name, g.have === false ? "not in the library" : null, g.name !== g.title ? g.name : null].filter(Boolean).join(" · ")}</p>
+    <p class="muted">${[g.platform_name, g.have === false ? "not in the library" : null, (g.set?.name || g.name) !== g.title ? g.set?.name || g.name : null].filter(Boolean).join(" · ")}</p>
     <div class="lib-panel-actions">
       <a class="primary compact lib-open" id="lib-panel-open" href=${gameHash(g.key)} onClick=${(e) => { if (onOpen) { e.preventDefault(); onOpen(); } }}>Open</a>
       ${actions.filter((a) => a.one !== false).slice(1).map((a) => html`<button type="button" class="ghost compact" key=${a.id} id=${`lib-panel-${a.id}`} disabled=${!!a.disabled || off} title=${typeof a.disabled === "string" ? a.disabled : a.label} onClick=${a.run}>${Icon[a.icon]?.(14)} ${a.label}</button>`)}
@@ -499,6 +507,7 @@ function Inspector({ count, keyOf, actions, overview, off, onOpen }) {
     ${facts.length ? html`<dl class="pc-facts">${facts.map(([k, v]) => html`<dt key=${`k${k}`}>${k}</dt><dd key=${`v${k}`}>${v}</dd>`)}</dl>` : html`<p class="muted">No details yet: ${g.kind === "pc" ? "Identify… on its page" : "Scrape…"} fills them in.</p>`}
     ${g.docs?.length ? html`<p class="muted">${plural(g.docs.length, "document", "documents")}</p>` : null}
     ${g.addons?.have ? html`<p class="muted" id="lib-panel-addons">Updates and DLC: ${g.addons.have} of ${g.addons.items.length}</p>` : null}
+    ${g.set ? html`<p class="muted" id="lib-panel-discs">${discsLine(g.set.discs)}</p>` : null}
     ${g.addon ? html`<p class="muted" id="lib-panel-addon">${addonLabel(g.addon)}${g.addon.base ? ` of ${g.addon.base.title || g.addon.base.key}` : ", linked to no game"}</p>` : null}
     ${g.collections?.length ? html`<p class="muted">In ${g.collections.map((c) => c.name).join(", ")}</p>` : null}
   </aside>`;
@@ -553,7 +562,8 @@ function AddToCollection({ games }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => { api("collections").then((r) => { const cs = r.collections || r || []; setList(cs); setTo(cs[0]?.id || "new"); }).catch((e) => setError(err(e))); }, []);
-  const keys = games.filter((g) => g.kind === "dat").map((g) => g.key);
+  // an update or DLC brings its game, which brings every disc and its updates and DLC (D175)
+  const keys = [...new Set(games.filter((g) => g.kind === "dat").map((g) => g.addon?.base || g.base || g.key))];
   const run = async () => {
     setBusy(true);
     setError("");

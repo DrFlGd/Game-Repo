@@ -94,8 +94,10 @@ struct Row {
     tags: Vec<String>,
     /// An update's, DLC's or patch's kind, shown only when asked (D163)
     addon: &'static str,
-    /// Its base game's key
+    /// Its base game's key, or (a disc of a game on several, D174) its first disc's
     base: Option<String>,
+    /// How many discs it has, when it's a game on several (D174)
+    discs: i64,
 }
 
 fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
@@ -105,9 +107,9 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
     let mut ins = conn.prepare_cached(
         "INSERT INTO library (key, kind, platform, dat_game, name, title, sort, year, developer, publisher, players, rating, regions, have,
                               folder, picture, media, described, docs, review, size, date, best_all, best_have, genre, genres, languages,
-                              year_sort, rating_sort, size_sort, date_sort, addons, partial, tags, addon, base)
+                              year_sort, rating_sort, size_sort, date_sort, addons, partial, tags, addon, base, discs)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27,
-                 ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36)",
+                 ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37)",
     )?;
     let mut val = conn.prepare_cached("INSERT INTO library_values (game, field, value) VALUES (?1, ?2, ?3)")?;
     let mut fts = conn.prepare_cached("INSERT INTO library_text (rowid, title, name, body) VALUES (?1, ?2, ?3, ?4)")?;
@@ -132,7 +134,7 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
             description.is_some() as i64, r.docs, r.review as i64, r.size, r.date, r.best_all as i64, r.best_have as i64, genres.first(),
             genres.join(SEP), r.languages.join(","),
             year.unwrap_or(i64::MAX), rating.map(|x| -x).unwrap_or(f64::MAX), -r.size, r.date.map(|d| -d).unwrap_or(i64::MAX), r.addons,
-            r.partial as i64, r.tags.join(SEP), r.addon, r.base,
+            r.partial as i64, r.tags.join(SEP), r.addon, r.base, r.discs,
         ])?;
         let id = conn.last_insert_rowid();
         for t in &r.tags {
@@ -158,6 +160,69 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
 /// changed under the same name (another source's chosen, D47) isn't shown from the cache.
 fn picture_path(folder: &Option<String>, picture: &Option<String>, stamp: i64) -> Option<String> {
     Some(format!("{}/media/{}?v={stamp}", folder.as_ref()?, picture.as_ref()?))
+}
+
+/// A DAT's games on several discs as one game each (D174): the first disc's row stands for
+/// the game, titled without its disc, with every disc's size, updates and DLC, had when any
+/// disc is (in part unless all are, whole), and the first details and picture any disc has;
+/// the other discs become rows of the game's (`addon` "disc", `base` its key), shown on its
+/// page only. The places of those other rows.
+fn disc_sets(rows: &mut [Row]) -> HashSet<usize> {
+    let sets = crate::export::disc_sets(rows.iter().map(|r| r.name.as_str()));
+    let at: HashMap<String, usize> = rows.iter().enumerate().map(|(i, r)| (r.name.clone(), i)).collect();
+    let mut others = HashSet::new();
+    for (_, _, names) in &sets.sets {
+        let ix: Vec<usize> = names.iter().filter_map(|n| at.get(n).copied()).collect();
+        let Some((&first, rest)) = ix.split_first() else { continue };
+        let all = || ix.iter().map(|&i| &rows[i]);
+        let have = all().any(|r| r.have);
+        let whole = all().all(|r| r.have && !r.partial);
+        let (size, addons, date) = (all().map(|r| r.size).sum(), all().map(|r| r.addons).sum(), all().filter_map(|r| r.date).max());
+        let picture = all().find_map(|r| r.picture.clone());
+        let with_facts = all().position(|r| !r.facts.is_empty()).map(|p| ix[p]);
+        let docs = all().map(|r| r.docs).sum();
+        let media: Vec<String> = all().flat_map(|r| split(&r.media)).fold(vec![], |mut v, m| {
+            if !v.contains(&m) {
+                v.push(m);
+            }
+            v
+        });
+        let (facts, year) = match with_facts {
+            Some(i) if i != first => (rows[i].facts.clone(), rows[i].year.or(rows[first].year)),
+            _ => (rows[first].facts.clone(), rows[first].year),
+        };
+        let key = rows[first].key.clone();
+        let r = &mut rows[first];
+        // (a title from the DAT is its name up to the first tag; a variant's is its whole name)
+        if let Some((t, _)) = crate::platforms::disc_of(&r.title) {
+            r.title = t;
+        }
+        r.discs = ix.len() as i64;
+        r.have = have;
+        r.partial = have && !whole;
+        r.size = size;
+        r.addons = addons;
+        r.date = date;
+        r.picture = picture.clone();
+        r.facts = facts.clone();
+        r.year = year;
+        r.docs = docs;
+        r.media = media.join(",");
+        for &i in rest {
+            let d = &mut rows[i];
+            d.addon = "disc";
+            d.base = Some(key.clone());
+            if d.picture.is_none() {
+                d.picture = picture.clone();
+            }
+            if d.facts.is_empty() {
+                d.facts = facts.clone();
+                d.year = d.year.or(year);
+            }
+            others.insert(i);
+        }
+    }
+    others
 }
 
 /// Rebuild a system's rows: every game of the DAT it's audited against but its updates and
@@ -293,16 +358,20 @@ fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<
                 ..Default::default()
             });
         }
+        let discs = disc_sets(&mut rows[start..]);
         // one per title (1G1R): the best of each group, in the collection rules' region order,
         // among every game and among those you have
         for have_only in [false, true] {
             let mut best: HashMap<i64, usize> = HashMap::new();
             for (i, (group, k)) in ranks.iter().enumerate() {
-                if have_only && !rows[start + i].have {
+                if (have_only && !rows[start + i].have) || discs.contains(&i) {
                     continue;
                 }
+                // (of those you have, one had whole over one had in part: a game on several
+                // discs with all of them over one without, D174)
+                let part = |i: usize| have_only && rows[start + i].partial;
                 match best.get(group) {
-                    Some(&b) if ranks[b].1 <= *k => {}
+                    Some(&b) if (part(b), &ranks[b].1) <= (part(i), k) => {}
                     _ => {
                         best.insert(*group, i);
                     }
@@ -310,8 +379,8 @@ fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<
             }
             let chosen: HashSet<usize> = best.into_values().collect();
             for (i, r) in rows[start..].iter_mut().enumerate() {
-                // (a variant is never folded into its original)
-                let best = variants || chosen.contains(&i);
+                // (a variant is never folded into its original; a disc goes with its first)
+                let best = variants || chosen.contains(&i) || discs.contains(&i);
                 if have_only { r.best_have = best } else { r.best_all = best }
             }
         }
@@ -584,6 +653,9 @@ fn where_of(q: &Query, keys: &Option<Vec<String>>, skip: &str) -> (String, Vec<S
     }
     if !q.addons_apart && skip != "apart" {
         w.push("l.addon = ''".into());
+    } else {
+        // (a game's other discs are on its page only, D174)
+        w.push("l.addon != 'disc'".into());
     }
     if q.one_per_title {
         w.push(if q.all { "l.best_all = 1" } else { "l.best_have = 1" }.into());
@@ -699,6 +771,10 @@ fn collection_keys(ix: &Index, lib: &Library, q: &Query) -> Result<Option<(Vec<S
         let games = if q.left_out { &s.removed } else { &s.games };
         if let Some(g) = groups.get_mut(s.group) {
             g.1.extend(games.iter().map(collection::Game::key));
+            // and the updates and DLC going with them, listed with their game when asked (D175)
+            if !q.left_out {
+                g.1.extend(s.addons.iter().map(|a| a.game.key()));
+            }
         }
     }
     let keys = groups.iter().flat_map(|g| g.1.iter().cloned()).collect();
@@ -756,7 +832,7 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
         .collect::<rusqlite::Result<_>>()?;
     let mut st = conn.prepare(&format!(
         "SELECT l.id, l.key, l.kind, l.platform, l.dat_game, l.name, l.title, l.year, l.developer, l.publisher, l.players, l.rating, l.regions,
-                l.have, l.picture, l.media, l.described, l.docs, l.review, l.size, l.date, {group}, l.genres, l.addons, l.addon, l.base
+                l.have, l.picture, l.media, l.described, l.docs, l.review, l.size, l.date, {group}, l.genres, l.addons, l.addon, l.base, l.discs
          FROM library l WHERE l.id IN (SELECT value FROM json_each(?1))"
     ))?;
     let mut by: HashMap<i64, Value> = st
@@ -778,6 +854,7 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
                 "docs": r.get::<_, i64>(17)?, "review": r.get::<_, i64>(18)? == 1, "size": r.get::<_, i64>(19)?, "date": r.get::<_, Option<i64>>(20)?,
                 "group": match group { Some(Sql::Text(t)) => json!(t), Some(Sql::Integer(n)) => json!(n), _ => Value::Null },
                 "genres": genres.split(SEP).filter(|g| !g.is_empty()).collect::<Vec<_>>(), "addons": r.get::<_, i64>(23)?, "addon": addon,
+                "discs": r.get::<_, i64>(26)?,
             })))
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -983,9 +1060,10 @@ pub fn keys(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
     let keys = collection_keys(ix, lib, q)?.map(|(k, _)| k);
     let (w, p) = where_of(q, &keys, "");
     let v: Vec<Value> = conn
-        .prepare(&format!("SELECT l.key, l.dat_game, l.platform, l.kind, l.name FROM library l WHERE {w} ORDER BY l.sort, l.id"))?
+        .prepare(&format!("SELECT l.key, l.dat_game, l.platform, l.kind, l.name, CASE WHEN l.addon != '' THEN l.base END FROM library l WHERE {w} ORDER BY l.sort, l.id"))?
         .query_map(params_from_iter(p.iter()), |r| {
-            Ok(json!({ "key": r.get::<_, String>(0)?, "dat_game": r.get::<_, Option<i64>>(1)?, "platform": r.get::<_, String>(2)?, "kind": r.get::<_, String>(3)?, "name": r.get::<_, String>(4)? }))
+            Ok(json!({ "key": r.get::<_, String>(0)?, "dat_game": r.get::<_, Option<i64>>(1)?, "platform": r.get::<_, String>(2)?, "kind": r.get::<_, String>(3)?, "name": r.get::<_, String>(4)?,
+                       "base": r.get::<_, Option<String>>(5)? }))
         })?
         .collect::<rusqlite::Result<_>>()?;
     Ok(json!(v))
@@ -1026,9 +1104,41 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
             let mut v = meta::game(ix, lib, id)?;
             // its DAT: the system's audit DAT, or the one a collection's group takes it from (D75)
             v["dat_id"] = json!(conn.query_row("SELECT dat_id FROM dat_games WHERE id = ?1", [id], |r| r.get::<_, i64>(0)).optional()?.or(audit::primary_dat(conn, lib, &platform)?));
-            let (name, addon, base): (String, String, Option<String>) = conn.query_row("SELECT name, addon, base FROM library WHERE key = ?1", [key], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            let (name, addon, base, discs, have): (String, String, Option<String>, i64, bool) = conn.query_row(
+                "SELECT name, addon, base, discs, have FROM library WHERE key = ?1",
+                [key],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get::<_, i64>(4)? == 1)),
+            )?;
             v["addons"] = crate::addons::of_game(conn, lib, &platform, &name)?;
-            if !addon.is_empty() {
+            if discs > 0 {
+                // a game on several discs (D174): each disc, had or not, and their files together
+                let mut q = conn.prepare(
+                    "SELECT key, name, dat_game, have, partial, size FROM library WHERE key = ?1 OR (base = ?1 AND addon = 'disc')",
+                )?;
+                let mut list: Vec<(String, String, Option<i64>, bool, bool, i64)> =
+                    q.query_map([key], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get::<_, i64>(3)? == 1, r.get::<_, i64>(4)? == 1, r.get(5)?)))?.collect::<rusqlite::Result<_>>()?;
+                let order = crate::export::disc_sets(list.iter().map(|d| d.1.as_str()));
+                let place = |n: &str| order.sets.first().and_then(|s| s.2.iter().position(|x| x == n)).unwrap_or(usize::MAX);
+                list.sort_by_key(|d| place(&d.1));
+                let mut items = vec![];
+                // (each disc's own size: the first's row has them all)
+                let sizes = collection::sizes(conn, v["dat_id"].as_i64().unwrap_or(-1))?;
+                for (k, n, g, have, partial, size) in &list {
+                    let size = g.and_then(|g| sizes.get(&g)).map(|s| s.0 as i64).unwrap_or(*size);
+                    let which = crate::platforms::disc_of(n).map(|d| d.1).unwrap_or_default();
+                    items.push(json!({ "key": k, "name": n, "disc": which, "have": have, "partial": *partial && *have, "size": size, "dat_game": g }));
+                }
+                v["set"] = json!({ "name": order.sets.first().map(|s| s.1.clone()).unwrap_or_else(|| name.clone()), "discs": items });
+                v["have"] = json!(have);
+            } else if addon == "disc" {
+                // one disc of a game on several (D174): the game it's a disc of
+                let of: Option<(String, i64)> = match &base {
+                    Some(b) => conn.query_row("SELECT title, discs FROM library WHERE key = ?1", [b], |r| Ok((r.get(0)?, r.get(1)?))).optional()?,
+                    None => None,
+                };
+                let which = crate::platforms::disc_of(&name).map(|d| d.1).unwrap_or_default();
+                v["disc_of"] = json!({ "key": base, "title": of.as_ref().map(|o| o.0.clone()), "discs": of.map(|o| o.1), "disc": which });
+            } else if !addon.is_empty() {
                 // an update, DLC or patch (D163): what it is and the game it belongs to
                 let base_title: Option<String> = match &base {
                     Some(b) => conn.query_row("SELECT title FROM library WHERE key = ?1", [b], |r| r.get(0)).optional()?,
@@ -1089,6 +1199,19 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
     v["key"] = json!(key);
     v["kind"] = json!(kind);
     match (kind.as_str(), dat_game) {
+        // a game on several discs: every disc's files, in order
+        ("dat", Some(_)) if v["set"].is_object() => {
+            let mut files = vec![];
+            for d in v["set"]["discs"].as_array().cloned().unwrap_or_default() {
+                if let Some(g) = d["dat_game"].as_i64() {
+                    for mut f in files_of(conn, lib, g)? {
+                        f["disc"] = d["disc"].clone();
+                        files.push(f);
+                    }
+                }
+            }
+            v["files"] = json!(files);
+        }
         ("dat", Some(id)) => v["files"] = json!(files_of(conn, lib, id)?),
         // a PC game's files are its folder's (pcgames.rs)
         ("pc", _) => {}
@@ -1378,6 +1501,43 @@ mod tests {
         let g = edit(&ix, &lib, key, "developer", None).unwrap();
         assert_eq!(g["edited"], json!(["genres", "year", "players", "rating"]));
         assert_eq!((g["details"]["developer"].as_str(), g["scraped"]["developer"].as_str()), (Some("Other"), Some("igdb")), "{g}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // D174: a game on several discs is one game in the Library, its discs on its page
+    #[test]
+    fn a_game_on_several_discs_is_one_game_with_its_discs_on_its_page() {
+        let (dir, lib, ix) = crate::collection::tests::disc_fixture("browse-discs");
+        meta::sync(&ix, &lib).unwrap();
+        refresh(&ix, &lib).unwrap();
+        let v = ask(&ix, &lib, |_| {});
+        let mut shown = titles(&v);
+        shown.sort();
+        assert_eq!(shown, ["Quest (Europe) (Disc 1)", "Quest (USA) (Disc 1)", "Solo (USA)"]);
+        let quest = v["items"].as_array().unwrap().iter().find(|g| g["key"] == "psx/Quest (Europe) (Disc 1)").unwrap();
+        assert_eq!((quest["title"].as_str(), quest["discs"].as_i64(), quest["size"].as_i64()), (Some("Quest"), Some(2), Some(2048)), "{quest}");
+        // the USA's is had in part: its second disc isn't there
+        let usa = ix.conn().query_row("SELECT have, partial FROM library WHERE key = 'psx/Quest (USA) (Disc 1)'", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))).unwrap();
+        assert_eq!(usa, (1, 1));
+        assert_eq!(ask(&ix, &lib, |q| q.all = true)["total"], 3);
+        // one per title: of those you have, the one with both discs; of every game, the USA's
+        assert_eq!(titles(&ask(&ix, &lib, |q| q.one_per_title = true)), ["Quest (Europe) (Disc 1)", "Solo (USA)"]);
+        assert_eq!(titles(&ask(&ix, &lib, |q| { q.one_per_title = true; q.all = true })), ["Quest (USA) (Disc 1)", "Solo (USA)"]);
+        // listed apart, updates and DLC show; a game's other discs don't
+        assert_eq!(ask(&ix, &lib, |q| q.addons_apart = true)["total"], 3);
+        assert_eq!(ask(&ix, &lib, |q| { q.search = "quest".into(); q.all = true })["total"], 2);
+        // its page: each disc, and their files together
+        let g = game(&ix, &lib, "psx/Quest (Europe) (Disc 1)").unwrap();
+        assert_eq!(g["set"]["name"], "Quest (Europe)");
+        let discs: Vec<(&str, bool)> = g["set"]["discs"].as_array().unwrap().iter().map(|d| (d["disc"].as_str().unwrap(), d["have"].as_bool().unwrap())).collect();
+        assert_eq!(discs, [("1", true), ("2", true)]);
+        let files: Vec<&str> = g["files"].as_array().unwrap().iter().map(|f| f["disc"].as_str().unwrap()).collect();
+        assert_eq!(files, ["1", "2"]);
+        let g = game(&ix, &lib, "psx/Quest (USA) (Disc 1)").unwrap();
+        assert_eq!(g["set"]["discs"][1]["have"], false);
+        // a disc of its own: the game it's a disc of
+        let d = game(&ix, &lib, "psx/Quest (Europe) (Disc 2)").unwrap();
+        assert_eq!(d["disc_of"], json!({ "key": "psx/Quest (Europe) (Disc 1)", "title": "Quest", "discs": 2, "disc": "2" }));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

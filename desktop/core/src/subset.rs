@@ -369,7 +369,7 @@ pub fn save(ix: &Index, lib: &Library, into: Target, games: &[i64], made_from: V
     for id in games {
         let (gid, gname, title, regions, platform): (i64, String, String, String, String) = q.query_row([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))).with_context(|| format!("There's no DAT game {id}."))?;
         by.entry(platform.clone()).or_default().push(Game {
-            id: gid, platform, name: gname, title, regions, status: String::new(), manual: false, size: 0, dat_size: 0,
+            id: gid, platform, name: gname, title, regions, status: String::new(), manual: false, size: 0, dat_size: 0, set: None,
         });
     }
     let dir = collection::own_dir(lib, &c.id, &group)?;
