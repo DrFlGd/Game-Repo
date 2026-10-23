@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.48 (2026-10-23)
+
 - **Updates and DLC found by their names.** Updates and DLC are now recognised by the names Switch, 3DS and Wii U sets give their files: an `[UPD]` or `[DLC]` tag, an `(Update 1.2)`, or a title ID in brackets. Each is linked to its game by its title ID, else by its title and region, else by the game's title its name starts with ("Alpha - Booster Pack [DLC]" belongs to Alpha). A file no DAT lists is shown on *Audit › Unknown* as an update or DLC of its game, and *Add* puts it with that game. For Switch, which has no starter DAT, *Make a DAT from a folder…* on your Switch folder brings your games in, with their updates and DLC found the same way.
 - **Updates and DLC with their game, or on their own.** The Library has *Updates and DLC with their game* beside *One per title*. Untick it to see each update, DLC and patch as an entry of its own beside its game, marked "Update v1.1" or "DLC". Its page says which game it belongs to, and *Link to another game…* changes that.
 - **Starter DATs for 3DS and Vita.** *Get starter DATs* now finds them where libretro keeps them.
