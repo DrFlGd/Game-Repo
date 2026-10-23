@@ -18,7 +18,9 @@ import { argHash } from "./panels.js";
 export const addSystemDialog = (platform = null) => ui.set({ dialog: { type: "add-system", platform } });
 
 /** A system Game Repo doesn't know, as the dialog's choice. */
-export /** Open Get Redump's DATs, with `platforms` ticked, else the disc systems that have a DAT. */
+export const NEW = "__new";
+
+/** Open Get Redump's DATs, with `platforms` ticked, else the disc systems that have a DAT. */
 export const redumpDialog = (platforms = null) => ui.set({ dialog: { type: "redump", platforms } });
 
 const byName = (a, b) => a.name.localeCompare(b.name);
