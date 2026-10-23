@@ -69,14 +69,15 @@ export async function removeRoot(root) {
 // ------------------------------------------------------------ scanning
 
 /** Scan the folders with games, following the job in the status bar. */
-export async function scan(full) {
+export async function scan(full, paths = null) {
   if (!ui.get().roots?.length) await refreshGames();
   if (!ui.get().roots?.length) {
     toast("Add a folder with games first (Import › Folders with games).", 6000);
     return null;
   }
   try {
-    const { job } = await api("scan", full == null ? {} : { full });
+    // `paths`: only these folders (one added for a system, D166)
+    const { job } = await api("scan", { ...(full == null ? {} : { full }), ...(paths ? { paths } : {}) });
     ui.set({ scanning: { text: "Listing files" } });
     const done = await followJob(job, "Scanning", (j) => ui.set({ scanning: j.progress || {} }));
     ui.set({ scanning: null });
@@ -193,7 +194,7 @@ export function starterDats(platforms = null) {
     text: bios ? ["It lists the BIOS files libretro's emulators look for, with their hashes, so the library's can be audited against it.",
       "libretro's System.dat is downloaded from its public copy on GitHub and imported. It lists the files, not the files themselves: those are yours to find. A BIOS DAT you import yourself is used beside it."]
       : ["No-Intro's DATs for the cartridge systems and Redump's for the disc systems are downloaded and imported, for each system that has no DAT yet.",
-      "They come from libretro's public copies on GitHub, with libretro's list of BIOS files. They can be a little behind the newest, and libretro's copies of Redump's DATs list only one track of each disc. A DAT you import yourself becomes the version in use."],
+      "They come from libretro's public copies on GitHub, with libretro's list of BIOS files. They can be a little behind the newest, and libretro's copies of Redump's DATs list only one track of each disc: Get Redump's DATs… brings in Redump's own. A DAT you import yourself, or one from No-Intro or Redump, is used before libretro's copy."],
     button: bios ? "Download it" : "Download them", run: () => runStarter(platforms) } });
 }
 
@@ -206,9 +207,11 @@ function failedLines(failed, name, verb, what) {
   return [`${verb} ${failed.length} ${what}: ${failed.slice(0, 3).map((f) => `${name(f)} (${why(f)})`).join("; ")}${more}.`];
 }
 
-async function runStarter(platforms) {
+/** Download the starter DATs of `platforms` (all without a DAT when null) without asking;
+ *  `again`, those that have one too. */
+export async function runStarter(platforms, again = false) {
   try {
-    const { job } = await api("starter_dats", platforms ? { platforms } : {});
+    const { job } = await api("starter_dats", { ...(platforms ? { platforms } : {}), ...(again ? { again } : {}) });
     const done = await followJob(job, "Getting starter DATs");
     if (done.error) throw new Error(done.error);
     const r = done.result || {};
@@ -221,6 +224,29 @@ async function runStarter(platforms) {
     return r;
   } catch (e) {
     toast(`Couldn't get the starter DATs: ${e.message || e}`, 8000);
+    return null;
+  }
+}
+
+/** Download and import Redump's own DATs of `platforms` (D167), for the full check of their
+ *  discs; each is downloaded again, and one already imported is kept as it is. */
+export async function runRedump(platforms) {
+  try {
+    const { job } = await api("redump_dats", { platforms });
+    const done = await followJob(job, "Getting Redump's DATs");
+    if (done.error) throw new Error(done.error);
+    const r = done.result || {};
+    const name = (id) => (ui.get().platforms || []).find((p) => p.id === id)?.name || id;
+    const got = r.imported || [];
+    const fresh = [...new Set(got.filter((d) => !d.already).map((d) => d.platform_name))];
+    const said = [fresh.length ? `Imported Redump's DATs for ${fresh.join(", ")}.` : got.length ? "Redump's DATs were imported already: nothing has changed since." : "No DATs came from Redump.",
+      r.missing?.length ? `Redump has none for ${r.missing.map(name).join(", ")}.` : null,
+      ...failedLines(r.failed, (f) => `the ${name(f.platform)} DAT`, "Couldn't get", "DATs")].filter(Boolean);
+    toast(said.join(" "), r.failed?.length || r.missing?.length ? 15000 : 8000);
+    await refreshGames();
+    return r;
+  } catch (e) {
+    toast(`Couldn't get Redump's DATs: ${e.message || e}`, 8000);
     return null;
   }
 }

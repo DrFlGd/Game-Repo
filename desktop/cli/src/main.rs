@@ -64,6 +64,8 @@ under <dir>/config and <dir>/data instead of the app's own folders.
                              download and import the No-Intro cartridge DATs from
                              libretro's public copy, for platforms without a DAT
                              (--again: for every platform named, or all)
+  dat redump [<platform>...]  download and import Redump's own DATs from redump.org,
+                             for the disc systems named (or every one Redump has)
   audit <platform> [--dat <id>] [--list <list>] [--search <text>] [--fixdat <file>]
         [--report txt|csv] [--json]
                              the audit of a platform; lists: have, partial, missing,
@@ -536,6 +538,23 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             }
             let n = |k: &str| r[k].as_array().map(Vec::len).unwrap_or(0);
             eprintln!("{} imported, {} already had a DAT, {} not found at {}", n("imported"), n("skipped"), n("missing"), r["source"].as_str().unwrap_or(""));
+            for f in r["failed"].as_array().into_iter().flatten() {
+                eprintln!("{}: {}", f["platform"].as_str().unwrap_or(""), f["error"].as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
+        ("dat", "redump") => {
+            let only: Vec<&String> = a.rest.iter().filter(|x| !x.starts_with("--")).collect();
+            let r = follow(&app, invoke(&app, "redump_dats", json!({ "platforms": only })).await?).await?;
+            if json_out {
+                return print(&r);
+            }
+            for d in r["imported"].as_array().into_iter().flatten() {
+                let kept = if d["already"].as_bool() == Some(true) { " (imported already)" } else { "" };
+                println!("{} ({}) for {}: {} games{kept}", d["name"].as_str().unwrap_or(""), d["version"].as_str().unwrap_or(""), d["platform_name"].as_str().unwrap_or(""), d["games"]);
+            }
+            let n = |k: &str| r[k].as_array().map(Vec::len).unwrap_or(0);
+            eprintln!("{} imported, {} not found at {}", n("imported"), n("missing"), r["source"].as_str().unwrap_or(""));
             for f in r["failed"].as_array().into_iter().flatten() {
                 eprintln!("{}: {}", f["platform"].as_str().unwrap_or(""), f["error"].as_str().unwrap_or(""));
             }

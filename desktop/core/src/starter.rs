@@ -3,7 +3,7 @@
 //! (*Get starter DATs*). They can be a little behind No-Intro's and Redump's own, and
 //! libretro's Redump copies list only one track of each disc (the one it identifies
 //! games by), so a disc's other tracks and its cue show as unknown until Redump's own
-//! DAT is imported; a newer DAT imported by hand becomes the version in use. The
+//! DAT is imported (redump.rs, D167: theirs is used before libretro's copy). The
 //! address is a setting on this computer (`dat_source`), in case libretro moves them;
 //! the Redump copies are looked for in `redump/` beside its `no-intro/`, and the BIOS
 //! DAT (libretro's `System.dat`, D41) in `dat/` beside `metadat/`.
@@ -23,10 +23,10 @@ pub const SOURCE: &str = "https://raw.githubusercontent.com/libretro/libretro-da
 const LIMIT: u64 = 200 << 20;
 
 /// What the page says after disc DATs came from libretro.
-pub const DISC_NOTE: &str = "libretro's copies of Redump's DATs list one track of each disc, so a disc's other tracks and its cue sheet show as unknown files. Import Redump's own DAT (redump.org, Downloads) for the full check.";
+pub const DISC_NOTE: &str = "libretro's copies of Redump's DATs list one track of each disc, so a disc's other tracks and its cue sheet show as unknown files. Get Redump's DATs… brings in Redump's own for the full check.";
 
 /// "Nintendo - Game Boy" -> "Nintendo%20-%20Game%20Boy" (a path segment).
-fn encode(s: &str) -> String {
+pub(crate) fn encode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
@@ -36,7 +36,7 @@ fn encode(s: &str) -> String {
 }
 
 /// The file at `url`, or None when the server says it isn't there.
-fn fetch(url: &str) -> Result<Option<Vec<u8>>> {
+pub(crate) fn fetch(url: &str) -> Result<Option<Vec<u8>>> {
     match ureq::get(url).header("User-Agent", concat!("GameRepo/", env!("CARGO_PKG_VERSION"))).call() {
         Ok(mut r) => {
             let mut out = vec![];
@@ -125,13 +125,13 @@ pub fn get(ix: &Index, lib: &Library, source: &str, only: &[String], again: bool
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::audit::tests::{dat_xml, rom, rom_xml};
     use crate::library::tests::temp_dir;
 
-    /// A web server on 127.0.0.1 answering from `files` (name -> body), 404 otherwise.
-    fn serve(files: Vec<(String, String)>) -> String {
+    /// A web server on 127.0.0.1 answering from `files` (name -> body), 404 otherwise: its address.
+    pub(crate) fn serve(files: Vec<(String, Vec<u8>)>) -> String {
         use std::io::Write;
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = l.local_addr().unwrap();
@@ -143,11 +143,12 @@ mod tests {
                 let req = String::from_utf8_lossy(&buf[..n]).to_string();
                 let path = req.split(' ').nth(1).unwrap_or("").to_string();
                 let body = files.iter().find(|(p, _)| *p == path).map(|(_, b)| b.clone());
-                let (code, body) = match body { Some(b) => ("200 OK", b), None => ("404 Not Found", String::new()) };
-                let _ = write!(s, "HTTP/1.1 {code}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+                let (code, body) = match body { Some(b) => ("200 OK", b), None => ("404 Not Found", vec![]) };
+                let _ = write!(s, "HTTP/1.1 {code}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());
+                let _ = s.write_all(&body);
             }
         });
-        format!("http://{addr}/no-intro")
+        format!("http://{addr}")
     }
 
     #[test]
@@ -158,13 +159,13 @@ mod tests {
         let gb = dat_xml("Nintendo - Game Boy", "20261001", &[("A (USA)", None, rom_xml("A (USA).gb", &rom(1, 64)))]);
         // an older name for the platform's DAT is found too
         let a26 = dat_xml("Atari - 2600", "20260101", &[("B (USA)", None, rom_xml("B (USA).a26", &rom(2, 64)))]);
-        let base = serve(vec![
-            ("/no-intro/Nintendo%20-%20Game%20Boy.dat".into(), gb),
-            ("/no-intro/Atari%20-%202600.dat".into(), a26),
-            ("/redump/The%203DO%20Company%20-%203DO.dat".into(), dat_xml("The 3DO Company - 3DO", "2026.10.07", &[("C (USA)", None, rom_xml("C (USA).bin", &rom(3, 64)))])),
+        let base = format!("{}/no-intro", serve(vec![
+            ("/no-intro/Nintendo%20-%20Game%20Boy.dat".into(), gb.into_bytes()),
+            ("/no-intro/Atari%20-%202600.dat".into(), a26.into_bytes()),
+            ("/redump/The%203DO%20Company%20-%203DO.dat".into(), dat_xml("The 3DO Company - 3DO", "2026.10.07", &[("C (USA)", None, rom_xml("C (USA).bin", &rom(3, 64)))]).into_bytes()),
             // D164: an audited-only system's DAT where libretro keeps it, with No-Intro's
-            ("/no-intro/Nintendo%20-%20Nintendo%203DS.dat".into(), dat_xml("Nintendo - Nintendo 3DS", "20261001", &[("D (USA)", None, rom_xml("D (USA).3ds", &rom(4, 64)))])),
-        ]);
+            ("/no-intro/Nintendo%20-%20Nintendo%203DS.dat".into(), dat_xml("Nintendo - Nintendo 3DS", "20261001", &[("D (USA)", None, rom_xml("D (USA).3ds", &rom(4, 64)))]).into_bytes()),
+        ]));
         let only = vec!["gb".to_string(), "atari2600".to_string(), "vectrex".to_string(), "3do".to_string(), "n3ds".to_string(), "switch".to_string()];
         let r = get(&ix, &lib, &base, &only, false, &AtomicBool::new(false), &mut |_| {}).unwrap();
         assert_eq!(r["imported"].as_array().unwrap().len(), 4, "{r}");

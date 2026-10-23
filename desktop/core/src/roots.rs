@@ -150,6 +150,17 @@ pub fn in_library(lib: &Library, p: &Path) -> bool {
     k == top || k.starts_with(&format!("{top}/"))
 }
 
+/// The folder with games `dir` is (or is in), and the folder inside it, with `/`s ("" for
+/// the folder itself).
+pub fn locate(lib: &Library, dir: &Path) -> Option<(Root, String)> {
+    let d = norm(dir);
+    list(lib).into_iter().filter(|r| r.found()).find_map(|r| {
+        let rest = d.strip_prefix(norm(&r.dir)).ok()?;
+        let folder = rest.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/");
+        Some((r, folder))
+    })
+}
+
 /// Whether `dir` could be added as a folder with games (it isn't inside one, nor holds one).
 pub fn check_new(lib: &Library, dir: &Path) -> Result<()> {
     check_place(lib, dir, &list(lib)).map(|_| ())
@@ -233,6 +244,11 @@ mod tests {
         assert!(add(&lib, &dir.join("Lib"), None).is_err(), "holds another root");
         assert!(add(&lib, &dir.join("Lib/_library"), None).is_err());
         assert!(add(&lib, &dir.join("Nowhere"), None).is_err());
+        // a folder is found in the folder with games it's in (D166)
+        let (r, folder) = locate(&lib, &dir.join("Elsewhere/GB")).unwrap();
+        assert_eq!((r.id.as_str(), folder.as_str()), (b.id.as_str(), "GB"));
+        assert_eq!(locate(&lib, &dir.join("Elsewhere")).map(|(_, f)| f), Some(String::new()));
+        assert!(locate(&lib, &dir.join("Lib")).is_none(), "it holds one, it isn't in one");
         let all = list(&Library::open(dir.join("Lib")).unwrap());
         assert_eq!(all.len(), 2);
         assert_eq!(all[1].platform.as_deref(), Some("gb"));

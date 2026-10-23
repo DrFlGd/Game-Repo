@@ -14,6 +14,7 @@ import { ctx, routeHash } from "./context.js";
 import { api, toast, isDesktop, openLibrary, renameLibrary, showLibraryFolder, checkIndex, undoable, size, plural, followJob } from "./library.js";
 import { undoChange, finishChange, CONVERT_FORMATS, ChangeSteps } from "./organise.js";
 import { addRoot, updateRoot, repointRoot, removeRoot, scanSettings, setScanSettings, importDats, starterDats, useDat, removeDat, refreshGames, reveal } from "./games.js";
+import { addSystemDialog, redumpDialog } from "./addsystem.js";
 import { confirmDialog } from "./dialogs.js";
 import { SystemsSection } from "./systems.js";
 import { CommandBar, DayGroups } from "./layout.js";
@@ -155,7 +156,7 @@ export function DatsSection({ lib }) {
       return html`<div class="dat-group" key=${g.platform} data-platform=${g.platform}><div class="dat-group-head"><h3>${g.name}</h3>
         ${several ? html`<button type="button" class="ghost compact dat-roles" title="The main DAT, and the DATs included in Audit" disabled=${off} onClick=${() => openDats(g)}>${Icon.stack(14)} DATs…</button>` : null}</div>
       <ul class="ls-list dat-list">${g.dats.map((d) => html`<li key=${d.id} data-dat=${d.id} data-name=${d.name}>
-        <span class="dat-name"><span>${d.name}</span> <span class="muted">${d.version} · ${plural(d.games, "game", "games")}${d.author ? ` · ${d.author}` : ""}</span>
+        <span class="dat-name"><span>${d.name}</span> <span class="muted">${d.version} · ${plural(d.games, "game", "games")}${d.author ? ` · ${d.author}` : ""}${d.libretro ? " · libretro's copy" : ""}</span>
           ${d.current && g.dats.filter((x) => x.name === d.name).length > 1 ? html`<span class="badge" title="The version the audit uses; the others are kept">Version used</span>` : null}
           ${several && d.main ? html`<span class="badge dat-main" title="Audit's totals are this DAT's counts">Main DAT</span>` : null}
           ${several && d.also ? html`<span class="badge dat-also" title="Its games are audited too, and are in the Library beside the main DAT's">Included in Audit</span>` : null}</span>
@@ -170,6 +171,8 @@ export function DatsSection({ lib }) {
     <div class="home-actions">
       ${isDesktop() ? html`<button type="button" class="ghost" id="import-dats" disabled=${off} onClick=${() => importDats()}>Import DATs…</button>` : null}
       <button type="button" class="ghost" id="starter-dats" disabled=${off} title="No-Intro's and Redump's DATs, from libretro's public copy" onClick=${() => starterDats()}>Get starter DATs…</button>
+      <button type="button" class="ghost" id="redump-dats" disabled=${off} title="Redump's own DATs for the disc systems, from redump.org: every track of each disc" onClick=${() => redumpDialog()}>Get Redump's DATs…</button>
+      <button type="button" class="ghost" id="dats-add-system" disabled=${off} onClick=${() => addSystemDialog()}>Add a system…</button>
       <button type="button" class="ghost" id="make-dat" disabled=${off} onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a folder…</button>
     </div>
   </section>`;

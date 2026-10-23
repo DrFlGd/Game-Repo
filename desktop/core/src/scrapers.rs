@@ -137,6 +137,7 @@ const SYSTEM_IDS: &[(&str, Option<u32>, Option<u32>, Option<&str>)] = &[
     ("switch", Some(225), Some(130), Some("4971")),
     ("ps3", Some(59), Some(9), Some("12")),
     ("ps4", Some(60), Some(48), Some("4919")),
+    ("ps5", Some(284), Some(167), Some("4980")),
     ("psvita", Some(62), Some(46), Some("39")),
     ("xbox360", Some(33), Some(12), Some("15")),
     // ScreenScraper's arcade is MAME's; IGDB's and TheGamesDB's arcade

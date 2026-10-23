@@ -63,7 +63,7 @@ export const PAGES = [
   ["home", "Home", "Where your library stands: how complete each system is against its DAT, and what to do next.", [
     "Scan, at the top, reads the folders with games for what's new or changed.",
     "Next: files that need review, games whose details need a look, systems not scraped yet and missing BIOS files, each a link to the page it's done on.",
-    "Systems: how complete each one is against its DAT, with Import DATs… (and Get starter DATs… while you have none) and Open the audit.",
+    "Systems: how complete each one is against its DAT, with Import DATs… (and Get starter DATs… while you have none), Add a system… and Open the audit. A system shows once it has a DAT.",
     "Folders with games: how many files were found and when they were last scanned, Add a folder… while there are none, folders not found on this computer (Point it elsewhere…), and files no DAT takes yet. Before any library is open, Open a library… is all Home offers.",
   ]],
   ["library", "Library", "Every game in the library, across systems, by its pictures and details.", [
@@ -99,10 +99,10 @@ export const PAGES = [
     "Games into the library: From a folder… reads folders (every system's games, or one system's), matches their files against your DATs and copies or moves the games the library lacks into each system's own folder with games, named as their DAT says. It asks where a system's games go when it has no folder yet, and which system files no DAT knows belong to. Also put these games in a collection makes a collection (or a new group of one) of every game read, the library's own too; files no DAT knows wait on it until you add them to a DAT on Audit › Unknown. One game… is for a single ROM or disc.",
     "PC games, BIOS files, documents, magazines and videos, each with its own buttons. Files dropped on the window come here, and you're asked what they are.",
     "Recent imports: what came in lately, a day at a time, with Steps for what each did and Undo for the newest.",
-    "Folders with games: games you keep where they are, scanned and audited there. DAT files: Import DATs…, Get starter DATs… and Make a DAT from a folder…, and the DATs you have.",
+    "Folders with games: games you keep where they are, scanned and audited there. DAT files: Import DATs…, Get starter DATs…, Get Redump's DATs… (Redump's own, every track of each disc, for the disc systems), Add a system… and Make a DAT from a folder…, and the DATs you have.",
   ]],
   ["audit", "Audit", "Your games checked against each system's DATs: what you have, have in part, or are missing. Nothing changes.", [
-    "The systems are in the ribbon on the left, with their counts; All systems is a table of every system's counts, each a link to that list.",
+    "The systems are in the ribbon on the left, with their counts; All systems is a table of every system's counts, each a link to that list. A system shows once it has a DAT: Add a system… (the + in the ribbon, or ⋯) gets one for a system without, PlayStation 3, 4 and 5, Xbox 360 or Switch among them, or for one Game Repo doesn't know. Its DAT is downloaded (libretro's copy, or Redump's own for a disc system), imported from a file you have, or made from a folder of its games.",
     "Games (have, partly there, missing) and Files (named right, misnamed, bad dumps, unknown, duplicates), each a table: a game's name opens its page, and a right-click has Convert… and Show in folder.",
     "A games list can be narrowed to a region and sorted by name, region or year; reports, and Save a list of what's missing.",
     "Organise… sorts, renames and packs a system's games; Rename to the DAT's names…, Set aside duplicates… and Convert… (to CHD, RVZ, CSO, ZIP, or unpacked) are changes too.",

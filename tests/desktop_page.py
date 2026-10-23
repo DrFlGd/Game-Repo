@@ -1126,8 +1126,109 @@ async def addons_by_name(pg, base, home, library):
           and "Alpha - Bonus Pack (USA) [DLC]" in theirs and "You have 2 of 2" in theirs, (of, theirs))
 
 
+async def add_systems(pg, base, home, library):
+    """D165–D167: Add a system… makes PS5's DAT from a folder of its games (the folder added
+    for it and scanned), imports a DAT file for Switch whatever its name says, and downloads
+    PS2's from libretro, whose one-track copy Audit offers to swap for Redump's own; Get
+    Redump's DATs… brings in Redump's (used before libretro's copies) and says which it
+    couldn't get."""
+    # stand-ins for libretro's copies and redump.org (whose /datfile/<system>/ is a folder's page here)
+    web = home / "dat-web"
+    (web / "metadat/no-intro").mkdir(parents=True)
+    (web / "metadat/redump").mkdir(parents=True)
+    t1, t2 = make_fixtures.rom(71, 2048), make_fixtures.rom(72, 1024)
+    (web / "metadat/redump/Sony - PlayStation 2.dat").write_text(make_fixtures.logiqx("Sony - PlayStation 2", "2026.10.07", [
+        ("Gamma (USA)", None, [make_fixtures.rom_xml("Gamma (USA) (Track 1).bin", t1)])]))
+    for slug in ("ps2", "ps3", "psx"):
+        (web / "datfile" / slug).mkdir(parents=True)
+    with zipfile.ZipFile(web / "datfile/ps2/index.html", "w") as z:
+        z.writestr("Sony - PlayStation 2 - Datfile (1) (2026-10-01 01-02-03).dat", make_fixtures.logiqx("Sony - PlayStation 2", "2026-10-01 01-02-03", [
+            ("Gamma (USA)", None, [make_fixtures.rom_xml("Gamma (USA) (Track 1).bin", t1), make_fixtures.rom_xml("Gamma (USA) (Track 2).bin", t2)])]))
+    (web / "datfile/ps3/index.html").write_text("<!DOCTYPE html><html><body>Please sign in</body></html>")
+    (web / "datfile/psx/index.html").write_text(make_fixtures.logiqx("Sony - PlayStation", "2026-10-02 01-02-03", [
+        ("Theta (Europe)", None, [make_fixtures.rom_xml("Theta (Europe).bin", make_fixtures.rom(76, 1024))])]))
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(web))
+    handler.log_message = lambda *args: None
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    cfg_path = home / "config/config.json"
+    cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+    cfg.update({"dat_source": f"http://127.0.0.1:{srv.server_port}/metadat/no-intro/", "redump_source": f"http://127.0.0.1:{srv.server_port}/datfile/"})
+    cfg_path.write_text(json.dumps(cfg))
+    try:
+        # PS5, from a folder of its games
+        ps5 = home / "PS5 dumps"
+        ps5.mkdir()
+        (ps5 / "Delta (USA).iso").write_bytes(make_fixtures.rom(73, 4096))
+        (ps5 / "Epsilon (Japan).iso").write_bytes(make_fixtures.rom(74, 2048))
+        await pg.click("#home-add-system")
+        await pg.wait_for_selector("#add-system-dialog")
+        offered = await pg.eval_on_selector_all('#add-system-pick optgroup[label="No DAT yet"] option', "els => els.map(e => e.value)")
+        await pg.select_option("#add-system-pick", "ps5")
+        ways = await pg.eval_on_selector_all("#add-system-way .way", "els => els.map(e => e.dataset.way)")
+        await pg.check('#add-system-way input[value="folder"]')
+        await pg.fill("#add-system-folder", str(ps5))
+        dat_name = await pg.input_value("#add-system-dat-name")
+        await pg.screenshot(path=str(out / "70-add-system.png"))
+        await pg.click("#add-system-dialog button[type=submit]")
+        await pg.wait_for_selector('#audit-pick[data-platform="ps5"]', timeout=30000)
+        counts = (await pg.inner_text("#audit-have"), await pg.inner_text("#audit-games"))
+        roots = json.loads((library / "_library/library.json").read_text()).get("roots", [])
+        made = sorted(x.name for x in (library / "_library/made-dats").glob("*.dat"))
+        check("Add a system… lists the systems without a DAT (PS3, PS4, PS5 and Xbox 360 among them) and makes PS5's DAT from a folder of its games, added for it and scanned (D165, D166)",
+              {"ps3", "ps4", "ps5", "xbox360", "switch"} <= set(offered) and ways == ["download", "file", "folder"] and dat_name == "My PlayStation 5 games"
+              and counts == ("2", "2") and any(r.get("platform") == "ps5" for r in roots) and made and made[0].startswith("My PlayStation 5 games"), (offered[:5], ways, dat_name, counts, roots, made))
+
+        # Switch, from a DAT file whose name says nothing of it
+        sw = home / "switch.dat"
+        sw.write_text(make_fixtures.logiqx("Someone - Handheld Dumps", "1", [("Zeta (World)", None, [make_fixtures.rom_xml("Zeta (World).nsp", make_fixtures.rom(75, 512))])]))
+        await pg.click("#audit-add-system")
+        await pg.select_option("#add-system-pick", "switch")
+        await pg.check('#add-system-way input[value="file"]')
+        pick(sw, base)
+        await pg.click("#add-system-dialog button[type=submit]")
+        await pg.wait_for_selector('#audit-pick[data-platform="switch"]', timeout=30000)
+        games = await pg.inner_text("#audit-games")
+        check("Add a system… imports a DAT file for the system chosen, whatever the DAT's name says (D166)",
+              games == "1" and any((library / "_library/dats/switch").glob("Someone - Handheld Dumps*.dat")), games)
+
+        # PS2, downloaded from libretro; its one-track copy swapped for Redump's own on Audit
+        await pg.click("#audit-add-system")
+        await pg.select_option("#add-system-pick", "ps2")
+        sources = await pg.eval_on_selector_all("#add-system-source option", "els => els.map(e => e.value)")
+        await pg.click("#add-system-dialog button[type=submit]")
+        await pg.wait_for_selector('#audit-pick[data-platform="ps2"]', timeout=30000)
+        await pg.wait_for_selector("#audit-libretro")
+        await pg.click("#audit-get-redump")
+        await pg.wait_for_selector("#redump-dialog")
+        ticked = await pg.eval_on_selector_all("#redump-systems input:checked", "els => els.map(e => e.closest('[data-platform]').dataset.platform)")
+        await pg.screenshot(path=str(out / "71-redump.png"))
+        await pg.click("#redump-dialog button[type=submit]")
+        said = await toast_text(pg, "Redump's DATs for")
+        await pg.wait_for_selector("#audit-libretro", state="detached", timeout=15000)
+        head = await pg.inner_text("#audit-head")
+        check("Add a system… downloads libretro's copy (Redump's own offered beside it), and Audit offers Redump's DAT for it, then used before libretro's copy though dated earlier (D167)",
+              sources == ["libretro", "redump"] and ticked == ["ps2"] and "PlayStation 2" in said and "2026-10-01 01-02-03" in head, (sources, ticked, said, head))
+
+        # Import › DAT files: Get Redump's DATs…, one it couldn't get
+        await pg.click('.sidebar a[href="#/import"]')
+        await pg.click("#redump-dats")
+        await pg.wait_for_selector("#redump-dialog")
+        await pg.click("#redump-none")
+        await pg.check('#redump-systems [data-platform="psx"] input')
+        await pg.check('#redump-systems [data-platform="ps3"] input')
+        await pg.click("#redump-dialog button[type=submit]")
+        said = await toast_text(pg, "Couldn't get")
+        await pg.wait_for_selector('#settings-dats .dat-group[data-platform="psx"]')
+        ps2 = " ".join((await pg.inner_text('#settings-dats .dat-group[data-platform="ps2"]')).split())
+        check("Get Redump's DATs… imports those it's given and says which it couldn't get, and the DAT list says which is libretro's copy",
+              "Imported Redump's DATs for PlayStation" in said and "PlayStation 3" in said and "signed in" in said and ps2.count("libretro's copy") == 1, (said, ps2))
+    finally:
+        srv.shutdown()
+
+
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name)]
+             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems)]
 
 
 async def main():
@@ -1644,12 +1745,15 @@ async def main():
                 # Phase 3. Settings › Systems, the DAT question with a system added there, a collection made,
                 # changed by hand, saved as DATs, exported to ES-DE, updated and checked
                 await pg.wait_for_selector("#settings-systems")
+                # (Add a system…, D166: one Game Repo doesn't know, with nothing yet)
                 await pg.click("#system-add")
-                await pg.fill("#system-name", "Acme Gizmo")
-                await pg.fill("#system-dats", "Acme - Gizmo")
-                await pg.fill("#system-exts", "gzm")
-                await pg.select_option("#system-media", "cd")
-                await pg.click("#system-dialog button[type=submit]")
+                await pg.wait_for_selector("#add-system-new")
+                await pg.fill("#add-system-name", "Acme Gizmo")
+                await pg.click("#add-system-details summary")
+                await pg.fill("#add-system-dat-names", "Acme - Gizmo")
+                await pg.fill("#add-system-exts", "gzm")
+                await pg.select_option("#add-system-media", "cd")
+                await pg.click("#add-system-dialog button[type=submit]")
                 await pg.wait_for_selector('#systems-added li[data-system="acmegizmo"]')
                 row = await pg.inner_text('#systems-added li[data-system="acmegizmo"]')
                 meta = json.loads((library / "_library/library.json").read_text())

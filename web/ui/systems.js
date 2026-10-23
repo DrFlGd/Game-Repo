@@ -1,11 +1,13 @@
 // Systems (docs/PLAN.md, "Phase 3 design", D22): Settings › Systems lists the built-in
-// ones and those added by hand, which can be added, changed and removed; the DAT
-// question offers every system or a new one. Added systems are kept in the library.
+// ones and those added by hand, which can be added (Add a system…, addsystem.js, D166),
+// changed and removed; the DAT question offers every system or a new one. Added systems
+// are kept in the library.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { api, toast } from "./library.js";
 import { Dialog, close, confirmDialog } from "./dialogs.js";
+import { addSystemDialog, NEW } from "./addsystem.js";
 
 export const MEDIA = [
   ["cartridge", "Cartridges (ZIP)"],
@@ -118,7 +120,7 @@ export function SystemsSection({ lib }) {
       <button type="button" class="ghost" data-action="remove" disabled=${off || withDats(p.id) > 0} title=${withDats(p.id) ? "Remove its DATs first (Import › DAT files)" : null} onClick=${() => remove(p)}>Remove…</button>
     </li>`)}</ul>` : html`<p class="muted" id="systems-none">No systems added yet.</p>`}
     <div class="home-actions">
-      <button type="button" class="ghost" id="system-add" disabled=${off} onClick=${() => open(null)}>Add a system…</button>
+      <button type="button" class="ghost" id="system-add" disabled=${off} onClick=${() => addSystemDialog(NEW)}>Add a system…</button>
       <button type="button" class="ghost" id="systems-built-in" aria-expanded=${showAll ? "true" : "false"} onClick=${() => setShowAll(!showAll)}>${showAll ? "Hide" : "Show"} the ${builtIn.length} built-in systems</button>
     </div>
     ${arcade.length && sets ? html`<h3>Arcade set types</h3>

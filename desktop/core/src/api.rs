@@ -723,6 +723,12 @@ impl App {
                 let path = PathBuf::from(arg(&args, "path").map_err(e2s)?);
                 j(roots::add(&lib, &path, args["platform"].as_str()).map_err(e2s)?.to_json())
             }
+            "roots_locate" => {
+                // the folder with games a folder is in, and where in it (D166), or null
+                let lib = self.library()?;
+                let path = PathBuf::from(arg(&args, "path").map_err(e2s)?);
+                j(roots::locate(&lib, &path).map(|(r, folder)| json!({ "root": r.to_json(), "folder": folder })).unwrap_or(Value::Null))
+            }
             "roots_update" => {
                 let lib = self.library()?;
                 let id = arg(&args, "id").map_err(e2s)?;
@@ -773,9 +779,13 @@ impl App {
                     return Err("A change is running: scan when it's finished.".into());
                 }
                 let settings = self.config().scan;
-                let opts = scan::Options { full: args["full"].as_bool().unwrap_or(settings.full), readers: settings.readers, only: None };
-                // everything is read, so what the watcher saw is covered
-                *self.changed.lock().unwrap() = None;
+                // `paths`: only these folders (one just added for a system, D166)
+                let only: Option<Vec<PathBuf>> = args["paths"].as_array().map(|a| a.iter().filter_map(Value::as_str).map(PathBuf::from).collect());
+                if only.is_none() {
+                    // everything is read, so what the watcher saw is covered
+                    *self.changed.lock().unwrap() = None;
+                }
+                let opts = scan::Options { full: args["full"].as_bool().unwrap_or(settings.full), readers: settings.readers, only };
                 j(self.start_scan(lib, opts, false))
             }
 
@@ -847,6 +857,19 @@ impl App {
                 j(self.spawn_job("Getting starter DATs", move |app, id, cancel| {
                     let ix = Self::job_index(&data_dir, &lib)?;
                     starter::get(&ix, &lib, &source, &only, again, &cancel, &mut |p| app.job_progress(&id, p))
+                }))
+            }
+            "redump_dats" => {
+                // Redump's own DATs for the disc systems (D167), downloaded again each time
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                self.not_running("Getting Redump's DATs")?;
+                let only: Vec<String> = args["platforms"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(String::from)).collect();
+                let source = self.config().redump_source.unwrap_or_else(|| crate::redump::SOURCE.to_string());
+                let data_dir = self.paths.data_dir.clone();
+                j(self.spawn_job("Getting Redump's DATs", move |app, id, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    crate::redump::get(&ix, &lib, &source, &only, &cancel, &mut |p| app.job_progress(&id, p))
                 }))
             }
             // Phase 7 (D60): each arcade system's set type
