@@ -13,8 +13,8 @@ import { ui, THEMES, SKINS, setTheme, setSkin } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { api, toast, isDesktop, openLibrary, renameLibrary, showLibraryFolder, checkIndex, undoable, size, plural, followJob } from "./library.js";
 import { undoChange, finishChange, CONVERT_FORMATS, ChangeSteps, AsideFiles } from "./organise.js";
-import { addRoot, updateRoot, repointRoot, removeRoot, scanSettings, setScanSettings, importDats, starterDats, useDat, removeDat, refreshGames, reveal } from "./games.js";
-import { addSystemDialog, redumpDialog } from "./addsystem.js";
+import { addRoot, updateRoot, repointRoot, removeRoot, scanSettings, setScanSettings, importDats, starterDats, useDat, removeDat, removeOlder, refreshGames, reveal } from "./games.js";
+import { addSystemDialog, redumpDialog, updateDatsDialog, updatedOn } from "./addsystem.js";
 import { confirmDialog } from "./dialogs.js";
 import { SystemsSection } from "./systems.js";
 import { CommandBar, DayGroups } from "./layout.js";
@@ -129,6 +129,21 @@ async function makeMain(d, also) {
   }
 }
 
+/** A system's DATs by name, each as the version in use and its others (D173), the newest
+ *  first: `{ cur, others, newest }`. */
+function lineages(dats) {
+  const out = [];
+  for (const d of dats) {
+    let l = out.find((x) => x.name === d.name);
+    if (!l) out.push((l = { name: d.name, all: [] }));
+    l.all.push(d);
+  }
+  return out.map(({ all }) => {
+    const cur = all.find((d) => d.current) || all[0];
+    return { cur, others: all.filter((d) => d !== cur), newest: all.find((d) => d.newest) };
+  });
+}
+
 /** The DAT files imported into the library, by platform and version; with more than one
  *  for a system, which is its main DAT and which it's audited with too (D118, D131). */
 export function DatsSection({ lib }) {
@@ -149,31 +164,62 @@ export function DatsSection({ lib }) {
     custom: g.dats.find((d) => d.version === "custom")?.name, onDone: () => refreshGames() } });
   return html`<section class="ls-section" id="settings-dats">
     <h2>DAT files</h2>
-    <p class="muted">The DATs your games are audited against. Each is copied into the library (<code>_library/dats</code>); importing a newer version keeps the older one, and the newest is used unless you choose another. A system with several DATs has a main one, whose counts are Audit's totals.</p>
+    <p class="muted">The DATs your games are audited against. Each is copied into the library (<code>_library/dats</code>); a newer version keeps the older ones, folded under it, and the newest is used unless you choose another. A system with several DATs has a main one, whose counts are Audit's totals.</p>
     ${byPlatform.length ? byPlatform.map((g) => {
       const several = usable(g).length > 1;
       const also = usable(g).filter((d) => d.also).map((d) => d.name);
       return html`<div class="dat-group" key=${g.platform} data-platform=${g.platform}><div class="dat-group-head"><h3>${g.name}</h3>
         ${several ? html`<button type="button" class="ghost compact dat-roles" title="The main DAT, and the DATs included in Audit" disabled=${off} onClick=${() => openDats(g)}>${Icon.stack(14)} DATs…</button>` : null}</div>
-      <ul class="ls-list dat-list">${g.dats.map((d) => html`<li key=${d.id} data-dat=${d.id} data-name=${d.name}>
-        <span class="dat-name"><span>${d.name}</span> <span class="muted">${d.version} · ${plural(d.games, "game", "games")}${d.author ? ` · ${d.author}` : ""}${d.libretro ? " · libretro's copy" : ""}</span>
-          ${d.current && g.dats.filter((x) => x.name === d.name).length > 1 ? html`<span class="badge" title="The version the audit uses; the others are kept">Version used</span>` : null}
+      <ul class="ls-list dat-list">${lineages(g.dats).map(({ cur, others, newest }) => {
+        const row = (d, versions) => html`<span class="dat-name"><span>${d.name}</span> <span class="muted">${d.version} · ${plural(d.games, "game", "games")}${d.author ? ` · ${d.author}` : ""}${d.libretro ? " · libretro's copy" : ""}</span>
+          ${d.current && versions ? html`<span class="badge" title="The version the audit uses; the others are kept">Version used</span>` : null}
+          ${d.current && !d.newest && newest ? html`<span class="badge dat-chosen" title=${`You chose this version: the newer ${newest.version} is kept beside it, and updates don't change it`}>Chosen</span>` : null}
           ${several && d.main ? html`<span class="badge dat-main" title="Audit's totals are this DAT's counts">Main DAT</span>` : null}
           ${several && d.also ? html`<span class="badge dat-also" title="Its games are audited too, and are in the Library beside the main DAT's">Included in Audit</span>` : null}</span>
         ${d.current ? null : html`<button type="button" class="ghost" data-action="use-dat" disabled=${off} onClick=${() => useDat(d)}>Use this version</button>`}
+        ${d.current && !d.newest && newest ? html`<button type="button" class="ghost" data-action="use-newest" disabled=${off} title=${`Use ${newest.version}, and each newer one as it comes`} onClick=${() => useDat(newest)}>Use the newest</button>` : null}
         ${several && d.current && !d.main && d.version !== "custom" ? html`<button type="button" class="ghost" data-action="main-dat" disabled=${off} onClick=${() => makeMain(d, also)}>Make it the main DAT</button>` : null}
         ${isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label="Show in folder" onClick=${() => reveal(`${lib.path}/${d.path}`)}>${Icon.folder(14)}</button>` : null}
         <button type="button" class="ghost" data-action="remove-dat" disabled=${off} onClick=${() => confirmDialog({
           title: "Remove this DAT?", text: `${d.name} (${d.version}) and its copy in the library are removed, with what was matched to it. Your ROMs aren't touched; you can import it again.`,
-          button: "Remove", run: () => removeDat(d) })}>Remove…</button>
-      </li>`)}</ul></div>`;
+          button: "Remove", run: () => removeDat(d) })}>Remove…</button>`;
+        // the version in use, and the others (D173) folded under it, kept to go back to
+        const older = others.every((d) => !d.newest);
+        return html`<li key=${cur.id} data-dat=${cur.id} data-name=${cur.name}>${row(cur, others.length > 0)}
+          ${others.length ? html`<details class="dat-older" data-name=${cur.name}><summary>${plural(others.length, older ? "older version" : "other version", older ? "older versions" : "other versions")}</summary>
+            <ul class="ls-list dat-list">${others.map((d) => html`<li key=${d.id} data-dat=${d.id} data-name=${d.name}>${row(d, true)}</li>`)}</ul>
+            <button type="button" class="linkish" data-action="remove-older" disabled=${off} onClick=${() => confirmDialog({
+              title: `Remove ${plural(others.length, older ? "older version" : "other version", older ? "older versions" : "other versions")}?`,
+              text: `${others.map((d) => d.version).join(", ")} of ${cur.name} ${others.length === 1 ? "is" : "are"} removed, with ${others.length === 1 ? "its copy" : "their copies"} in the library. The version in use, ${cur.version}, stays.`,
+              button: "Remove them", run: () => removeOlder(others) })}>Remove ${others.length === 1 ? "it" : "them"}…</button>
+          </details>` : null}</li>`;
+      })}</ul></div>`;
     }) : html`<p id="dats-none">No DATs yet.</p>`}
     <div class="home-actions">
+      <button type="button" class="ghost" id="update-dats" disabled=${off || !dats.length} title="The newest DATs of your systems, from Redump and libretro: older versions are kept" onClick=${() => updateDatsDialog()}>Update DATs…</button>
       ${isDesktop() ? html`<button type="button" class="ghost" id="import-dats" disabled=${off} onClick=${() => importDats()}>Import DATs…</button>` : null}
       <button type="button" class="ghost" id="starter-dats" disabled=${off} title="No-Intro's and Redump's DATs, from libretro's public copy" onClick=${() => starterDats()}>Get starter DATs…</button>
       <button type="button" class="ghost" id="redump-dats" disabled=${off} title="Redump's own DATs for the disc systems, from redump.org: every track of each disc" onClick=${() => redumpDialog()}>Get Redump's DATs…</button>
       <button type="button" class="ghost" id="dats-add-system" disabled=${off} onClick=${() => addSystemDialog()}>Add a system…</button>
       <button type="button" class="ghost" id="make-dat" disabled=${off} onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a folder…</button>
+    </div>
+  </section>`;
+}
+
+/** Settings › DATs (D172): Update DATs…, when they were last updated, and the way to the
+ *  list of DATs and their versions (Import › DAT files). */
+function DatUpdatesSection({ lib }) {
+  const dats = useStore(ui, (st) => st.dats);
+  const [info, setInfo] = useState(null);
+  const off = !!lib.read_only;
+  useEffect(() => { api("dats_update_info").then(setInfo).catch(() => setInfo(null)); }, [lib.path, dats]);
+  return html`<section class="ls-section" id="settings-dat-updates">
+    <h2>DATs</h2>
+    <p class="muted">The newest DATs of your systems, from Redump (redump.org, the disc systems) and libretro (RetroArch's database: No-Intro's for the cartridge systems). Every version you have is kept, to go back to with <em>Use this version</em>; the DATs and their versions are in <a href=${routeHash("import/settings-dats")}>Import › DAT files</a>.</p>
+    <p id="settings-dats-state">${info ? html`${info.have.length ? plural(info.have.length, "system has a DAT", "systems have a DAT") : "No system has a DAT yet"}. ${info.updated ? `Last updated ${updatedOn(info.updated)}.` : "Not updated from here yet."}` : html`<span class="muted">Reading…</span>`}</p>
+    <div class="home-actions">
+      <button type="button" class="primary" id="settings-update-dats" disabled=${off} onClick=${() => updateDatsDialog()}>${Icon.download(15)} Update DATs…</button>
+      <a class="button ghost" id="settings-dats-link" href=${routeHash("import/settings-dats")}>DAT files</a>
     </div>
   </section>`;
 }
@@ -491,7 +537,7 @@ export function Settings() {
         <ul class="ls-list" id="recent-libraries">${others.map((p) => html`<li key=${p}><span>${p}</span>
           <button type="button" class="ghost" onClick=${() => openLibrary(p)}>Open</button></li>`)}</ul>` : null}
     </section>
-    ${lib ? html`<${ScanSection} lib=${lib} key=${`s-${lib.path}`} /><${SystemsSection} lib=${lib} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${LayoutsSection} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${MetadataSection} lib=${lib} key=${`m-${lib.path}`} /><${ServePanel} call=${api} />` : null}
+    ${lib ? html`<${ScanSection} lib=${lib} key=${`s-${lib.path}`} /><${SystemsSection} lib=${lib} /><${DatUpdatesSection} lib=${lib} key=${`d-${lib.path}`} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${LayoutsSection} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${MetadataSection} lib=${lib} key=${`m-${lib.path}`} /><${ServePanel} call=${api} />` : null}
     <${SourcesSettings} />
     <${SteamSettings} />
     <${ToolsSection} />

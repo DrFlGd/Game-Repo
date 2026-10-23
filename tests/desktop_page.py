@@ -1131,7 +1131,7 @@ async def add_systems(pg, base, home, library):
     for it and scanned), imports a DAT file for Switch whatever its name says, and downloads
     PS2's from libretro, whose one-track copy Audit offers to swap for Redump's own; Get
     Redump's DATs… brings in Redump's (used before libretro's copies) and says which it
-    couldn't get."""
+    couldn't get; Update DATs… (D172) brings the newest, the older versions folded (D173)."""
     # stand-ins for libretro's copies and redump.org (whose /datfile/<system>/ is a folder's page here)
     web = home / "dat-web"
     (web / "metadat/no-intro").mkdir(parents=True)
@@ -1220,9 +1220,50 @@ async def add_systems(pg, base, home, library):
         await pg.click("#redump-dialog button[type=submit]")
         said = await toast_text(pg, "Couldn't get")
         await pg.wait_for_selector('#settings-dats .dat-group[data-platform="psx"]')
+        # (libretro's copy is folded under Redump's, the version in use, D173)
+        await pg.click('#settings-dats .dat-group[data-platform="ps2"] .dat-older > summary')
         ps2 = " ".join((await pg.inner_text('#settings-dats .dat-group[data-platform="ps2"]')).split())
         check("Get Redump's DATs… imports those it's given and says which it couldn't get, and the DAT list says which is libretro's copy",
               "Imported Redump's DATs for PlayStation" in said and "PlayStation 3" in said and "signed in" in said and ps2.count("libretro's copy") == 1, (said, ps2))
+
+        # D172: Settings › DATs › Update DATs…, Redump's newer PS2 DAT; the older versions kept (D173)
+        with zipfile.ZipFile(web / "datfile/ps2/index.html", "w") as z:
+            z.writestr("Sony - PlayStation 2 - Datfile (1) (2026-10-20 01-02-03).dat", make_fixtures.logiqx("Sony - PlayStation 2", "2026-10-20 01-02-03", [
+                ("Gamma (USA)", None, [make_fixtures.rom_xml("Gamma (USA) (Track 1).bin", t1), make_fixtures.rom_xml("Gamma (USA) (Track 2).bin", t2)])]))
+        await pg.goto(base + "#/settings")
+        await pg.wait_for_selector("#settings-dat-updates #settings-dats-state:has-text('systems have a DAT')", timeout=15000)
+        state = " ".join((await pg.inner_text("#settings-dats-state")).split())
+        await pg.click("#settings-update-dats")
+        await pg.wait_for_selector("#dats-update-dialog button[type=submit]:has-text('Update 4 systems')", timeout=15000)
+        ticks = [await pg.is_checked("#dats-from-redump"), await pg.is_checked("#dats-from-libretro"), await pg.is_checked('#dats-update-which input[value="have"]')]
+        await pg.screenshot(path=str(out / "72-update-dats.png"))
+        await pg.click("#dats-update-dialog button[type=submit]")
+        said = await toast_text(pg, "New DATs for|newest already")
+        await pg.wait_for_selector("#settings-dats-state:has-text('Last updated')", timeout=15000)
+        ps2_files = sorted(x.name for x in (library / "_library/dats/ps2").glob("*.dat"))
+        check("Update DATs… (Settings › DATs) brings the newest of each system's DATs, Redump's own for the disc systems, and keeps the versions before (D172)",
+              "4 systems have a DAT" in state and ticks == [True, True, True] and "New DATs for PlayStation 2" in said and "newest already" in said
+              and "PlayStation 5" in said and len(ps2_files) == 3, (state, ticks, said, ps2_files))
+
+        await pg.click("#settings-dats-link")
+        group = '#settings-dats .dat-group[data-platform="ps2"]'
+        await pg.wait_for_selector(f'{group} .dat-older > summary:has-text("2 older versions")', timeout=15000)
+        await pg.click(f"{group} .dat-older > summary")
+        await pg.click(f'{group} .dat-older li:has-text("2026-10-01 01-02-03") [data-action="use-dat"]')
+        await pg.wait_for_selector(f"{group} .dat-chosen", timeout=15000)
+        chosen = (json.loads((library / "_library/library.json").read_text()).get("dat_current") or {}).get("ps2/Sony - PlayStation 2", "")
+        await pg.screenshot(path=str(out / "73-dat-versions.png"))
+        await pg.click(f'{group} [data-action="use-newest"]')
+        await pg.wait_for_selector(f"{group} .dat-chosen", state="detached", timeout=15000)
+        unpinned = "ps2/Sony - PlayStation 2" not in (json.loads((library / "_library/library.json").read_text()).get("dat_current") or {})
+        in_use = " ".join((await pg.inner_text(f"{group} .dat-list > li > .dat-name")).split())
+        await pg.click(f"{group} .dat-older > summary")
+        await pg.click(f'{group} [data-action="remove-older"]')
+        await pg.click("#confirm-dialog button[type=submit]")
+        await toast_text(pg, "Removed 2 older versions")
+        left = sorted(x.name for x in (library / "_library/dats/ps2").glob("*.dat"))
+        check("a DAT's older versions are folded under the one in use: Use this version keeps one (Chosen), Use the newest goes back to the newest as they come, and Remove them… deletes the rest (D173)",
+              "2026-10-01" in chosen and unpinned and "2026-10-20 01-02-03" in in_use and left == ["Sony - PlayStation 2 (2026-10-20 01-02-03).dat"], (chosen, unpinned, in_use, left))
     finally:
         srv.shutdown()
 

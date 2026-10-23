@@ -855,17 +855,28 @@ pub(crate) fn load(conn: &Connection, rel: &str, platform: &str, dat: &Dat) -> R
     Ok(dat_id)
 }
 
-/// Make each DAT's newest version current, unless another was chosen (library.json `dat_current`).
-pub fn update_current(conn: &Connection, lib: &Library) -> Result<()> {
-    let chosen = lib.meta()["dat_current"].as_object().cloned().unwrap_or_default();
+/// Every DAT as (id, "<platform>/<name>", its file, version), each one's versions oldest
+/// first, so the newest is last: an undated DAT counts as the oldest (review M14), and
+/// libretro's copies come before No-Intro's and Redump's own, whatever their dates (D167).
+fn in_order(conn: &Connection) -> Result<Vec<(i64, String, String, String)>> {
     let mut q = conn.prepare("SELECT id, platform, name, version, imported, source_path FROM dats ORDER BY platform, name, version != 'undated', version, imported")?;
     let mut rows: Vec<(i64, String, String, String)> = q
         .query_map([], |r| Ok((r.get(0)?, format!("{}/{}", r.get::<_, String>(1)?, r.get::<_, String>(2)?), r.get(5)?, r.get(3)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    // libretro's copies before No-Intro's and Redump's own, whatever their dates (D167)
     rows.sort_by_key(|(_, lineage, _, version)| (lineage.clone(), version != "undated", !libretro_copy(version)));
-    // rows are in version order, so the newest is last (an undated DAT counts as the oldest,
-    // review M14); a chosen version wins while it's there
+    Ok(rows)
+}
+
+/// Each DAT's newest version, by `<platform>/<name>`: the one used unless another is chosen.
+pub fn newest(conn: &Connection) -> Result<HashMap<String, i64>> {
+    Ok(in_order(conn)?.into_iter().map(|(id, lineage, _, _)| (lineage, id)).collect())
+}
+
+/// Make each DAT's newest version current, unless another was chosen (library.json `dat_current`).
+pub fn update_current(conn: &Connection, lib: &Library) -> Result<()> {
+    let chosen = lib.meta()["dat_current"].as_object().cloned().unwrap_or_default();
+    let rows = in_order(conn)?;
+    // the newest is last; a chosen version wins while it's there
     let mut current: HashMap<&str, (i64, bool)> = HashMap::new();
     for (id, lineage, src, _) in &rows {
         let pinned = chosen.get(lineage).and_then(Value::as_str) == Some(src.as_str());
@@ -899,14 +910,20 @@ pub fn libretro_copy(version: &str) -> bool {
     b.len() == 10 && b.iter().enumerate().all(|(i, c)| if i == 4 || i == 7 { *c == b'.' } else { c.is_ascii_digit() })
 }
 
-/// Make DAT `id` its platform's current version of that DAT.
+/// Make DAT `id` its platform's current version of that DAT. An older one is kept as the
+/// choice, whatever comes later; the newest isn't (D173): newer ones are used as they come.
 pub fn use_version(ix: &Index, lib: &Library, id: i64) -> Result<()> {
     let (platform, name, src): (String, String, String) = ix
         .conn()
         .query_row("SELECT platform, name, source_path FROM dats WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
         .map_err(|_| anyhow!("There's no DAT {id}."))?;
+    let lineage = format!("{platform}/{name}");
     let mut chosen = lib.meta()["dat_current"].as_object().cloned().unwrap_or_default();
-    chosen.insert(format!("{platform}/{name}"), json!(src));
+    if newest(ix.conn())?.get(&lineage) == Some(&id) {
+        chosen.remove(&lineage);
+    } else {
+        chosen.insert(lineage, json!(src));
+    }
     lib.update_meta(json!({ "dat_current": chosen }))?;
     update_current(ix.conn(), lib)?;
     crate::audit::changed(ix.conn())
@@ -1010,24 +1027,30 @@ pub fn sync_library(ix: &Index, lib: &Library) -> Result<()> {
     Ok(())
 }
 
-/// The imported DATs, grouped as the page lists them.
+/// The imported DATs, grouped as the page lists them: each DAT's versions newest first (as
+/// they're weighed), with `newest`, the one used unless another is chosen (D173).
 pub fn list(ix: &Index) -> Result<Value> {
-    let mut q = ix.conn().prepare(
-        "SELECT id, platform, name, version, description, author, source_path, imported, current, games, roms FROM dats ORDER BY platform, name, version != 'undated' DESC, version DESC",
-    )?;
-    let rows: Vec<Value> = q
+    let newest = newest(ix.conn())?;
+    let place: HashMap<i64, usize> = in_order(ix.conn())?.iter().enumerate().map(|(i, r)| (r.0, i)).collect();
+    let mut q = ix.conn().prepare("SELECT id, platform, name, version, description, author, source_path, imported, current, games, roms FROM dats")?;
+    let mut rows: Vec<(String, String, usize, Value)> = q
         .query_map([], |r| {
+            let id: i64 = r.get(0)?;
             let platform: String = r.get(1)?;
-            Ok(json!({
-                "id": r.get::<_, i64>(0)?, "platform_name": platforms::name_of(&platform), "platform": platform,
-                "name": r.get::<_, String>(2)?, "version": r.get::<_, String>(3)?, "description": r.get::<_, Option<String>>(4)?,
+            let name: String = r.get(2)?;
+            let v = json!({
+                "id": id, "platform_name": platforms::name_of(&platform), "platform": platform,
+                "name": name, "version": r.get::<_, String>(3)?, "description": r.get::<_, Option<String>>(4)?,
                 "author": r.get::<_, Option<String>>(5)?, "path": r.get::<_, String>(6)?, "imported": r.get::<_, String>(7)?,
                 "current": r.get::<_, i64>(8)? == 1, "games": r.get::<_, i64>(9)?, "roms": r.get::<_, i64>(10)?,
                 "libretro": libretro_copy(&r.get::<_, String>(3)?),
-            }))
+                "newest": newest.get(&format!("{platform}/{name}")) == Some(&id),
+            });
+            Ok((platform, name, place.get(&id).copied().unwrap_or(0), v))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    Ok(json!(rows))
+    rows.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)).then(b.2.cmp(&a.2)));
+    Ok(json!(rows.into_iter().map(|r| r.3).collect::<Vec<_>>()))
 }
 
 #[cfg(test)]

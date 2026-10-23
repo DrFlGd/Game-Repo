@@ -1380,6 +1380,12 @@ svg g[data-sk="classic"] { display: inline; }
 .dat-group-head { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; }
 .dat-group-head h3 { margin: 0; }
 .dat-name .badge { margin-left: 6px; }
+/* a DAT's other versions, folded under the one in use (D173) */
+.dat-older { flex: 1 0 100%; margin: 2px 0 0; padding-left: 14px; border-left: 2px solid var(--steel); }
+.dat-older > summary { cursor: pointer; font-size: 13px; color: var(--graphite); padding: 2px 0; }
+.dat-older > .dat-list { margin: 4px 0; }
+.dat-older > [data-action="remove-older"] { font-size: 13px; margin: 2px 0 6px; }
+.dats-update-set { display: grid; gap: 6px; border: 0; padding: 0; margin: 0 0 12px; min-width: 0; }
 .platform-pick { display: flex; gap: 8px; flex-wrap: wrap; }
 .audit-page { display: grid; gap: 12px; align-content: start; }
 .audit-pick { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
