@@ -1114,7 +1114,8 @@ async def addons_by_name(pg, base, home, library):
           ticked and "2" in counted and alone == ["n3ds/Alpha (USA)"]
           and apart == [["n3ds/Alpha (USA)", "", ""], ["n3ds/Alpha (USA) [0004000E00055D00][v1024]", "update", "Update v1024"], ["n3ds/Alpha - Bonus Pack (USA) [DLC]", "dlc", "DLC"]]
           and "apart=1" in pg.url, (ticked, counted, alone, apart, pg.url))
-    await pg.dblclick('.lib-tile[data-addon="update"]')
+    # (a double-click would open the panel, which moves the tiles under the second click)
+    await pg.goto(base + "#/game/n3ds/" + urllib.parse.quote("Alpha (USA) [0004000E00055D00][v1024]"))
     await pg.wait_for_selector("#game-addon-of", timeout=15000)
     of = " ".join((await pg.inner_text("#game-addon-of")).split())
     await pg.click("#game-addon-of a")
