@@ -62,7 +62,7 @@ const HELP = {
   matched: "Files that match the DAT and are named as it names them.",
   misnamed: "Files that match the DAT under another name.",
   baddump: "Files named as one of the DAT's files that don't match it: likely corrupt, trimmed or patched copies.",
-  unknown: "Files of this system that no DAT for it knows, each with the game it's likely a variant of. They stay out of the Library until they're added as variants or games of their own.",
+  unknown: "Files of this system that no DAT for it knows, each with the game it's likely a variant of, or the game an update or DLC belongs to by its name. They stay out of the Library until they're added as variants, updates and DLC, or games of their own.",
   unknown_arcade: "Files of this system that no DAT for it knows: hacks, bootlegs or files for another system.",
   variants: "Translations, hacks, prototypes and games no DAT lists, kept in the system's custom DAT. Each shows under its own name, with its tags and its original's details and pictures.",
   duplicates: "More than one file for the same file of the DAT. Setting them aside keeps the copy that's named right (or the first).",

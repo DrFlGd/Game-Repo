@@ -1375,7 +1375,12 @@ impl App {
                 let (platform, addon) = (arg(&args, "platform").map_err(e2s)?.to_string(), arg(&args, "addon").map_err(e2s)?.to_string());
                 let base = args["base"].as_str().map(String::from);
                 let clear = args["clear"].as_bool().unwrap_or(false);
-                self.with_index(move |ix| crate::addons::set(ix.conn(), &lib, &platform, &addon, base.as_deref(), clear)).await?;
+                // and the system's rows made again, so an add-on's own row and page show its game (D163)
+                self.with_index(move |ix| {
+                    crate::addons::set(ix.conn(), &lib, &platform, &addon, base.as_deref(), clear)?;
+                    crate::browse::refresh(ix, &lib)
+                })
+                .await?;
                 j(json!({ "ok": true }))
             }
             "browse_edit" => {

@@ -384,16 +384,29 @@ pub fn search(conn: &Connection, lib: &Library, platform: &str, text: &str, limi
 }
 
 /// Audit's *Unknown* list for a main DAT, each file with its suggested originals and its
-/// tags (D120, D123).
+/// tags (D120, D123); a file whose name says it's an update, DLC or patch with its kind and
+/// the game its name says it belongs to (D162).
 pub fn annotate(conn: &Connection, dat_id: i64, items: &mut [Value]) -> Result<()> {
     if items.is_empty() || is_custom(conn, dat_id)? {
         return Ok(());
     }
     let t = Titles::of(conn, dat_id)?;
+    let mut bases: Option<crate::addons::Bases> = None;
     for it in items.iter_mut() {
         let file = it["name"].as_str().unwrap_or("").to_string();
         let stem = stem(&file);
-        it["suggested"] = json!(t.suggest(&stem, it["size"].as_i64()));
+        let mut suggested = t.suggest(&stem, it["size"].as_i64());
+        if let Some(kind) = crate::addons::kind_of(&stem, false) {
+            it["addon"] = json!(kind);
+            if bases.is_none() {
+                bases = Some(crate::addons::Bases::of(conn, dat_id)?);
+            }
+            if let Some(b) = bases.as_ref().and_then(|b| b.find(&stem)) {
+                suggested.retain(|s| s["name"] != b.as_str());
+                suggested.insert(0, json!({ "name": b, "how": kind }));
+            }
+        }
+        it["suggested"] = json!(suggested);
         it["tags"] = json!(tags_of(&stem));
         it["title"] = json!(split_name(&stem).0);
     }
@@ -641,7 +654,9 @@ pub fn add(ix: &Index, lib: &Library, platform: &str, adds: &[Add]) -> Result<Va
         bail!("Those files are in the custom DAT already.");
     }
     let id = write(ix, lib, platform, &d, true)?;
-    let taken = take_named(ix, lib, id, &names)?;
+    // an update or DLC is shown with its game, so it doesn't take the game's details (D162)
+    let variants: Vec<String> = names.iter().filter(|n| crate::addons::kind_of(n, false).is_none()).cloned().collect();
+    let taken = take_named(ix, lib, id, &variants)?;
     Ok(json!({ "dat": id, "added": names, "taken": taken, "name": dat_name(platform) }))
 }
 
@@ -788,12 +803,13 @@ pub fn original_of(conn: &Connection, lib: &Library, variant: i64) -> Result<Opt
     Ok(conn.query_row("SELECT id FROM dat_games WHERE dat_id = ?1 AND name = ?2 ORDER BY id LIMIT 1", params![main, original], |r| r.get(0)).optional()?)
 }
 
-/// The variants of a main DAT's game (their DAT games' ids and names).
+/// The variants of a main DAT's game (their DAT games' ids and names), not its updates and
+/// DLC (D162).
 pub fn variants_of(conn: &Connection, platform: &str, original: &str) -> Result<Vec<(i64, String)>> {
     let Some(c) = custom_dat(conn, platform)? else { return Ok(vec![]) };
     let mut q = conn.prepare("SELECT id, name FROM dat_games WHERE dat_id = ?1 AND cloneof = ?2 ORDER BY name")?;
-    let v = q.query_map(params![c, original], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
-    Ok(v)
+    let v: Vec<(i64, String)> = q.query_map(params![c, original], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+    Ok(v.into_iter().filter(|(_, n)| crate::addons::kind_of(n, false).is_none()).collect())
 }
 
 /// The title a variant shows: `title` with its name's tags after it, unless it has them.
@@ -1034,6 +1050,49 @@ mod tests {
         assert_eq!(names(&f, main, "unknown"), Vec::<String>::new());
         assert!(tag_list(f.ix.conn(), &f.lib).unwrap().iter().any(|t| t == "Unreleased"), "tags used join the list");
         assert!(add(&f.ix, &f.lib, "gba", &[Add { files: vec![eden["id"].as_i64().unwrap()], name: "Tetris Worlds (USA)".into(), original: None }]).is_err(), "a main DAT game's name is taken");
+    }
+
+    #[test]
+    fn an_unknown_update_or_dlc_is_suggested_for_its_game_and_added_as_its_add_on() {
+        let f = fixture("variants-addons");
+        let gba = f.dir.join("Roms/GBA");
+        write(&gba.join("Tetris Worlds (USA).gba"), &rom(50, 1024));
+        write(&gba.join("Tetris Worlds [UPD][v2].gba"), &rom(51, 512));
+        write(&gba.join("Alpha Quest - Bonus Levels [DLC].gba"), &rom(52, 256));
+        let dat = crate::audit::tests::dat_xml("Nintendo - Game Boy Advance", "20261001", &[
+            ("Tetris Worlds (USA)", None, rom_xml("Tetris Worlds (USA).gba", &rom(50, 1024))),
+            ("Alpha Quest (Europe)", None, rom_xml("Alpha Quest (Europe).gba", &rom(53, 1024))),
+        ]);
+        write(&f.dir.join("dats/gba.dat"), dat.as_bytes());
+        run_scan(&f, false);
+        let main = import(&f, "gba.dat")[0]["id"].as_i64().unwrap();
+        // D162: each is said to be an update or DLC of the game its name starts with
+        let l = audit::list(&f.ix, &f.lib, main, "unknown", "", 0, 100).unwrap();
+        let item = |start: &str| l["items"].as_array().unwrap().iter().find(|i| i["name"].as_str().unwrap().starts_with(start)).unwrap().clone();
+        let (upd, dlc) = (item("Tetris"), item("Alpha"));
+        assert_eq!((upd["addon"].as_str(), upd["suggested"][0]["name"].as_str(), upd["suggested"][0]["how"].as_str()), (Some("update"), Some("Tetris Worlds (USA)"), Some("update")), "{upd}");
+        assert_eq!((dlc["addon"].as_str(), dlc["suggested"][0]["name"].as_str()), (Some("dlc"), Some("Alpha Quest (Europe)")), "{dlc}");
+        // added as it suggests, under their own names: they're the games' add-ons, not variants
+        let r = add(&f.ix, &f.lib, "gba", &[
+            Add { files: vec![upd["id"].as_i64().unwrap()], name: "Tetris Worlds [UPD][v2]".into(), original: Some("Tetris Worlds (USA)".into()) },
+            Add { files: vec![dlc["id"].as_i64().unwrap()], name: "Alpha Quest - Bonus Levels [DLC]".into(), original: Some("Alpha Quest (Europe)".into()) },
+        ])
+        .unwrap();
+        assert_eq!(r["taken"], 0, "{r}");
+        assert!(variants_of(f.ix.conn(), "gba", "Tetris Worlds (USA)").unwrap().is_empty());
+        let links = crate::addons::links(f.ix.conn(), &f.lib, "gba").unwrap();
+        let base = |n: &str| links.iter().find(|l| l.name == n).and_then(|l| l.base.clone());
+        assert_eq!(base("Tetris Worlds [UPD][v2]").as_deref(), Some("Tetris Worlds (USA)"));
+        assert_eq!(base("Alpha Quest - Bonus Levels [DLC]").as_deref(), Some("Alpha Quest (Europe)"));
+        // the Library counts the update with its game, and lists it on its own only when asked
+        crate::browse::refresh(&f.ix, &f.lib).unwrap();
+        let rows = |apart: bool| {
+            let q = crate::browse::Query { addons_apart: apart, limit: 50, ..Default::default() };
+            let found = crate::browse::query(&f.ix, &f.lib, &q).unwrap();
+            found["items"].as_array().unwrap().iter().map(|g| (g["name"].as_str().unwrap().to_string(), g["addons"].as_i64().unwrap())).collect::<Vec<_>>()
+        };
+        assert_eq!(rows(false), [("Tetris Worlds (USA)".to_string(), 1)]);
+        assert_eq!(rows(true), [("Alpha Quest - Bonus Levels [DLC]".to_string(), 0), ("Tetris Worlds (USA)".to_string(), 1), ("Tetris Worlds [UPD][v2]".to_string(), 0)]);
     }
 
     #[test]

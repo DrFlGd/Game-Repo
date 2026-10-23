@@ -392,7 +392,7 @@ fn weigh(w: &[String], have: bool) -> Option<bool> {
 
 impl Titles {
     pub fn of(conn: &Connection) -> Result<Titles> {
-        let mut q = conn.prepare("SELECT key, platform, title, name, have FROM library ORDER BY have DESC, CASE WHEN have THEN best_have ELSE best_all END DESC, sort")?;
+        let mut q = conn.prepare("SELECT key, platform, title, name, have FROM library WHERE addon = '' ORDER BY have DESC, CASE WHEN have THEN best_have ELSE best_all END DESC, sort")?;
         let mut t = Titles { by_words: HashMap::new(), games: vec![], longest: 0 };
         let mut rows = q.query([])?;
         while let Some(r) = rows.next()? {

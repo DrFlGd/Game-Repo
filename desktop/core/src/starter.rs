@@ -71,10 +71,16 @@ pub fn get(ix: &Index, lib: &Library, source: &str, only: &[String], again: bool
             skipped.push(json!(p.id));
             continue;
         }
-        // the DAT's name has changed over the years: try each
+        // the DAT's name has changed over the years: try each, in the folder its kind of
+        // system is likely in, then the other (D164: libretro keeps 3DS's and Vita's with
+        // No-Intro's, Xbox 360's with Redump's)
         let mut found = false;
-        let from = if platforms::is_disc(p.id) { &redump } else { &base };
-        for name in p.dat_names {
+        let mut folders = if platforms::is_disc(p.id) { vec![&redump, &base] } else { vec![&base, &redump] };
+        if redump == base || p.id == crate::bios::ID {
+            folders.truncate(1);
+        }
+        let tries = folders.into_iter().flat_map(|from| p.dat_names.iter().map(move |name| (from, name)));
+        for (from, name) in tries {
             let url = if p.id == crate::bios::ID { format!("{db}dat/System.dat") } else { format!("{from}{}.dat", encode(name)) };
             match fetch(&url) {
                 Ok(Some(bytes)) => {
@@ -86,7 +92,8 @@ pub fn get(ix: &Index, lib: &Library, source: &str, only: &[String], again: bool
                     }
                     match crate::dat::import_bytes(ix, lib, &bytes, &format!("{name}.dat"), &answers) {
                         Ok(crate::dat::Imported::Loaded(v)) => {
-                            discs |= platforms::is_disc(p.id);
+                            // (the note is about libretro's copies of Redump's)
+                            discs |= from == &redump && platforms::is_disc(p.id);
                             imported.push(v)
                         }
                         Ok(_) => failed.push(json!({ "platform": p.id, "error": "its system couldn't be worked out" })),
@@ -155,16 +162,18 @@ mod tests {
             ("/no-intro/Nintendo%20-%20Game%20Boy.dat".into(), gb),
             ("/no-intro/Atari%20-%202600.dat".into(), a26),
             ("/redump/The%203DO%20Company%20-%203DO.dat".into(), dat_xml("The 3DO Company - 3DO", "2026.10.07", &[("C (USA)", None, rom_xml("C (USA).bin", &rom(3, 64)))])),
+            // D164: an audited-only system's DAT where libretro keeps it, with No-Intro's
+            ("/no-intro/Nintendo%20-%20Nintendo%203DS.dat".into(), dat_xml("Nintendo - Nintendo 3DS", "20261001", &[("D (USA)", None, rom_xml("D (USA).3ds", &rom(4, 64)))])),
         ]);
-        let only = vec!["gb".to_string(), "atari2600".to_string(), "vectrex".to_string(), "3do".to_string()];
+        let only = vec!["gb".to_string(), "atari2600".to_string(), "vectrex".to_string(), "3do".to_string(), "n3ds".to_string(), "switch".to_string()];
         let r = get(&ix, &lib, &base, &only, false, &AtomicBool::new(false), &mut |_| {}).unwrap();
-        assert_eq!(r["imported"].as_array().unwrap().len(), 3, "{r}");
-        assert_eq!(r["missing"], json!(["vectrex"]));
+        assert_eq!(r["imported"].as_array().unwrap().len(), 4, "{r}");
+        assert_eq!(r["missing"], json!(["vectrex", "switch"]));
         assert_eq!(r["note"], json!(DISC_NOTE), "disc DATs come from redump/ beside no-intro/");
         assert!(lib.root().join("_library/dats/gb/Nintendo - Game Boy (20261001).dat").is_file());
         // a platform that has a DAT is left alone unless asked again
         let again = get(&ix, &lib, &base, &only, false, &AtomicBool::new(false), &mut |_| {}).unwrap();
-        assert_eq!(again["skipped"].as_array().unwrap().len(), 3);
+        assert_eq!(again["skipped"].as_array().unwrap().len(), 4);
         assert!(lib.meta()["dat_platforms"].is_null(), "nothing needed remembering");
         let _ = std::fs::remove_dir_all(&dir);
     }
