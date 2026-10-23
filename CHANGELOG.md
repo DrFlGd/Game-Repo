@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.52 (2026-10-23)
+
 - **A game on several discs is one game.** The Library shows it once, titled without the disc and marked *2 discs* (or more); its page lists each disc, had or missing, and all their files. Of the games you have, one per title picks a game with every disc over one missing some.
 - **Collections take every disc.** Adding a game on several discs to a collection, by its rules or by hand, takes all its discs, and leaving it out takes them all out. Adding an update or DLC adds its game, and a collection lists its updates and DLC with their game when *Updates and DLC with their game* is unticked. Exports lay discs out as before.
 - **A CHD per disc, kept with a playlist.** Converting a game on several discs to CHD converts every disc and writes an `.m3u` beside the CHDs listing them, which the emulators open as one game. Audit doesn't list the playlist as unknown, and Undo takes it away.
