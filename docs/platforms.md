@@ -92,6 +92,7 @@ Where Redump has renamed a DAT, both names are listed; libretro's copies use the
 | `switch` | Nintendo Switch | Nintendo - Nintendo Switch | Switch, NSW, Nintendo Switch | **.nsp**, **.xci**, **.nsz**, **.xcz** | audited only; updates and DLC tied to their game (D66) |
 | `ps3` | PlayStation 3 | Sony - PlayStation 3 | PS3, PlayStation 3, Sony PlayStation 3 | .iso, .pkg | audited only; updates and DLC tied to their game (D66) |
 | `ps4` | PlayStation 4 | Sony - PlayStation 4 | PS4, PlayStation 4, Sony PlayStation 4 | .pkg | audited only; updates and DLC tied to their game (D66) |
+| `ps5` | PlayStation 5 | Sony - PlayStation 5 | PS5, PlayStation 5, Sony PlayStation 5 | .iso, .pkg | audited only (D165); updates and DLC tied to their game (D66) |
 | `psvita` | PlayStation Vita | Sony - PlayStation Vita | PS Vita, PSVita, Vita, PlayStation Vita, Sony PlayStation Vita | **.vpk**, .pkg | audited only; updates and DLC tied to their game (D66) |
 | `xbox360` | Xbox 360 | Microsoft - Xbox 360 | Xbox 360, X360, Microsoft Xbox 360 | .iso, **.xex** | audited only; updates and DLC tied to their game (D66) |
 | `mame` | Arcade (MAME) | MAME (any DAT whose name starts with MAME, and MAME's own `-listxml`) | MAME, Arcade | .zip, .7z, .chd | arcade (Phase 7): ZIPs by set type |
@@ -99,6 +100,13 @@ Where Redump has renamed a DAT, both names are listed; libretro's copies use the
 
 `.cue`, `.bin`, `.iso` and `.chd` belong to several disc platforms, so a disc set is
 found by its DAT match or its folder name.
+
+## Redump's own DATs (D167)
+
+*Get Redump's DATs…* and *Add a system…* download a disc system's DAT from redump.org's
+`/datfile/<system>/` (`platforms::redump_slug`): `psx`, `ps2`, `ps3`, `ps4`, `ps5`, `psp`,
+`ss` (Saturn), `mcd` (Sega CD), `dc` (Dreamcast), `pce` (PC Engine CD), `ngcd`, `3do`,
+`pc-fx`, `ajcd` (Jaguar CD), `cdi`, `gc`, `wii`, `wiiu`, `xbox` and `xbox360`.
 
 ## Systems added by hand (Phase 3, D22)
 

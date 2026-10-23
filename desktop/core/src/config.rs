@@ -54,6 +54,9 @@ pub struct AppConfig {
     /// Where starter DATs are downloaded from, when not libretro's copy (crate::starter::SOURCE).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dat_source: Option<String>,
+    /// Where Redump's own DATs are downloaded from, when not redump.org (crate::redump::SOURCE)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redump_source: Option<String>,
     /// Where each external tool is, when set in Settings › Tools (crate::tools)
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub tools: std::collections::BTreeMap<String, PathBuf>,

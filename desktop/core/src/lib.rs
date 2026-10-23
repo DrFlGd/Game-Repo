@@ -68,6 +68,7 @@ pub mod organise;
 pub mod pcgames;
 pub mod pcmeta;
 pub mod platforms;
+pub mod redump;
 pub mod roots;
 pub mod scan;
 pub mod scrape;

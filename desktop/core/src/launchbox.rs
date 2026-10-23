@@ -75,6 +75,7 @@ pub fn platform_names(id: &str) -> Vec<String> {
         "switch" => &["Nintendo Switch"],
         "ps3" => &["Sony Playstation 3"],
         "ps4" => &["Sony Playstation 4"],
+        "ps5" => &["Sony Playstation 5"],
         "psvita" => &["Sony Playstation Vita"],
         "xbox360" => &["Microsoft Xbox 360"],
         _ => &[],

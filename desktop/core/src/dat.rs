@@ -859,9 +859,11 @@ pub(crate) fn load(conn: &Connection, rel: &str, platform: &str, dat: &Dat) -> R
 pub fn update_current(conn: &Connection, lib: &Library) -> Result<()> {
     let chosen = lib.meta()["dat_current"].as_object().cloned().unwrap_or_default();
     let mut q = conn.prepare("SELECT id, platform, name, version, imported, source_path FROM dats ORDER BY platform, name, version != 'undated', version, imported")?;
-    let rows: Vec<(i64, String, String, String)> = q
+    let mut rows: Vec<(i64, String, String, String)> = q
         .query_map([], |r| Ok((r.get(0)?, format!("{}/{}", r.get::<_, String>(1)?, r.get::<_, String>(2)?), r.get(5)?, r.get(3)?)))?
         .collect::<rusqlite::Result<_>>()?;
+    // libretro's copies before No-Intro's and Redump's own, whatever their dates (D167)
+    rows.sort_by_key(|(_, lineage, _, version)| (lineage.clone(), version != "undated", !libretro_copy(version)));
     // rows are in version order, so the newest is last (an undated DAT counts as the oldest,
     // review M14); a chosen version wins while it's there
     let mut current: HashMap<&str, (i64, bool)> = HashMap::new();
@@ -886,6 +888,15 @@ pub fn update_current(conn: &Connection, lib: &Library) -> Result<()> {
     }
     tx.commit()?;
     Ok(())
+}
+
+/// Whether a DAT's version is libretro's (`2026.10.07`): its copies of No-Intro's and
+/// Redump's DATs are dated so, and theirs aren't (`20261001-123456`, `2026-10-01 01-02-03`).
+/// One of theirs is used before libretro's copy of it (D167): libretro's copies of Redump's
+/// list one track of each disc, and their dates would otherwise decide.
+pub fn libretro_copy(version: &str) -> bool {
+    let b = version.as_bytes();
+    b.len() == 10 && b.iter().enumerate().all(|(i, c)| if i == 4 || i == 7 { *c == b'.' } else { c.is_ascii_digit() })
 }
 
 /// Make DAT `id` its platform's current version of that DAT.
@@ -1012,6 +1023,7 @@ pub fn list(ix: &Index) -> Result<Value> {
                 "name": r.get::<_, String>(2)?, "version": r.get::<_, String>(3)?, "description": r.get::<_, Option<String>>(4)?,
                 "author": r.get::<_, Option<String>>(5)?, "path": r.get::<_, String>(6)?, "imported": r.get::<_, String>(7)?,
                 "current": r.get::<_, i64>(8)? == 1, "games": r.get::<_, i64>(9)?, "roms": r.get::<_, i64>(10)?,
+                "libretro": libretro_copy(&r.get::<_, String>(3)?),
             }))
         })?
         .collect::<rusqlite::Result<_>>()?;

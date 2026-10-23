@@ -5663,6 +5663,59 @@ in the sort indexes, so a page of games is still read from an index alone), fill
 `Query.addons_apart` shows them; the facets count them as `addons_apart`. `addon_link` makes
 the system's rows again. `starter::get` tries both folders.
 
+### Adding a system, PlayStation 5 and Redump's own DATs (D165–D167)
+
+Jerred, 2026-10-23: PlayStation 3, 4 and 5 and Xbox 360 are missing; add them, with an *Add
+system* option offering ways to make one, from a folder or by uploading a DAT; and add Redump
+as a second source of DATs for the disc systems, downloaded from the app as libretro's are.
+PS3, PS4 and Xbox 360 were built in (D66) but, like Switch, show only once they have a DAT;
+PS5 wasn't. D165–D167 are Claude's defaults, followed unless he says otherwise. One pull
+request.
+
+**D165 PlayStation 5 built in.** `ps5`, audited only like PS4 (DAT *Sony - PlayStation 5*;
+folders PS5, PlayStation 5; `.iso` and `.pkg`, shared with others, so a file is found by its
+DAT or folder). ScreenScraper 284, IGDB 167, TheGamesDB 4980, LaunchBox *Sony Playstation 5*.
+ES-DE has no PS5 system, so an export puts its games in a `ps5` folder.
+
+**D166 Add a system….** On Home's Systems, Audit's ribbon (+) and ⋯ menu and its first page,
+Import › DAT files, and Settings › Systems. Choose the system, the ones with no DAT yet first
+(PS3, PS4, PS5, Xbox 360, Switch among them), those with one (to add another DAT) after, or *A
+system Game Repo doesn't know…* (its name, folder name and what its games are on, with its DAT
+names, folders and extensions folded under). Then where its DAT comes from:
+- *Download its DAT*: libretro's copy (as *Get starter DATs*, though it has one already), or
+  Redump's own for a disc system (D167). Only for the systems the app knows.
+- *From a DAT file*: a `.dat`, `.xml` or `.zip`, imported for that system whatever its name
+  says, and remembered so its next version is found.
+- *From a folder of its games*: a folder already in the folders with games, or one added for
+  this system; it's scanned and a DAT made of it (*Make a DAT from a folder*, named "My
+  PlayStation 5 games" unless changed) and imported for it.
+- *Nothing yet*, for a new system only: added as Settings › Systems added one before.
+When its DAT is in, its Audit page opens. Settings › Systems' *Add a system…* is this dialog
+too, at *A system Game Repo doesn't know…*; *Change…* keeps the form it had.
+
+**D167 Redump's own DATs.** *Get Redump's DATs…* (Import › DAT files) downloads the DATs of the
+disc systems ticked (those with a DAT are ticked at first) from redump.org, as its Downloads
+page gives them (`/datfile/<system>/`, a ZIP), and imports them. Redump's change most days, so
+each ticked is downloaded again; a version already imported is kept. One Redump gives only to
+people signed in is said so, to download it there and import it. Their full DAT (every track
+of each disc) is used before libretro's one-track copy, whatever the dates: libretro's copies
+are dated `2026.10.07`, No-Intro's and Redump's are not, so of DATs with one name, theirs come
+after libretro's when the newest is chosen (a version chosen by hand still wins). This also
+makes a Redump or No-Intro DAT imported by hand win over libretro's copy, which the dates
+alone didn't always. The DAT list says which is libretro's copy, and a disc system's Audit
+page whose DAT is libretro's copy offers *Get Redump's own…*. The address is `redump_source`
+in config.json on each computer (`http://redump.org/datfile/` unless set). Systems with
+Redump's DATs: PlayStation 1–5 and Portable, Saturn, Sega CD, Dreamcast, PC Engine CD, Neo
+Geo CD, 3DO, PC-FX, Jaguar CD, CD-i, GameCube, Wii, Wii U, Xbox and Xbox 360.
+
+**As built (2026-10-23).** `platforms.rs` has `ps5` and `redump_slug` (and `platforms` says
+`redump`); `redump.rs` downloads and imports (a ZIP's DATs read in memory, a page that isn't
+a DAT refused); `dat::libretro_copy` and `update_current`'s order; `roots::locate` and the
+`roots_locate` command find the folder with games a folder is in; `scan` takes `paths`;
+`dat redump [<platform>...]` on the command line. The dialog is `web/ui/addsystem.js`.
+redump.org couldn't be reached from the cloud session the change was made in, so its
+addresses are as its Downloads page and other tools give them, not tried here.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -5808,7 +5861,7 @@ the system's rows again. `starter::get` tries both folders.
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D165). D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D168). D165–D167 are in "Adding a system, PlayStation 5 and Redump's own DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -5880,5 +5933,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     Completed beside it and In progress highlighted.
 20. Updates and DLC by their names (D160–D164): scene tags and Switch, 3DS and Wii U title
     IDs, the game found by name, Unknown files added as add-ons, the Library's *Updates
-    and DLC with their game*, and starter DATs for 3DS and Vita. Later: 9d (the server on
-    the NAS, access away from home with Tailscale, muOS-style handhelds) and Android games.
+    and DLC with their game*, and starter DATs for 3DS and Vita.
+21. Adding a system, PlayStation 5 and Redump's own DATs (D165–D167): *Add a system…* from
+    a download, a DAT file or a folder, PS5 built in, *Get Redump's DATs…*. Later: 9d (the
+    server on the NAS, access away from home with Tailscale, muOS-style handhelds) and
+    Android games.

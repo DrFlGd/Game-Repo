@@ -81,6 +81,8 @@ pub static PLATFORMS: &[Platform] = &[
     p!("switch", "Nintendo Switch", ["Nintendo - Nintendo Switch"], ["Switch", "NSW", "Nintendo Switch"], ["nsp", "xci", "nsz", "xcz"]),
     p!("ps3", "PlayStation 3", ["Sony - PlayStation 3"], ["PS3", "PlayStation 3", "Sony PlayStation 3"], ["iso", "pkg"]),
     p!("ps4", "PlayStation 4", ["Sony - PlayStation 4"], ["PS4", "PlayStation 4", "Sony PlayStation 4"], ["pkg"]),
+    // D165: ES-DE has no PS5 system, so exports use this id as its folder
+    p!("ps5", "PlayStation 5", ["Sony - PlayStation 5"], ["PS5", "PlayStation 5", "Sony PlayStation 5"], ["iso", "pkg"]),
     p!("psvita", "PlayStation Vita", ["Sony - PlayStation Vita"], ["PS Vita", "PSVita", "Vita", "PlayStation Vita", "Sony PlayStation Vita"], ["vpk", "pkg"]),
     p!("xbox360", "Xbox 360", ["Microsoft - Xbox 360"], ["Xbox 360", "X360", "Microsoft Xbox 360"], ["iso", "xex"]),
     p!("mame", "Arcade (MAME)", ["MAME"], ["MAME", "Arcade"], []),
@@ -130,7 +132,7 @@ pub fn media(id: &str) -> Media {
         "psx" | "ps2" | "saturn" | "segacd" | "dreamcast" | "pcenginecd" | "neogeocd" | "3do" | "pcfx" | "atarijaguarcd" | "cdimono1" => Media::Cd,
         "gc" | "wii" => Media::Nintendo,
         "psp" => Media::Umd,
-        "xbox" | "n3ds" | "wiiu" | "switch" | "ps3" | "ps4" | "psvita" | "xbox360" => Media::AuditOnly,
+        "xbox" | "n3ds" | "wiiu" | "switch" | "ps3" | "ps4" | "ps5" | "psvita" | "xbox360" => Media::AuditOnly,
         "mame" | "fbneo" => Media::Arcade,
         _ => Media::Cartridge,
     }
@@ -138,6 +140,34 @@ pub fn media(id: &str) -> Media {
 
 pub fn is_disc(id: &str) -> bool {
     !matches!(media(id), Media::Cartridge | Media::Arcade)
+}
+
+/// Where redump.org keeps a disc system's DAT (`/datfile/<this>/`, D167): the systems
+/// Redump dumps that the app knows. A system added by hand has none.
+pub fn redump_slug(id: &str) -> Option<&'static str> {
+    Some(match id {
+        "psx" => "psx",
+        "ps2" => "ps2",
+        "ps3" => "ps3",
+        "ps4" => "ps4",
+        "ps5" => "ps5",
+        "psp" => "psp",
+        "saturn" => "ss",
+        "segacd" => "mcd",
+        "dreamcast" => "dc",
+        "pcenginecd" => "pce",
+        "neogeocd" => "ngcd",
+        "3do" => "3do",
+        "pcfx" => "pc-fx",
+        "atarijaguarcd" => "ajcd",
+        "cdimono1" => "cdi",
+        "gc" => "gc",
+        "wii" => "wii",
+        "wiiu" => "wiiu",
+        "xbox" => "xbox",
+        "xbox360" => "xbox360",
+        _ => return None,
+    })
 }
 
 /// A system whose games on several discs ES-DE shows as one, from a folder `<name>.m3u`
@@ -385,6 +415,7 @@ pub fn list() -> Value {
         .map(|p| json!({
             "id": p.id, "name": p.name, "dat": p.dat_names.first(), "dat_names": p.dat_names, "folders": p.folders, "exts": p.exts,
             "disc": is_disc(p.id), "formats": formats(p.id), "media": media(p.id).id(), "custom": is_custom(p.id),
+            "redump": redump_slug(p.id).is_some(),
         }))
         .collect::<Vec<_>>())
 }
@@ -409,6 +440,12 @@ mod tests {
         assert_eq!(id("Sega - Mega-CD - Sega CD"), Some("segacd"));
         assert_eq!(id("The 3DO Company - 3DO"), Some("3do"));
         assert_eq!(id("Nintendo - GameCube"), Some("gc"));
+        // D165: PS5 beside PS3 and PS4, and each with its Redump download (D167)
+        assert_eq!(id("Sony - PlayStation 5"), Some("ps5"));
+        assert_eq!(id("Sony - PlayStation 4"), Some("ps4"));
+        assert_eq!(media("ps5"), Media::AuditOnly);
+        assert_eq!((redump_slug("ps5"), redump_slug("saturn"), redump_slug("switch"), redump_slug("nes")), (Some("ps5"), Some("ss"), None, None));
+        assert!(PLATFORMS.iter().filter_map(|p| redump_slug(p.id).map(|_| p.id)).all(is_disc), "Redump's are disc systems");
         // arcade (D57)
         assert_eq!(id("MAME"), Some("mame"));
         assert_eq!(id("MAME 0.270 ROMs (non-merged)"), Some("mame"));

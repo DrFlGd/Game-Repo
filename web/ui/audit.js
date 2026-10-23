@@ -15,6 +15,7 @@ import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { api, toast, isDesktop, plural, shortPath } from "./library.js";
 import { importDats, starterDats, reveal, scan } from "./games.js";
+import { addSystemDialog, redumpDialog } from "./addsystem.js";
 import { CommandBar, SearchNote, SortMenu } from "./layout.js";
 import { useSidePanel, useRouteArg, argHash } from "./panels.js";
 import { organiseDialog, convertDialog, renameMisnamed, setAsideDuplicates } from "./organise.js";
@@ -261,6 +262,7 @@ export function Audit() {
   useSidePanel(systems?.length ? {
     id: "audit-panel", route: "audit", title: "Systems", icon: "audit", count: systems.length, current: all ? "" : sum?.dat?.platform,
     all: { label: "All systems", href: argHash("audit", "all"), icon: "table" },
+    actions: [{ id: "audit-add-system", label: "Add a system…", icon: "plus", disabled: !!s.library?.read_only, run: () => addSystemDialog() }],
     // one line each, the count beside the name (D74)
     items: systems.map((x) => ({ id: x.platform, label: x.platform_name, count: `${(x.have || 0).toLocaleString()} of ${(x.games || 0).toLocaleString()}`, href: argHash("audit", x.platform) })),
   } : null);
@@ -290,6 +292,7 @@ export function Audit() {
     { sep: true },
     // the imports are the Import page's (D78)
     { id: "add-game", label: "Import a game file…", icon: "plus", disabled: !!s.library?.read_only, run: () => importFrom("import-copy", () => addGameDialog({ platform: sum?.dat.platform && sum.dat.platform !== "pc" ? sum.dat.platform : "" })) },
+    { id: "add-system", label: "Add a system…", icon: "plus", disabled: !!s.library?.read_only, run: () => addSystemDialog() },
     { id: "make-dat", label: "Make a DAT from a folder…", icon: "stack", run: () => ui.set({ dialog: { type: "make-dat" } }) },
     ...(isDesktop() ? [{ id: "import-dats", label: "Import DATs…", icon: "plus", run: () => importFrom("settings-dats", () => importDats()) }] : []),
   ];
@@ -315,12 +318,13 @@ export function Audit() {
         <h2>To start</h2>
         <ol class="coming-list">
           <li>Add the folders your games are in: <a href=${routeHash("import")}>Import › Folders with games</a>.</li>
-          <li>Get the starter DATs (No-Intro's, from libretro's public copy), or import your own: a No-Intro daily pack, a single <code>.dat</code> or <code>.zip</code>.</li>
+          <li>Get the starter DATs (No-Intro's and Redump's, from libretro's public copy), or import your own: a No-Intro daily pack, a single <code>.dat</code> or <code>.zip</code>. Add a system… does one system at a time, from a download, a DAT file or a folder of its games.</li>
           <li>Scan. Each file is read once; a second scan only reads what changed.</li>
         </ol>
         <div class="home-actions">
           <button type="button" class="primary" id="audit-starter" disabled=${!!s.library?.read_only} onClick=${() => importFrom("settings-dats", () => starterDats())}>Get starter DATs…</button>
           ${isDesktop() ? html`<button type="button" class="ghost" id="audit-import" disabled=${!!s.library?.read_only} onClick=${() => importFrom("settings-dats", () => importDats())}>Import DATs…</button>` : null}
+          <button type="button" class="ghost" id="audit-empty-add-system" disabled=${!!s.library?.read_only} onClick=${() => addSystemDialog()}>Add a system…</button>
           <button type="button" class="ghost" disabled=${!!s.library?.read_only} onClick=${() => ui.set({ dialog: { type: "make-dat" } })}>Make a DAT from a folder…</button>
         </div>
       </section>
@@ -331,6 +335,8 @@ export function Audit() {
   const arc = sum.arcade;
   const n = (k) => (k === "sets" ? arc?.sets : k === "variants" ? data.variants?.games : sum[k]) || 0;
   const platformName = data.platforms.find((p) => p.id === sum.dat.platform)?.name;
+  // libretro's copy of a disc system's Redump DAT (its version `2026.10.07`, D167)
+  const libretroDisc = /^\d{4}\.\d{2}\.\d{2}$/.test(sum.dat.version || "") && !!ui.get().platforms?.find((p) => p.id === sum.dat.platform)?.redump;
   // (Unknown and Variants are the system's, not one DAT's: not there while another's lists are looked at)
   const tabs = (arc ? [...TABS, SETS_TAB] : [...TABS.slice(0, 3), VARIANTS_TAB, ...TABS.slice(3)]).filter(([k]) => !viewing || (k !== "unknown" && k !== "variants"));
   const shelf = (k) => GAME_TABS.includes(k) || k === "variants";
@@ -368,6 +374,8 @@ export function Audit() {
       ${data.also?.length && !viewing ? html`<p class="muted" id="audit-also">Also in Audit: ${data.also.map((a, i) => html`<span key=${a.dat.id} data-dat=${a.dat.name}>${i ? " · " : ""}${a.dat.name} (${a.dat.version}) <b>${(a.have || 0).toLocaleString()}</b> of ${(a.games || 0).toLocaleString()}${" "}<button type="button" class="linkish audit-also-view" onClick=${() => setViewing(a.dat.id)}>Show its lists</button></span>`)}</p>` : null}
       ${viewing && sum.dat.id === viewing ? html`<p class="warn-note" id="audit-viewing">These are the lists of ${sum.dat.name}, included in Audit for ${pName}.${" "}
         <button type="button" class="linkish" id="audit-viewing-back" onClick=${() => setViewing(null)}>Back to ${data.dats.find((d) => d.id === data.main)?.name || "the main DAT"}</button></p>` : null}
+      ${!viewing && libretroDisc ? html`<p class="muted" id="audit-libretro">This is libretro's copy of Redump's DAT, which lists one track of each disc: the other tracks and cue sheets show as unknown.${" "}
+        <button type="button" class="linkish" id="audit-get-redump" disabled=${!!s.library?.read_only} onClick=${() => redumpDialog([sum.dat.platform])}>Get Redump's own…</button></p>` : null}
       ${n("needs_tool") ? html`<p class="warn-note" id="audit-needs-tool">${plural(n("needs_tool"), "RVZ file waits", "RVZ files wait")} for dolphin-tool before ${n("needs_tool") === 1 ? "it" : "they"} can be checked. Set where it is in <a href=${routeHash("settings")}>Settings › Tools</a>, then scan.</p>` : null}
     </div>
     <div class="audit-tab-groups" id="audit-tabs" role="tablist">${[["Games", tabs.filter(([k]) => shelf(k))], ["Files", tabs.filter(([k]) => !shelf(k))]].map(([group, list]) => html`<div class="audit-tab-group" key=${group}>

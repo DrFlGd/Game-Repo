@@ -8,6 +8,7 @@ import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
 import { isDesktop, openLibrary, showLibraryFolder, checkIndex, plural, baseName } from "./library.js";
 import { refreshGames, scan, importDats, starterDats, repointRoot, addRoot } from "./games.js";
+import { addSystemDialog } from "./addsystem.js";
 import { CommandBar } from "./layout.js";
 import { argHash } from "./panels.js";
 import { Icon } from "./icons.js";
@@ -40,6 +41,7 @@ function PlatformsCard({ home, off }) {
     <div class="home-actions">
       ${isDesktop() ? html`<button type="button" class="ghost" id="home-import" disabled=${off} title=${off ? "This library is open read-only" : null} onClick=${() => importFrom("settings-dats", () => importDats())}>Import DATs…</button>` : null}
       ${bars.length ? null : html`<button type="button" class="primary" id="home-starter" disabled=${off} title=${off ? "This library is open read-only" : null} onClick=${() => importFrom("settings-dats", () => starterDats())}>Get starter DATs…</button>`}
+      <button type="button" class="ghost" id="home-add-system" disabled=${off} title=${off ? "This library is open read-only" : "A system without a DAT yet, or one Game Repo doesn't know: its DAT downloaded, from a file or made from a folder"} onClick=${() => addSystemDialog()}>Add a system…</button>
       <a class="ghost button-link" href=${routeHash("audit")}>Open the audit</a>
     </div>
   </section>`;
