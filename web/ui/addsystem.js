@@ -3,13 +3,13 @@
 // Redump's own for a disc system, D167), from a DAT file you have, or made from a folder
 // of its games. Get Redump's DATs… (D167) is here too: Redump's own DATs for the disc
 // systems, for the full check libretro's copies (one track of each disc) can't give.
-import { html, useState, useRef } from "../lib/html.js";
+import { html, useState, useRef, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx } from "./context.js";
-import { api, toast, isDesktop } from "./library.js";
+import { api, toast, isDesktop, plural } from "./library.js";
 import { Dialog, More, close } from "./dialogs.js";
-import { importDats, makeDat, runStarter, runRedump, scan, refreshGames } from "./games.js";
+import { importDats, makeDat, runStarter, runRedump, runUpdateDats, scan, refreshGames } from "./games.js";
 import { saveSystem, idFromName, MEDIA } from "./systems.js";
 import { argHash } from "./panels.js";
 
@@ -22,6 +22,9 @@ export const NEW = "__new";
 
 /** Open Get Redump's DATs, with `platforms` ticked, else the disc systems that have a DAT. */
 export const redumpDialog = (platforms = null) => ui.set({ dialog: { type: "redump", platforms } });
+
+/** Open Update DATs (D172): the newest of every system's DATs. */
+export const updateDatsDialog = () => ui.set({ dialog: { type: "dats-update" } });
 
 const byName = (a, b) => a.name.localeCompare(b.name);
 
@@ -200,8 +203,44 @@ function RedumpDialog({ platforms: preset }) {
   <//>`;
 }
 
+/** When DATs were last updated, as a date. */
+export const updatedOn = (at) => (at ? new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
+
+/** Update DATs (D172): the systems with a DAT (or every one), from Redump and libretro. */
+function UpdateDatsDialog() {
+  const [info, setInfo] = useState(null);
+  const [every, setEvery] = useState(false);
+  const [redump, setRedump] = useState(true);
+  const [libretro, setLibretro] = useState(true);
+  useEffect(() => { api("dats_update_info").then(setInfo).catch((e) => setInfo({ error: e.message || String(e) })); }, []);
+  const n = every ? info?.every : info?.have?.length;
+  const none = !redump && !libretro;
+  return html`<${Dialog} title="Update DATs" id="dats-update-dialog" wide=${true} onSubmit=${() => { close(); runUpdateDats({ every, redump, libretro }); }}
+    busy=${!info || !!info.error || !n || none} error=${info?.error || ""} submitLabel=${n ? `Update ${n === 1 ? "1 system" : `${n} systems`}` : "Update"}>
+    <p>The newest DAT of each system is downloaded and imported. Every version you have is kept: a new one is used unless you chose an older one, and <em>Use this version</em> in the DAT list goes back to any of them.${info?.updated ? html` <span class="muted" id="dats-updated">Last updated ${updatedOn(info.updated)}.</span>` : null}</p>
+    <fieldset class="field-block dats-update-set" id="dats-update-which"><legend class="field-label">Which systems</legend>
+      <label class="check-row"><input type="radio" name="dats-which" value="have" checked=${!every} onChange=${() => setEvery(false)} /> The ${info ? plural(info.have.length, "system", "systems") : "systems"} with a DAT</label>
+      <label class="check-row"><input type="radio" name="dats-which" value="every" checked=${every} onChange=${() => setEvery(true)} /> Every system Game Repo knows${info ? ` (${info.every})` : ""}: those without a DAT get one too</label>
+    </fieldset>
+    <fieldset class="field-block dats-update-set" id="dats-update-from"><legend class="field-label">From</legend>
+      <label class="check-row long"><input type="checkbox" id="dats-from-redump" checked=${redump} onChange=${(e) => setRedump(e.target.checked)} />
+        <span>Redump (redump.org)<br /><small class="muted">Its own DATs for the disc systems, with every track of each disc.</small></span></label>
+      <label class="check-row long"><input type="checkbox" id="dats-from-libretro" checked=${libretro} onChange=${(e) => setLibretro(e.target.checked)} />
+        <span>libretro (RetroArch's database on GitHub)<br /><small class="muted">Its copies of No-Intro's DATs for the cartridge systems, and of Redump's for a disc system Redump gives none for.</small></span></label>
+    </fieldset>
+    ${none ? html`<p class="warn-note" role="alert">Tick Redump, libretro or both.</p>` : null}
+    <${More} id="dats-update-more">
+      <p>A version you have already is kept as it is, so updating often costs nothing but the downloads. Redump's DATs change most days; libretro's copies a few times a month.</p>
+      <p>Older versions stay in the library's <code>_library/dats</code> folder until you remove them: the DAT list folds them under each DAT, with <em>Remove older versions…</em>.</p>
+      ${info?.arcade?.length ? html`<p>Arcade systems' DATs come with MAME's and FBNeo's releases, so they aren't updated here: import a new one with Import DATs….</p>` : null}
+      <p>Some of Redump's are given only to people signed in on redump.org: libretro's copy comes instead, or download Redump's there and import it.</p>
+    <//>
+  <//>`;
+}
+
 export function AddSystemDialogs({ dialog }) {
   if (dialog.type === "add-system") return html`<${AddSystemDialog} ...${dialog} />`;
   if (dialog.type === "redump") return html`<${RedumpDialog} ...${dialog} />`;
+  if (dialog.type === "dats-update") return html`<${UpdateDatsDialog} />`;
   return null;
 }

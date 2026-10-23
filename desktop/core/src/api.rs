@@ -872,6 +872,39 @@ impl App {
                     crate::redump::get(&ix, &lib, &source, &only, &cancel, &mut |p| app.job_progress(&id, p))
                 }))
             }
+            "dats_update_info" => {
+                // what Update DATs… covers (D172): the systems with a DAT, and every one
+                let lib = self.library()?;
+                let updated = lib.meta()["dats_updated"].clone();
+                j(self
+                    .with_index(move |ix| {
+                        dat::sync_library(ix, &lib)?;
+                        let (have, arcade) = crate::datupdate::systems(ix, false)?;
+                        let (all, _) = crate::datupdate::systems(ix, true)?;
+                        Ok(json!({ "have": have, "every": all.len(), "arcade": arcade, "updated": updated }))
+                    })
+                    .await?)
+            }
+            "dats_update" => {
+                // the newest DATs of every system (D172): Redump's own, then libretro's copies
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                self.not_running("Updating DATs")?;
+                let cfg = self.config();
+                let ask = crate::datupdate::Ask {
+                    libretro: (args["libretro"].as_bool() != Some(false)).then(|| cfg.dat_source.clone().unwrap_or_else(|| starter::SOURCE.to_string())),
+                    redump: (args["redump"].as_bool() != Some(false)).then(|| cfg.redump_source.clone().unwrap_or_else(|| crate::redump::SOURCE.to_string())),
+                    every: args["every"].as_bool().unwrap_or(false),
+                };
+                if ask.libretro.is_none() && ask.redump.is_none() {
+                    return Err("Tick libretro, Redump or both.".into());
+                }
+                let data_dir = self.paths.data_dir.clone();
+                j(self.spawn_job("Updating DATs", move |app, id, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    crate::datupdate::update(&ix, &lib, &ask, &cancel, &mut |p| app.job_progress(&id, p))
+                }))
+            }
             // Phase 7 (D60): each arcade system's set type
             "arcade_sets" => {
                 let lib = self.library()?;
@@ -892,9 +925,13 @@ impl App {
                 j(Value::Null)
             }
             "dat_remove" => {
+                // one DAT, or several (`ids`: a DAT's older versions, D173)
                 let lib = self.library()?;
-                let id = args["id"].as_i64().ok_or("missing id")?;
-                self.with_index(move |ix| dat::remove(ix, &lib, id)).await?;
+                let ids: Vec<i64> = match args["ids"].as_array() {
+                    Some(a) => a.iter().filter_map(Value::as_i64).collect(),
+                    None => vec![args["id"].as_i64().ok_or("missing id")?],
+                };
+                self.with_index(move |ix| ids.iter().try_for_each(|id| dat::remove(ix, &lib, *id))).await?;
                 j(Value::Null)
             }
 

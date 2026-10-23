@@ -100,7 +100,7 @@ export const PAGES = [
     "Games into the library: From a folder… reads folders (every system's games, or one system's), matches their files against your DATs and copies or moves the games the library lacks into each system's own folder with games, named as their DAT says. It asks where a system's games go when it has no folder yet, and which system files no DAT knows belong to. Also put these games in a collection makes a collection (or a new group of one) of every game read, the library's own too; files no DAT knows wait on it until you add them to a DAT on Audit › Unknown. One game… is for a single ROM or disc.",
     "PC games, BIOS files, documents, magazines and videos, each with its own buttons. Files dropped on the window come here, and you're asked what they are.",
     "Recent imports: what came in lately, a day at a time, with Steps for what each did and Undo for the newest.",
-    "Folders with games: games you keep where they are, scanned and audited there. DAT files: Import DATs…, Get starter DATs…, Get Redump's DATs… (Redump's own, every track of each disc, for the disc systems), Add a system… and Make a DAT from a folder…, and the DATs you have.",
+    "Folders with games: games you keep where they are, scanned and audited there. DAT files: Update DATs…, Import DATs…, Get starter DATs…, Get Redump's DATs… (Redump's own, every track of each disc, for the disc systems), Add a system… and Make a DAT from a folder…, and the DATs you have, each DAT's older versions folded under the one in use.",
   ]],
   ["audit", "Audit", "Your games checked against each system's DATs: what you have, have in part, or are missing. Nothing changes.", [
     "The systems are in the ribbon on the left, with their counts; All systems is a table of every system's counts, each a link to that list. A system shows once it has a DAT: Add a system… (the + in the ribbon, or ⋯) gets one for a system without, PlayStation 3, 4 and 5, Xbox 360 or Switch among them, or for one Game Repo doesn't know. Its DAT is downloaded (libretro's copy, or Redump's own for a disc system), imported from a file you have, or made from a folder of its games.",
@@ -147,6 +147,7 @@ export const PAGES = [
   ]],
   ["settings", "Settings", "How the app works for this library and this computer.", [
     "The library's name and folder, how the folders with games are scanned, systems added by hand, naming, preferred formats, and where PC games and their inbox are.",
+    "DATs: Update DATs… downloads the newest DAT of each system with one (or every system), Redump's own for the disc systems and libretro's copies for the rest, keeping every version you have to go back to with Use this version.",
     "Sources and their keys, which source each detail comes from and the space details and pictures take, Steam's folder, and tools (dolphin-tool for RVZ, innoextract for GOG installers; CHD, CSO and ZSO the app writes itself).",
     "Serve to devices: Game Repo Server, which serves the library to Game Repo Go on your phones and handhelds, with Pair a device… and the devices paired. Updates, the index on this computer, the skin and the theme.",
   ]],

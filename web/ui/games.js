@@ -251,6 +251,41 @@ export async function runRedump(platforms) {
   }
 }
 
+/** Names, the first `n` and how many more: "Game Boy, NES and 3 more". */
+function someNames(list, n = 4) {
+  if (list.length <= n) return list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}` : list.join("");
+  return `${list.slice(0, n).join(", ")} and ${list.length - n} more`;
+}
+
+/** Update DATs (D172): the newest of every system's DATs, Redump's own for the disc systems
+ *  and libretro's copies for the rest (`{ libretro, redump, every }`); what came, said. */
+export async function runUpdateDats(opts) {
+  try {
+    const { job } = await api("dats_update", opts);
+    const done = await followJob(job, "Updating DATs");
+    if (done.error) throw new Error(done.error);
+    const r = done.result || {};
+    const name = (id) => (ui.get().platforms || []).find((p) => p.id === id)?.name || id;
+    const fresh = [...new Set((r.new || []).map((d) => d.platform_name))];
+    const kept = r.kept || [];
+    const said = [
+      fresh.length ? `New DATs for ${someNames(fresh)}.` : r.systems ? "Every DAT was the newest already." : "No system has a DAT yet: Get starter DATs… brings them.",
+      fresh.length && r.same?.length ? `${plural(r.same.length, "other system's was", "other systems' were")} the newest already.` : null,
+      kept.length ? `${someNames(kept.map((d) => d.platform_name))} ${kept.length === 1 ? "keeps" : "keep"} the version you chose; the new one is kept beside it.` : null,
+      r.instead?.length ? `Redump gave none for ${someNames(r.instead.map((f) => name(f.platform)))}, so libretro's copy came instead.` : null,
+      r.missing?.length ? `Neither has one for ${someNames(r.missing.map(name))}.` : null,
+      ...failedLines(r.failed, (f) => `the ${name(f.platform)} DAT`, "Couldn't get", "DATs"),
+      r.stopped ? "Stopped before the end." : null,
+    ].filter(Boolean);
+    toast(said.join(" "), { ms: 15000, actions: [{ label: "Show the DATs", run: () => { location.hash = "#/import/settings-dats"; } }] });
+    await refreshGames();
+    return r;
+  } catch (e) {
+    toast(`Couldn't update the DATs: ${e.message || e}`, 8000);
+    return null;
+  }
+}
+
 export async function useDat(d) {
   await api("dat_use", { id: d.id });
   await refreshGames();
@@ -261,6 +296,13 @@ export async function removeDat(d) {
   await api("dat_remove", { id: d.id });
   await refreshGames();
   toast(`Removed ${d.name} (${d.version}).`);
+}
+
+/** Remove a DAT's versions but the one in use (D173). */
+export async function removeOlder(list) {
+  await api("dat_remove", { ids: list.map((d) => d.id) });
+  await refreshGames();
+  toast(`Removed ${plural(list.length, "older version", "older versions")} of ${list[0].name}.`);
 }
 
 /** Make a DAT of a scanned set: `{ root, folder, name, platform }`. */

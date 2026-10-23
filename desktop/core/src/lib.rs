@@ -25,6 +25,7 @@
 //! - [`layout`]: export layouts (ES-DE, the devices, a plain folder, the user's own) as JSON files
 //! - [`export`]: exporting a collection in a layout, re-sync and the check
 //! - [`starter`]: starter DATs downloaded from libretro's copy of No-Intro's
+//! - [`datupdate`]: every system's DATs brought up to date from Redump and libretro, older versions kept
 //! - [`torrentzip`]: writing ZIPs that are the same bytes every time
 //! - [`watch`]: noticing changes in the folders with games while the app is open
 //! - [`sources`]: each source's answer kept apart, the pictures' variants, deleting metadata
@@ -48,6 +49,7 @@ pub mod config;
 pub mod convert;
 pub mod cue;
 pub mod dat;
+pub mod datupdate;
 pub mod docs;
 pub mod export;
 pub mod hash;
