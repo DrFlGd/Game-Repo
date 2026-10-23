@@ -5657,7 +5657,8 @@ so they still need a DAT imported or made from a folder.
 title ID, title and region, and title, with `find`) and `shown_name`; `links` reads a custom
 DAT entry's `cloneof`. `variants::annotate` marks Unknown's files with `addon` and puts the
 game first among `suggested`, and `variants::add` doesn't make an add-on take its game's
-details. The Library's rows have `addon` and `base` (a migration), filled by
+details. The Library's rows have `addon` and `base` (a migration, which also puts `addon` after `have`
+in the sort indexes, so a page of games is still read from an index alone), filled by
 `browse::rebuild_system` from `addons::links` (the add-on DATs' games too), and
 `Query.addons_apart` shows them; the facets count them as `addons_apart`. `addon_link` makes
 the system's rows again. `starter::get` tries both folders.

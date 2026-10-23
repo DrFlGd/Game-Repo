@@ -222,9 +222,23 @@ const MIGRATIONS: &[(&str, &str)] = &[
     (
         "addon_rows",
         // D163: updates, DLC and patches as rows of their own, with their base game's key,
-        // which the Library shows only when asked; every system's rows made again
+        // which the Library shows only when asked; the sort indexes take `addon` after `have`,
+        // so a page of games (`addon = ''`) is still read from them alone; every system's rows
+        // made again
         "ALTER TABLE library ADD COLUMN addon TEXT NOT NULL DEFAULT '';
          ALTER TABLE library ADD COLUMN base TEXT;
+         DROP INDEX library_sort;
+         DROP INDEX library_platform;
+         DROP INDEX library_year;
+         DROP INDEX library_rating;
+         DROP INDEX library_size;
+         DROP INDEX library_date;
+         CREATE INDEX library_sort ON library (have, addon, sort);
+         CREATE INDEX library_platform ON library (platform, have, addon, sort);
+         CREATE INDEX library_year ON library (have, addon, year_sort, sort);
+         CREATE INDEX library_rating ON library (have, addon, rating_sort, sort);
+         CREATE INDEX library_size ON library (have, addon, size_sort, sort);
+         CREATE INDEX library_date ON library (have, addon, date_sort, sort);
          DELETE FROM index_meta WHERE key LIKE 'library:%';",
     ),
 ];
