@@ -266,7 +266,7 @@ export function AsideFiles({ id, label, files: given = null, off }) {
   const bytes = chosen.reduce((t, f) => t + (f.size || 0), 0);
   const remove = () => confirmDialog({
     title: chosen.length === 1 ? `Delete ${fileName(chosen[0].held)}?` : `Delete ${plural(chosen.length, "file", "files")}?`,
-    text: `${chosen.length === 1 ? "It's" : "They're"} deleted for good (${size(bytes)}), which can't be undone. Undo of "${label}" leaves the ${chosen.length === 1 ? "step it came from" : "steps they came from"} as ${chosen.length === 1 ? "it is" : "they are"}.`,
+    text: `${chosen.length === 1 ? "It's" : "They're"} deleted for good (${size(bytes)}). Undo of "${label}" leaves the ${chosen.length === 1 ? "step it came from" : "steps they came from"} as ${chosen.length === 1 ? "it is" : "they are"}.`,
     button: "Delete",
     run: async () => {
       const r = await api("change_aside_delete", { id, held: chosen.map((f) => f.held) });
