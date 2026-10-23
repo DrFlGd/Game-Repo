@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.49 (2026-10-23)
+
 - **Add a system.** *Add a system…* (on Home, Audit, *Import › DAT files* and *Settings › Systems*) brings in a system that has no DAT yet, or one Game Repo doesn't know. Choose the system, then where its list of games comes from: downloaded (libretro's copy, or Redump's own for a disc system), from a DAT file you have, or made from a folder of its games. A folder that isn't one of your folders with games yet is added for that system and scanned. Its Audit page opens once its DAT is in. PlayStation 3, 4 and Xbox 360 were already there, but like Switch they only show once they have a DAT.
 - **PlayStation 5.** PS5 is a built-in system now, audited like PS4.
 - **Redump's own DATs.** *Get Redump's DATs…* (*Import › DAT files*) downloads Redump's DATs for the disc systems you tick from redump.org, and imports them. They list every track of each disc, so they're used before libretro's one-track copies, whatever the dates; a No-Intro or Redump DAT you import yourself is too. The DAT list marks libretro's copies, and a disc system's Audit page offers *Get Redump's own…* while it uses one. A DAT Redump gives only to people signed in is named, to download there and import.
