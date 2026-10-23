@@ -1268,8 +1268,74 @@ async def add_systems(pg, base, home, library):
         srv.shutdown()
 
 
+async def disc_sets(pg, base, home, library):
+    """D174–D176: a game on two discs is one tile in the Library (2 discs, titled without the
+    disc); its page lists both discs and their files, a disc's own page links the game, and a
+    collection takes and lets go of both discs together."""
+    psx = home / "PlayStation"
+    psx.mkdir()
+    d1, d2, solo = make_fixtures.rom(71, 4096), make_fixtures.rom(72, 4096), make_fixtures.rom(73, 4096)
+    (psx / "Quest (USA) (Disc 1).bin").write_bytes(d1)
+    (psx / "Quest (USA) (Disc 2).bin").write_bytes(d2)
+    (psx / "Solo (USA).bin").write_bytes(solo)
+    dat = home / "psx.dat"
+    dat.write_text(make_fixtures.logiqx("Sony - PlayStation", "20261001", [
+        ("Quest (USA) (Disc 1)", None, [make_fixtures.rom_xml("Quest (USA) (Disc 1).bin", d1)]),
+        ("Quest (USA) (Disc 2)", None, [make_fixtures.rom_xml("Quest (USA) (Disc 2).bin", d2)]),
+        ("Solo (USA)", None, [make_fixtures.rom_xml("Solo (USA).bin", solo)]),
+    ]))
+    pick(psx, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    pick(dat, base)
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await back_home(pg, base)
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    quest = '.lib-tile[data-key="psx/Quest (USA) (Disc 1)"]'
+    await pg.goto(base + "#/library")
+    await pg.wait_for_selector(quest, timeout=15000)
+    tiles = await pg.eval_on_selector_all(".lib-tile[data-key]", "els => els.map(e => e.dataset.key)")
+    badge = await pg.inner_text(f"{quest} .lib-badge-discs")
+    title = await pg.inner_text(f"{quest} .lib-tile-title")
+    await pg.screenshot(path=str(out / "74-library-disc-set.png"))
+    check("a game on two discs is one tile in the Library, titled without its disc, with a 2 discs badge (D174)",
+          sorted(tiles) == ["psx/Quest (USA) (Disc 1)", "psx/Solo (USA)"] and badge == "2 discs" and title == "Quest", (tiles, badge, title))
+    await pg.goto(base + "#/game/psx/" + urllib.parse.quote("Quest (USA) (Disc 1)"))
+    await pg.wait_for_selector("#game-discs", timeout=15000)
+    discs = " ".join((await pg.inner_text("#game-discs")).split())
+    files = await pg.eval_on_selector_all("#game-files li", "els => els.map(e => e.textContent)")
+    sub = await pg.inner_text(".game-sub")
+    await pg.screenshot(path=str(out / "74b-game-discs.png"))
+    check("its page lists both discs, had, and both discs' files, and names it without the disc (D174)",
+          "2 discs, all in the library" in discs and "Disc 1" in discs and "Disc 2" in discs and len(files) == 2
+          and any("disc 2" in f for f in files) and "Quest (USA)" in sub and "(Disc" not in sub, (discs, files, sub))
+    # added to a new collection by hand from its page: both discs are in it
+    await pg.click("#game-add")
+    await pg.wait_for_selector("#lib-add-dialog")
+    await pg.select_option("#lib-add-to", "new")
+    await pg.fill("#lib-add-name", "Two discs")
+    await pg.click("#lib-add-dialog button[type=submit]")
+    await toast_text(pg, "Added 1 game to Two discs")
+    await pg.goto(base + "#/game/psx/" + urllib.parse.quote("Quest (USA) (Disc 2)"))
+    await pg.wait_for_selector("#game-disc-of", timeout=15000)
+    of = " ".join((await pg.inner_text("#game-disc-of")).split())
+    await pg.wait_for_selector('#game-collections li[data-id]', timeout=15000)
+    inside = await pg.inner_text("#game-collections")
+    # removed from it on that disc's page: the game goes, both discs
+    await pg.click('#game-collections [data-action="remove-from"]')
+    await toast_text(pg, "Removed")
+    await pg.goto(base + "#/game/psx/" + urllib.parse.quote("Quest (USA) (Disc 1)"))
+    await pg.wait_for_selector("#game-collections", timeout=15000)
+    await pg.wait_for_function("() => document.querySelector('#game-collections')?.textContent.includes('In none')", timeout=15000)
+    check("a disc's own page links its game, a collection added to by the game has its second disc too, and removed on that disc's page the whole game goes (D175)",
+          of == "Disc 2 of Quest, a game on 2 discs" and "Two discs" in inside, (of, inside))
+
+
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems)]
+             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets)]
 
 
 async def main():

@@ -147,12 +147,31 @@ pub fn refresh_with(ix: &Index, lib: Option<&Library>) -> Result<usize> {
     let conn = ix.conn();
     let mut by_system: BTreeMap<String, Vec<(String, String, String, String, Option<i64>, i64, String, Option<String>)>> = BTreeMap::new();
     {
-        // (updates and DLC are their games', not games to download on their own: D163)
-        let mut q = conn.prepare("SELECT key, platform, name, title, sort, year, size, media, picture FROM library WHERE kind = 'dat' AND have = 1 AND partial = 0 AND addon = ''")?;
+        // (updates and DLC are their games', not games to download on their own: D163; a game
+        // on several discs is the Library's one row, D174, had whole when every disc is, and
+        // its other discs are read for their keys and sizes)
+        let mut others: HashMap<String, Vec<(String, String, String, i64)>> = HashMap::new();
+        let mut q = conn.prepare("SELECT base, key, name, title, size FROM library WHERE kind = 'dat' AND addon = 'disc' AND have = 1 AND partial = 0")?;
+        let mut rows = q.query([])?;
+        while let Some(r) = rows.next()? {
+            others.entry(r.get(0)?).or_default().push((r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?));
+        }
+        let mut q = conn.prepare("SELECT key, platform, name, title, sort, year, size, media, picture, discs FROM library WHERE kind = 'dat' AND have = 1 AND partial = 0 AND addon = ''")?;
         let mut rows = q.query([])?;
         while let Some(r) = rows.next()? {
             let platform: String = r.get(1)?;
-            by_system.entry(platform).or_default().push((r.get(0)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?));
+            let key: String = r.get(0)?;
+            let (name, title, sort, year, mut size, media, picture): (String, String, String, Option<i64>, i64, String, Option<String>) =
+                (r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?);
+            let list = by_system.entry(platform.clone()).or_default();
+            let rest = if r.get::<_, i64>(9)? > 0 { others.remove(&key).unwrap_or_default() } else { vec![] };
+            // (each disc by its own size and title, laid out below as one game or, where the
+            // system takes no playlists, a game each)
+            size -= rest.iter().map(|d| d.3).sum::<i64>();
+            list.push((key, name, title.clone(), sort.clone(), year, size, media.clone(), picture.clone()));
+            for (k, n, t, z) in rest {
+                list.push((k, n, if platforms::m3u_folders(&platform) { title.clone() } else { t }, sort.clone(), year, z, media.clone(), picture.clone()));
+            }
         }
     }
     let mut rows: Vec<Row> = vec![];

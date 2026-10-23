@@ -241,6 +241,14 @@ const MIGRATIONS: &[(&str, &str)] = &[
          CREATE INDEX library_date ON library (have, addon, date_sort, sort);
          DELETE FROM index_meta WHERE key LIKE 'library:%';",
     ),
+    (
+        "disc_sets",
+        // D174: a game on several discs is one row, its first disc's, with how many discs
+        // it has; its other discs are rows of their own (`addon` 'disc', `base` the first's
+        // key), shown only on its page; every system's rows made again
+        "ALTER TABLE library ADD COLUMN discs INTEGER NOT NULL DEFAULT 0;
+         DELETE FROM index_meta WHERE key LIKE 'library:%';",
+    ),
 ];
 
 /// How many schema steps this build knows.

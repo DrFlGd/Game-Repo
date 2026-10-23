@@ -25,13 +25,16 @@ import { scrapeDialog, deleteMetadata } from "./metadata.js";
 import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
 import { identifyDialog, PcParts, pcLine, removePc, unmatchPc } from "./pcgames.js";
 import { convertDialog } from "./organise.js";
-import { opened, gameHash, systemColour, libraryHash, addonLabel } from "./browse.js";
+import { opened, gameHash, systemColour, libraryHash, addonLabel, discsLine } from "./browse.js";
 import { Icon } from "./icons.js";
 import { Inspector } from "./panels.js";
 import { isVideo, Video } from "./video.js";
 import { watch, videoFacts } from "./videos.js";
 import { variantDialog, undoVariants } from "./variants.js";
 import { addToBacklog, backlogDo, dayText } from "./backlog.js";
+
+/** The key a collection knows a game by (D175): a disc's game's, an update's or DLC's game's. */
+const inKey = (g) => g.disc_of?.key || g.addon?.base?.key || g.key;
 
 const err = (e) => e.message || String(e);
 const PICTURES = { cover: "Box front", back: "Back", box3d: "3D box", screenshot: "Screenshot", titlescreen: "Title screen", marquee: "Logo", fanart: "Fan art", physical: "Cartridge or disc", video: "Video", banner: "Banner", hero: "Hero", logo: "Logo", icon: "Icon" };
@@ -297,7 +300,7 @@ export function GamePage() {
     // a PC game's own folder (PC/<Title> (<Year>)), else where its metadata is kept
     { id: "game-reveal", label: "Show in folder", icon: "folder", disabled: !isDesktop() || !(g?.pc?.dir || g?.folder_path || g?.dir), run: () => reveal(g.pc?.dir || g.folder_path || g.dir) },
     { sep: true },
-    { id: "game-add", label: "Add to a collection…", icon: "collection", disabled: off || (!dat && "Collections hold games from DATs, and a PC game has none"), run: () => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } }) },
+    { id: "game-add", label: "Add to a collection…", icon: "collection", disabled: off || (!dat && "Collections hold games from DATs, and a PC game has none"), run: () => ui.set({ dialog: { type: "lib-add", games: [{ key: inKey(g), kind: g.kind, platform: g.platform }] } }) },
     ...(g && !g.backlog ? [{ id: "game-backlog-add-menu", label: "Add to the backlog", icon: "list", disabled: off, run: () => tryIt(addToBacklog([{ key: g.key, title: g.title, platform: g.platform }])) }] : []),
   ];
   const head = html`<${CommandBar} id="game-head" back=${{ id: "game-back", run: back }} title=${g?.title || "A game"} count=${g ? [g.regions, g.platform_name].filter(Boolean).join(" · ") || null : null}
@@ -313,7 +316,7 @@ export function GamePage() {
   const removeFrom = async (c) => {
     try {
       // the collection takes it out of whichever group has it, and History can undo it (review M34)
-      await api("collection_hand", { id: c.id, leave_out: [g.key] });
+      await api("collection_hand", { id: c.id, leave_out: [inKey(g)] });
       ui.set((x) => ({ changes: (x.changes || 0) + 1 }));
       toast(`Removed ${g.title} from ${c.name}.`, 6000);
     } catch (e) {
@@ -345,10 +348,11 @@ export function GamePage() {
     <div class="game-top">
       <${Gallery} g=${g} off=${off || busy} onChoose=${choose} />
       <section class="game-details" id="game-details" aria-busy=${busy ? "true" : "false"}>
-        <p class="muted game-sub">${[g.platform_name, g.kind === "dat" ? (g.have ? "in the library" : "not in the library") : g.kind === "pc" ? "a PC game" : "a game no DAT knows", g.name && g.name !== g.title ? g.name : null].filter(Boolean).join(" · ")}</p>
+        <p class="muted game-sub">${[g.platform_name, g.kind === "dat" ? (g.have ? "in the library" : "not in the library") : g.kind === "pc" ? "a PC game" : "a game no DAT knows", (g.set?.name || g.name) && (g.set?.name || g.name) !== g.title ? g.set?.name || g.name : null].filter(Boolean).join(" · ")}</p>
         ${g.variant ? html`<p class="game-variant-of" id="game-variant-of"><span>${g.variant.of ? html`A variant of <a href=${gameHash(g.variant.of.key)}>${g.variant.of.name}</a>` : "A game of its own, in the system's custom DAT"}</span>${g.variant.tags?.length ? html`<span class="variant-tags">${g.variant.tags.map((t) => html`<span class="variant-tag" key=${t}>${t}</span>`)}</span>` : null}</p>` : null}
         ${g.addon ? html`<p class="game-variant-of" id="game-addon-of"><span>${addonLabel(g.addon)}${g.addon.base ? html` of <a href=${gameHash(g.addon.base.key)}>${g.addon.base.title || g.addon.base.key}</a>` : ", linked to no game yet"}</span>
           ${off ? null : html`<button type="button" class="linkish" id="game-addon-relink" onClick=${() => ui.set({ dialog: { type: "addon-link", platform: g.platform, addon: g.name, from: g.addon.base?.key.slice(g.platform.length + 1) || null, onDone: reload } })}>Link to another game…</button>`}</p>` : null}
+        ${g.disc_of ? html`<p class="game-variant-of" id="game-disc-of"><span>Disc ${g.disc_of.disc} of <a href=${gameHash(g.disc_of.key)}>${g.disc_of.title || g.disc_of.key}</a>${g.disc_of.discs ? `, a game on ${g.disc_of.discs} discs` : ""}</span></p>` : null}
         ${g.variant_games?.length ? html`<p class="muted" id="game-variant-list">${g.variant_games.length === 1 ? "Its variant" : "Its variants"}: ${g.variant_games.map((x, i) => html`${i ? ", " : ""}<a key=${x.key} href=${gameHash(x.key)}>${x.name}</a>`)}</p>` : null}
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
         ${main ? html`<p class="muted game-main-source" id="game-main-source">Details from ${sourceName(main)}, unless a detail says otherwise.</p>` : null}
@@ -379,10 +383,16 @@ export function GamePage() {
         <button type="button" class="linkish" data-action="watch" title=${v.file ? "Watch it on the Videos page" : "Watch it in your browser"} disabled=${v.file && v.gone} onClick=${() => watch(v)}>${v.file ? Icon.video(14) : Icon.external(14)} ${v.title}</button>
         <span class="muted">${videoFacts(v)}</span></span></li>`)}</ul>
     </section>` : null}
+    ${g.set ? html`<section class="ls-section game-discs" id="game-discs"><h2>Discs</h2>
+      <p class="muted" id="game-discs-line">${discsLine(g.set.discs)}. They're one game: a collection, Convert and an export take every disc.</p>
+      <ul class="ls-list">${g.set.discs.map((d) => html`<li key=${d.key} data-disc=${d.disc} data-have=${d.have ? (d.partial ? "part" : "yes") : "no"}>
+        <span class="op-paths"><span>Disc ${d.disc}</span><span class="muted">${d.name}</span></span>
+        <span class="muted disc-state">${[d.have ? (d.partial ? "there in part" : "in the library") : "missing", d.size ? size(d.size) : null].filter(Boolean).join(" · ")}</span></li>`)}</ul>
+    </section>` : null}
     ${pc ? null : html`<section class="ls-section" id="game-files"><h2>Files</h2>
       ${files.length ? html`<ul class="ls-list">${files.map((f, i) => html`<li key=${i} data-missing=${f.missing ? "yes" : "no"}>
         <span class="op-paths"><span class="op-to" title=${f.path}>${dir ? f.path : shortPath(f.path, 3)}</span>
-          <span class="muted">${[f.kind, f.size ? size(f.size) : null, f.roms?.length > 1 ? plural(f.roms.length, "file", "files") : null, f.missing ? "gone since the last scan" : null].filter(Boolean).join(" · ")}</span></span>
+          <span class="muted">${[f.disc ? `disc ${f.disc}` : null, f.kind, f.size ? size(f.size) : null, f.roms?.length > 1 ? plural(f.roms.length, "file", "files") : null, f.missing ? "gone since the last scan" : null].filter(Boolean).join(" · ")}</span></span>
         ${isDesktop() && !f.missing && !dir ? html`<button type="button" class="ghost compact" onClick=${() => reveal(f.path)}>Show</button>` : null}</li>`)}</ul>`
         : html`<p class="muted">${g.kind === "dat" && !g.have ? "You don't have it: the audit lists what to look for." : "No files."}</p>`}
       ${dat && g.have && g.dat_id && ui.get().platforms?.find((p) => p.id === g.platform)?.formats?.length ? html`<button type="button" class="ghost compact" id="game-convert" disabled=${off} onClick=${() => convertDialog({ dat: g.dat_id, platform: g.platform, platformName: g.platform_name, games: [g.name] })}>${Icon.convert(14)} Convert…</button>` : null}
@@ -395,7 +405,7 @@ export function GamePage() {
     ${dat ? html`<section class="ls-section" id="game-collections"><h2>Collections</h2>
       ${g.collections?.length ? html`<ul class="ls-list">${g.collections.map((c) => html`<li key=${c.id} data-id=${c.id}><a href=${routeHash("collections")}>${c.name}</a>
         <button type="button" class="ghost compact" data-action="remove-from" disabled=${off} title=${`Remove it from ${c.name}`} onClick=${() => removeFrom(c)}>Remove from collection</button></li>`)}</ul>` : html`<p class="muted">In none.</p>`}
-      <button type="button" class="ghost compact" id="game-add" disabled=${off} onClick=${() => ui.set({ dialog: { type: "lib-add", games: [{ key: g.key, kind: g.kind, platform: g.platform }] } })}>${Icon.collection(14)} Add to a collection…</button>
+      <button type="button" class="ghost compact" id="game-add" disabled=${off} onClick=${() => ui.set({ dialog: { type: "lib-add", games: [{ key: inKey(g), kind: g.kind, platform: g.platform }] } })}>${Icon.collection(14)} Add to a collection…</button>
     </section>` : null}
     ${backlog}
   </div>

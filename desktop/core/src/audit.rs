@@ -229,6 +229,8 @@ const UNMATCHED: &str = "
   um AS (SELECT f.id AS file_id, EXISTS (SELECT 1 FROM dat_roms r WHERE r.dat_id = ?1 AND r.name = f.name) AS bad
          FROM files f
          WHERE f.platform = ?2 AND f.kind NOT IN ('zip', '7z', 'rar', 'chd', 'cso', 'zso', 'rvz') AND f.hashed > 0
+           -- (nor a game's playlist of its discs, D176)
+           AND f.name NOT LIKE '%.m3u'
            -- (nor in the system's custom DAT, D119, nor a DAT it's audited with too, D118)
            AND NOT EXISTS (SELECT 1 FROM matches m JOIN dat_roms r ON r.id = m.rom_id
                            WHERE m.file_id = f.id AND (r.dat_id = ?1 OR r.dat_id IN (SELECT id FROM dats WHERE platform != ?2 OR version = 'custom' OR also = 1)))
