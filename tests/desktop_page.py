@@ -2431,6 +2431,8 @@ async def main():
                 await pg.click("#identify-dialog-cancel")
                 await pg.wait_for_selector("#identify-dialog", state="detached")
                 check("Identify can search one source, chosen beside the year", only == ["gog"], only)
+                # (a game picked, the bar is the selection's, as the Library's is)
+                await pg.click("#bar-clear")
                 await pg.click("#pc-steam")
                 await pg.wait_for_selector("#steam-preview")
                 preview = await pg.inner_text("#steam-preview")
@@ -2591,6 +2593,7 @@ async def main():
                       and "identified_by" not in shared and "Delete metadata" in said and (alpha_meta / "media").is_dir(), (said, alpha.get("ids"), answers, shared.get("identified_by")))
                 # Find details… (D138) asks about the games matched to no source, and leaves alone
                 # one said to be none of theirs
+                await pg.click("#bar-clear")
                 await pg.click("#pcgames-menu")
                 await pg.click('#context-menu [data-action="pc-find-details"]')
                 await pg.wait_for_selector("#pc-found-dialog")
