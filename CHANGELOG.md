@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.51 (2026-10-23)
+
 - **Update DATs.** Settings has a *DATs* section with *Update DATs…* (on Import › DAT files too): the newest DAT of each system with one, or of every system, downloaded and imported in one go. Redump's own come for the disc systems, and libretro's copies (No-Intro's) for the rest and for a disc system Redump gives none for. It says which systems got a new DAT, which had the newest already and which neither has, and Settings shows when they were last updated.
 - **Older DAT versions kept as backups.** Every version you've imported stays until you remove it. The DAT list shows the version in use with the others folded under it, each with *Use this version* and *Remove…*, and *Remove them…* for all but the one in use. A version you chose is marked *Chosen* and stays through updates; *Use the newest* goes back to the newest, and to each newer one as it comes.
 
