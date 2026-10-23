@@ -5,11 +5,13 @@
 // in Settings (settings.js), from the commands here. Convert… (2b) plans a change
 // the same way: a game, a selection or a platform to its preferred format, or back.
 import { html, useState, useEffect } from "../lib/html.js";
+import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx } from "./context.js";
 import { api, toast, followJob, undoable, isDesktop, plural, size, shortPath } from "./library.js";
-import { refreshGames } from "./games.js";
-import { Dialog, More, close } from "./dialogs.js";
+import { refreshGames, reveal } from "./games.js";
+import { Dialog, More, close, confirmDialog } from "./dialogs.js";
+import { Icon } from "./icons.js";
 
 const PAGE = 100;
 
@@ -235,6 +237,57 @@ export function ChangeSteps({ id }) {
       <span class="op-paths"><span class="op-to" title=${it.to_full}>${it.to}</span>
         ${it.op !== "aside" && it.from[0] ? html`<span class="muted op-from" title=${it.from_full.join("\n")}>from ${it.from[0]}${it.from.length > 1 ? ` and ${it.from.length - 1} more` : ""}</span>` : null}</span></div>`)}
     ${list.items.length < list.total ? html`<button type="button" class="ghost compact" data-action="more-steps" onClick=${more}>Show more (${list.total - list.items.length} left)</button>` : null}
+  </div>`;
+}
+
+const ASIDE_PAGE = 200;
+const fileName = (p) => String(p || "").split(/[\\/]/).filter(Boolean).pop() || String(p || "");
+
+/** What a change set aside and still holds (D168): each file with its game, where it was
+ *  and its size, picked to be deleted for good. `files` when they're read already. */
+export function AsideFiles({ id, label, files: given = null, off }) {
+  const changes = useStore(ui, (st) => st.changes);
+  const [list, setList] = useState(given);
+  const [picked, setPicked] = useState(() => new Set());
+  const [shown, setShown] = useState(ASIDE_PAGE);
+  useEffect(() => {
+    if (given) { setList(given); return; }
+    let gone = false;
+    api("change_aside", { id }).then((r) => { if (!gone) setList(r); }).catch((e) => { if (!gone) setList({ error: e.message || String(e) }); });
+    return () => { gone = true; };
+  }, [id, given, changes]);
+  useEffect(() => setPicked(new Set()), [list]);
+  if (!list) return html`<p class="muted change-steps">Reading…</p>`;
+  if (list.error) return html`<p class="warn-note change-steps" role="alert">${list.error}</p>`;
+  if (!list.length) return html`<p class="muted change-steps aside-none">Nothing of it is set aside any more.</p>`;
+  const toggle = (held) => setPicked((s) => { const n = new Set(s); n.has(held) ? n.delete(held) : n.add(held); return n; });
+  const all = picked.size === list.length;
+  const chosen = list.filter((f) => picked.has(f.held));
+  const bytes = chosen.reduce((t, f) => t + (f.size || 0), 0);
+  const remove = () => confirmDialog({
+    title: chosen.length === 1 ? `Delete ${fileName(chosen[0].held)}?` : `Delete ${plural(chosen.length, "file", "files")}?`,
+    text: `${chosen.length === 1 ? "It's" : "They're"} deleted for good (${size(bytes)}), which can't be undone. Undo of "${label}" leaves the ${chosen.length === 1 ? "step it came from" : "steps they came from"} as ${chosen.length === 1 ? "it is" : "they are"}.`,
+    button: "Delete",
+    run: async () => {
+      const r = await api("change_aside_delete", { id, held: chosen.map((f) => f.held) });
+      toast(`Deleted ${plural(r.deleted, "file", "files")}, freeing ${size(r.freed)}.`, 6000);
+      ui.set((st) => ({ changes: (st.changes || 0) + 1 }));
+    },
+  });
+  return html`<div class="change-steps aside-files" data-change=${id} data-total=${list.length}>
+    <div class="aside-bar">
+      <label class="check-row"><input type="checkbox" data-action="aside-all" checked=${all} disabled=${off} onChange=${() => setPicked(all ? new Set() : new Set(list.map((f) => f.held)))} /> All</label>
+      <span class="muted">${plural(list.length, "file", "files")} · ${size(list.reduce((t, f) => t + (f.size || 0), 0))}</span>
+      <button type="button" class="ghost compact" data-action="aside-delete" disabled=${off || !chosen.length} onClick=${remove}>${Icon.trash(13)} Delete${chosen.length ? ` ${chosen.length}` : ""}…</button>
+    </div>
+    ${list.slice(0, shown).map((f) => html`<div class="change-step aside-file" key=${f.held} data-held=${f.held}>
+      <input type="checkbox" aria-label=${`Pick ${fileName(f.held)}`} checked=${picked.has(f.held)} disabled=${off} onChange=${() => toggle(f.held)} />
+      <span class="op-paths"><span class="op-to" title=${f.held}>${fileName(f.held)}${f.folder ? " (a folder)" : ""}</span>
+        <span class="muted op-from" title=${f.from}>${f.game ? `${f.game} · ` : ""}from ${shortPath(f.from, 3)}</span></span>
+      <span class="muted aside-size">${size(f.size)}</span>
+      ${isDesktop() ? html`<button type="button" class="ghost compact" data-action="aside-show" title="Show it in its folder" aria-label=${`Show ${fileName(f.held)} in its folder`} onClick=${() => reveal(f.held)}>${Icon.folder(13)}</button>` : null}
+    </div>`)}
+    ${list.length > shown ? html`<button type="button" class="ghost compact" data-action="more-aside" onClick=${() => setShown(shown + ASIDE_PAGE)}>Show more (${list.length - shown} left)</button>` : null}
   </div>`;
 }
 

@@ -15,8 +15,9 @@ import { useMedia, NARROW } from "./chrome.js";
  *  children }], current, all: { label, href, count } (an entry above the items for all of
  *  them), top: [{ id, label, icon, href, count }] (entries of their own above the items:
  *  the backlog over the collections), actions: [{ id, label, icon, run, disabled }] }, or
- *  null. An item's `children` ([{ id, label, count, run }], a collection's groups) are
- *  listed indented under it. */
+ *  null. An item's `children` ([{ id, label, count, run, active }], a collection's groups
+ *  and systems; { head } names those that follow) are listed indented under it; its `run`
+ *  is called as it's clicked, before its address is gone to. */
 export const sidePanel = createStore({ spec: null });
 
 /** Show `spec` as the page's list while the page is shown. */
@@ -56,12 +57,13 @@ function Rows({ spec, onPicked }) {
     ${(spec.top || []).map((x, i, all) => html`<li class=${`nav-row panel-top${i === all.length - 1 ? " panel-top-last" : ""}`} key=${`top-${x.id}`}><a class=${`nav-link${spec.current === x.id ? " active" : ""}`} id=${`panel-${x.id}`} href=${x.href} data-id=${x.id} aria-current=${spec.current === x.id ? "page" : null} onClick=${onPicked}>
       <span class="nav-icon">${Icon[x.icon]?.(15)}</span><span class="nav-label">${x.label}</span>${x.count != null ? html`<span class="nav-count">${x.count}</span>` : null}</a></li>`)}
     ${spec.items.map((x) => html`<li class="nav-row" key=${x.id}>
-      <a class=${`nav-link panel-link${spec.current === x.id ? " active" : ""}`} href=${x.href} data-id=${x.id} aria-current=${spec.current === x.id ? "page" : null} title=${x.sub ? `${x.label}: ${x.sub}` : x.label} onClick=${onPicked}>
+      <a class=${`nav-link panel-link${spec.current === x.id ? " active" : ""}`} href=${x.href} data-id=${x.id} aria-current=${spec.current === x.id ? "page" : null} title=${x.sub ? `${x.label}: ${x.sub}` : x.label} onClick=${(e) => { x.run?.(); onPicked?.(e); }}>
         <span class="panel-link-text"><span class="nav-label">${x.label}</span>${x.sub ? html`<span class="panel-sub">${x.sub}</span>` : null}</span>
         ${x.count != null ? html`<span class="nav-count">${x.count}</span>` : null}</a></li>
-      ${(x.children || []).map((k) => html`<li class="nav-row panel-child-row" key=${`${x.id}/${k.id}`} style="--depth:1">
-        <a class="nav-link panel-child" href=${x.href} data-id=${k.id} title=${k.label} onClick=${(e) => { e.preventDefault(); k.run?.(); onPicked?.(); }}>
-          <span class="nav-label">${k.label}</span>${k.count != null ? html`<span class="nav-count">${k.count}</span>` : null}</a></li>`)}`)}
+      ${(x.children || []).map((k, i) => (k.head ? html`<li class="nav-row panel-child-head" key=${`${x.id}/head-${i}`} style="--depth:1">${k.head}</li>`
+        : html`<li class="nav-row panel-child-row" key=${`${x.id}/${k.id}`} style="--depth:1">
+        <a class=${`nav-link panel-child${k.active ? " active" : ""}`} href=${x.href} data-id=${k.id} title=${k.label} aria-current=${k.active ? "true" : null} onClick=${(e) => { e.preventDefault(); k.run?.(); onPicked?.(); }}>
+          <span class="nav-label">${k.label}</span>${k.count != null ? html`<span class="nav-count">${k.count}</span>` : null}</a></li>`))}`)}
   </ul>`;
 }
 

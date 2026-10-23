@@ -1293,6 +1293,28 @@ impl App {
                     r
                 }))
             }
+            "change_aside" => {
+                // what a change set aside, or every change's (D168)
+                let lib = self.library()?;
+                let id = args["id"].as_str().map(String::from);
+                j(tokio::task::spawn_blocking(move || match id {
+                    Some(id) => organise::aside_files(&lib, &id).map(|v| json!(v)),
+                    None => organise::aside_all(&lib),
+                })
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(e2s)?)
+            }
+            "change_aside_delete" => {
+                // some of what a change set aside, deleted for good (D168)
+                let lib = self.library()?;
+                if self.change.lock().unwrap().is_some() {
+                    return Err("A change is running: wait for it to finish first.".into());
+                }
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let held: Vec<String> = args["held"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(String::from)).collect();
+                j(tokio::task::spawn_blocking(move || organise::delete_set_aside(&lib, &id, &held)).await.map_err(|e| e.to_string())?.map_err(e2s)?)
+            }
             "change_empty" => {
                 // set-aside files of one change (or all), deleted for good
                 let lib = self.library()?;

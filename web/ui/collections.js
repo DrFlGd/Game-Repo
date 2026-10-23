@@ -928,14 +928,23 @@ export function Collections() {
   /** The games view at a group's section. */
   const toGroup = (i) => { setView("games"); setShow("in"); setPlatform(""); setJump({ value: i }); };
 
-  // the collections, in the ribbon beside the menu; the current one's groups under it, and
-  // the backlog at its top (D157)
+  // the collections, in the ribbon beside the menu; the current one's groups and systems
+  // under it (D171), a system's a click to its games in the collection; the backlog at its
+  // top (D157)
+  const systems = sum?.systems?.length > 1 ? sum.systems : [];
+  const toSystem = (p) => { setView("games"); setShow("in"); setJump(null); setPlatform(p); scrollRef.current?.scrollTo({ top: 0 }); };
+  const under = [
+    ...(many ? [...(systems.length ? [{ head: "Groups" }] : []), ...groups.map((g, i) => ({ id: g.id || "first", label: g.name, count: g.games, run: () => toGroup(i) }))] : []),
+    ...(systems.length ? [...(many ? [{ head: "Systems" }] : []), ...systems.map((x) => ({ id: `system-${x.platform}`, label: x.name, count: x.games, active: view === "games" && platform === x.platform, run: () => toSystem(platform === x.platform && view === "games" ? "" : x.platform) }))] : []),
+  ];
   useSidePanel(Array.isArray(all) ? {
     id: "collection-panel", route: "collections", title: "Collections", icon: "collection", count: all.length, current: id,
     top: [{ id: "backlog", label: "Backlog", icon: "list", href: routeHash("backlog"), count: backlogCount }],
     items: all.map((x) => ({
       id: x.id, label: x.name, sub: `${sourceText(x.made_from, x.rules)}${x.groups?.length ? ` · ${x.groups.length + 1} groups` : ""}`, href: argHash("collections", x.id),
-      children: x.id === c?.id && many ? groups.map((g, i) => ({ id: g.id || "first", label: g.name, count: g.games, run: () => toGroup(i) })) : null,
+      children: x.id === c?.id && under.length ? under : null,
+      // (the one shown, clicked again: every system's games)
+      run: x.id === c?.id && platform ? () => toSystem("") : null,
     })),
     actions: [{ id: "collection-panel-new", label: "New collection…", icon: "plus", disabled: off, run: () => create() }],
   } : null);

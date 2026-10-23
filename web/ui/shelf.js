@@ -212,7 +212,7 @@ export function Shelf({ page, noun, title, items, error, st, set, fields, groups
   const heading = (s) => {
     const gm = groupMenu?.(s);
     const menu = gm?.length ? (e) => { e.preventDefault(); openMenu(e.currentTarget.closest(".lib-group").querySelector(".shelf-group-more") || e, gm); } : null;
-    return html`<div class="lib-group shelf-group-head" data-group=${s.value} onContextMenu=${menu}><h2>${s.name}</h2><span class="muted">${plural(s.count, noun[0], noun[1])}</span>
+    return html`<div class="lib-group shelf-group-head" data-group=${s.value} onContextMenu=${menu}><h2 title=${s.name}>${s.name}</h2><span class="muted">${plural(s.count, noun[0], noun[1])}</span>
       ${gm?.length ? html`<button type="button" class="ghost compact shelf-group-more" aria-haspopup="menu" title=${`${s.name}: more`} aria-label=${`${s.name}: more`} onClick=${(e) => openMenu(e.currentTarget, gm)}>${Icon.more(14)}</button>` : null}</div>`;
   };
   const multi = picked.length > 1;
@@ -230,7 +230,7 @@ export function Shelf({ page, noun, title, items, error, st, set, fields, groups
         ${thead}
         ${!shown.length ? html`<p class="muted lib-none" id=${`${p}-none`}>${none || `No ${noun[0]} matches these filters.`}</p>` : null}
         <div class=${`shelf-items shelf-${view}s`} id=${`${p}-items`} data-count=${shown.length} role=${view === "table" ? "table" : "list"} style=${`--tile:${SIZES[st.size] || SIZES.medium}px;--ratio:${ratio}`}>
-          ${sections.map((s) => html`<section class="shelf-section" key=${s.value ?? "all"} data-group=${s.value ?? ""}>
+          ${sections.map((s) => html`<section class="shelf-section" key=${s.value ?? "all"} data-group=${s.value ?? ""} style=${`--n:${s.items.length}`}>
             ${s.name != null ? heading(s) : null}
             <div class=${`shelf-${view}`}>${s.items.map(draw)}</div></section>`)}
         </div>
