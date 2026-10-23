@@ -1242,6 +1242,15 @@ async def main():
             pg.on("pageerror", lambda e: errors.append(str(e)))
             pg.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
             pg.on("console", lambda m: errors.append(f"{m.text} ({m.location.get('url', '')})") if m.type == "error" and "net::ERR_" not in m.text else None)
+
+            async def refused(r):
+                # a call the backend refused says which and why, where it came in the log
+                if r.status >= 400 and r.url.endswith("/invoke/api"):
+                    try:
+                        print("API REFUSED:", (r.request.post_data or "")[:300], "->", (await r.text())[:300])
+                    except Exception:
+                        pass
+            pg.on("response", lambda r: asyncio.ensure_future(refused(r)))
             await pg.goto(B)
             await pg.wait_for_selector("#first-run", timeout=30000)
 

@@ -624,14 +624,21 @@ export function PcGames() {
   const [data, setData] = useState(null);
   const [st, set] = useShelfState("pcgames", { sort: "title" });
   const [tick, setTick] = useState(0);
+  // a game being removed leaves the shelf (and its panel closes) as the change starts, until
+  // the list is read without it: Undo brings it back
+  const [removed, setRemoved] = useState(null);
   const off = !!s.library?.read_only;
   useEffect(() => {
     if (!s.library) return;
     let gone = false;
-    api("pc_games").then((d) => { if (!gone) setData(d); }).catch((e) => { if (!gone) setData({ error: err(e) }); });
+    api("pc_games").then((d) => {
+      if (gone) return;
+      setData(d);
+      setRemoved((r) => (r && (d?.games || []).some((g) => g.id === r) ? r : null));
+    }).catch((e) => { if (!gone) setData({ error: err(e) }); });
     return () => { gone = true; };
   }, [s.library?.path, s.changes, tick]);
-  const games = data?.games || [];
+  const games = (data?.games || []).filter((g) => g.id !== removed);
   const openPage = (g) => { location.hash = gameHash(`pc/${g.id}`); };
   const identify = (g) => identifyDialog({
     title: `Identify ${g.title}`, query: g.title, year: g.year, platform: "pc",
@@ -655,7 +662,7 @@ export function PcGames() {
       { id: "open", label: "Open its page", icon: "external", one: true, run: () => one && openPage(one) },
       { id: "identify", label: "Identify…", icon: "search", one: true, disabled: off, run: () => one && identify(one) },
       { id: "show", label: "Show in folder", icon: "folder", one: true, disabled: !isDesktop(), run: () => one && reveal(one.dir) },
-      { id: "remove", label: "Remove from the library…", icon: "trash", one: true, disabled: off, run: () => one && removePc(one.id) },
+      { id: "remove", label: "Remove from the library…", icon: "trash", one: true, disabled: off, run: () => one && removePc(one.id, () => setRemoved(one.id)) },
     ];
   };
   const more = () => [
@@ -688,7 +695,7 @@ export function PcGames() {
     line=${(g) => ({ pics: [thumb(g.media?.cover, 128), thumb(g.media?.icon, 128)], none, title: yearText(g) ? `${g.title} (${yearText(g)})` : g.title,
       meta: [store(g), g.details?.developer, size(g.size), g.launch ? null : "no program yet"].filter(Boolean).join(" · ") })}
     actions=${actions} onOpen=${openPage} primary=${primary} more=${more} moreTitle="Import files or a folder, find details, settings, tile size" empty=${empty}
-    panel=${(g) => html`<${GamePanel} id=${g.id} off=${off} version=${`${tick}-${s.changes}`} onChange=${() => setTick((t) => t + 1)} onRemove=${() => {}} />`} />`;
+    panel=${(g) => html`<${GamePanel} id=${g.id} off=${off} version=${`${tick}-${s.changes}`} onChange=${() => setTick((t) => t + 1)} onRemove=${() => setRemoved(g.id)} />`} />`;
 }
 
 // ------------------------------------------------------------ Settings
