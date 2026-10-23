@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.50 (2026-10-23)
+
 - History has a Set aside tab, and a Set aside button on each change that holds files: every file set aside with its game, where it was and its size, and any of them deleted for good (Undo then leaves those steps as they are).
 - PC games is laid out as the Library is: filters for year, genre, developer, publisher, store and more, Grid, List or Table, sorting and groups, with the game's panel on the right.
 - Grids put small groups side by side, so Documents grouped by game is a grid, not one game to a row (Videos, Magazines and PC games too).
