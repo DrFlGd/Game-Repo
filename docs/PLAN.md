@@ -5605,6 +5605,63 @@ the drag is the pointer's own (not the browser's drag and drop, which the window
 files), with a line where the games would go. Previous and Next take a list of keys as well
 as the Library's query (`opened.keys`).
 
+### Updates and DLC by their names (D160–D164)
+
+Jerred, 2026-10-23: how are updates and DLC handled for Switch and 3DS games? Some come as
+files of their own, named as the base game with more at the end. He agreed they should be
+matched to their game by name, and asked for a way to show them grouped with their game or
+not. He also asked how a system is added: Switch, among others, wasn't there. It is built in
+(with 3DS, Wii U, PS3, PS4, Vita and Xbox 360, D66), but a system shows only once it has a
+DAT, and *Get starter DATs* had none for it. D160–D164 are Claude's defaults, followed unless
+he says otherwise. One pull request.
+
+**D160 An add-on told by the name files are given.** Besides No-Intro's tags and DATs (D66),
+a name is an update with an `[UPD]` or `(Update 1.2)` tag, a DLC with `[DLC]` or `[Add-on]`,
+and a title ID says what it is: sixteen hex digits in brackets, as Switch, 3DS and Wii U
+files are often named. A Switch base game's ID ends in 000, its update's in 800, its DLC's
+are the base's plus 1001 on; a 3DS or Wii U title's ID shares its last eight digits with the
+base game's, the first eight saying base (00040000, 00050000), update (0004000E, 0005000E) or
+DLC (0004008C, 0005000C). A version is read from `[v131072]` and `(Update 1.2)` as from
+`(v1.2)`. The title ID isn't shown in the Library (it says nothing to a person).
+
+**D161 Its game found by name.** In order: a link by hand; the game its custom DAT entry
+names (D162); the base game with its title ID; the one with the same title and region; the
+only one with the same title; else the game whose title is the longest its name starts with,
+so "Alpha - Booster Pack [DLC]" is Alpha's (by region if several have that title, else none).
+Titles are compared as their words, so "Alpha: Quest" and "Alpha - Quest" are one.
+
+**D162 Files no DAT lists.** Audit › Unknown says a file whose name makes it an update, DLC or
+patch is one, with the game its name says it belongs to ("an update of Tetris Worlds (USA)").
+*Add* puts it in the system's custom DAT under its own name, with that game as its original,
+as a variant is put there (D123); it's then an add-on of that game like any other (counted,
+listed on its page, taken into collections and exports), not a variant, so it doesn't take
+the game's details and pictures. For a system with no DAT at all, such as Switch, *Make a DAT
+from a folder…* makes every file a game, and the updates and DLC among them are found by
+their names the same way.
+
+**D163 With their game, or games of their own.** The Library's filters have *Updates and DLC
+with their game* (ticked, as before, with how many there are). Unticked, each update, DLC and
+patch is a game of its own in the list, beside its game (its title starts with the game's),
+with what it is ("Update v1.1", "DLC") on its tile, line or row, and its game's picture and
+details unless it has its own. Its page says what it is and which game it belongs to, with
+*Link to another game…*. The choice is in the address with the rest of the view (`apart=1`),
+so the Library keeps it. A collection's rules, Game Repo Server and the counts on Home leave
+add-ons out as before.
+
+**D164 Starter DATs found where libretro keeps them.** *Get starter DATs* looks in the folder
+of the system's kind first (No-Intro's for cartridges, Redump's for discs) and then the
+other: libretro keeps 3DS's and Vita's with No-Intro's. Switch, Wii U and PS4 have none there,
+so they still need a DAT imported or made from a folder.
+
+**As built (2026-10-23).** `addons.rs` has `title_id`, `Bases` (a system's base games by
+title ID, title and region, and title, with `find`) and `shown_name`; `links` reads a custom
+DAT entry's `cloneof`. `variants::annotate` marks Unknown's files with `addon` and puts the
+game first among `suggested`, and `variants::add` doesn't make an add-on take its game's
+details. The Library's rows have `addon` and `base` (a migration), filled by
+`browse::rebuild_system` from `addons::links` (the add-on DATs' games too), and
+`Query.addons_apart` shows them; the facets count them as `addons_apart`. `addon_link` makes
+the system's rows again. `starter::get` tries both folders.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -5750,7 +5807,7 @@ as the Library's query (`opened.keys`).
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D160). D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D165). D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -5819,5 +5876,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     and Next on a game's page, Videos and Magazines laid out as the Library, Documents
     the same kept simpler, and *Remove from collection*.
 19. Jerred's backlog (D157–D159): a ranked list of games to play under Collections, with
-    Completed beside it and In progress highlighted. Later: 9d (the server on the NAS,
-    access away from home with Tailscale, muOS-style handhelds) and Android games.
+    Completed beside it and In progress highlighted.
+20. Updates and DLC by their names (D160–D164): scene tags and Switch, 3DS and Wii U title
+    IDs, the game found by name, Unknown files added as add-ons, the Library's *Updates
+    and DLC with their game*, and starter DATs for 3DS and Vita. Later: 9d (the server on
+    the NAS, access away from home with Tailscale, muOS-style handhelds) and Android games.

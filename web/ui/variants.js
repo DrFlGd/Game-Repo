@@ -19,6 +19,8 @@ import { argHash } from "./panels.js";
 const err = (e) => e.message || String(e);
 const changed = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
 const HOW = { same: "same title", close: "close name" };
+// a file whose name says it's an update, DLC or patch, and the game its name says (D162)
+const AS = { update: "an update", dlc: "a DLC", patch: "a patch" };
 const STATUS = { have: "Have", partial: "Partly there", missing: "Missing" };
 
 /** A file's name without its extension, as the core takes it. */
@@ -92,10 +94,11 @@ export function UnknownTable({ items, platform, off }) {
     const main = picked.find((it) => /\.(cue|gdi|m3u|ccd)$/i.test(it.name)) || picked[0];
     edit(main, false, [main.id, ...picked.filter((it) => it !== main).map((it) => it.id)]);
   };
+  const as = (it) => AS[it.addon] || "a variant";
   const menu = (e, it) => {
     e.preventDefault();
     openMenu(e, [
-      ...(it.suggested || []).map((s) => ({ id: "unknown-add-as", label: `Add as a variant of ${s.name}`, icon: "plus", disabled: off, run: () => one(it, s.name) })),
+      ...(it.suggested || []).map((s) => ({ id: "unknown-add-as", label: `Add as ${as(it)} of ${s.name}`, icon: "plus", disabled: off, run: () => one(it, s.name) })),
       { id: "unknown-choose", label: "Choose the game…", icon: "search", disabled: off, run: () => edit(it, true) },
       { id: "unknown-own", label: "Add as a game of its own", icon: "plus", disabled: off, run: () => one(it, null) },
       { id: "unknown-edit", label: "Edit its name and tags…", icon: "edit", disabled: off, run: () => edit(it) },
@@ -106,26 +109,26 @@ export function UnknownTable({ items, platform, off }) {
   return html`<div class="unknown-wrap">
     ${off ? null : html`<div class="unknown-bar" id="unknown-bar">
       <span class="muted">${picked.length ? `${plural(picked.length, "file", "files")} ticked` : "Tick files to add them together."}</span>
-      <button type="button" class="ghost compact" id="unknown-add-ticked" disabled=${busy || !withOne.length} title="Each as a variant of the game suggested for it, under its own name"
-        onClick=${addTicked}>${Icon.plus(14)} Add the ticked files as variants${withOne.length ? ` (${withOne.length})` : ""}</button>
+      <button type="button" class="ghost compact" id="unknown-add-ticked" disabled=${busy || !withOne.length} title="Each as a variant of the game suggested for it, or as its update or DLC, under its own name"
+        onClick=${addTicked}>${Icon.plus(14)} Add the ticked files${withOne.length ? ` (${withOne.length})` : ""}</button>
       ${picked.length > 1 ? html`<button type="button" class="ghost compact" id="unknown-add-one" disabled=${busy} title="One game of several files, such as a cue sheet and its tracks" onClick=${asOne}>Add as one game…</button>` : null}
     </div>`}
     <table class="audit-table" id="audit-list-table"><thead><tr>
       ${off ? null : html`<th class="tick"><input type="checkbox" aria-label="Tick every file" checked=${all} onChange=${() => setTicked(all ? new Set() : new Set(items.map((it) => it.id)))} /></th>`}
-      <th>File</th><th>Likely a variant of</th><th>Tags</th><th>Folder</th><th></th></tr></thead>
+      <th>File</th><th>Likely belongs to</th><th>Tags</th><th>Folder</th><th></th></tr></thead>
     <tbody>${items.map((it) => {
       const s = it.suggested || [];
       const o = original(it);
-      return html`<tr class="audit-row" key=${it.id} data-name=${it.name} tabindex="0" onContextMenu=${(e) => menu(e, it)}>
+      return html`<tr class="audit-row" key=${it.id} data-name=${it.name} data-addon=${it.addon || null} tabindex="0" onContextMenu=${(e) => menu(e, it)}>
         ${off ? null : html`<td class="tick"><input type="checkbox" aria-label=${`Tick ${it.name}`} checked=${ticked.has(it.id)} onChange=${() => flip(it.id)} /></td>`}
         <td class="audit-name">${it.name}</td>
         <td class="unknown-original">${s.length > 1 ? html`<select class="compact" aria-label=${`The game ${it.name} is a variant of`} value=${o} onChange=${(e) => setChosen({ ...chosen, [it.id]: e.target.value })}>
             ${s.map((x) => html`<option key=${x.name} value=${x.name}>${x.name} (${HOW[x.how] || x.how})</option>`)}</select>`
-          : s.length ? html`<span>${s[0].name}</span> <span class="muted">${HOW[s[0].how] || s[0].how}</span>` : html`<span class="muted">No game found</span>`}</td>
+          : s.length ? (it.addon ? html`<span class="muted">${AS[it.addon]} of</span> <span>${s[0].name}</span>` : html`<span>${s[0].name}</span> <span class="muted">${HOW[s[0].how] || s[0].how}</span>`) : html`<span class="muted">No game found</span>`}</td>
         <td><${Tags} tags=${it.tags} /></td>
         <td class="audit-path muted" title=${it.shown || null}>${shortPath(it.shown, 3)}</td>
         <td class="audit-acts">
-          ${off ? null : s.length ? html`<button type="button" class="ghost compact unknown-add" disabled=${busy} title=${`Add it to the custom DAT as a variant of ${o}`} onClick=${() => one(it, o)}>Add</button>`
+          ${off ? null : s.length ? html`<button type="button" class="ghost compact unknown-add" disabled=${busy} title=${`Add it to the custom DAT as ${as(it)} of ${o}`} onClick=${() => one(it, o)}>Add</button>`
             : html`<button type="button" class="ghost compact unknown-choose" title="Choose the game it's a variant of, or add it as a game of its own" onClick=${() => edit(it, true)}>Choose…</button>`}
           ${off ? null : html`<button type="button" class="ghost compact unknown-edit" title="Its name, tags and the game it's a variant of" onClick=${() => edit(it)}>Edit…</button>`}
           ${it.path && isDesktop() ? html`<button type="button" class="ghost compact" title="Show in folder" aria-label=${`Show ${it.name} in its folder`} onClick=${() => reveal(it.path)}>${Icon.folder(14)}</button>` : null}

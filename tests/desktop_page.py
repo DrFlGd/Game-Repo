@@ -1059,8 +1059,74 @@ async def updates_in_the_app(pg, base, home, library):
     stand_in_update(base, {"found": None, "available": None})
 
 
+async def addons_by_name(pg, base, home, library):
+    """D160–D163: a 3DS update and DLC no DAT lists, named as sets name them (a title ID, a
+    [DLC] tag), are on Audit's Unknown tab as an update and a DLC of their game; added, the
+    Library counts them with it, lists them as games of their own when Updates and DLC with
+    their game is unticked, and an update's page says which game it belongs to."""
+    n3ds = home / "3DS"
+    n3ds.mkdir()
+    alpha = make_fixtures.rom(61, 4096)
+    (n3ds / "Alpha (USA).3ds").write_bytes(alpha)
+    update = "Alpha (USA) [0004000E00055D00][v1024].cia"
+    dlc = "Alpha - Bonus Pack (USA) [DLC].cia"
+    (n3ds / update).write_bytes(make_fixtures.rom(62, 2048))
+    (n3ds / dlc).write_bytes(make_fixtures.rom(63, 1024))
+    dat = home / "3ds.dat"
+    dat.write_text(make_fixtures.logiqx("Nintendo - Nintendo 3DS", "20261001", [
+        ("Alpha (USA)", None, [make_fixtures.rom_xml("Alpha (USA).3ds", alpha)]),
+        ("Beta (Europe)", None, [make_fixtures.rom_xml("Beta (Europe).3ds", make_fixtures.rom(64, 1024))]),
+    ]))
+    pick(n3ds, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    pick(dat, base)
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await back_home(pg, base)
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    await pg.goto(base + "#/audit/n3ds")
+    await pg.click('#audit-tabs [data-tab="unknown"]')
+    await pg.wait_for_selector(f'#audit-list-table tr[data-name="{update}"]', timeout=15000)
+    upd = await pg.inner_text(f'#audit-list-table tr[data-name="{update}"]')
+    bonus = await pg.inner_text(f'#audit-list-table tr[data-name="{dlc}"]')
+    kinds = await pg.eval_on_selector_all("#audit-list-table tr[data-addon]", "els => els.map(e => e.dataset.addon).sort()")
+    await pg.screenshot(path=str(out / "58e-audit-unknown-addons.png"))
+    check("Audit's Unknown tab says a file named as an update or DLC (a 3DS title ID, a [DLC] tag) is one, of the game its name says (D160–D162)",
+          "an update of Alpha (USA)" in " ".join(upd.split()) and "a DLC of Alpha (USA)" in " ".join(bonus.split()) and kinds == ["dlc", "update"], (upd, bonus, kinds))
+    await pg.check('#audit-list-table th.tick input')
+    await pg.click("#unknown-add-ticked")
+    await toast_text(pg, "Added")
+    await pg.wait_for_function("() => document.querySelector('#audit-tabs [data-tab=\"unknown\"] .tab-count')?.textContent === '0'", timeout=15000)
+    # the Library: counted with their game, or games of their own beside it
+    await pg.goto(base + "#/library")
+    await pg.wait_for_selector("#lib-addons-with", timeout=15000)
+    ticked = await pg.is_checked("#lib-addons-with")
+    counted = await pg.inner_text('label:has(#lib-addons-with)')
+    alone = await pg.eval_on_selector_all(".lib-tile[data-key]", "els => els.map(e => e.dataset.key)")
+    await pg.uncheck("#lib-addons-with")
+    await pg.wait_for_selector('.lib-tile[data-addon="update"]', timeout=15000)
+    apart = await pg.eval_on_selector_all(".lib-tile[data-key]", "els => els.map(e => [e.dataset.key, e.dataset.addon || '', e.querySelector('.lib-badge-addon')?.textContent || ''])")
+    await pg.screenshot(path=str(out / "58f-library-addons-apart.png"))
+    check("the Library counts updates and DLC with their game, and unticked lists each beside it with what it is, the choice in the address (D163)",
+          ticked and "2" in counted and alone == ["n3ds/Alpha (USA)"]
+          and apart == [["n3ds/Alpha (USA)", "", ""], ["n3ds/Alpha (USA) [0004000E00055D00][v1024]", "update", "Update v1024"], ["n3ds/Alpha - Bonus Pack (USA) [DLC]", "dlc", "DLC"]]
+          and "apart=1" in pg.url, (ticked, counted, alone, apart, pg.url))
+    await pg.dblclick('.lib-tile[data-addon="update"]')
+    await pg.wait_for_selector("#game-addon-of", timeout=15000)
+    of = " ".join((await pg.inner_text("#game-addon-of")).split())
+    await pg.click("#game-addon-of a")
+    await pg.wait_for_selector("#game-addons", timeout=15000)
+    theirs = await pg.inner_text("#game-addons")
+    check("an update's page says what it is and links its game, whose page lists it (D163)",
+          of.startswith("Update v1024 of Alpha") and "Link to another game" in of and "Alpha (USA) [0004000E00055D00][v1024]" in theirs
+          and "Alpha - Bonus Pack (USA) [DLC]" in theirs and "You have 2 of 2" in theirs, (of, theirs))
+
+
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app), ("videos", videos)]
+             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name)]
 
 
 async def main():

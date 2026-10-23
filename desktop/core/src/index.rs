@@ -219,6 +219,14 @@ const MIGRATIONS: &[(&str, &str)] = &[
         // D155: a document's game (its key and picture) found by its folder
         "CREATE INDEX library_folder ON library (folder);",
     ),
+    (
+        "addon_rows",
+        // D163: updates, DLC and patches as rows of their own, with their base game's key,
+        // which the Library shows only when asked; every system's rows made again
+        "ALTER TABLE library ADD COLUMN addon TEXT NOT NULL DEFAULT '';
+         ALTER TABLE library ADD COLUMN base TEXT;
+         DELETE FROM index_meta WHERE key LIKE 'library:%';",
+    ),
 ];
 
 /// How many schema steps this build knows.

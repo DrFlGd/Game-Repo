@@ -36,7 +36,7 @@ const RATINGS = [[0.4, "★★ and up"], [0.6, "★★★ and up"], [0.8, "★�
 
 // ------------------------------------------------------------ the query, in the address
 
-export const blank = () => ({ search: "", all: false, one_per_title: false, look: false, players: 0, rating: 0, collection: "", sort: "title", desc: false, group: "", ...Object.fromEntries(LISTS.map((k) => [k, []])) });
+export const blank = () => ({ search: "", all: false, one_per_title: false, addons_apart: false, look: false, players: 0, rating: 0, collection: "", sort: "title", desc: false, group: "", ...Object.fromEntries(LISTS.map((k) => [k, []])) });
 
 /** The query an address holds (`#/library?genre=Puzzle&sort=year`). */
 export function queryOf(hash = location.hash) {
@@ -45,6 +45,7 @@ export function queryOf(hash = location.hash) {
   q.search = p.get("q") || "";
   q.all = p.get("all") === "1";
   q.one_per_title = p.get("one") === "1";
+  q.addons_apart = p.get("apart") === "1";
   q.look = p.get("look") === "1";
   q.players = Number(p.get("players")) || 0;
   q.rating = Number(p.get("rating")) || 0;
@@ -63,6 +64,7 @@ export function hashOf(q) {
   for (const k of LISTS) for (const v of q[k]) p.append(k, String(v));
   if (q.all) p.set("all", "1");
   if (q.one_per_title) p.set("one", "1");
+  if (q.addons_apart) p.set("apart", "1");
   if (q.look) p.set("look", "1");
   if (q.players) p.set("players", String(q.players));
   if (q.rating) p.set("rating", String(q.rating));
@@ -175,6 +177,7 @@ function Filters({ q, facets, set, collections }) {
     <div class="lib-switches">
       <label class="check-row" title="Every game in the systems' DATs, so the games you've scraped but don't have can be browsed too"><input type="checkbox" id="lib-all" checked=${q.all} onChange=${(e) => set({ all: e.target.checked })} /> Every game in the DATs</label>
       <label class="check-row" title="One version of each game: the first in the region order USA, World, Europe, Japan"><input type="checkbox" id="lib-one" checked=${q.one_per_title} onChange=${(e) => set({ one_per_title: e.target.checked })} /> One per title</label>
+      ${f.addons_apart || q.addons_apart ? html`<label class="check-row" title="Updates, DLC and patches are counted on their game and listed on its page. Untick to list them as games of their own, beside their game."><input type="checkbox" id="lib-addons-with" checked=${!q.addons_apart} onChange=${(e) => set({ addons_apart: !e.target.checked })} /> Updates and DLC with their game${q.addons_apart ? null : html` <span class="lib-count">${(f.addons_apart || 0).toLocaleString()}</span>`}</label>` : null}
       ${f.look || q.look ? html`<label class="check-row"><input type="checkbox" id="lib-look" checked=${q.look} onChange=${(e) => set({ look: e.target.checked })} /> Needs a look <span class="lib-count">${(f.look || 0).toLocaleString()}</span></label>` : null}
     </div>
     <${Values} id="platform" name="System" values=${f.platform} chosen=${q.platform} onToggle=${toggle("platform")} />
@@ -208,7 +211,7 @@ function Chips({ q, set, facets, collections }) {
   if (q.search) chips.push(["search", `Search: ${q.search}`, () => set({ search: "" })]);
   if (!chips.length) return null;
   return html`<div class="lib-chips" id="lib-chips">${chips.map(([k, label, off]) => html`<span class="lib-chip" key=${k} data-chip=${k}>${label}<button type="button" class="ghost" aria-label=${`Remove ${label}`} title="Remove" onClick=${off}>${Icon.close(11)}</button></span>`)}
-    <button type="button" class="linkish" id="lib-clear" onClick=${() => set({ ...blank(), sort: q.sort, desc: q.desc, group: q.group, all: q.all, one_per_title: q.one_per_title })}>Clear</button></div>`;
+    <button type="button" class="linkish" id="lib-clear" onClick=${() => set({ ...blank(), sort: q.sort, desc: q.desc, group: q.group, all: q.all, one_per_title: q.one_per_title, addons_apart: q.addons_apart })}>Clear</button></div>`;
 }
 
 // ------------------------------------------------------------ the games, a page at a time
@@ -279,11 +282,16 @@ function GroupHead({ g, group, q }) {
   return html`<div class="lib-group" data-group=${String(g.value)}><h2>${name}</h2><span class="muted">${plural(g.count, "game", "games")}</span></div>`;
 }
 
+const ADDON_KINDS = { update: "Update", dlc: "DLC", patch: "Patch" };
+
+/** What an update, DLC or patch is, as a row or its page says it: "Update v1.1" (D163). */
+export const addonLabel = (a) => [ADDON_KINDS[a.kind] || a.kind, a.version].filter(Boolean).join(" ");
+
 function Tile({ g, i, on, onPick, onOpen, onMenu, px }) {
   if (!g) return html`<div class="lib-tile lib-wait" aria-hidden="true"><span class="lib-cover lib-cover-wait"></span></div>`;
-  return html`<button type="button" class=${`lib-tile${on ? " selected" : ""}${g.have ? "" : " lib-missing"}`} data-key=${g.key} data-index=${i} aria-pressed=${on ? "true" : "false"} title=${`${g.title}${g.year ? ` (${g.year})` : ""} · ${g.platform_name}`}
+  return html`<button type="button" class=${`lib-tile${on ? " selected" : ""}${g.have ? "" : " lib-missing"}`} data-key=${g.key} data-index=${i} data-addon=${g.addon?.kind || null} aria-pressed=${on ? "true" : "false"} title=${`${g.title}${g.year ? ` (${g.year})` : ""} · ${g.platform_name}`}
     onClick=${(e) => onPick(e, g, i)} onDblClick=${() => onOpen(g, i)} onContextMenu=${(e) => onMenu(e, g, i)}>
-    <span class="lib-tile-art"><${Cover} g=${g} px=${px} /><span class="lib-badge" style=${`border-color:${systemColour(g.platform)}`}>${g.platform_name}</span></span>
+    <span class="lib-tile-art"><${Cover} g=${g} px=${px} /><span class="lib-badge" style=${`border-color:${systemColour(g.platform)}`}>${g.platform_name}</span>${g.addon ? html`<span class="lib-badge lib-badge-addon">${addonLabel(g.addon)}</span>` : null}</span>
     <span class="lib-tile-title">${g.title}</span>
     <span class="lib-tile-meta muted">${[g.regions, g.year, g.developer].filter(Boolean).join(" · ") || (g.have ? "" : "Not in the library")}</span>
   </button>`;
@@ -291,11 +299,11 @@ function Tile({ g, i, on, onPick, onOpen, onMenu, px }) {
 
 function Line({ g, i, on, onPick, onOpen, onMenu }) {
   if (!g) return html`<div class="lib-line lib-wait" aria-hidden="true"></div>`;
-  return html`<button type="button" class=${`lib-line${on ? " selected" : ""}${g.have ? "" : " lib-missing"}`} data-key=${g.key} data-index=${i} aria-pressed=${on ? "true" : "false"}
+  return html`<button type="button" class=${`lib-line${on ? " selected" : ""}${g.have ? "" : " lib-missing"}`} data-key=${g.key} data-index=${i} data-addon=${g.addon?.kind || null} aria-pressed=${on ? "true" : "false"}
     onClick=${(e) => onPick(e, g, i)} onDblClick=${() => onOpen(g, i)} onContextMenu=${(e) => onMenu(e, g, i)}>
     <${Cover} g=${g} px=${128} cls="lib-cover small" />
     <span class="lib-line-main"><span class="lib-line-title">${g.title}${g.year ? html` <span class="muted">(${g.year})</span>` : null}</span>
-      <span class="muted">${[g.platform_name, g.regions, g.developer, g.genres?.slice(0, 2).join(", "), g.have ? null : "not in the library"].filter(Boolean).join(" · ")}</span></span>
+      <span class="muted">${[g.addon ? addonLabel(g.addon) : null, g.platform_name, g.regions, g.developer, g.genres?.slice(0, 2).join(", "), g.have ? null : "not in the library"].filter(Boolean).join(" · ")}</span></span>
     ${g.rating != null ? html`<span class="lib-stars" title=${`${Math.round(g.rating * 100)}%`}>${stars(g.rating)}</span>` : null}
   </button>`;
 }
@@ -310,12 +318,12 @@ const COLUMNS = [
   ["rating", "Rating", (g) => stars(g.rating), "rating"],
   ["regions", "Region", (g) => g.regions, null],
   ["size", "Size", (g) => (g.size ? size(g.size) : ""), "size"],
-  ["status", "Status", (g) => (g.have ? (g.review ? "Needs a look" : "In the library") : "Not in the library"), null],
+  ["status", "Status", (g) => [g.addon ? addonLabel(g.addon) : null, g.have ? (g.review ? "Needs a look" : "In the library") : "Not in the library"].filter(Boolean).join(" · "), null],
 ];
 
 function Row({ g, i, on, onPick, onOpen, onMenu }) {
   if (!g) return html`<div class="lib-row lib-wait" aria-hidden="true"></div>`;
-  return html`<div role="row" tabindex="-1" class=${`lib-row${on ? " selected" : ""}${g.have ? "" : " lib-missing"}`} data-key=${g.key} data-index=${i} data-bytes=${g.size || 0} aria-selected=${on ? "true" : "false"}
+  return html`<div role="row" tabindex="-1" class=${`lib-row${on ? " selected" : ""}${g.have ? "" : " lib-missing"}`} data-key=${g.key} data-index=${i} data-addon=${g.addon?.kind || null} data-bytes=${g.size || 0} aria-selected=${on ? "true" : "false"}
     onClick=${(e) => onPick(e, g, i)} onDblClick=${() => onOpen(g, i)} onContextMenu=${(e) => onMenu(e, g, i)}>
     ${COLUMNS.map(([k, , v]) => html`<span role="cell" key=${k} class=${`lib-cell lib-col-${k}`}>${v(g)}</span>`)}</div>`;
 }
@@ -491,6 +499,7 @@ function Inspector({ count, keyOf, actions, overview, off, onOpen }) {
     ${facts.length ? html`<dl class="pc-facts">${facts.map(([k, v]) => html`<dt key=${`k${k}`}>${k}</dt><dd key=${`v${k}`}>${v}</dd>`)}</dl>` : html`<p class="muted">No details yet: ${g.kind === "pc" ? "Identify… on its page" : "Scrape…"} fills them in.</p>`}
     ${g.docs?.length ? html`<p class="muted">${plural(g.docs.length, "document", "documents")}</p>` : null}
     ${g.addons?.have ? html`<p class="muted" id="lib-panel-addons">Updates and DLC: ${g.addons.have} of ${g.addons.items.length}</p>` : null}
+    ${g.addon ? html`<p class="muted" id="lib-panel-addon">${addonLabel(g.addon)}${g.addon.base ? ` of ${g.addon.base.title || g.addon.base.key}` : ", linked to no game"}</p>` : null}
     ${g.collections?.length ? html`<p class="muted">In ${g.collections.map((c) => c.name).join(", ")}</p>` : null}
   </aside>`;
 }

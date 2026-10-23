@@ -25,7 +25,7 @@ import { scrapeDialog, deleteMetadata } from "./metadata.js";
 import { attachDocs, viewDoc, sourceName, useDroppedFiles } from "./documents.js";
 import { identifyDialog, PcParts, pcLine, removePc, unmatchPc } from "./pcgames.js";
 import { convertDialog } from "./organise.js";
-import { opened, gameHash, systemColour, libraryHash } from "./browse.js";
+import { opened, gameHash, systemColour, libraryHash, addonLabel } from "./browse.js";
 import { Icon } from "./icons.js";
 import { Inspector } from "./panels.js";
 import { isVideo, Video } from "./video.js";
@@ -347,6 +347,8 @@ export function GamePage() {
       <section class="game-details" id="game-details" aria-busy=${busy ? "true" : "false"}>
         <p class="muted game-sub">${[g.platform_name, g.kind === "dat" ? (g.have ? "in the library" : "not in the library") : g.kind === "pc" ? "a PC game" : "a game no DAT knows", g.name && g.name !== g.title ? g.name : null].filter(Boolean).join(" · ")}</p>
         ${g.variant ? html`<p class="game-variant-of" id="game-variant-of"><span>${g.variant.of ? html`A variant of <a href=${gameHash(g.variant.of.key)}>${g.variant.of.name}</a>` : "A game of its own, in the system's custom DAT"}</span>${g.variant.tags?.length ? html`<span class="variant-tags">${g.variant.tags.map((t) => html`<span class="variant-tag" key=${t}>${t}</span>`)}</span>` : null}</p>` : null}
+        ${g.addon ? html`<p class="game-variant-of" id="game-addon-of"><span>${addonLabel(g.addon)}${g.addon.base ? html` of <a href=${gameHash(g.addon.base.key)}>${g.addon.base.title || g.addon.base.key}</a>` : ", linked to no game yet"}</span>
+          ${off ? null : html`<button type="button" class="linkish" id="game-addon-relink" onClick=${() => ui.set({ dialog: { type: "addon-link", platform: g.platform, addon: g.name, from: g.addon.base?.key.slice(g.platform.length + 1) || null, onDone: reload } })}>Link to another game…</button>`}</p>` : null}
         ${g.variant_games?.length ? html`<p class="muted" id="game-variant-list">${g.variant_games.length === 1 ? "Its variant" : "Its variants"}: ${g.variant_games.map((x, i) => html`${i ? ", " : ""}<a key=${x.key} href=${gameHash(x.key)}>${x.name}</a>`)}</p>` : null}
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
         ${main ? html`<p class="muted game-main-source" id="game-main-source">Details from ${sourceName(main)}, unless a detail says otherwise.</p>` : null}

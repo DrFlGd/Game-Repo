@@ -92,6 +92,10 @@ struct Row {
     addons: i64,
     /// A variant's tags (D121)
     tags: Vec<String>,
+    /// An update's, DLC's or patch's kind, shown only when asked (D163)
+    addon: &'static str,
+    /// Its base game's key
+    base: Option<String>,
 }
 
 fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
@@ -101,9 +105,9 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
     let mut ins = conn.prepare_cached(
         "INSERT INTO library (key, kind, platform, dat_game, name, title, sort, year, developer, publisher, players, rating, regions, have,
                               folder, picture, media, described, docs, review, size, date, best_all, best_have, genre, genres, languages,
-                              year_sort, rating_sort, size_sort, date_sort, addons, partial, tags)
+                              year_sort, rating_sort, size_sort, date_sort, addons, partial, tags, addon, base)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27,
-                 ?28, ?29, ?30, ?31, ?32, ?33, ?34)",
+                 ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36)",
     )?;
     let mut val = conn.prepare_cached("INSERT INTO library_values (game, field, value) VALUES (?1, ?2, ?3)")?;
     let mut fts = conn.prepare_cached("INSERT INTO library_text (rowid, title, name, body) VALUES (?1, ?2, ?3, ?4)")?;
@@ -128,7 +132,7 @@ fn write_rows(conn: &Connection, platform: &str, rows: &[Row]) -> Result<()> {
             description.is_some() as i64, r.docs, r.review as i64, r.size, r.date, r.best_all as i64, r.best_have as i64, genres.first(),
             genres.join(SEP), r.languages.join(","),
             year.unwrap_or(i64::MAX), rating.map(|x| -x).unwrap_or(f64::MAX), -r.size, r.date.map(|d| -d).unwrap_or(i64::MAX), r.addons,
-            r.partial as i64, r.tags.join(SEP),
+            r.partial as i64, r.tags.join(SEP), r.addon, r.base,
         ])?;
         let id = conn.last_insert_rowid();
         for t in &r.tags {
@@ -157,20 +161,29 @@ fn picture_path(folder: &Option<String>, picture: &Option<String>, stamp: i64) -
 }
 
 /// Rebuild a system's rows: every game of the DAT it's audited against but its updates and
-/// DLC (they're counted with their game, D66), its variants (its custom DAT's games, D122),
+/// DLC (they're counted with their game, D66, and are rows of their own the Library shows only
+/// when asked, D163), its variants (its custom DAT's games, D122),
 /// the games of the DATs it's audited with too (D118), then those of the DATs a collection's group takes its games from in place of it
 /// (`others`, D75) that the first hasn't by name, and the games no DAT knows that Add a
 /// game… kept for it.
 fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<i64>, others: &[i64]) -> Result<()> {
     let mut rows: Vec<Row> = vec![];
     let mut used: HashSet<String> = HashSet::new();
-    let addons = crate::addons::have_by_base(conn, lib, platform)?;
+    let links = crate::addons::links(conn, lib, platform)?;
+    let addons = crate::addons::have_of(conn, &links)?;
+    let addon_of: HashMap<i64, &crate::addons::Link> = links.iter().map(|l| (l.id, l)).collect();
+    // the updates, DLC and patches, kept apart from the games until their pictures are known
+    let mut addon_rows: Vec<Row> = vec![];
     let mut named: HashSet<String> = HashSet::new();
     let custom = if dat.is_some() { crate::variants::custom_dat(conn, platform)? } else { None };
     // and the DATs it's audited with too (D118)
     let also = if dat.is_some() { audit::also_dats(conn, lib, platform)? } else { vec![] };
     let more = also.iter().copied().chain(others.iter().copied().filter(|d| Some(*d) != custom && !also.contains(d)));
-    for (nth, dat) in dat.into_iter().chain(custom).chain(more).enumerate() {
+    // then the DATs of updates and DLC, for their own rows (D163)
+    let mut addon_dats: Vec<i64> = links.iter().map(|l| l.dat_id).filter(|d| Some(*d) != dat && Some(*d) != custom && !also.contains(d) && !others.contains(d)).collect();
+    addon_dats.sort();
+    addon_dats.dedup();
+    for (nth, dat) in dat.into_iter().chain(custom).chain(more).chain(addon_dats).enumerate() {
         let start = rows.len();
         let variants = Some(dat) == custom;
         let addon_dat = conn.query_row("SELECT name FROM dats WHERE id = ?1", [dat], |r| r.get::<_, String>(0)).map(|n| crate::addons::is_addon_dat(&n))?;
@@ -211,6 +224,33 @@ fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<
             let meta_title: Option<String> = x.get(11)?;
             let facts: String = x.get(15)?;
             let picture: Option<String> = x.get(16)?;
+            if let Some(l) = addon_of.get(&id) {
+                if let Some(f) = &folder {
+                    used.insert(f.clone());
+                }
+                addon_rows.push(Row {
+                    key: format!("{platform}/{name}"),
+                    kind: "dat",
+                    platform: platform.to_string(),
+                    dat_game: Some(id),
+                    title: crate::addons::shown_name(&name),
+                    name,
+                    regions: split(&regions),
+                    languages: split(&x.get::<_, String>(4)?),
+                    have: status != "missing",
+                    partial: status == "partial",
+                    picture: picture_path(&folder, &picture, x.get(19)?),
+                    folder,
+                    size: sizes.get(&id).map(|s| s.0 as i64).unwrap_or(0),
+                    date: x.get(18)?,
+                    best_all: true,
+                    best_have: true,
+                    addon: l.kind,
+                    base: l.base.as_ref().map(|b| format!("{platform}/{b}")),
+                    ..Default::default()
+                });
+                continue;
+            }
             if !addon_dat && crate::addons::kind_of(&name, false).is_some() {
                 continue;
             }
@@ -277,6 +317,20 @@ fn rebuild_system(conn: &Connection, lib: &Library, platform: &str, dat: Option<
         }
         named.extend(rows[start..].iter().map(|r| r.name.clone()));
     }
+    // an update or DLC shows its game's picture and details, unless it has its own
+    let of_base: HashMap<String, usize> = rows.iter().enumerate().map(|(i, r)| (r.key.clone(), i)).collect();
+    for a in &mut addon_rows {
+        if let Some(b) = a.base.as_ref().and_then(|b| of_base.get(b)).map(|&i| &rows[i]) {
+            if a.picture.is_none() {
+                a.picture = b.picture.clone();
+            }
+            if a.facts.is_empty() {
+                a.facts = b.facts.clone();
+                a.year = a.year.or(b.year);
+            }
+        }
+    }
+    rows.extend(addon_rows);
     // a DAT can list two different games under one name (`dat::parse` keeps both when
     // their files differ, as libretro's copies do): the later ones by the DAT's order get
     // `~2`, `~3`… after the name, so each has a key of its own
@@ -506,6 +560,8 @@ pub struct Query {
     pub limit: i64,
     /// With the filters' counts
     pub facets: bool,
+    /// Updates, DLC and patches as games of their own, not only with their game (D163)
+    pub addons_apart: bool,
 }
 
 /// The words of a search as an FTS5 query: each a prefix, all wanted.
@@ -525,6 +581,9 @@ fn where_of(q: &Query, keys: &Option<Vec<String>>, skip: &str) -> (String, Vec<S
     let mut p: Vec<Sql> = vec![];
     if !q.all {
         w.push("l.have = 1".into());
+    }
+    if !q.addons_apart && skip != "apart" {
+        w.push("l.addon = ''".into());
     }
     if q.one_per_title {
         w.push(if q.all { "l.best_all = 1" } else { "l.best_have = 1" }.into());
@@ -697,7 +756,7 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
         .collect::<rusqlite::Result<_>>()?;
     let mut st = conn.prepare(&format!(
         "SELECT l.id, l.key, l.kind, l.platform, l.dat_game, l.name, l.title, l.year, l.developer, l.publisher, l.players, l.rating, l.regions,
-                l.have, l.picture, l.media, l.described, l.docs, l.review, l.size, l.date, {group}, l.genres, l.addons
+                l.have, l.picture, l.media, l.described, l.docs, l.review, l.size, l.date, {group}, l.genres, l.addons, l.addon, l.base
          FROM library l WHERE l.id IN (SELECT value FROM json_each(?1))"
     ))?;
     let mut by: HashMap<i64, Value> = st
@@ -706,6 +765,10 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
             let media: String = r.get(15)?;
             let group: Option<Sql> = r.get(21)?;
             let genres: String = r.get(22)?;
+            let addon: String = r.get(24)?;
+            let name: String = r.get(5)?;
+            // an update's, DLC's or patch's kind, version and game (D163)
+            let addon = (!addon.is_empty()).then(|| json!({ "kind": addon, "version": crate::addons::version_of(&name), "base": r.get::<_, Option<String>>(25).ok().flatten() }));
             Ok((r.get::<_, i64>(0)?, json!({
                 "key": r.get::<_, String>(1)?, "kind": r.get::<_, String>(2)?, "platform_name": system_name(&platform), "platform": platform,
                 "dat_game": r.get::<_, Option<i64>>(4)?, "name": r.get::<_, String>(5)?, "title": r.get::<_, String>(6)?, "year": r.get::<_, Option<i64>>(7)?,
@@ -714,7 +777,7 @@ pub fn query(ix: &Index, lib: &Library, q: &Query) -> Result<Value> {
                 "picture": r.get::<_, Option<String>>(14)?, "media": split(&media), "described": r.get::<_, i64>(16)? == 1,
                 "docs": r.get::<_, i64>(17)?, "review": r.get::<_, i64>(18)? == 1, "size": r.get::<_, i64>(19)?, "date": r.get::<_, Option<i64>>(20)?,
                 "group": match group { Some(Sql::Text(t)) => json!(t), Some(Sql::Integer(n)) => json!(n), _ => Value::Null },
-                "genres": genres.split(SEP).filter(|g| !g.is_empty()).collect::<Vec<_>>(), "addons": r.get::<_, i64>(23)?,
+                "genres": genres.split(SEP).filter(|g| !g.is_empty()).collect::<Vec<_>>(), "addons": r.get::<_, i64>(23)?, "addon": addon,
             })))
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -898,6 +961,9 @@ fn facets(conn: &Connection, q: &Query, keys: &Option<Vec<String>>) -> Result<Va
     };
     let mut decade: Vec<(&i64, &i64)> = c.decade.iter().collect();
     decade.sort();
+    // how many updates, DLC and patches the query would find as games of their own (D163)
+    let (w, p) = where_of(q, keys, "apart");
+    let apart: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM library l WHERE {w} AND l.addon != ''"), params_from_iter(p.iter()), |r| r.get(0))?;
     Ok(json!({
         "platform": top("platform"), "genre": top("genre"), "developer": top("developer"), "publisher": top("publisher"),
         "region": top("region"), "language": top("language"), "tag": top("tag"),
@@ -906,6 +972,7 @@ fn facets(conn: &Connection, q: &Query, keys: &Option<Vec<String>>) -> Result<Va
         "rating": RATINGS.iter().zip(c.rating).map(|(v, n)| json!({ "value": v, "count": n })).collect::<Vec<_>>(),
         "has": { "pictures": c.has[0], "description": c.has[1], "manual": c.has[2], "video": c.has[3], "documents": c.has[4], "addons": c.has[5] },
         "look": c.look,
+        "addons_apart": apart,
     }))
 }
 
@@ -936,7 +1003,7 @@ pub fn overview(ix: &Index, lib: &Library) -> Result<Value> {
         }
     }
     let (have, all, systems): (i64, i64, i64) = conn.query_row(
-        "SELECT COALESCE(SUM(have), 0), COUNT(*), COUNT(DISTINCT CASE WHEN have = 1 THEN platform END) FROM library",
+        "SELECT COALESCE(SUM(have), 0), COUNT(*), COUNT(DISTINCT CASE WHEN have = 1 THEN platform END) FROM library WHERE addon = ''",
         [],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
@@ -959,10 +1026,18 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
             let mut v = meta::game(ix, lib, id)?;
             // its DAT: the system's audit DAT, or the one a collection's group takes it from (D75)
             v["dat_id"] = json!(conn.query_row("SELECT dat_id FROM dat_games WHERE id = ?1", [id], |r| r.get::<_, i64>(0)).optional()?.or(audit::primary_dat(conn, lib, &platform)?));
-            let name: String = conn.query_row("SELECT name FROM library WHERE key = ?1", [key], |r| r.get(0))?;
+            let (name, addon, base): (String, String, Option<String>) = conn.query_row("SELECT name, addon, base FROM library WHERE key = ?1", [key], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
             v["addons"] = crate::addons::of_game(conn, lib, &platform, &name)?;
-            // a variant's original, or an original's variants (D122)
-            if crate::variants::is_custom(conn, v["dat_id"].as_i64().unwrap_or(-1))? {
+            if !addon.is_empty() {
+                // an update, DLC or patch (D163): what it is and the game it belongs to
+                let base_title: Option<String> = match &base {
+                    Some(b) => conn.query_row("SELECT title FROM library WHERE key = ?1", [b], |r| r.get(0)).optional()?,
+                    None => None,
+                };
+                v["addon"] = json!({ "kind": addon, "version": crate::addons::version_of(&name), "base": base.map(|b| json!({ "key": b, "title": base_title })) });
+                v["addons"] = json!({ "items": [], "have": 0, "loose": [] });
+            } else if crate::variants::is_custom(conn, v["dat_id"].as_i64().unwrap_or(-1))? {
+                // a variant's original, or an original's variants (D122)
                 let original: Option<String> = conn.query_row("SELECT cloneof FROM dat_games WHERE id = ?1", [id], |r| r.get(0))?;
                 v["variant"] = json!({ "name": name, "title": crate::variants::split_name(&name).0, "tags": crate::variants::tags_of(&name), "of": original.map(|o| json!({ "key": format!("{platform}/{o}"), "name": o })) });
             } else {

@@ -147,7 +147,8 @@ pub fn refresh_with(ix: &Index, lib: Option<&Library>) -> Result<usize> {
     let conn = ix.conn();
     let mut by_system: BTreeMap<String, Vec<(String, String, String, String, Option<i64>, i64, String, Option<String>)>> = BTreeMap::new();
     {
-        let mut q = conn.prepare("SELECT key, platform, name, title, sort, year, size, media, picture FROM library WHERE kind = 'dat' AND have = 1 AND partial = 0")?;
+        // (updates and DLC are their games', not games to download on their own: D163)
+        let mut q = conn.prepare("SELECT key, platform, name, title, sort, year, size, media, picture FROM library WHERE kind = 'dat' AND have = 1 AND partial = 0 AND addon = ''")?;
         let mut rows = q.query([])?;
         while let Some(r) = rows.next()? {
             let platform: String = r.get(1)?;

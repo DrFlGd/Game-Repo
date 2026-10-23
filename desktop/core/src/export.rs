@@ -3068,6 +3068,20 @@ mod tests {
         names.sort();
         assert_eq!(names, ["Alpha (Europe)", "Delta (World)"], "{found}");
         assert_eq!(found["items"][0]["addons"], 1);
+        // D163: asked, it lists the ones you have as games of their own, each with its game
+        let q = crate::browse::Query { addons_apart: true, facets: true, limit: 50, ..Default::default() };
+        let apart = crate::browse::query(&ix, &lib, &q).unwrap();
+        let addon = |n: &str| apart["items"].as_array().unwrap().iter().find(|g| g["name"] == n).map(|g| g["addon"].clone());
+        assert_eq!(addon("Delta (World) (Update) (v1.1)"), Some(json!({ "kind": "update", "version": "v1.1", "base": "gb/Delta (World)" })), "{apart}");
+        assert_eq!(addon("Omega (USA) (DLC)").unwrap()["base"], Value::Null);
+        assert_eq!(addon("Delta (World)"), Some(Value::Null));
+        assert_eq!(addon("Alpha (USA) (DLC)"), None, "one you don't have");
+        let plain = crate::browse::query(&ix, &lib, &crate::browse::Query { facets: true, limit: 50, ..Default::default() }).unwrap();
+        assert!(plain["items"].as_array().unwrap().iter().all(|g| g["addon"].is_null()), "{plain}");
+        assert_eq!(plain["facets"]["addons_apart"], 3);
+        // its page says what it is and which game it belongs to
+        let page = crate::browse::game(&ix, &lib, "gb/Delta (World) (Update) (v1.1)").unwrap();
+        assert_eq!(page["addon"], json!({ "kind": "update", "version": "v1.1", "base": { "key": "gb/Delta (World)", "title": "Delta" } }), "{}", page["addon"]);
         // the game page lists them, and the ones belonging to no game
         let page = crate::browse::game(&ix, &lib, "gb/Delta (World)").unwrap();
         assert_eq!(page["addons"]["items"][0]["version"], "v1.1");
