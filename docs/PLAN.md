@@ -5872,9 +5872,11 @@ progress by bytes, and is checked before anything is kept: the address is fixed 
 code, the archive's size must match where it's known, its SHA-256 must match once one is
 pinned, the archive must open and hold the program (DLLs beside it come too), and the
 program must run (its version is shown when it says one); otherwise nothing is kept. The SHA-256 of what was
-downloaded is shown in Settings and kept in `tools/<tool>.json`, so the next release can
-pin it (the cloud session that built this couldn't reach either download, so none is pinned
-yet). A path set by hand for the tool is cleared, so the downloaded one is used. Tesseract
+downloaded is shown in Settings and kept in `tools/<tool>.json`, so a release can pin it:
+the Windows page test downloads both for real and prints them, and from its first run the
+x64 Dolphin archive's and innoextract's are pinned (the ARM64 Dolphin archive's isn't yet,
+as no ARM64 runner has fetched it). Dolphin's `DolphinTool.exe` needs the Qt6 DLLs beside
+it in the archive, which come with it. A path set by hand for the tool is cleared, so the downloaded one is used. Tesseract
 has an installer of its own, so its button opens the download page (UB Mannheim's build on
 Windows); on Linux, where the package manager has all three, every button opens the page
 and the app downloads nothing. BIOS files are still never downloaded.

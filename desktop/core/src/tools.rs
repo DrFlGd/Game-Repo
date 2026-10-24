@@ -141,7 +141,8 @@ pub struct Download {
     /// The archive's size in bytes, when known (0 when not)
     pub size: u64,
     /// The archive's SHA-256, once pinned ("" until then: the first download's is shown
-    /// and recorded, to pin here)
+    /// and recorded, to pin here; the x64 ones were read from the Windows page test's run
+    /// of 2026-10-24, which downloads both for real)
     pub sha256: &'static str,
     /// The program inside the archive, by its file name
     pub member: &'static str,
@@ -150,7 +151,7 @@ pub struct Download {
 pub const DOWNLOADS: &[Download] = &[
     Download {
         tool: "dolphin-tool", os: "windows", arch: "x86_64", version: "2609a",
-        url: "https://dl.dolphin-emu.org/releases/2609a/dolphin-2609a-x64.7z", size: 0, sha256: "", member: "DolphinTool.exe",
+        url: "https://dl.dolphin-emu.org/releases/2609a/dolphin-2609a-x64.7z", size: 0, sha256: "bbfd13bf9e6d2a4164a15c392b1f32a9b18150e5136746b388704608fbb60f76", member: "DolphinTool.exe",
     },
     Download {
         tool: "dolphin-tool", os: "windows", arch: "aarch64", version: "2609a",
@@ -158,7 +159,7 @@ pub const DOWNLOADS: &[Download] = &[
     },
     Download {
         tool: "innoextract", os: "windows", arch: "", version: "1.9",
-        url: "https://github.com/dscharrer/innoextract/releases/download/1.9/innoextract-1.9-windows.zip", size: 520705, sha256: "", member: "innoextract.exe",
+        url: "https://github.com/dscharrer/innoextract/releases/download/1.9/innoextract-1.9-windows.zip", size: 520705, sha256: "6989342c9b026a00a72a38f23b62a8e6a22cc5de69805cf47d68ac2fec993065", member: "innoextract.exe",
     },
 ];
 
