@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **Plans**: setting up Tailscale on the Steam Deck is on the roadmap, for reaching your library away from home: Game Repo Go will get a *Set up Tailscale* button that helps you set a password, installs Tailscale in a terminal window and opens its sign-in page, and offers it again if a SteamOS update takes Tailscale away.
+
 ## 0.5.52 (2026-10-23)
 
 - **A game on several discs is one game.** The Library shows it once, titled without the disc and marked *2 discs* (or more); its page lists each disc, had or missing, and all their files. Of the games you have, one per title picks a game with every disc over one missing some.
