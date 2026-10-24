@@ -1,0 +1,4 @@
+PASS the release APK starts on the pairing page
+PASS its plugin answers after minifying (the access note needs it)
+PASS it doesn't crash
+3 of 3 checks passed

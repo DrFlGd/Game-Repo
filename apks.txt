@@ -1,0 +1,2 @@
+-rw-r--r-- 1 runner runner 20305359 Oct 24 02:28 gen/android/app/build/outputs/apk/arm64/release/app-arm64-release-unsigned.apk
+-rw-r--r-- 1 runner runner 52098778 Oct 24 02:29 gen/android/app/build/outputs/apk/x86_64/debug/app-x86_64-debug.apk
