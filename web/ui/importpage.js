@@ -346,6 +346,9 @@ function ImportGamesDialog() {
 function ImportGamesPreview({ plan }) {
   const error = useStore(imp, (st) => st.error);
   const nothing = !plan.ops;
+  // D177: ticked as Settings › Preferred formats says, and for this import here
+  const [convert, setConvert] = useState(!!ui.get().library?.convert_on_import);
+  const datGames = plan.brought || 0;
   const run = async () => {
     const s = imp.get();
     // the collection first (D140): one that can't be made (its name taken, say) stops here
@@ -364,14 +367,15 @@ function ImportGamesPreview({ plan }) {
     const more = review || note ? { text: [review?.text, note?.text].filter(Boolean).join(" "), actions: [...(review?.actions || []), ...(note?.actions || [])] } : null;
     close();
     imp.set(blank());
-    if (!nothing) runPlan(plan, more);
+    if (!nothing) runPlan(plan, more, { convert: convert && datGames > 0 });
     else if (note) toast(note.text, { ms: 12000, action: note.actions[0] });
   };
   return html`<${Dialog} title=${plan.title || "Import the games"} id="bring-dialog" wide=${true} sticky=${true} onDismiss=${hide} onSubmit=${run} submitLabel=${nothing ? "OK" : "Import"} busy=${plan.short} error=${error}
       cancelLabel="Back" onCancel=${() => imp.set({ plan: null, error: "" })}>
     <${Preview} plan=${plan} />
     ${nothing ? html`<p id="organise-nothing">Nothing to import: ${plan.left?.length ? "see what's left alone." : "the library has them all."}</p>`
-      : html`<p class="muted">${plan.mode === "move" ? "Moved, then checked and scanned." : "Copied (or hardlinked, as chosen), then checked and scanned."}${plan.new_roots?.length ? ` ${plan.new_roots.length === 1 ? "A new folder becomes a folder with games" : "The new folders become folders with games"} for ${plan.new_roots.length === 1 ? "its system" : "their systems"}.` : ""} History can undo it.</p>`}
+      : html`<p class="muted">${plan.mode === "move" ? "Moved, then checked and scanned." : "Copied (or hardlinked, as chosen), then checked and scanned."}${plan.new_roots?.length ? ` ${plan.new_roots.length === 1 ? "A new folder becomes a folder with games" : "The new folders become folders with games"} for ${plan.new_roots.length === 1 ? "its system" : "their systems"}.` : ""} History can undo it.</p>
+        ${datGames ? html`<label class="check-row" id="bring-convert-row"><input type="checkbox" id="bring-convert" checked=${convert} onChange=${(e) => setConvert(e.target.checked)} /> Then convert ${datGames === 1 ? "it" : "them"} to ${datGames === 1 ? "its system's" : "their systems'"} preferred format<span class="muted"> (Settings › Preferred formats; a change of its own, undone first)</span></label>` : null}`}
   <//>`;
 }
 

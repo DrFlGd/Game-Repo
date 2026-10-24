@@ -381,7 +381,7 @@ pub fn plan(lib: &Library, items: &[Item], mode: &str, always_copy: bool) -> Res
         left: vec![],
         new_root: None, new_roots: vec![],
         present: vec![],
-        export: None,
+        export: None, brought: vec![],
     })
 }
 
@@ -550,7 +550,7 @@ pub fn move_plan(lib: &Library, items: &[(String, String)], to: &str) -> Result<
         new_root: None,
         new_roots: vec![],
         present: vec![],
-        export: None,
+        export: None, brought: vec![],
     })
 }
 

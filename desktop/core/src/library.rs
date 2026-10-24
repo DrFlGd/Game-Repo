@@ -244,6 +244,8 @@ impl Library {
             "path": self.root.display().to_string(),
             "id": meta["id"], "name": meta["name"], "format": meta["format"], "created": meta["created"],
             "read_only": self.read_only,
+            // D177: games imported are converted to their system's preferred format
+            "convert_on_import": meta["convert_on_import"].as_bool().unwrap_or(false),
         })
     }
 

@@ -394,7 +394,7 @@ export function Backlog() {
           <div class="home-actions"><a class="button ghost" href=${routeHash("library")} id="backlog-to-library">Open the Library</a></div></li>` : null}
       </ol>
     </section>
-    <section class=${`bl-col bl-done${drag?.to?.list === "done" && drag.from === "todo" ? " drop-on" : ""}`} id="backlog-done" aria-label="Completed">
+    <section class=${`bl-col bl-done${drag?.to?.list === "done" && drag.from === "todo" ? " drop-on" : ""}`} id="backlog-done" aria-label="Completed" data-empty=${done ? "no" : "yes"}>
       <header class="bl-head"><h2>Completed</h2><span class="nav-count" id="backlog-done-count">${done}</span></header>
       <ol class="bl-list" id="backlog-done-list" ref=${doneRef} role="listbox" aria-multiselectable="true" aria-label="Completed" onClick=${background}>
         ${lists.done.map((g, i) => row("done", g, i))}

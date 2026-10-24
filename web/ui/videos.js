@@ -328,7 +328,7 @@ export function Videos() {
   const empty = html`<div class="library-settings" id="video-empty">
     <p class="page-lead">Walkthroughs, reviews, retrospectives and other videos about your games: files kept in the library, or links to videos on the web.</p>
     <p class="muted">Import videos… reads a folder of them, takes each one's title, kind and date from its name, finds the games in its title, and imports them into the library's Videos folder. It's on the <a href=${routeHash("import")}>Import</a> page, where files dropped on the window go too. Add a link… keeps a video on the web, opened in your browser.</p>
-    <button type="button" class="ghost compact" id="video-add-link-empty" disabled=${off} onClick=${addVideoLink}>${Icon.external(14)} Add a link…</button>
+    <div class="home-actions"><button type="button" class="ghost compact" id="video-add-link-empty" disabled=${off} onClick=${addVideoLink}>${Icon.external(14)} Add a link…</button></div>
   </div>`;
   return html`<${Shelf} page="videos" noun=${["video", "videos"]} title="Videos" items=${data ? videos : null} error=${error} st=${st} set=${set}
     fields=${fields} groups=${GROUPS} sorts=${SORTS} ratio="16 / 9" columns=${COLUMNS} cols=${COLS}

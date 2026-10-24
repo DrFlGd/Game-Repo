@@ -224,7 +224,7 @@ fn new_plan(lib: &Library, d: &audit::DatRef, kind: &str, (label, title): (Strin
         dat: json!({ "id": d.id, "name": d.name, "version": d.version }), platform: d.platform.clone(),
         mode: if out.is_some() { "copy".into() } else { "in-place".into() }, format: to.into(),
         out: out.map(|o| o.display().to_string()), ops: vec![], games: 0, in_place: 0,
-        conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, new_roots: vec![], present: vec![], export: None,
+        conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, new_roots: vec![], present: vec![], export: None, brought: vec![],
     }
 }
 
@@ -354,6 +354,59 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
         p.space.push(json!({ "drive": drive, "needed": bytes, "free": free, "short": bytes > free }));
     }
     Ok(p)
+}
+
+/// Convert the games an import brought in to their systems' preferred formats (D177):
+/// a change of its own per DAT, run straight after the import's, so History undoes
+/// each on its own. What couldn't be converted (RVZ without dolphin-tool, say) is
+/// reported, not an error: the games are in the library either way.
+/// `{ changes: [run's result + platform, format, games], left: [{ path, why }] }`.
+pub fn after_import(ix: &Index, lib: &Library, brought: &[(String, i64)], cancel: &AtomicBool, progress: &mut dyn FnMut(Value)) -> Value {
+    let mut by_dat: BTreeMap<i64, Vec<String>> = BTreeMap::new();
+    for (game, dat) in brought {
+        by_dat.entry(*dat).or_default().push(game.clone());
+    }
+    let (mut changes, mut left) = (vec![], vec![]);
+    for (dat_id, games) in by_dat {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        let platform = match audit::dat_ref(ix.conn(), dat_id) {
+            Ok(d) => d.platform,
+            Err(e) => {
+                left.push(json!({ "path": format!("DAT {dat_id}"), "why": format!("{e:#}") }));
+                continue;
+            }
+        };
+        let name = platforms::name_of(&platform);
+        let Some(to) = preferred(lib, &platform) else { continue };
+        let o = Options { dat_id, to: to.clone(), games: Some(games.clone()), out: None };
+        progress(json!({ "text": format!("Converting {name} games to {}", to.to_uppercase()) }));
+        let p = match plan(ix, lib, &o) {
+            Ok(p) => p,
+            Err(e) => {
+                left.push(json!({ "path": name, "why": format!("{e:#}") }));
+                continue;
+            }
+        };
+        for l in &p.left {
+            left.push(l.clone());
+        }
+        if p.ops.is_empty() {
+            continue;
+        }
+        match organise::run(ix, lib, &p, cancel, progress) {
+            Ok(mut r) => {
+                r["platform"] = json!(platform);
+                r["format"] = json!(to);
+                r["games"] = json!(p.games);
+                r["label"] = json!(p.label);
+                changes.push(r);
+            }
+            Err(e) => left.push(json!({ "path": name, "why": format!("{e:#}") })),
+        }
+    }
+    json!({ "changes": changes, "left": left })
 }
 
 /// A game on several discs converted to CHDs is kept together with an `.m3u` playlist of

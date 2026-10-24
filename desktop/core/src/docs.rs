@@ -1062,7 +1062,7 @@ pub fn plan(ix: &Index, lib: &Library, items: &[Item], mode: &str, always_copy: 
         left: vec![],
         new_root: None, new_roots: vec![],
         present: vec![],
-        export: None,
+        export: None, brought: vec![],
     })
 }
 

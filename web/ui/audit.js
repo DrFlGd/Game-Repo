@@ -179,7 +179,7 @@ function Overview({ systems, onOpen }) {
 }
 
 export function Audit() {
-  const s = useStore(ui, (st) => ({ library: st.library, home: st.home, changes: st.changes }));
+  const s = useStore(ui, (st) => ({ library: st.library, home: st.home, changes: st.changes, scanning: st.scanning }));
   const arg = useRouteArg("audit");
   const all = arg === "all";
   const [saved, setSaved] = useState(() => prefs()?.get("gr-audit", {})?.platform || null);
@@ -305,7 +305,7 @@ export function Audit() {
         onClick=${() => organiseDialog({ dat, platform: sum.dat.platform, platformName: pName })}>${Icon.stack(15)} Organise…</button>` : null}
       ${canConvert && !all ? html`<button type="button" class="ghost compact" id="audit-convert" title="Convert this system's games to another format (CHD, RVZ, CSO, ZIP), or unpack them, with a preview and Undo"
         onClick=${() => convert(null)}>${Icon.convert(15)} Convert…</button>` : null}
-      <button type="button" class=${sum ? "primary compact" : "ghost compact"} id="audit-scan" disabled=${!!ui.get().scanning || !!s.library?.read_only} onClick=${() => scan()}>${Icon.refresh(15)} Scan</button></span>`}
+      <button type="button" class=${sum ? "primary compact" : "ghost compact"} id="audit-scan" disabled=${!!s.scanning || !!s.library?.read_only} onClick=${() => scan()}>${Icon.refresh(15)} Scan</button></span>`}
     more=${{ id: "audit-menu", title: "What's missing, reports, make a DAT", items: menu }} />`;
 
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;

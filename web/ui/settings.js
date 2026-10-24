@@ -11,7 +11,7 @@ import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui, THEMES, SKINS, setTheme, setSkin } from "./state.js";
 import { ctx, routeHash } from "./context.js";
-import { api, toast, isDesktop, openLibrary, renameLibrary, showLibraryFolder, checkIndex, undoable, size, plural, followJob } from "./library.js";
+import { api, toast, isDesktop, openLibrary, renameLibrary, showLibraryFolder, checkIndex, undoable, size, plural, followJob, refreshLibrary } from "./library.js";
 import { undoChange, finishChange, CONVERT_FORMATS, ChangeSteps, AsideFiles } from "./organise.js";
 import { addRoot, updateRoot, repointRoot, removeRoot, scanSettings, setScanSettings, importDats, starterDats, useDat, removeDat, removeOlder, refreshGames, reveal } from "./games.js";
 import { addSystemDialog, redumpDialog, updateDatsDialog, updatedOn } from "./addsystem.js";
@@ -430,10 +430,21 @@ function FormatsSection({ lib }) {
       toast(e.message || String(e), 8000);
     }
   };
+  // D177: imports convert what they bring in, unless unticked for one import
+  const onImport = async (on) => {
+    try {
+      await api("convert_on_import_set", { on });
+      await refreshLibrary();
+      toast(on ? "Games are converted as they're imported." : "Games are imported as they are.");
+    } catch (e) {
+      toast(e.message || String(e), 8000);
+    }
+  };
   const items = Array.isArray(list) ? list.filter((p) => p.formats.length > 1) : [];
   return html`<section class="ls-section" id="settings-formats">
     <h2>Preferred formats</h2>
     <p class="muted">What Convert… offers first for each system. CD and DVD systems keep CHD, GameCube and Wii RVZ, and cartridges a ZIP for each game; the systems below have a choice.</p>
+    <label class="check-row"><input type="checkbox" id="convert-on-import" checked=${!!lib.convert_on_import} disabled=${!!lib.read_only} onChange=${(e) => onImport(e.target.checked)} /> Convert games to these formats as they're imported <span class="muted">(Import › From a folder… ticks it for each import; untick it there to keep one import as it is)</span></label>
     ${list?.error ? html`<p class="warn-note" role="alert">${list.error}</p>` : null}
     ${items.length ? html`<ul class="ls-list" id="formats">${items.map((p) => html`<li key=${p.platform} data-platform=${p.platform}>
       <span>${p.name}</span>
@@ -443,11 +454,28 @@ function FormatsSection({ lib }) {
   </section>`;
 }
 
-/** The external tools (D14): where each was found, and a path to set for it. Kept on this computer. */
+/** The external tools (D14): where each was found, Get it… (D178) and a path to set for it. Kept on this computer. */
 function ToolsSection() {
   const [r, setR] = useState(null);
   const [error, setError] = useState("");
+  const [getting, setGetting] = useState("");
   useEffect(() => { api("tools").then(setR).catch((e) => setError(e.message || String(e))); }, []);
+  // Get it…: a pinned build downloaded into the app's tools folder and checked, as a job
+  const get = async (t) => {
+    setError("");
+    setGetting(t.id);
+    try {
+      const { job } = await api("tools_get", { id: t.id });
+      const done = await followJob(job, `Getting ${t.id}`);
+      if (done.error) throw new Error(done.error);
+      setR(await api("tools"));
+      toast(`${t.id} ${done.result?.version ? `(${done.result.version}) ` : ""}is in the app's tools folder.`, 6000);
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setGetting("");
+    }
+  };
   const set = async (id, path) => {
     setError("");
     try {
@@ -462,11 +490,14 @@ function ToolsSection() {
   };
   return html`<section class="ls-section" id="settings-tools">
     <h2>Tools</h2>
-    <p class="muted">Game Repo reads and writes CHD, CSO and ZSO itself. For RVZ it uses Dolphin's own tool, and for GOG installers innoextract, found in the app's <code>tools</code> folder${r?.app_dir ? html` (<code>${r.app_dir}</code>)` : null}, on the PATH, or where you set it here. Nothing is downloaded.</p>
+    <p class="muted">Game Repo reads and writes CHD, CSO and ZSO itself. For RVZ it uses Dolphin's own tool, and for GOG installers innoextract, found in the app's <code>tools</code> folder${r?.app_dir ? html` (<code>${r.app_dir}</code>)` : null}, on the PATH, or where you set it here. <em>Get it…</em> downloads a known release of dolphin-tool or innoextract into that folder and checks it (its SHA-256 is shown, and pinned once known); Tesseract has an installer of its own, so its button opens the download page.</p>
     ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
     ${r ? html`<ul class="ls-list change-list" id="tools">${r.tools.map((t) => html`<li key=${t.id} data-tool=${t.id} data-found=${t.path ? "yes" : "no"}>
       <span class="change-label"><span><b>${t.id}</b> <span class="muted">${t.what}</span></span>
-        <span class="muted tool-where">${t.path ? `${t.path}${t.version ? ` · ${t.version}` : ""}` : "Not found"}</span></span>
+        <span class="muted tool-where">${t.path ? `${t.path}${t.version ? ` · ${t.version}` : ""}` : "Not found"}</span>
+        ${t.got?.sha256 ? html`<span class="muted tool-got">Downloaded ${t.got.version} · SHA-256 <code class="tool-sha">${t.got.sha256}</code></span>` : null}</span>
+      ${t.get?.kind === "download" ? html`<button type="button" class="ghost" data-action="get" disabled=${!!getting} onClick=${() => get(t)}>${getting === t.id ? "Getting…" : t.path ? `Get ${t.get.version}…` : "Get it…"}</button>`
+        : html`<button type="button" class="ghost" data-action="page" onClick=${() => ctx.platform.openUrl(t.get?.url)}>Download page</button>`}
       ${isDesktop() ? html`<button type="button" class="ghost" data-action="choose" onClick=${() => pick(t)}>Choose…</button>` : null}
       ${t.set ? html`<button type="button" class="ghost" data-action="clear" onClick=${() => set(t.id, null)}>Clear</button>` : null}
     </li>`)}</ul>

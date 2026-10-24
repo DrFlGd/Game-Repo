@@ -716,6 +716,10 @@ async def import_by_system(pg, base, home, library):
     await pg.click("#import-games-review button[type=submit]")
     await pg.wait_for_selector("#bring-dialog #organise-totals")
     preview = await pg.inner_text("#bring-dialog")
+    # D177: the preview offers to convert what it brings in, unticked while the setting is off
+    convert_tick = await pg.evaluate("() => { const t = document.querySelector('#bring-convert'); return t ? [true, t.checked] : [false, null]; }")
+    check("The import's preview offers to convert the games to their systems' preferred formats afterwards, unticked until Settings says so (D177)",
+          convert_tick == [True, False], convert_tick)
     await pg.screenshot(path=str(out / "23f-import-move.png"))
     await pg.click("#bring-dialog button[type=submit]")
     said = await toast_text(pg, "Imported 2 games into the library", timeout=30000)
@@ -1871,6 +1875,35 @@ async def main():
                 cleared = "dolphin-tool" not in json.loads((home / "config/config.json").read_text()).get("tools", {})
                 check("Settings › Tools keeps where dolphin-tool is on this computer, shows what it found, and clears it",
                       Path(kept.get("dolphin-tool", "")) == fake.resolve() and str(fake.name) in where and cleared, (kept, where, cleared))
+                # D178: Get it… for each tool (a download on Windows; its page elsewhere, and for Tesseract)
+                get_buttons = await pg.evaluate("() => [...document.querySelectorAll('#tools li')].map((li) => { const b = li.querySelector('[data-action=get], [data-action=page]'); return [li.dataset.tool, b?.dataset.action, b?.textContent.trim()]; })")
+                tools_text = await pg.inner_text("#settings-tools")
+                check("Settings › Tools has Get it… (a checked download) or the download page for each tool, and no longer says nothing is downloaded (D178)",
+                      [b[0] for b in get_buttons] == ["dolphin-tool", "innoextract", "tesseract"] and all(b[1] in ("get", "page") and b[2] for b in get_buttons)
+                      and get_buttons[2][1] == "page" and "Nothing is downloaded" not in tools_text and "Get it" in tools_text, (get_buttons, tools_text[:200]))
+                if os.name == "nt":
+                    # D178 on Windows: Get it… really downloads innoextract and dolphin-tool into the
+                    # CLI's tools folder, checks them and shows each one's SHA-256 (printed here to pin)
+                    got = {}
+                    for tool in ("innoextract", "dolphin-tool"):
+                        await pg.click(f'#tools li[data-tool="{tool}"] [data-action="get"]')
+                        await toast_text(pg, f"{tool} .*is in the app's tools folder", timeout=240000)
+                        await pg.wait_for_selector(f'#tools li[data-tool="{tool}"][data-found="yes"] .tool-got')
+                        got[tool] = [await pg.inner_text(f'#tools li[data-tool="{tool}"] .tool-where'), await pg.inner_text(f'#tools li[data-tool="{tool}"] .tool-got')]
+                    tools_dir = Path(a.cli).resolve().parent / "tools"
+                    files = sorted(x.name for x in tools_dir.iterdir()) if tools_dir.is_dir() else []
+                    check("Get it… downloads innoextract and dolphin-tool into the tools folder, checks them and shows their SHA-256 (D178)",
+                          all("SHA-256" in v[1] for v in got.values()) and {"innoextract.exe", "DolphinTool.exe", "innoextract.json", "dolphin-tool.json"} <= set(files), (got, files))
+                # D177: the setting under Preferred formats, kept in library.json and shown to the import
+                await pg.check("#convert-on-import")
+                await toast_text(pg, "converted as they're imported", timeout=10000)
+                on_disk = json.loads((library / "_library/library.json").read_text()).get("convert_on_import")
+                in_ui = await pg.evaluate("() => window.__TAURI__.core.invoke('api', { cmd: 'app_info', args: {} }).then((i) => i.library.convert_on_import)")
+                await pg.uncheck("#convert-on-import")
+                await toast_text(pg, "imported as they are", timeout=10000)
+                off_disk = json.loads((library / "_library/library.json").read_text()).get("convert_on_import")
+                check("Settings › Preferred formats' Convert games as they're imported is kept in the library and read by the app (D177)",
+                      on_disk is True and in_ui is True and off_disk is False, (on_disk, in_ui, off_disk))
                 await pg.check("#scan-watch")
 
             async with Section(pg, B, "Phase 3: systems, collections, exports and Import"):

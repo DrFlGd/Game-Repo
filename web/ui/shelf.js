@@ -39,6 +39,9 @@ export function useShelfState(page, defaults = {}) {
 }
 
 /** A picture, else the next, else `none` ({ text, colour, icon }) drawn instead. */
+/** Items drawn before Show more (review M4). */
+const PAGE = 200;
+
 export function Pic({ srcs, none, cls = "lib-cover", px = 28 }) {
   const list = (srcs || []).filter(Boolean);
   const k = list.join("|");
@@ -73,6 +76,10 @@ export function Shelf({ page, noun, title, items, error, st, set, fields, groups
   const scrollRef = useRef(null);
   const [sel, setSel] = useState(() => new Set());
   const [anchor, setAnchor] = useState(-1);
+  // a page of items at a time (review M4): a long shelf draws its first PAGE, and Show more the rest
+  const [limit, setLimit] = useState(PAGE);
+  const filterKey = JSON.stringify([st.search, st.f, st.sort, st.group, st.desc, st.view]);
+  useEffect(() => setLimit(PAGE), [filterKey]);
   const sort = sorts.some(([k]) => k === st.sort) ? st.sort : sorts[0][0];
   const group = groups.some(([k]) => k === st.group) ? st.group : groups[0][0];
   const view = views.some(([k]) => k === st.view) ? st.view : views[0][0];
@@ -217,6 +224,14 @@ export function Shelf({ page, noun, title, items, error, st, set, fields, groups
   };
   const multi = picked.length > 1;
   const panelActions = multi ? actions(picked).filter((a) => !a.one) : [];
+  let room = limit;
+  const drawnSections = [];
+  for (const s of sections) {
+    if (room <= 0) break;
+    drawnSections.push(room >= s.items.length ? s : { ...s, items: s.items.slice(0, room) });
+    room -= s.items.length;
+  }
+  const notDrawn = Math.max(0, shown.length - limit);
   return html`${head}<div class=${`lib-page shelf-page ${p}-page`} id=${`${p}-page`} data-view=${view}>
     <aside class="lib-filters" id=${`${p}-filters`} aria-label="Filters">
       ${switches ? html`<div class="lib-switches">${switches}</div>` : null}
@@ -230,10 +245,12 @@ export function Shelf({ page, noun, title, items, error, st, set, fields, groups
         ${thead}
         ${!shown.length ? html`<p class="muted lib-none" id=${`${p}-none`}>${none || `No ${noun[0]} matches these filters.`}</p>` : null}
         <div class=${`shelf-items shelf-${view}s`} id=${`${p}-items`} data-count=${shown.length} role=${view === "table" ? "table" : "list"} style=${`--tile:${SIZES[st.size] || SIZES.medium}px;--ratio:${ratio}`}>
-          ${sections.map((s) => html`<section class="shelf-section" key=${s.value ?? "all"} data-group=${s.value ?? ""} style=${`--n:${s.items.length}`}>
+          ${drawnSections.map((s) => html`<section class="shelf-section" key=${s.value ?? "all"} data-group=${s.value ?? ""} style=${`--n:${s.items.length}`}>
             ${s.name != null ? heading(s) : null}
             <div class=${`shelf-${view}`}>${s.items.map(draw)}</div></section>`)}
         </div>
+        ${notDrawn ? html`<div class="shelf-more" id=${`${p}-more`} data-left=${notDrawn}><button type="button" class="ghost" id=${`${p}-more-page`} onClick=${() => setLimit(limit + PAGE)}>Show ${Math.min(PAGE, notDrawn).toLocaleString()} more</button>
+          <button type="button" class="linkish" id=${`${p}-more-all`} onClick=${() => setLimit(Infinity)}>Show all ${shown.length.toLocaleString()}</button></div>` : null}
       </div>
     </div>
     ${!picked.length ? html`<aside class="lib-panel lib-panel-empty" id=${`${p}-panel`}></aside>`
