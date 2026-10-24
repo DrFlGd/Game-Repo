@@ -1,0 +1,3 @@
+dist/Game Repo Go_0.5.53_x64-setup.exe: signed with this key ({'timestamp': '1792810311', 'file': 'Game Repo Go_0.5.53_x64-setup.exe', 'version': '0.5.53'})
+dist/Game Repo Server_0.5.53_x64-setup.exe: signed with this key ({'timestamp': '1792810174', 'file': 'Game Repo Server_0.5.53_x64-setup.exe', 'version': '0.5.53'})
+dist/Game Repo_0.5.53_x64-setup.exe: signed with this key ({'timestamp': '1792810631', 'file': 'Game Repo_0.5.53_x64-setup.exe', 'version': '0.5.53'})

@@ -1,0 +1,31 @@
+    Updating crates.io index
+   Compiling gamerepo-steam v0.5.53 (D:\a\Game-Repo\Game-Repo\desktop\steam)
+   Compiling gamerepo-wire v0.5.53 (D:\a\Game-Repo\Game-Repo\desktop\wire)
+warning: function `home_dir` is never used
+   --> steam\src\lib.rs:239:4
+    |
+239 | fn home_dir() -> PathBuf {
+    |    ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling gamerepo-core v0.5.53 (D:\a\Game-Repo\Game-Repo\desktop\core)
+warning: `gamerepo-steam` (lib) generated 1 warning
+   Compiling gamerepo-device v0.5.53 (D:\a\Game-Repo\Game-Repo\desktop\device)
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+   --> device\src\client.rs:207:23
+    |
+207 |             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |                       ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+help: replace the use of the deprecated method
+    |
+207 -             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+207 +             let _ = g.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |
+
+   Compiling gamerepo-serve v0.5.53 (D:\a\Game-Repo\Game-Repo\desktop\serve)
+warning: `gamerepo-device` (lib) generated 1 warning (run `cargo fix --lib -p gamerepo-device` to apply 1 suggestion)
+   Compiling gamerepo-cli v0.5.53 (D:\a\Game-Repo\Game-Repo\desktop\cli)
+    Finished `release` profile [optimized] target(s) in 3m 13s

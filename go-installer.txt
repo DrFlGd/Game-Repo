@@ -1,0 +1,7 @@
+Installed in: /c/Users/runneradmin/AppData/Local/Game Repo Go
+total 19660
+drwxr-xr-x 1 runneradmin 197121        0 Oct 24 02:57 .
+drwxr-xr-x 1 runneradmin 197121        0 Oct 24 02:57 ..
+-rwxr-xr-x 1 runneradmin 197121 20044288 Oct 24 02:51 gamerepo-client.exe
+-rwxr-xr-x 1 runneradmin 197121    80272 Oct 24 02:57 uninstall.exe
+Removed

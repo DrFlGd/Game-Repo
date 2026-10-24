@@ -1,0 +1,22 @@
+  helper: Game Repo: the key that signs its updates
+  helper: =========================================
+  helper: Made a new key: D:\a\_temp\update-key\Game Repo update key
+  helper: Keep that folder safe, with a backup copy (README.txt in it says why).
+  helper: Its key ID: A9E9E2A049F4714A
+PASS the helper makes the key, its password and the README
+PASS a password of 32 letters and digits
+PASS it says the key's ID
+PASS the Tauri CLI signs with it
+PASS the signature checks against the public key, for its version
+PASS an installer changed after signing is refused
+  helper: Game Repo: the key that signs its updates
+  helper: =========================================
+  helper: Using the key made before: D:\a\_temp\update-key\Game Repo update key
+  helper: Its key ID: A9E9E2A049F4714A
+PASS run again, it keeps the key it made
+  helper: Game Repo: the key that signs its updates
+  helper: =========================================
+  helper: 
+  helper: That didn't work: D:\a\_temp\update-key\lost\private.key is there but public.key or password.txt beside it isn't. Put them back, or move the folder away to make a new key (programs built with the old key can't update to ones signed with a new one).
+PASS a key without its password.txt is refused, not replaced
+all passed

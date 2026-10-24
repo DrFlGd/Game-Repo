@@ -1,0 +1,33 @@
+        Info Looking up installed tauri packages to check mismatched versions...
+   Compiling gamerepo-wire v0.5.53 (D:\a\Game-Repo\Game-Repo\desktop\wire)
+   Compiling gamerepo-steam v0.5.53 (D:\a\Game-Repo\Game-Repo\desktop\steam)
+   Compiling gamerepo-server v0.5.53 (D:\a\Game-Repo\Game-Repo\desktop\server)
+warning: function `home_dir` is never used
+   --> steam\src\lib.rs:239:4
+    |
+239 | fn home_dir() -> PathBuf {
+    |    ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling gamerepo-core v0.5.53 (D:\a\Game-Repo\Game-Repo\desktop\core)
+warning: `gamerepo-steam` (lib) generated 1 warning
+   Compiling gamerepo-update v0.5.53 (D:\a\Game-Repo\Game-Repo\desktop\update)
+   Compiling gamerepo-serve v0.5.53 (D:\a\Game-Repo\Game-Repo\desktop\serve)
+    Finished `release` profile [optimized] target(s) in 3m 31s
+       Built application at: D:\a\Game-Repo\Game-Repo\desktop\target\release\gamerepo-server.exe
+        Info Patching D:\a\Game-Repo\Game-Repo\desktop\target\release\gamerepo-server.exe with bundle type information: nsis
+        Info Verifying NSIS package
+ Downloading https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.13/nsis-3.13.zip
+        Info validating hash
+        Info extracting NSIS
+ Downloading https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll
+        Info validating hash
+        Info Target: x64
+     Running makensis to produce D:\a\Game-Repo\Game-Repo\desktop\target\release\bundle\nsis\Game Repo Server_0.5.53_x64-setup.exe
+    Finished 1 bundle at:
+        D:\a\Game-Repo\Game-Repo\desktop\target\release\bundle\nsis\Game Repo Server_0.5.53_x64-setup.exe (7.64 MiB)
+
+    Finished 1 updater signature at:
+        D:\a\Game-Repo\Game-Repo\desktop\target\release\bundle\nsis\Game Repo Server_0.5.53_x64-setup.exe.sig
+
