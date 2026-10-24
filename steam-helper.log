@@ -1,0 +1,9 @@
+PASS the helper finishes without an error
+PASS it closes the running Steam first
+PASS the waiting shortcuts are written into Steam's shortcuts.vdf, tagged as Game Repo Go's
+PASS the Windows game is given Proton in config.vdf, and Steam's own settings are kept
+PASS the game's box front goes into Steam's grid
+PASS what was written is noted, so nothing waits any more
+PASS Steam is started again (outside Game Mode)
+
+7/7 passed

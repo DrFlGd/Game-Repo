@@ -1,0 +1,58 @@
+PASS Game Repo Go asks to be paired with a library first
+PASS a wrong code is refused, and said so
+PASS the code from Game Repo pairs it, and the library is read onto the device
+PASS the Library shows every game of the systems ES-DE has folders for
+PASS box fronts come through the picture protocol (from the library, then the device's cache)
+PASS a system picked shows its games
+PASS a search finds games across every system
+PASS three games ticked show their size against the free space
+PASS Add to queue keeps games queued, not started, and Start downloads… shows their size on disc and the free space first
+PASS Download… shows the media kinds the library has, with sizes, ticked as Settings says
+PASS Download 3 games starts them, the queued ones with the kinds chosen now
+PASS the games added come off the ticks
+PASS Downloads are watched to the end, and say to restart ES-DE
+PASS the games are in ES-DE's folder and gamelist, with the box fronts and not the screenshots
+PASS On this device lists every game ES-DE has by system, with where each came from
+PASS a system's Remove all… shows every one of its games going first
+PASS Make room ticks the game played longest ago first
+PASS Remove… shows each file and the room it frees first
+PASS the game from elsewhere is removed, and nothing is left set aside
+PASS a game's box front is removed on its own, and the game stays
+PASS a game whose files aren't where Game Repo Go put them is marked, not counted as there, with Download again…
+PASS Show games on this device shows them, marked; the theme follows Settings
+PASS the look is kept
+PASS Settings › About and updates finds a newer Game Repo Go, with what's new since this one, and Update and restart installs it
+PASS the check as it starts finds it, and a notice says so and opens Settings
+PASS at a PC's size the pages are down the side, the systems beside the games
+PASS a game's page shows its details, pictures and that it's on the device
+PASS each of Game Repo's skins reaches Game Repo Go's pages, and is kept
+PASS the arrow keys go through the menu, the systems, the search and the order to the games
+PASS in the games Right moves a card, X ticks it and Enter opens it, Esc comes back
+PASS Settings: Down reaches every control in turn
+PASS on Android, games wait for All files access, asked for from the note
+PASS on Android the big-screen view is the usual one, on a phone upright with the pages along the bottom and no button hints
+PASS on Android, Back goes back a page, and from the Library leaves the app
+PASS Settings › Look › Size draws the big screen smaller, kept on the device, the pages still along the bottom
+PASS on Linux, Settings › This device › Full screen is in Steam's Game Mode by default, or always or never, and kept
+PASS on Linux, Settings adds Game Repo Go to Steam's library, written while Steam's closed
+PASS in Game Mode, A on a text box brings up Steam's on-screen keyboard
+PASS while Steam runs a change waits, and Restart Steam closes it, writes the change and starts it again
+PASS in Game Mode the big-screen view: the pages as tabs, a shelf for each system, the first game focused and the buttons' hints
+PASS the arrows go to the nearest: Right along the shelf, Down to what's below on the next system's, Up back to the same game
+PASS X adds the focused game to the queue, not started, as its hint says
+PASS A opens a game's page with Download… focused, and B comes back to the same game
+PASS R1 and L1 (Page Down and Up) go to the page after and the one before, pressed twice quickly too
+PASS Start downloads… opens as a panel from the right between the bar and the hints, its button focused; B closes it and goes back to what opened it
+PASS ☰ opens Options for the page (its orders, Make room…, the classic view), and an order chosen there is the page's
+PASS A on a list opens its choices as a panel, the one chosen focused, and the one picked there is the list's
+PASS Y searches every game, and Down goes to what's found
+PASS Options › Switch to the classic view brings back the classic pages
+PASS Settings shows the PC games folder, the usual one until another is chosen
+PASS PC games are a system of their own in the Library
+PASS Download… says where a PC game goes, and that the library unpacks it first
+PASS on Linux, a PC game in while Steam runs: Downloads offers Restart Steam, which closes it and starts it again
+PASS a PC game is unpacked into its own folder of the PC games folder, with a shortcut, and no ES-DE restart asked for
+PASS removing a PC game takes its files and shortcut, and keeps a save it made, said so
+PASS with the library away the list and a game's details are still here
+PASS the library, the folders with games, saves and ES-DE's settings are as they were
+57 of 57 checks passed

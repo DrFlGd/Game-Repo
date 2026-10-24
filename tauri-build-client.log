@@ -1,0 +1,33 @@
+        Info Looking up installed tauri packages to check mismatched versions...
+   Compiling gamerepo-wire v0.5.53 (/home/runner/work/Game-Repo/Game-Repo/desktop/wire)
+   Compiling gamerepo-steam v0.5.53 (/home/runner/work/Game-Repo/Game-Repo/desktop/steam)
+   Compiling gamerepo-client v0.5.53 (/home/runner/work/Game-Repo/Game-Repo/desktop/client)
+   Compiling gamerepo-device v0.5.53 (/home/runner/work/Game-Repo/Game-Repo/desktop/device)
+   Compiling gamerepo-update v0.5.53 (/home/runner/work/Game-Repo/Game-Repo/desktop/update)
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+   --> device/src/client.rs:207:23
+    |
+207 |             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |                       ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+help: replace the use of the deprecated method
+    |
+207 -             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+207 +             let _ = g.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |
+
+warning: `gamerepo-device` (lib) generated 1 warning (run `cargo fix --lib -p gamerepo-device` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 53.96s
+       Built application at: /home/runner/work/Game-Repo/Game-Repo/desktop/target/release/gamerepo-client
+        Info Patching /home/runner/work/Game-Repo/Game-Repo/desktop/target/release/gamerepo-client with bundle type information: appimage
+ Downloading https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64
+ Downloading https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy-07333c6/linuxdeploy-x86_64.AppImage
+ Downloading https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage
+    Bundling Game Repo Go_0.5.53_amd64.AppImage (/home/runner/work/Game-Repo/Game-Repo/desktop/target/release/bundle/appimage/Game Repo Go_0.5.53_amd64.AppImage)
+    Finished 1 bundle at:
+        /home/runner/work/Game-Repo/Game-Repo/desktop/target/release/bundle/appimage/Game Repo Go_0.5.53_amd64.AppImage (82.96 MiB)
+
+    Finished 1 updater signature at:
+        /home/runner/work/Game-Repo/Game-Repo/desktop/target/release/bundle/appimage/Game Repo Go_0.5.53_amd64.AppImage.sig
+

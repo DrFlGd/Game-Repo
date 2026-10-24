@@ -1,0 +1,1 @@
+dist/Game Repo Go_0.5.53_amd64.AppImage: signed with this key ({'timestamp': '1792809034', 'file': 'Game Repo Go_0.5.53_amd64.AppImage', 'version': '0.5.53'})

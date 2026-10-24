@@ -1,0 +1,55 @@
+   Compiling gamerepo-steam v0.5.53 (/home/runner/work/Game-Repo/Game-Repo/desktop/steam)
+   Compiling gamerepo-wire v0.5.53 (/home/runner/work/Game-Repo/Game-Repo/desktop/wire)
+   Compiling gamerepo-device v0.5.53 (/home/runner/work/Game-Repo/Game-Repo/desktop/device)
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+   --> device/src/client.rs:207:23
+    |
+207 |             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |                       ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+help: replace the use of the deprecated method
+    |
+207 -             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+207 +             let _ = g.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |
+
+warning: `gamerepo-device` (lib test) generated 1 warning (1 duplicate)
+warning: `gamerepo-device` (lib) generated 1 warning (run `cargo fix --lib -p gamerepo-device` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 16.00s
+     Running unittests src/lib.rs (target/release/deps/gamerepo_device-345e49267f9d0a8e)
+
+running 9 tests
+test pcgames::tests::a_shortcuts_name_is_one_windows_takes ... ok
+test scan::tests::room_is_made_from_the_games_played_longest_ago ... ok
+test scan::tests::a_zips_crcs_come_from_its_directory_and_a_chds_sha1_from_its_header ... ok
+test tests::es_des_folders_are_read_from_its_settings ... ok
+test update::tests::the_update_file_names_this_devices_apk ... ok
+test update::tests::versions_compare_by_number ... ok
+test update::tests::an_apk_is_checked_against_the_key_and_its_version ... ok
+test scan::tests::es_des_games_are_found_with_their_tracks_discs_and_media ... ok
+test steam::tests::what_waits_is_written_once_and_taken_out_again ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/release/deps/gamerepo_steam-bd4f195e4408e77f)
+
+running 3 tests
+test tests::a_vdf_file_reads_and_writes_back_the_same ... ok
+test text::tests::a_text_file_reads_and_writes_back_the_same ... ok
+test tests::a_programs_shortcuts_go_beside_the_others_and_its_proton_with_them ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests gamerepo_device
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests gamerepo_steam
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
