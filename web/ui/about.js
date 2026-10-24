@@ -60,9 +60,14 @@ const DONE = [
   ["Phase 8", "Exports to RetroArch, Pegasus, LaunchBox and Playnite; updates, DLC and patches kept with their game; a collection's history with Undo; and a collection of magazines, read here and checked against lists of issues"],
   ["UI passes", "The pages laid out again: the Library and Audit with their pages under them, one Import page, History, Help, collection groups, and imported games sorted into each system's own folder"],
   ["Hardening, part 1", "After a review of the whole app, changes to your files made safer: a file that turns up where a game goes is never written over, and Undo never removes what it can't put back"],
+  ["Phase 9", "Game Repo Server, started from Settings, and Game Repo Go on Windows, Linux, the Steam Deck and Android: paired with a code, browsing the library and downloading games, with PC games installed and added to Steam"],
+  ["Phase 10", "Updates in the app for all three, signed; the Library's memory of where you were; videos, magazines and documents as shelves of their own; the backlog; updates and DLC with their game; games on several discs as one"],
+  ["Review, October 2026", "A review of the whole app's pages: the fixes it asked for, games converted to their system's format as they're imported, and the tools Game Repo uses downloaded from Settings"],
 ];
 export const NEXT = [
-  ["Phase 9", "Serving games to your other devices: Android, Linux and handhelds on your home network"],
+  ["Phase 9d", "The Server on Unraid and reached away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only"],
+  ["Handhelds", "Handhelds with no app of their own (muOS and the like): the games they can play served to their SD cards"],
+  ["Android games", "APKs kept in the library and installed on Android devices through Game Repo Go"],
 ];
 
 export { Markdown, releases } from "./markdown.js";

@@ -82,8 +82,8 @@ function useRoom() {
 /** A button that opens a menu under it. `items`: menu items, or a function that
  *  makes them when it's pressed. */
 export function MenuButton({ id, label = "More", icon = "more", title, items, disabled }) {
-  return html`<button type="button" class="ghost menu-btn" id=${id} aria-haspopup="menu" title=${title || null} disabled=${disabled}
-    onClick=${(e) => openMenu(e.currentTarget, typeof items === "function" ? items() : items)}>${icon && Icon[icon] ? Icon[icon](15) : null} ${label} ▾</button>`;
+  return html`<button type="button" class="ghost menu-btn" id=${id} aria-haspopup="menu" title=${title || label} disabled=${disabled}
+    onClick=${(e) => openMenu(e.currentTarget, typeof items === "function" ? items() : items)}>${icon && Icon[icon] ? Icon[icon](15) : null} <span class="menu-label">${label}</span> ▾</button>`;
 }
 
 /** The view switcher: an icon and a label on each choice (the label goes in a

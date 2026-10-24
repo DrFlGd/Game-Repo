@@ -438,7 +438,8 @@ export function Layouts() {
   const tree = preview ? buildTree(preview) : null;
   const choose = (it) => setChosen(it ? it.at : null);
   return html`${head}<div class="pages layouts-page" id="layouts-page">
-    <p class="page-lead">${Icon.archive(18)} Where an export puts the games, gamelists, pictures, manuals and BIOS files for ES-DE, a device's firmware or a folder. Change one for a new firmware or frontend: a built-in layout is kept, and your change is saved as a new one.</p>
+    <p class="page-lead">${Icon.archive(18)} Where an export puts the games, gamelists, pictures, manuals and BIOS files for ES-DE, a device's firmware or a folder.</p>
+    <p class="muted">Change one for a new firmware or frontend: a built-in layout is kept, and your change is saved as a new one.</p>
     <div class="layouts-body">
       <ul class="pc-list lt-layouts" id="layout-list">${list.map((l, i) => html`${i === 0 || l.builtin !== list[i - 1].builtin ? html`<li class="lt-head" key=${`h-${l.builtin}`} aria-hidden="true">${l.builtin ? "Built in" : "Yours"}</li>` : null}<li key=${l.id}>
         <button type="button" class=${`pc-row${l.id === id ? " active" : ""}`} data-id=${l.id} aria-pressed=${l.id === id ? "true" : "false"} onClick=${() => {

@@ -51,8 +51,11 @@ const undos = [];
 /** Say a change was made, with Undo in the message; Ctrl+Z undoes it too.
  *  `undo()` puts it back, and may return the message to show then. Returns a
  *  function that undoes it (for an Undo button on the page). */
-export function undoable(text, undo, ms = 8000, actions = []) {
-  const entry = { text, undo };
+export function undoable(text, undo, ms = 8000, actions = [], confirm = null) {
+  // `confirm`: a question Ctrl+Z asks first (review M3), for a change big enough that an
+  // accidental press would take a while to put right; the message's own Undo button is
+  // a deliberate click, so it doesn't ask
+  const entry = { text, undo, confirm };
   undos.push(entry);
   if (undos.length > 20) undos.shift();
   toast(text, { ms, action: { label: "Undo", run: () => runUndo(entry) }, actions });
@@ -65,10 +68,17 @@ const undoneText = (text) => {
   return /^[A-Z][a-z]/.test(first) ? first[0].toLowerCase() + first.slice(1) : first;
 };
 
-async function runUndo(entry) {
+/** Ask a yes-or-no question in a dialog: true when its button is pressed. */
+function asked(text) {
+  return new Promise((res) => ui.set({ dialog: { type: "confirm", title: "Undo it?", text, button: "Undo", undoable: true, run: () => res(true), onClose: () => res(false) } }));
+}
+
+async function runUndo(entry, ask = false) {
   const i = undos.indexOf(entry);
   if (i < 0) return toast("That's been undone already.");
-  undos.splice(i, 1);
+  if (ask && entry.confirm && !(await asked(entry.confirm))) return;
+  if (!undos.includes(entry)) return toast("That's been undone already.");
+  undos.splice(undos.indexOf(entry), 1);
   try {
     const said = await entry.undo();
     toast(typeof said === "string" ? said : `Undone: ${undoneText(entry.text)}.`, 5000);
@@ -81,7 +91,7 @@ async function runUndo(entry) {
 export function undoLast() {
   const entry = undos[undos.length - 1];
   if (!entry) return toast("Nothing to undo.");
-  return runUndo(entry);
+  return runUndo(entry, true);
 }
 
 /** Read the app's info again and update what the interface shows. */

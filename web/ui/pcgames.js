@@ -686,11 +686,13 @@ export function PcGames() {
     </section>
   </div>` : null;
   const none = { icon: "monitor", colour: systemColour("pc") };
+  // a tile with no cover shows the title's first letter, so a row of them can be told apart
+  const letter = (g) => ({ text: (g.title || "").replace(/^(the|a|an)\s+/i, "").trim().charAt(0).toUpperCase() || "?", colour: systemColour("pc") });
   const store = (g) => (g.source && g.source !== "other" ? STORES[g.source] || g.source : null);
   return html`<${Shelf} page="pcgames" noun=${["game", "games"]} title="PC games" items=${data?.games ? games : null} error=${data?.error} st=${st} set=${set}
     fields=${fields} groups=${GROUPS} sorts=${SORTS} ratio="2 / 3" columns=${COLUMNS} cols=${COLS}
     text=${(g) => [g.title, yearText(g), g.details?.developer, g.details?.publisher, ...listOf(g.details?.genres), store(g), ...Object.values(g.ids || {})].filter(Boolean).join(" ")}
-    tile=${(g) => ({ pics: [thumb(g.media?.cover), thumb(g.media?.banner || g.media?.hero)], none, badge: st.group === "store" || !store(g) ? null : { text: store(g), colour: systemColour(g.source) },
+    tile=${(g) => ({ pics: [thumb(g.media?.cover), thumb(g.media?.banner || g.media?.hero)], none: letter(g), badge: st.group === "store" || !store(g) ? null : { text: store(g), colour: systemColour(g.source) },
       title: g.title, meta: [st.group === "year" || st.group === "decade" ? null : yearText(g), st.group === "developer" ? null : g.details?.developer].filter(Boolean).join(" · ") || size(g.size) })}
     line=${(g) => ({ pics: [thumb(g.media?.cover, 128), thumb(g.media?.icon, 128)], none, title: yearText(g) ? `${g.title} (${yearText(g)})` : g.title,
       meta: [store(g), g.details?.developer, size(g.size), g.launch ? null : "no program yet"].filter(Boolean).join(" · ") })}

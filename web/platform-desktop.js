@@ -11,16 +11,25 @@ export async function createPlatform() {
   const info = await api("app_info").catch((e) => ({ library_error: String(e), recent_libraries: [] }));
   let prefs = await api("prefs_get").catch(() => ({}));
   let timer = null;
+  const flush = () => {
+    if (!timer) return;
+    clearTimeout(timer);
+    timer = null;
+    api("prefs_set", { prefs }).catch(() => {});
+  };
   const store = {
     prefs: {
       get(key, fallback = null) { return key in prefs ? prefs[key] : fallback; },
       set(key, value) {
         prefs = { ...prefs, [key]: value };
         clearTimeout(timer);
-        timer = setTimeout(() => api("prefs_set", { prefs }).catch(() => {}), 250);
+        timer = setTimeout(flush, 250);
       },
     },
   };
+  // a change made just before the window closes or is hidden is saved at once (review L6)
+  addEventListener("pagehide", flush);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flush(); });
   const libraryUrl = info.library_url || "library://localhost/";
   // web links open in the default browser, not in the app's window
   document.addEventListener("click", (e) => {

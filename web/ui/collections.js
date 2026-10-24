@@ -811,11 +811,13 @@ export function Collections() {
 
   useEffect(() => {
     if (!id) { setData(null); return; }
+    // one remembered from before that's gone isn't asked for (review L1): the list picks another
+    if (!Array.isArray(all) || !all.some((c) => c.id === id)) { setData(null); return; }
     prefs()?.set("gr-collection", id);
     let gone = false;
     api("collection_get", { id }).then((d) => { if (!gone) setData(d); }).catch((e) => { if (!gone) setData({ error: err(e) }); });
     return () => { gone = true; };
-  }, [id, s.changes, s.dats, tick]);
+  }, [id, s.changes, s.dats, tick, Array.isArray(all) && all.some((c) => c.id === id)]);
 
   const c = data?.collection?.id === id ? data.collection : null;
   const sum = c ? data.summary : null;

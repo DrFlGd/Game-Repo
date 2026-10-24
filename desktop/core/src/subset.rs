@@ -613,8 +613,10 @@ pub struct Import {
 pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, progress: &mut dyn FnMut(Value)) -> Result<organise::Plan> {
     lib.writable()?;
     let conn = ix.conn();
-    let mut q = conn.prepare("SELECT g.name, d.platform, (SELECT COUNT(*) FROM dat_roms r WHERE r.game_id = g.id AND COALESCE(r.status, '') <> 'nodump'), (SELECT r.name FROM dat_roms r WHERE r.game_id = g.id LIMIT 1) FROM dat_games g JOIN dats d ON d.id = g.dat_id WHERE g.id = ?1")?;
+    let mut q = conn.prepare("SELECT g.name, d.platform, (SELECT COUNT(*) FROM dat_roms r WHERE r.game_id = g.id AND COALESCE(r.status, '') <> 'nodump'), (SELECT r.name FROM dat_roms r WHERE r.game_id = g.id LIMIT 1), d.id FROM dat_games g JOIN dats d ON d.id = g.dat_id WHERE g.id = ?1")?;
     let (mut ops, mut left) = (vec![], vec![]);
+    // each DAT game brought in, for converting afterwards (D177)
+    let mut brought: Vec<(String, i64)> = vec![];
     let mut seen = Seen::default();
     let mut outs: HashSet<String> = HashSet::new();
     let mut count = 0;
@@ -666,7 +668,7 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
     let mut roms_of = conn.prepare("SELECT name, crc32, size, sha1 FROM dat_roms WHERE game_id = ?1 AND COALESCE(status, '') <> 'nodump'")?;
     for (id, files) in &imp.games {
         step(progress)?;
-        let (game, platform, roms, first_rom): (String, String, i64, Option<String>) = q.query_row([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).with_context(|| format!("There's no DAT game {id}."))?;
+        let (game, platform, roms, first_rom, dat_id): (String, String, i64, Option<String>, i64) = q.query_row([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))).with_context(|| format!("There's no DAT game {id}."))?;
         let Some(place) = place_of(&platform) else {
             left.push(nowhere(&platform, &game));
             continue;
@@ -682,15 +684,16 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
                 Ok(game_ops) => {
                     ops.extend(game_ops);
                     used.push((place.clone(), platform.clone()));
+                    brought.push((game.clone(), dat_id));
                     count += 1;
                 }
                 Err(why) => left.push(why),
             }
             continue;
         }
-        let mut brought = false;
+        let mut brought_one = false;
         for f in files {
-            if brought {
+            if brought_one {
                 break;
             }
             let name = f.file_name().unwrap_or_default().to_string_lossy().into_owned();
@@ -728,9 +731,10 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
             let size = src.size;
             ops.push(organise::Op { op: how(f, &place).into(), game: game.clone(), to: to.display().to_string(), from: vec![src], names: vec![], aside: vec![], size, note });
             used.push((place.clone(), platform.clone()));
-            brought = true;
+            brought_one = true;
         }
-        if brought {
+        if brought_one {
+            brought.push((game.clone(), dat_id));
             count += 1;
         }
     }
@@ -803,7 +807,7 @@ pub fn bring_plan(ix: &Index, lib: &Library, imp: &Import, cancel: &AtomicBool, 
         dat: Value::Null, platform: if systems.len() == 1 { systems.into_iter().next().unwrap_or_default().to_string() } else { String::new() },
         mode: if imp.mode == "move" { "move".into() } else { "copy".into() }, format: "keep".into(),
         out: if places.len() == 1 { places.into_iter().next() } else { None },
-        space: organise::space_needed(&ops), ops, games: count, in_place: 0, conflicts: vec![], duplicates: vec![], left, new_root: None, new_roots, present: vec![], export: None,
+        space: organise::space_needed(&ops), ops, games: count, in_place: 0, conflicts: vec![], duplicates: vec![], left, new_root: None, new_roots, present: vec![], export: None, brought,
     })
 }
 
@@ -938,6 +942,44 @@ mod tests {
         assert!(s.waiting.is_empty());
         assert!(save(&f.ix, &f.lib, Target::New("Nothing"), &[], json!({}), vec![]).is_err());
         let _ = std::fs::remove_dir_all(&f.dir);
+    }
+
+    /// D177: the games an import brought in are converted to their system's preferred
+    /// format afterwards, a change of its own that Undo puts back before the import's.
+    #[test]
+    fn games_brought_in_are_converted_to_the_preferred_format_afterwards() {
+        let (dir, lib, ix) = fixture("subset-bring-convert");
+        let sub = dir.join("Elsewhere/Loose");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("alpha.gb"), rom(1, 1024)).unwrap();
+        let none = AtomicBool::new(false);
+        let r = review(&ix, &lib, &read_folders(&[sub.clone()], Some(&dat_sizes(ix.conn(), &lib).unwrap()), &none, &mut |_| {}).unwrap()).unwrap();
+        let lacking: Vec<(i64, Vec<PathBuf>)> = r["systems"][0]["games"].as_array().unwrap().iter()
+            .filter(|g| g["status"] == "missing")
+            .map(|g| (g["id"].as_i64().unwrap(), g["files"].as_array().unwrap().iter().map(|f| PathBuf::from(f.as_str().unwrap())).collect()))
+            .collect();
+        let plan = bring_plan(&ix, &lib, &Import { games: lacking, ..Default::default() }, &none, &mut |_| {}).unwrap();
+        assert_eq!(plan.brought.len(), 1, "{:?}", plan.brought);
+        assert_eq!(plan.brought[0].0, "Alpha (USA)");
+        assert_eq!(plan.summary()["brought"], 1);
+        let done = organise::run(&ix, &lib, &plan, &none, &mut |_| {}).unwrap();
+        crate::scan::scan(&ix, &lib, &crate::scan::Options::default(), &none, &mut |_| {}).unwrap();
+        assert!(dir.join("Roms/Alpha (USA).gb").is_file());
+        // a cartridge system's preferred format is a ZIP per game
+        let c = crate::convert::after_import(&ix, &lib, &plan.brought, &none, &mut |_| {});
+        assert_eq!(c["left"].as_array().map(Vec::len), Some(0), "{c}");
+        assert_eq!(c["changes"].as_array().map(Vec::len), Some(1), "{c}");
+        assert_eq!((c["changes"][0]["platform"].as_str(), c["changes"][0]["format"].as_str(), c["changes"][0]["games"].as_u64()), (Some("gb"), Some("zip"), Some(1)));
+        assert!(dir.join("Roms/Alpha (USA).zip").is_file() && !dir.join("Roms/Alpha (USA).gb").exists(), "converted in place");
+        // nothing more to do: a second pass converts nothing and leaves nothing
+        let again = crate::convert::after_import(&ix, &lib, &plan.brought, &none, &mut |_| {});
+        assert_eq!((again["changes"].as_array().map(Vec::len), again["left"].as_array().map(Vec::len)), (Some(0), Some(0)), "{again}");
+        // undone in order: the conversion, then the import
+        organise::undo(&ix, &lib, c["changes"][0]["id"].as_str().unwrap(), &none, &mut |_| {}).unwrap();
+        assert!(dir.join("Roms/Alpha (USA).gb").is_file() && !dir.join("Roms/Alpha (USA).zip").exists());
+        organise::undo(&ix, &lib, done["id"].as_str().unwrap(), &none, &mut |_| {}).unwrap();
+        assert!(!dir.join("Roms/Alpha (USA).gb").exists() && sub.join("alpha.gb").is_file());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

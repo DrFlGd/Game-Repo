@@ -2,7 +2,7 @@
 // its DAT, the last scan and what needs attention (docs/PLAN.md, 3.7). (The index on this
 // computer is in Settings › Library, what's coming in About.) Also the first-start screen, which asks where the
 // library should go.
-import { html, useEffect } from "../lib/html.js";
+import { html, useEffect, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
 import { ctx, routeHash } from "./context.js";
@@ -48,9 +48,13 @@ function PlatformsCard({ home, off }) {
 }
 
 /** Next: what to do now, each linking to the page it's done on (nothing when there's nothing to do). */
+const NEXT_SHOWN = 6;
 function NextStrip({ home }) {
   const items = home.next || [];
+  // the first few, and the rest on request (review: a long list buried the first)
+  const [all, setAll] = useState(false);
   if (!items.length) return null;
+  const shown = all || items.length <= NEXT_SHOWN + 1 ? items : items.slice(0, NEXT_SHOWN);
   const go = (n) => () => {
     const p = ctx.platform.store.prefs;
     if (n.page === "audit") p.set("gr-audit", { ...(p.get("gr-audit", {}) || {}), platform: n.system, tab: n.tab || "misnamed" });
@@ -58,7 +62,8 @@ function NextStrip({ home }) {
   };
   return html`<section class="home-next" id="home-next" aria-label="Next">
     <h2>Next</h2>
-    <ul>${items.map((n, i) => html`<li key=${i} data-kind=${n.kind}><a href=${routeHash(n.page)} onClick=${go(n)}>${n.text}</a></li>`)}</ul>
+    <ul>${shown.map((n, i) => html`<li key=${i} data-kind=${n.kind}><a href=${routeHash(n.page)} onClick=${go(n)}>${n.text}</a></li>`)}
+      ${shown.length < items.length ? html`<li class="home-next-more"><button type="button" class="linkish" id="home-next-more" onClick=${() => setAll(true)}>and ${items.length - shown.length} more</button></li>` : null}</ul>
   </section>`;
 }
 

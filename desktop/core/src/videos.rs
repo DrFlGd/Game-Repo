@@ -517,7 +517,7 @@ fn plan_of(lib: &Library, kind: &str, title: String, label: String, ops: Vec<Op>
         new_root: None,
         new_roots: vec![],
         present: vec![],
-        export: None,
+        export: None, brought: vec![],
     }
 }
 

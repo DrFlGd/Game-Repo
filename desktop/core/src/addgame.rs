@@ -223,7 +223,7 @@ pub fn plan(lib: &Library, files: &[PathBuf], platform: &str, into: &Path, mode:
         left: vec![],
         new_root, new_roots: vec![],
         present: vec![],
-        export: None,
+        export: None, brought: vec![],
     })
 }
 

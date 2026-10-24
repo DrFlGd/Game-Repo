@@ -111,21 +111,28 @@ export function followAutoScans() {
     await refreshGames();
     toast(`Scanned what changed in your folders: ${parts.join(", ")}.`, 5000);
   };
+  // every 2 s while scans turn up, stretching to 15 s while nothing does (review L8);
+  // back to 2 s when the window is looked at again
+  let wait = 2000;
   const poll = async () => {
     if (ui.get().library && !document.hidden) {
       try {
+        let found = false;
         for (const j of await api("jobs")) {
           if (!j.auto || seen.has(j.id)) continue;
           seen.add(j.id);
+          found = true;
           if (first) continue;
           if (j.done) told(j);
           else followJob(j.id, "Scanning what changed").then(told);
         }
         first = false;
+        wait = found ? 2000 : Math.min(15000, Math.round(wait * 1.5));
       } catch { /* the next poll tries again */ }
     }
-    setTimeout(poll, 2000);
+    setTimeout(poll, wait);
   };
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) wait = 2000; });
   poll();
 }
 

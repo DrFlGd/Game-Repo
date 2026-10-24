@@ -150,10 +150,12 @@ export async function offerInterrupted() {
 }
 
 /** Run a planned change, then say what it did, with Undo. Resolves with the job's result
- *  (null when it failed). */
-export async function runPlan(plan, more = null) {
+ *  (null when it failed). `convert` (an import of games, D177): the games brought in are
+ *  converted to their systems' preferred formats afterwards, a change of its own that
+ *  Undo undoes first. */
+export async function runPlan(plan, more = null, { convert = false } = {}) {
   try {
-    const { job } = await api("organise_run", { id: plan.id });
+    const { job } = await api("organise_run", { id: plan.id, convert });
     const done = await followJob(job, verb(plan.kind));
     await refreshGames();
     ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
@@ -162,9 +164,20 @@ export async function runPlan(plan, more = null) {
     const failed = r.failed?.length ? ` ${plural(r.failed.length, "step", "steps")} failed: ${r.failed[0].error}` : "";
     const warned = r.warnings?.length ? ` ${plural(r.warnings.length, "file", "files")} will show once the folder is scanned again.` : "";
     const art = r.art?.length ? ` Artwork for ${plural(r.art.length, "game", "games")}.` : "";
+    const changes = r.converted?.changes?.filter((c) => c.id) || [];
+    const formats = [...new Set(changes.map((c) => CONVERT_FORMATS[c.format]?.[0] || String(c.format).toUpperCase()))].join(", ");
+    const converted = changes.length ? ` Converted ${plural(changes.reduce((a, c) => a + (c.games || 0), 0), "game", "games")} to ${formats}.` : "";
+    const notConverted = r.converted?.left?.length ? ` ${plural(r.converted.left.length, "wasn't", "weren't")} converted: ${r.converted.left[0].why}` : "";
     // `more`: what's left to do afterwards, with its button (files no DAT knows to review)
-    const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}${warned}${art}${more ? ` ${more.text}` : ""}`;
-    undoable(text, () => undoChange(r.id), more ? 15000 : 8000, [...(more?.actions || []), { label: "History", run: () => { location.hash = "#/history"; } }]);
+    const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}${warned}${art}${converted}${notConverted}${more ? ` ${more.text}` : ""}`;
+    const undo = async () => {
+      for (const c of [...changes].reverse()) await undoChange(c.id);
+      return undoChange(r.id);
+    };
+    // a big change asks before Ctrl+Z undoes it (review M3): many steps, files moved from where they were, or a conversion
+    const big = r.done > 10 || plan.mode === "move" || changes.length;
+    const confirm = big ? `${plan.label}: ${plural(r.done + changes.reduce((a, c) => a + (c.done || 0), 0), "step", "steps")} will be put back${changes.length ? ", the conversions first" : ""}.` : null;
+    undoable(text, undo, more || changes.length ? 15000 : 8000, [...(more?.actions || []), { label: "History", run: () => { location.hash = "#/history"; } }], confirm);
     return r;
   } catch (e) {
     toast(`Couldn't finish it: ${e.message || e}`, 10000);

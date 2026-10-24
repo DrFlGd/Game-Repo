@@ -33,11 +33,13 @@ export const close = () => ui.set({ dialog: null });
  *  behind it is clicked, and Esc leaves it too unless `onDismiss` puts it away with nothing
  *  lost (review M35); its ✕ and Cancel still close it.
  *  Esc and the first box work as soon as it shows (a layout effect, not after a paint). */
-export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger = false, cancelLabel = "Cancel", onCancel = close, onDismiss, wide = false, sticky = false, children }) {
+/** `busy` keeps Submit off (the form isn't ready, or its work runs); `working` says its work
+ *  runs now (review M2): the backdrop, Esc, Close and Cancel can't take the dialog away mid-way. */
+export function Dialog({ title, id, onSubmit, busy, working = false, error, submitLabel, danger = false, cancelLabel = "Cancel", onCancel = close, onDismiss, wide = false, sticky = false, children }) {
   const form = useRef(null);
   const dismiss = onDismiss || close;
   const esc = useRef(null);
-  esc.current = sticky && !onDismiss ? null : dismiss;
+  esc.current = working || (sticky && !onDismiss) ? null : dismiss;
   useLayoutEffect(() => {
     const key = (e) => { if (e.key === "Escape") esc.current?.(); };
     addEventListener("keydown", key);
@@ -46,16 +48,16 @@ export function Dialog({ title, id, onSubmit, busy, error, submitLabel, danger =
     return () => removeEventListener("keydown", key);
   }, []);
   // a sticky dialog stays when the page behind it is clicked (an import with work running or kept)
-  return html`<div class="dialog-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget && !sticky) dismiss(); }}>
-    <form class=${wide ? "dialog wide" : "dialog"} id=${id} ref=${form} tabindex="-1" role="dialog" aria-modal="true" aria-label=${title} onSubmit=${(e) => { e.preventDefault(); onSubmit(); }}>
+  return html`<div class="dialog-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget && !sticky && !working) dismiss(); }}>
+    <form class=${wide ? "dialog wide" : "dialog"} id=${id} ref=${form} tabindex="-1" role="dialog" aria-modal="true" aria-label=${title} aria-busy=${working ? "true" : null} onSubmit=${(e) => { e.preventDefault(); if (!working) onSubmit(); }}>
       <div class="dialog-head"><h2>${title}</h2>
-        <button type="button" class="ghost" aria-label="Close" title=${esc.current ? "Close (Esc)" : "Close"} onClick=${dismiss}>${Icon.close(15)}</button></div>
+        <button type="button" class="ghost" aria-label="Close" title=${esc.current ? "Close (Esc)" : "Close"} disabled=${working} onClick=${dismiss}>${Icon.close(15)}</button></div>
       ${children}
       <div class="dialog-foot">
         ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
         <div class="dialog-actions">
-          ${cancelLabel ? html`<button type="button" class="ghost" id=${id ? `${id}-cancel` : null} onClick=${onCancel}>${cancelLabel}</button>` : null}
-          <button type="submit" class=${danger ? "primary danger" : "primary"} disabled=${busy}>${submitLabel}</button>
+          ${cancelLabel ? html`<button type="button" class="ghost" id=${id ? `${id}-cancel` : null} disabled=${working} onClick=${onCancel}>${cancelLabel}</button>` : null}
+          <button type="submit" class=${danger ? "primary danger" : "primary"} disabled=${busy || working}>${submitLabel}</button>
         </div>
       </div>
     </form>
@@ -80,7 +82,7 @@ function AskDialog({ title, text, button, cancel = "Not now", run }) {
 
 /** Ask before something that can't be undone:
  *  one red button that names what it does. Open it with `confirmDialog`. */
-function ConfirmDialog({ title, text, button, run, undoable = false }) {
+function ConfirmDialog({ title, text, button, run, undoable = false, onClose = null }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const submit = async () => {
@@ -95,7 +97,9 @@ function ConfirmDialog({ title, text, button, run, undoable = false }) {
       setBusy(false);
     }
   };
-  return html`<${Dialog} title=${title} id="confirm-dialog" onSubmit=${submit} busy=${busy} error=${error} submitLabel=${button} danger=${true}>
+  // `onClose`: told when the question is put away unanswered
+  const away = () => { onClose?.(); close(); };
+  return html`<${Dialog} title=${title} id="confirm-dialog" onSubmit=${submit} busy=${busy} working=${busy} error=${error} submitLabel=${button} danger=${true} onCancel=${away} onDismiss=${away}>
     <p>${text}</p>
     ${undoable ? null : html`<p class="muted">This can't be undone.</p>`}
   <//>`;

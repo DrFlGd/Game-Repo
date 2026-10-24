@@ -112,6 +112,10 @@ pub struct Plan {
     /// For an export (export.rs): which, and where to
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub export: Option<Value>,
+    /// For an import of games (subset::bring_plan): each DAT game brought in, with its
+    /// DAT's id, so they can be converted once in (D177)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub brought: Vec<(String, i64)>,
 }
 
 impl Plan {
@@ -133,6 +137,7 @@ impl Plan {
             "set_aside": set_aside, "conflicts": self.conflicts.len(), "duplicates": self.duplicates.len(), "left": self.left.len(),
             "space": self.space, "short": self.space.iter().any(|s| s["short"] == true), "new_root": self.new_root, "new_roots": self.new_roots,
             "layout_name": self.export.as_ref().and_then(|e| e.get("layout_name")).cloned(),
+            "brought": self.brought.len(),
         })
     }
 }
@@ -768,7 +773,7 @@ pub fn plan(ix: &Index, lib: &Library, o: &Options) -> Result<Plan> {
             dat: json!({ "id": d.id, "name": d.name, "version": d.version }), platform: d.platform.clone(),
             mode: mode.clone(), format: format.clone(), out: out.as_ref().map(|o| o.display().to_string()),
             ops: vec![], games: 0, in_place: 0, conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root, new_roots: vec![],
-            present: vec![], export: None,
+            present: vec![], export: None, brought: vec![],
         },
         taken: HashSet::new(),
         roots: &roots,
@@ -1042,7 +1047,7 @@ pub fn gather_plan(ix: &Index, lib: &Library, platform: Option<&str>) -> Result<
         id: new_id(), created: now(), kind: "organise".into(), label: String::new(), title: String::new(),
         dat: Value::Null, platform: platform.unwrap_or_default().to_string(), mode: "move".into(), format: "keep".into(), out: None,
         ops: vec![], games: 0, in_place: 0, conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, new_roots: vec![],
-        present: vec![], export: None,
+        present: vec![], export: None, brought: vec![],
     };
     for p in &systems {
         let Some(dat) = audit::primary_dat(conn, lib, p)? else {
@@ -1243,7 +1248,7 @@ pub fn plan_duplicates(ix: &Index, lib: &Library, dat_id: i64) -> Result<Plan> {
         label: format!("Set aside {} duplicates", platforms::name_of(&d.platform)), title: String::new(),
         dat: json!({ "id": d.id, "name": d.name, "version": d.version }), platform: d.platform.clone(),
         mode: "aside".into(), format: "keep".into(), out: None, ops: vec![], games: 0, in_place: 0,
-        conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, new_roots: vec![], present: vec![], export: None,
+        conflicts: vec![], duplicates: vec![], left: vec![], space: vec![], new_root: None, new_roots: vec![], present: vec![], export: None, brought: vec![],
     };
     let mut kept: HashSet<(i64, Option<String>)> = HashSet::new();
     let mut extra: Vec<&Cand> = vec![];
@@ -2219,13 +2224,16 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
             problems.push(json!({ "game": op.game, "to": op.to, "kept": true, "error": format!("{} was deleted from what was set aside, so this step stays", gone[0].as_str().unwrap_or("")) }));
             continue;
         }
-        let mut kept = false;
+        // a step left as it is, and why (review M5: a moved file whose source is taken again too)
+        let mut kept: Option<String> = None;
         let r = (|| -> Result<()> {
             let copied = rec["copied"] == true;
             match op.op.as_str() {
                 "rename" | "move" if !copied => {
                     let from = Path::new(&op.from[0].path);
-                    if to.exists() && !from.exists() {
+                    if to.exists() && from.exists() && !same_file(from, to) {
+                        kept = Some(format!("{} has another file where {} came from, so it stays", from.display(), to.display()));
+                    } else if to.exists() && !from.exists() {
                         make_parent(from)?;
                         rename(to, from)?;
                         if let Some((root, rel)) = in_root(&roots, to) {
@@ -2257,7 +2265,7 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
                         file_stamp(to).is_some_and(|now| now != was)
                     });
                     if to.exists() && changed && !own {
-                        kept = true;
+                        kept = Some(format!("{} is different from what the change wrote, so it stays", to.display()));
                     } else if to.exists() && !own {
                         std::fs::remove_file(to).with_context(|| format!("couldn't remove {}", to.display()))?;
                         if let Some((root, rel)) = in_root(&roots, to) {
@@ -2282,9 +2290,9 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
             Ok(())
         })();
         match r {
-            Ok(()) if kept => {
+            Ok(()) if kept.is_some() => {
                 undone += 1;
-                problems.push(json!({ "game": op.game, "to": op.to, "kept": true, "error": format!("{} is different from what the change wrote, so it stays", to.display()) }));
+                problems.push(json!({ "game": op.game, "to": op.to, "kept": true, "error": kept.unwrap_or_default() }));
             }
             Ok(()) => undone += 1,
             Err(e) => problems.push(json!({ "game": op.game, "to": op.to, "error": format!("{e:#}") })),

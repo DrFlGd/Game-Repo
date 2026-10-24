@@ -1196,7 +1196,7 @@ pub fn plan_import(lib: &Library, items: &[Item], mode: &str, always_copy: bool)
         left: vec![],
         new_root: None, new_roots: vec![],
         present: vec![],
-        export: None,
+        export: None, brought: vec![],
     })
 }
 
@@ -1294,7 +1294,7 @@ pub fn remove_plan(lib: &Library, id: &str) -> Result<Plan> {
         space: vec![],
         new_root: None, new_roots: vec![],
         present: vec![],
-        export: None,
+        export: None, brought: vec![],
     })
 }
 
