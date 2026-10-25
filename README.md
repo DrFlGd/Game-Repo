@@ -12,10 +12,18 @@ taken and still open.
 
 ## Status
 
-Phase 0: the app's shell. A library can be made, opened, renamed and moved, and its
-SQLite index is kept on each computer; the pages for auditing, collections, PC games and
-metadata say what their phase will bring. Releases (Windows installer) are on the
-[releases page](https://github.com/DrFlGd/Game-Repo/releases).
+Released and in use (v0.5.54, October 2026). Game Repo audits ROM sets against No-Intro,
+Redump and MAME DATs (several per system, with a custom DAT for variants), organises and
+converts them (ZIP, CHD with a playlist for a game on several discs, RVZ, CSO) with Undo,
+builds collections and exports them to ES-DE, RetroArch, Pegasus, LaunchBox, Playnite or
+a handheld's SD card, imports PC games and adds them to Steam, scrapes details, media and
+manuals, and keeps documents, magazines and videos. Game Repo Server serves the library
+on the home network to Game Repo Go on Windows, Android and the Steam Deck, which
+downloads games for ES-DE and installs PC games. All three update themselves.
+
+What's next is in [docs/PLAN.md](docs/PLAN.md) (section 12, "Next steps") and in the
+app's About page. Releases (the Windows installers, Game Repo Go's Android APK and Steam
+Deck AppImage) are on the [releases page](https://github.com/DrFlGd/Game-Repo/releases).
 
 ## Building
 
@@ -28,6 +36,7 @@ python3 tools/build_desktop.py --out build/desktop # the front end (Game Repo's 
 cd desktop/server && npx @tauri-apps/cli@2 build   # Game Repo Server and its own installer
 mkdir -p desktop/src-tauri/binaries && cp desktop/target/release/gamerepo-server.exe desktop/src-tauri/binaries/gamerepo-server-x86_64-pc-windows-msvc.exe
 cd desktop/src-tauri && npx @tauri-apps/cli@2 build # the app, with the server beside it (needs Node and WebView2)
+cd desktop/client && npx @tauri-apps/cli@2 build   # Game Repo Go for Windows (Android and the Deck build in CI)
 ```
 
 `CHANGELOG.md` has the map of the code for whoever works on it next.
@@ -40,10 +49,13 @@ web/                 the front end (no build step)
 desktop/core/        Rust core
 desktop/wire/        what Game Repo Server and a device say to each other
 desktop/serve/       Game Repo Server (serves the library to devices)
-desktop/device/      a device's side (the stand-in client)
-desktop/cli/         gamerepo-cli: the backend, the server and the stand-in, without a window
+desktop/device/      a device's side: Game Repo Go's backend
+desktop/steam/       Steam's own files (shortcuts, Proton), for Game Repo and Game Repo Go
+desktop/update/      the in-app updates of all three programs
+desktop/cli/         gamerepo-cli: the backend, the server and Go's pages, without a window
 desktop/src-tauri/   the Tauri 2 app
 desktop/server/      Game Repo Server's own program: tray icon, window, installer
+desktop/client/      Game Repo Go: Windows, Android and the Steam Deck
 desktop/installer/   what both installers add (the server's firewall rules)
 tools/, tests/       build and test scripts; synthetic fixtures only, never real game files
 ```

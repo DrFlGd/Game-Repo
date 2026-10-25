@@ -408,6 +408,8 @@ take games from it, without copying an SD card by hand.
   profiles.
 - **Safety on the network**: off until switched on, listening on the home network only,
   paired with a code shown in the app, and never exposed to the internet by the app.
+  Away from home, devices reach it over Tailscale, which the user runs (Jerred's choice,
+  9d); Game Repo Go sets it up on the Steam Deck (D179).
 - **A device client (D84)** for Windows and Android, then the Steam Deck: a small app
   that browses the library, adds a handful of games where ES-DE finds them (with the
   media the user picks) and removes them to make room. It talks to **Game Repo
@@ -604,13 +606,16 @@ products differ and Model Library has its own release phases.
   (`<data dir>/tools/`, opened from Settings so binaries can be dropped in), then on the
   PATH, then at a path set per tool in Settings (D14). Each is called as a child process
   with its output streamed into the job's progress; none is bundled, for licence and size
-  reasons.
+  reasons. Settings › Tools' *Get it…* downloads a pinned build of dolphin-tool or
+  innoextract and checks it (D178); Tesseract, for magazines' text (D145), has an
+  installer, so its button opens the download page.
 - Credentials (ScreenScraper, IGDB, TheGamesDB, MobyGames) are stored on this computer in
   the app's data folder, never in the library and never in the repository.
 - The repository will contain **no ROMs, no installers and no copyrighted media**. Test
   fixtures are synthetic (random bytes with known hashes and hand-written DATs).
 - DAT files are redistributable under their groups' terms; we ship none by default and
-  let the user drop them in.
+  let the user drop them in, or download them on request from libretro's copies and
+  Redump's own site (D17, D167, D172).
 
 ---
 
@@ -631,13 +636,14 @@ a Windows build published by CI. Versions follow Model Library's scheme: `0.<pha
 | **6** | Library polish | Library page with media thumbnails, search, filters by scraped metadata; Scraper and Collections pages complete. |
 | **7** | Arcade (MAME/FBNeo) | Merged/split/non-merged audits, BIOS/device deps, CHD disks, sample sets. |
 | **8** | More targets, add-ons, magazines | RetroArch playlists, Pegasus, Playnite and LaunchBox exports (8a); updates, DLC and patches with their base game (D56) and a collection's history (D52) (8b); magazines (3.8, D31) (8c). MobyGames dropped (Jerred, 2026-10-18). |
-| **9** | Device client | 9a Game Repo Server on Windows, started from Game Repo (D85; "Phase 9a design", D89–D95). 9b the client for Windows and Android, ES-DE first (D84, D86–D88; "Phase 9b design", D96–D104). 9c the Steam Deck: the client built for Linux, usable with the Deck's controls in Game Mode, and PC games on devices, unpacked into a folder that suits Windows or Linux (D105). 9e the big-screen view for controllers, Download and a queue started by hand, *On this device* by system, and RetroDECK and EmuDeck found by themselves (Jerred's tryout, 2026-10-20; "Phase 9e design", D113–D117). 9d later: the server on a NAS (Unraid, Synology), access from outside the home network (parked), other frontends, the read-only WebDAV view, muOS/Knulli/ROCKNIX handhelds. Needs Phase 5b's layouts. |
+| **9** | Device client | 9a Game Repo Server on Windows, started from Game Repo (D85; "Phase 9a design", D89–D95). 9b the client for Windows and Android, ES-DE first (D84, D86–D88; "Phase 9b design", D96–D104). 9c the Steam Deck: the client built for Linux, usable with the Deck's controls in Game Mode, and PC games on devices, unpacked into a folder that suits Windows or Linux (D105). 9e the big-screen view for controllers, Download and a queue started by hand, *On this device* by system, and RetroDECK and EmuDeck found by themselves (Jerred's tryout, 2026-10-20; "Phase 9e design", D113–D117). 9d later: the server on a NAS (Unraid, Synology), access from outside the home network over Tailscale (Jerred's choice, with the Unraid server as the way in; Game Repo Go's *Set up Tailscale* on the Deck built ahead of the rest, D179, v0.5.54), pairing by QR code, downloads on Wi-Fi only, other frontends, the read-only WebDAV view, muOS/Knulli/ROCKNIX handhelds. Needs Phase 5b's layouts. |
 | **10** | Variants | A custom DAT per system for the translations, hacks, prototypes and mods no DAT knows, each a variant of its original in the main DAT, suggested by comparing names, with its parentheticals as tags; several DATs audited per system (Jerred, 2026-10-20; "Phase 10 design", D118–D123). |
-| **Later** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). It reads every format Magazines imports: a PDF's pages and a CBZ's or CBR's images alike. |
-| **Later** | Videos | Walkthroughs, reviews and retrospectives kept as a section of their own, as magazines are, not as one game's metadata: each video can be linked to the games it covers, and shows on those games' pages (Jerred, 2026-10-20). Not designed yet. |
+| **Built** | Magazine text | OCR of scanned magazines, so their text is searchable, and tagging an issue with the games it covers (Jerred, 2026-10-18). It reads every format Magazines imports: a PDF's pages and a CBZ's or CBR's images alike. Built 2026-10-22 (D145, v0.5.45). |
+| **Built** | Videos | Walkthroughs, reviews and retrospectives kept as a section of their own, as magazines are, not as one game's metadata: each video can be linked to the games it covers, and shows on those games' pages (Jerred, 2026-10-20). Built 2026-10-22 (D146, v0.5.45; laid out as the Library, D153, v0.5.46). |
 | **Built** | Main DAT in Settings | Each system's main DAT chosen in the DAT files list too, beside its versions, as well as on the Audit page (Jerred, 2026-10-20: for an update or a different base set). Built 2026-10-21 (D131). |
 | **Built** | Big-screen size | A size setting for Game Repo Go's big-screen view (D113), whose sizes are fixed for a television or the Steam Deck and too large on a phone (Jerred, 2026-10-20, on his Android devices): smaller, as it is, larger, kept per device. Built 2026-10-21 (D132). |
 | **Later** | Android games | Support for games that are Android apps (APKs, with any OBB or data files they come with): kept and scraped as a system of their own, and installed on an Android device by Game Repo Go (Jerred, 2026-10-20). Not designed yet. |
+| **Later** | GOG installers on devices | A PC game that has only a GOG installer, unpacked with innoextract so Game Repo Go can install it; until then the catalogue lists it with why it can't go (D110). Not designed yet. |
 
 Phases 1–3 are the heart of the tool; 4 and 5 are independent of each other and can be
 reordered.
@@ -3384,6 +3390,8 @@ custom collections, that's a good addition"); Knulli and ROCKNIX follow Batocera
 **D82 Later** (Jerred). A lock so two computers can't run a change on one library at once
 (M9) and streaming DAT import (M15) go in a later phase. Re-applying a new picture size to
 pictures already exported (M20) is device-specific and goes in whichever phase suits.
+*Built later: the lock as D148 and the streamed DAT import as D149 (2026-10-22, v0.5.45);
+M20 is still to do.*
 
 **D83 A release from the tested build** (Jerred, 2026-10-19, after batch 7). A pull
 request's run builds and tests the Windows app as if merged, and the push to `main` did
@@ -6157,17 +6165,16 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     v0.5.28. Next is 9b, the client for Windows and Android ("Phase 9b design", D96–D104,
     agreed 2026-10-20), in three pull requests: the first, Game Repo Go's backend and the
     server's additions, is built ("Phase 9b notes, part 1"); the second, the pages and the
-    Windows app with its installer, is built ("Phase 9b notes, part 2"); Android comes
-    next. Later: reading magazines' text
-    (PDF, CBZ and CBR) and tagging each issue with the games it covers; videos
-    (walkthroughs, reviews, retrospectives) as a section of their own, linked to games.
+    Windows app with its installer, is built ("Phase 9b notes, part 2"); the third,
+    Android, is v0.5.32 ("Phase 9b notes, part 3"). Reading magazines' text and videos as
+    a section of their own, then later, were built in 2026-10-22's list (item 17).
 15. Phase 9 is done through 9e (v0.5.35); 9d (the server on a NAS, access from outside the
     home network, muOS-style handhelds) is later. Jerred's import notes of 2026-10-20 are
     built ("Jerred's import notes"). Next is Phase 10, variants and custom DATs ("Phase 10
     design", D118–D123), in two pull requests: the custom DAT, the suggestions and the tags
     with variants everywhere games show (built, "Phase 10 notes, part 1"), then several
-    DATs per system on the Audit page (built, "Phase 10 notes, part 2"). Later: Android games (APKs), added to the roadmap
-    by Jerred, 2026-10-20.
+    DATs per system on the Audit page (built, "Phase 10 notes, part 2"), both v0.5.37.
+    Later: Android games (APKs), added to the roadmap by Jerred, 2026-10-20.
 16. In-app updates ("In-app updates", D134–D137; "Game Repo Go's updates on Android",
     D139): Windows, the Steam Deck and Android built; Jerred made the signing key, and
     0.5.44 is the first signed release.
@@ -6177,26 +6184,33 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     computers and large DATs read as a stream (F, D147–D149), released in 0.5.45.
 18. Jerred's second list of 2026-10-22 (D150–D156): the Library keeps its place, Previous
     and Next on a game's page, Videos and Magazines laid out as the Library, Documents
-    the same kept simpler, and *Remove from collection*.
+    the same kept simpler, and *Remove from collection*; released in 0.5.46.
 19. Jerred's backlog (D157–D159): a ranked list of games to play under Collections, with
-    Completed beside it and In progress highlighted.
+    Completed beside it and In progress highlighted; released in 0.5.47.
 20. Updates and DLC by their names (D160–D164): scene tags and Switch, 3DS and Wii U title
     IDs, the game found by name, Unknown files added as add-ons, the Library's *Updates
-    and DLC with their game*, and starter DATs for 3DS and Vita.
+    and DLC with their game*, and starter DATs for 3DS and Vita; released in 0.5.48.
 21. Adding a system, PlayStation 5 and Redump's own DATs (D165–D167): *Add a system…* from
-    a download, a DAT file or a folder, PS5 built in, *Get Redump's DATs…*.
+    a download, a DAT file or a folder, PS5 built in, *Get Redump's DATs…*; released in
+    0.5.49.
 22. Set aside in History, PC games as a shelf, the Documents grid and a collection's
     systems (D168–D171): files set aside listed and deleted one by one, PC games with the
     Library's filters and views, grids whose small groups sit side by side, and a
-    collection's systems under it in the ribbon.
+    collection's systems under it in the ribbon; released in 0.5.50.
 23. Updating every system's DATs (D172–D173): *Update DATs…* in Settings, Redump's own and
-    libretro's copies, every version kept to go back to.
+    libretro's copies, every version kept to go back to; released in 0.5.51.
 24. Games on several discs as one (D174–D176): one Library item, collections with every disc
-    and with a game's updates and DLC, a CHD per disc with an `.m3u` playlist.
+    and with a game's updates and DLC, a CHD per disc with an `.m3u` playlist; released in
+    0.5.52.
 25. The October 2026 review's fixes, convert on import and tool downloads (D177–D178): the
     review's Medium and Low findings and UI observations fixed, games converted to their
-    system's preferred format as they're imported, *Get it…* in Settings › Tools.
+    system's preferred format as they're imported, *Get it…* in Settings › Tools; released
+    in 0.5.53.
 26. Setting up Tailscale on the Steam Deck (D179), ahead of the rest of 9d: *Set up Tailscale*
     in Game Repo Go's Settings, with Go's own installer, and a weekly check on the community
-    script. Later: 9d (the server on the NAS, access away from home with Tailscale,
-    muOS-style handhelds) and Android games.
+    script; released in 0.5.54.
+27. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
+    away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
+    muOS-style handhelds with no app, Android games (APKs), and GOG installers on devices
+    (D110). Smaller: re-applying a new picture size to pictures already exported (M20),
+    and pruning Model Library's unused rules from `web/styles.css`.
