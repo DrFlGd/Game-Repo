@@ -2,7 +2,7 @@
 // (Preact + htm, no build step, with Game Repo's styles, skins and icons); the backend is
 // reached through client/backend.js.
 import { html, render } from "./lib/html.js";
-import { call, inApp, leave, onBack, start } from "./client/backend.js";
+import { call, info, inApp, leave, onBack, start } from "./client/backend.js";
 import { applyLook, back, closeDialog, go, load, routeOf, say } from "./client/state.js";
 import { startUpdates } from "./ui/updates.js";
 import { gamepads, keys } from "./client/keys.js";
@@ -40,6 +40,10 @@ async function main() {
   gamepads();
   await load();
   go.set({ ready: true });
+  // Tailscale gone from the Deck since it was set up, most likely with a SteamOS update (D179)
+  if (info.kind === "linux") {
+    call("tailscale").then((t) => { if (t?.missing) say("Tailscale has gone from this Deck, most likely with a SteamOS update: set it up again to reach your library away from home.", "settings"); }).catch(() => {});
+  }
   // a newer Game Repo Go, found by the check it makes as it starts (D134)
   startUpdates(call).then((s) => { if (s?.available) say(`Game Repo Go ${s.available.version} is out: update it in Settings.`, "settings"); }).catch(() => {});
 }

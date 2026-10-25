@@ -1,0 +1,5 @@
+# The deck-tailscale files Game Repo watches, and the commit of each it last looked at
+# (.github/workflows/deck-tailscale.yml, D179). Looked at 2026-10-25.
+tailscale.sh dc6c30ecaba52b5592e33ced77c0ff53eba1ffde
+override.conf be6349059dd56e49319a070466d49b43b0fc496c
+uninstall.sh 808359dbdd005b106482c0052029d3a515bdd60d

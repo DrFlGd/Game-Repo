@@ -12,6 +12,7 @@ use crate::queue::{self, Ctx, Queue};
 use crate::removing::{self, Ask as RemoveAsk};
 use crate::scan::{self, Found};
 use crate::steam;
+use crate::tailscale;
 use crate::{client, AddOptions, Device, Server};
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
@@ -193,6 +194,8 @@ pub struct App {
     looked: Mutex<Option<std::time::Instant>>,
     /// Game Repo Go itself, for its own Steam shortcut (D107)
     own: Mutex<Own>,
+    /// The folder Tailscale and SteamOS are looked for in (D179): `/`, or a stand-in for it
+    root: Mutex<PathBuf>,
 }
 
 /// Game Repo Go's own program and icon, and the command line of its Steam helper
@@ -241,7 +244,7 @@ impl App {
                     }
                 }),
             );
-            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default() }
+            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default(), root: Mutex::new(PathBuf::from("/")) }
         });
         let me = Arc::downgrade(&app);
         app.queue.on_away(Box::new(move || me.upgrade().is_some_and(|a| a.find_again())));
@@ -263,6 +266,16 @@ impl App {
 
     fn own(&self) -> Own {
         self.own.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Where Tailscale and SteamOS's `os-release` are looked for: `/`, or (the page test's
+    /// stand-in for the app) a folder standing in for it.
+    pub fn set_root(&self, root: PathBuf) {
+        *self.root.lock().unwrap_or_else(|e| e.into_inner()) = root;
+    }
+
+    fn root(&self) -> PathBuf {
+        self.root.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn settings(&self) -> Settings {
@@ -496,6 +509,25 @@ impl App {
                 }
                 steam::restart(&helper)?;
                 json!({})
+            }
+            "tailscale" => tailscale::status(&self.data, &self.root()),
+            "tailscale_set_up" => {
+                tailscale::set_up(&self.data)?;
+                let me = self.me.clone();
+                tailscale::watch(self.data.clone(), self.root(), Box::new(move || {
+                    if let Some(app) = me.upgrade() {
+                        app.changed("tailscale");
+                    }
+                }));
+                tailscale::status(&self.data, &self.root())
+            }
+            "tailscale_sign_in" => {
+                let v = tailscale::status(&self.data, &self.root());
+                match v["auth_url"].as_str().filter(|u| !u.is_empty()) {
+                    Some(url) => tailscale::open(url)?,
+                    None => bail!("Tailscale isn't waiting for you to sign in."),
+                }
+                v
             }
             "settings" => json!(self.settings()),
             "set_settings" => {

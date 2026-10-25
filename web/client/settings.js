@@ -3,7 +3,7 @@
 // (C16), what the Library shows, the device's name and screen, the picture cache, the look
 // (the view, D113, the big screen's size, D132, and Game Repo's skins and themes) and the
 // version with its updates (D134); on Windows and Linux, the PC games folder (D111) and full screen (D127); on
-// Linux, Steam (D107, D109). Each change is kept as it's made.
+// Linux, Steam (D107, D109); and Tailscale, set up on the Steam Deck (D179). Each change is kept as it's made.
 import { html, useEffect, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { SKINS, THEMES } from "../ui/state.js";
@@ -90,6 +90,81 @@ function SteamSettings({ rev }) {
           ${!st.running ? html`<button type="button" class="ghost" id="set-steam-write" disabled=${busy} onClick=${() => run("steam_apply")}>Write them now</button>` : null}
         </div>` : st.wanted?.length ? html`<p class="muted" id="set-steam-done">${st.wanted.length === 1 ? "Its shortcut is" : `Its ${st.wanted.length} shortcuts are`} in Steam${st.users?.length ? ` for ${(st.users.find((u) => u.id === st.user) || {}).name || st.user}` : ""}.</p>` : null}
     `}
+  </section>`;
+}
+
+/** What Tailscale's doing, in a line. */
+function tailscaleLine(ts) {
+  if (!ts.answers) return "Tailscale is installed but isn't running.";
+  if (ts.state === "Running") return `Tailscale is on: this device is ${ts.dns || ts.name || "on your Tailscale network"}${ts.ip ? ` at ${ts.ip}` : ""}${ts.tailnet ? ` on ${ts.tailnet}` : ""}${ts.version ? `, with Tailscale ${ts.version}` : ""}.`;
+  if (ts.state === "NeedsLogin") return "Tailscale is installed and waiting for you to sign in.";
+  if (ts.state === "Stopped") return "Tailscale is installed but turned off.";
+  return "Tailscale is starting…";
+}
+
+/** Tailscale (D179), for reaching the library away from home. On the Steam Deck, Set up
+ *  Tailscale runs Game Repo Go's own installer in a terminal window (Desktop Mode has one),
+ *  where the Deck's password is typed, and Go opens Tailscale's sign-in page once Tailscale
+ *  gives one; it says so when a SteamOS update has taken Tailscale away. Elsewhere, where to
+ *  get Tailscale. */
+function TailscaleSettings() {
+  const rev = useStore(go, (x) => x.tailscaleRev);
+  const [ts, setTs] = useState(null);
+  const [sure, setSure] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const linux = info.kind === "linux";
+  const read = () => call("tailscale").then(setTs).catch(() => setTs({ found: false, answers: false }));
+  useEffect(() => { if (linux) read(); }, [rev, linux]);
+  // while a set-up runs, what Tailscale's doing shows as it changes
+  useEffect(() => {
+    if (!ts?.setting_up) return undefined;
+    const t = setInterval(read, 3000);
+    return () => clearInterval(t);
+  }, [ts?.setting_up]);
+  const run = async (cmd) => {
+    setBusy(true);
+    try {
+      setTs(await call(cmd));
+    } catch (e) {
+      say(message(e));
+    } finally {
+      setBusy(false);
+      setSure(false);
+    }
+  };
+  const intro = html`<p class="muted">Tailscale lets Game Repo Go reach your library when you're away from home, through your own Tailscale network.</p>`;
+  if (!linux) {
+    return html`<section class="go-set" id="set-tailscale"><h2>Tailscale</h2>${intro}
+      <p id="set-tailscale-app">Tailscale has an app of its own for ${info.kind === "android" ? "Android" : "Windows"}: install it from tailscale.com/download and sign in with the account your library's server uses.</p></section>`;
+  }
+  if (!ts) return html`<section class="go-set" id="set-tailscale"><h2>Tailscale</h2><p class="muted">Looking for Tailscale…</p></section>`;
+  const game = info.game_mode;
+  const mine = ts.steamos && (!ts.found || ts.ours);
+  const label = ts.missing ? "Set up Tailscale again" : ts.found ? "Install the newest Tailscale" : "Set up Tailscale";
+  return html`<section class="go-set" id="set-tailscale">
+    <h2>Tailscale</h2>
+    ${intro}
+    ${ts.missing ? html`<p class="warn-note" id="set-tailscale-gone">Tailscale has gone from this Deck, most likely with a SteamOS update. Set it up again to reach your library away from home.</p>` : null}
+    ${ts.found ? html`<p id="set-tailscale-state">${tailscaleLine(ts)}</p>`
+      : ts.missing ? null
+      : html`<p id="set-tailscale-none">${ts.steamos ? "Tailscale isn't on this Steam Deck yet." : "Tailscale isn't on this PC. Install it from your Linux distribution's packages (tailscale.com/download/linux) and sign in."}</p>`}
+    ${ts.found && !ts.ours ? html`<p class="muted" id="set-tailscale-theirs">It was installed another way, so Game Repo Go leaves it as it is.</p>` : null}
+    ${mine && !ts.found && ts.password === "none" ? html`<p class="muted" id="set-tailscale-password">This Deck has no password yet. The set-up asks you to choose one, since installing needs it.</p>` : null}
+    ${ts.state === "NeedsLogin" && ts.auth_url ? html`<div><button type="button" id="set-tailscale-sign-in" disabled=${busy} onClick=${() => run("tailscale_sign_in")}>Sign in to Tailscale…</button></div>` : null}
+    ${ts.setting_up ? html`<p class="muted" id="set-tailscale-running" role="status">The set-up is running in a terminal window: follow it there. Game Repo Go opens Tailscale's sign-in page when it's ready.</p>` : null}
+    ${mine && game ? html`<p class="warn-note" id="set-tailscale-desktop">The set-up runs in a terminal window, which Game Mode can't show. Switch to Desktop Mode (Steam button › Power › Switch to Desktop), open Game Repo Go there and press ${label} in Settings. Tailscale carries on in Game Mode afterwards.</p>` : null}
+    ${mine && !sure ? html`<div><button type="button" class=${ts.found && !ts.missing ? "ghost" : ""} id="set-tailscale-set-up" disabled=${busy || game} onClick=${() => setSure(true)}>${label}…</button></div>` : null}
+    ${mine && sure ? html`<div class="warn-note" id="set-tailscale-sure">
+        <p>A terminal window opens. In it:</p>
+        <ol>
+          ${ts.password === "none" ? html`<li>you choose a password for this Deck, since it has none and installing needs one;</li>` : null}
+          <li>you type the Deck's password, and Tailscale is installed from Tailscale's own website, checked against what Tailscale published;</li>
+          <li>${ts.state === "Running" ? "Tailscale stays signed in as it is." : "Game Repo Go opens Tailscale's sign-in page in your browser."}</li>
+        </ol>
+        <p class="muted">Game Repo Go never sees the password.${ts.found ? " Tailscale's settings and sign-in stay as they are." : ""}</p>
+        <div class="go-set-do"><button type="button" id="set-tailscale-go" disabled=${busy} onClick=${() => run("tailscale_set_up")}>Open the terminal</button>
+          <button type="button" class="ghost" onClick=${() => setSure(false)}>Not now</button></div>
+      </div>` : null}
   </section>`;
 }
 
@@ -210,6 +285,8 @@ export function SettingsPage() {
     </section>
 
     ${info.kind === "linux" ? html`<${SteamSettings} rev=${v} />` : null}
+
+    <${TailscaleSettings} />
 
     <section class="go-set" id="set-look">
       <h2>Look</h2>
