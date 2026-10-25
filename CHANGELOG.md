@@ -92,6 +92,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 ## Unreleased
 
 - **Plans**: the roadmap is up to date with 0.5.54: what's built is marked so (magazines' text, Videos, Set up Tailscale on the Deck), and what's not picked yet is listed in one place: the rest of 9d (the server on Unraid, reached away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only), handhelds with no app, Android games and GOG installers on devices.
+- **About's roadmap is up to date.** *Done so far* puts variants under Phase 10, gives the lists since then a line of their own and adds Tailscale on the Steam Deck; *What's coming* adds GOG installers for Game Repo Go.
 
 ## 0.5.54 (2026-10-25)
 
