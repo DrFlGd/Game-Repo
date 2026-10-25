@@ -21,7 +21,7 @@ folders and gamelists with the kinds chosen and not the other; On this device wi
 games from the library, the copy recognised and the game from elsewhere, by system and in
 one list; Make room ticking
 games; a removal shown and done; a game's media removed alone; Settings (Show games on this
-device, the look, each skin, About and updates with the CLI's stand-in for the updater); the Library and a game's page kept with the library away; every page
+device, the look, each skin, About and updates with the CLI's stand-in for the updater, Tailscale set up on the Steam Deck with stand-ins for Konsole and Tailscale); the Library and a game's page kept with the library away; every page
 moved through with the keys alone, and the games by rows and columns; no page errors; and
 the library and everything outside ES-DE's folders as they were. Screenshots for each.
 """
@@ -183,7 +183,18 @@ if sys.platform == "win32":  # PC games' Start menu shortcuts (D112) go in the t
     go_env["APPDATA"] = str(home / "appdata")
 for k in ("SteamGamepadUI", "GAMESCOPE_WAYLAND_DISPLAY"):
     go_env.pop(k, None)
-go = subprocess.Popen([cli, "client-ui", "--ui", str(ui), "--home", str(phone), "--data", str(go_data), "--port", str(ui_port), "--kind", "windows"],
+# Tailscale on the "Deck" (D179): a folder standing in for its `/` (SteamOS's os-release, and
+# /opt/tailscale once "installed"), and on Linux stand-ins for Konsole, xdg-open and passwd
+# that note what they're asked (passwd: the Deck has no password yet)
+deck_root, konsole_ran, browser_log = home / "deck-root", home / "konsole-ran", home / "xdg-opened"
+(deck_root / "etc").mkdir(parents=True)
+(deck_root / "etc" / "os-release").write_text('NAME="SteamOS"\nID=steamos\nID_LIKE=arch\nVARIANT_ID=steamdeck\n')
+if sys.platform.startswith("linux"):
+    for name, body in (("konsole", f"echo \"$*\" > '{konsole_ran}'"), ("xdg-open", f"echo \"$*\" >> '{browser_log}'"), ("passwd", 'echo "deck NP 2024-01-01 0 99999 7 -1"')):
+        (steam_bin / name).write_text(f"#!/bin/sh\n{body}\n")
+        (steam_bin / name).chmod(0o755)
+    go_env["USER"] = go_env.get("USER") or "deck"
+go = subprocess.Popen([cli, "client-ui", "--ui", str(ui), "--home", str(phone), "--data", str(go_data), "--port", str(ui_port), "--kind", "windows", "--root", str(deck_root)],
                       stdout=subprocess.DEVNULL, stderr=open(out / "client-ui.log", "w", encoding="utf-8"), env=go_env)
 B = f"http://127.0.0.1:{ui_port}/"
 for _ in range(100):
@@ -589,6 +600,8 @@ async def main():
             await pg.goto(B + "#settings")
             await pg.wait_for_selector("#set-version")
             not_on_windows = await pg.query_selector("#set-steam") is None
+            app_note = await pg.inner_text("#set-tailscale-app")
+            check("on Android, Settings › Tailscale points to Tailscale's own app (D179)", "app of its own for Android" in app_note, app_note)
             shell(kind="linux", game_mode=True)
             await pg.set_viewport_size({"width": 1280, "height": 800})
             await pg.reload()
@@ -660,6 +673,75 @@ async def main():
                 check("while Steam runs a change waits, and Restart Steam closes it, writes the change and starts it again",
                       "Steam is running" in waiting and still and gone and (steam_bin / "started").exists(),
                       (waiting, still, gone, log.read_text() if log.exists() else "no log"))
+
+                # Tailscale on the Steam Deck (D179): Settings › Tailscale offers Set up
+                # Tailscale, which waits for Desktop Mode in Game Mode; there it says what the
+                # terminal window asks for, then starts Konsole (a stand-in) with Game Repo Go's
+                # own installer; Tailscale's sign-in page is opened once Tailscale (a stand-in
+                # in the Deck's /opt/tailscale) gives one, Tailscale's shown on, and once a
+                # SteamOS update has taken it away, Settings says so and offers it again
+                await pg.reload()
+                await pg.wait_for_selector("#set-tailscale-set-up")
+                in_game = await pg.evaluate("""() => ({ off: document.querySelector('#set-tailscale-set-up').disabled, label: document.querySelector('#set-tailscale-set-up').textContent,
+                    desktop: document.querySelector('#set-tailscale-desktop')?.textContent || '', none: document.querySelector('#set-tailscale-none')?.textContent || '',
+                    password: document.querySelector('#set-tailscale-password')?.textContent || '' })""")
+                check("on the Steam Deck, Settings › Tailscale offers Set up Tailscale, says the Deck has no password yet, and in Game Mode waits for Desktop Mode",
+                      in_game["off"] and in_game["label"] == "Set up Tailscale…" and "Desktop Mode" in in_game["desktop"] and "isn't on this Steam Deck" in in_game["none"]
+                      and "no password" in in_game["password"], in_game)
+                shell(game_mode=False)
+                await pg.reload()
+                await pg.wait_for_selector("#set-tailscale-set-up:not([disabled])")
+                await pg.click("#set-tailscale-set-up")
+                await pg.wait_for_selector("#set-tailscale-sure")
+                sure = await pg.inner_text("#set-tailscale-sure")
+                await shot(pg, "17b-linux-tailscale-set-up")
+                await pg.click("#set-tailscale-go")
+                await pg.wait_for_selector("#set-tailscale-running")
+                for _ in range(50):
+                    if konsole_ran.exists():
+                        break
+                    await asyncio.sleep(0.1)
+                ran = konsole_ran.read_text().split() if konsole_ran.exists() else []
+                script = go_data / "tailscale" / "setup.sh"
+                ours = Path(__file__).resolve().parent.parent / "desktop" / "device" / "tailscale" / "setup.sh"
+                same = script.exists() and script.read_bytes() == ours.read_bytes()
+                check("Open the terminal, after saying what it asks for, starts Konsole with Game Repo Go's own installer",
+                      ran == ["-e", "bash", str(script)] and same and "choose a password" in sure and "Tailscale's own website" in sure and "never sees the password" in sure,
+                      (ran, same, sure))
+                # "installed": a tailscale that answers as the file says, waiting for a sign-in
+                ts_said = home / "tailscale-status.json"
+                ts_said.write_text(json.dumps({"BackendState": "NeedsLogin", "AuthURL": "https://login.tailscale.com/a/gamerepotest"}))
+                (deck_root / "opt" / "tailscale").mkdir(parents=True)
+                (deck_root / "opt" / "tailscale" / "tailscale").write_text(f"#!/bin/sh\ncat '{ts_said}'\n")
+                (deck_root / "opt" / "tailscale" / "tailscale").chmod(0o755)
+                for _ in range(100):
+                    if browser_log.exists():
+                        break
+                    await asyncio.sleep(0.1)
+                await pg.wait_for_selector("#set-tailscale-sign-in", timeout=15000)
+                waiting_line = await pg.inner_text("#set-tailscale-state")
+                check("once Tailscale gives its sign-in page, Game Repo Go opens it in the browser, once, and offers Sign in to Tailscale",
+                      browser_log.exists() and browser_log.read_text() == "https://login.tailscale.com/a/gamerepotest\n" and "waiting for you to sign in" in waiting_line,
+                      (browser_log.read_text() if browser_log.exists() else "not opened", waiting_line))
+                ts_said.write_text(json.dumps({"BackendState": "Running", "Version": "1.104.2-tabc", "Self": {"HostName": "steamdeck", "DNSName": "steamdeck.tail1234.ts.net.",
+                                               "TailscaleIPs": ["100.101.102.103", "fd7a:115c:a1e0::1"]}, "CurrentTailnet": {"Name": "deck@example.com"}}))
+                await pg.wait_for_selector("#set-tailscale-running", state="detached", timeout=15000)
+                on_line = await pg.inner_text("#set-tailscale-state")
+                newest = await pg.inner_text("#set-tailscale-set-up")
+                await shot(pg, "17c-linux-tailscale-on")
+                check("signed in, Settings shows Tailscale on with the Deck's name and address, and offers the newest Tailscale",
+                      on_line == "Tailscale is on: this device is steamdeck.tail1234.ts.net at 100.101.102.103 on deck@example.com, with Tailscale 1.104.2."
+                      and newest == "Install the newest Tailscale…", (on_line, newest))
+                # a SteamOS update takes it away
+                shutil.rmtree(deck_root / "opt")
+                await pg.reload()
+                await pg.wait_for_selector("#set-tailscale-gone")
+                again = await pg.inner_text("#set-tailscale-set-up")
+                check("after a SteamOS update took Tailscale away, Settings says so and offers Set up Tailscale again",
+                      again == "Set up Tailscale again…", again)
+                shell(game_mode=True)
+                await pg.reload()
+                await pg.wait_for_selector("#set-version")
 
             # 13d. the big-screen view (D113), as in Game Mode on the Steam Deck: the pages as
             # tabs, changed with L1 and R1 (Page Up and Down); the Library as shelves, one per

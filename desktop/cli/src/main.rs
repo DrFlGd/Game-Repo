@@ -12,7 +12,7 @@
 //!   gamerepo-cli games, game, scrape, docs
 //!   gamerepo-cli serve-devices [status|pair|devices|remove|changed|stop]
 //!   gamerepo-cli device find|pair|unpair|systems|collections|games|game|add|remove|holdings|app
-//!   gamerepo-cli client-ui --ui <dir> --home <dir> [--data <dir>] [--port 8791]
+//!   gamerepo-cli client-ui --ui <dir> --home <dir> [--data <dir>] [--port 8791] [--root <dir>]
 //!
 //! `serve` runs the app's commands behind a local web server, so the page can be
 //! tested in an ordinary browser (with tests/tauri_shim.js standing in for Tauri's
@@ -276,7 +276,7 @@ ES-DE/ (with its settings) and ROMs/, as ES-DE has them.
                              Game Repo Go's Steam helper: closes Steam, writes the
                              shortcuts waiting in --data, starts Steam again (not in
                              Game Mode, which does it itself)
-  client-ui --ui <dir> --home <dir> [--data <dir>] [--port 8791] [--kind <kind>]
+  client-ui --ui <dir> --home <dir> [--data <dir>] [--port 8791] [--kind <kind>] [--root <dir>]
                              Game Repo Go's pages (client.html in --ui) and its backend
                              behind a local web server, with ES-DE looked for in --home
                              and the client's own folder --data (--home/.gamerepo-go)

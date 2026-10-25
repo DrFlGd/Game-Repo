@@ -18,6 +18,7 @@ pub mod queue;
 pub mod removing;
 pub mod scan;
 pub mod steam;
+pub mod tailscale;
 pub mod update;
 
 pub use client::{Server, Stopped, Watch};

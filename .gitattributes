@@ -1,2 +1,4 @@
 # cmd.exe reads batch files with Windows line endings
 *.cmd text eol=crlf
+# bash reads its scripts with Unix line endings (Game Repo Go's Tailscale set-up, D179)
+*.sh text eol=lf

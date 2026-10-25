@@ -398,7 +398,8 @@ fn app_command(mut a: Args, to: &std::path::Path) -> Result<()> {
 /// what the shell says it is ({"kind": "android"}, whether All files access is allowed yet:
 /// {"granted": false}, asked for, it is; {"kind": "linux", "game_mode": true}) and GET
 /// /test/shell that, how often Back left the app ("left") and Steam's keyboard was asked
-/// for ("keyboard"), and the pages from --ui (client.html at /).
+/// for ("keyboard"), and the pages from --ui (client.html at /). With --root, Tailscale and
+/// SteamOS's os-release are looked for in that folder instead of `/` (D179).
 pub fn client_ui(mut a: Args) -> Result<()> {
     use std::io::Write;
     use std::sync::mpsc::{channel, Sender};
@@ -408,12 +409,17 @@ pub fn client_ui(mut a: Args) -> Result<()> {
     let data = a.flag("--data").map(PathBuf::from).unwrap_or_else(|| home.join(".gamerepo-go"));
     let port: u16 = number(&mut a, "--port")?.unwrap_or(8791);
     let kind = a.flag("--kind").unwrap_or_else(|| "stand-in".into());
+    // a folder standing in for `/`, where Tailscale and SteamOS's os-release are looked for (D179)
+    let root = a.flag("--root").map(PathBuf::from);
     let listeners: Arc<Mutex<Vec<Sender<String>>>> = Arc::default();
     let tell = listeners.clone();
     let events = Box::new(move |what: &str| tell.lock().unwrap().retain(|l| l.send(what.to_string()).is_ok()));
     let secrets = Box::new(device::app::FileSecrets(data.join("secrets.json")));
     let app = device::app::App::open(&data, vec![home.clone()], &kind, secrets, events)?;
     app.set_own(own(&data));
+    if let Some(root) = root {
+        app.set_root(root);
+    }
     let picks: Arc<Mutex<Vec<String>>> = Arc::default();
     let shell = Arc::new(Mutex::new(json!({ "kind": kind, "granted": true, "left": 0, "keyboard": 0, "game_mode": false })));
     let stand_in = Arc::new(crate::updates::StandIn::new("Game Repo Go"));

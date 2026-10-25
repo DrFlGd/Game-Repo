@@ -1,0 +1,51 @@
+# Game Repo Go sets up Tailscale on the Steam Deck with an installer of its own
+# (desktop/device/tailscale/setup.sh; docs/PLAN.md, D179). The community deck-tailscale
+# script does the same job; it has no licence, so none of it is copied, but when it changes,
+# SteamOS or Tailscale has usually changed under both. Once a week this compares its files'
+# latest commits with the ones Game Repo last looked at (desktop/device/tailscale/watched)
+# and opens an issue when they differ. After looking (and changing setup.sh if SteamOS needs
+# it, which reaches the Deck with Game Repo Go's next update), put the new commits in
+# `watched` and close the issue.
+name: deck-tailscale
+
+on:
+  schedule:
+    - cron: "23 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: desktop/device/tailscale
+      - name: Compare deck-tailscale with what Game Repo last looked at
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          changed=""
+          while read -r file seen; do
+            [ -n "$file" ] || continue
+            latest="$(gh api "repos/tailscale-dev/deck-tailscale/commits?path=$file&per_page=1" --jq '.[0].sha')"
+            echo "$file: looked at $seen, latest $latest"
+            if [ "$latest" != "$seen" ]; then
+              changed="$changed- \`$file\`: https://github.com/tailscale-dev/deck-tailscale/compare/$seen...$latest"$'\n'
+            fi
+          done < <(grep -v '^#' desktop/device/tailscale/watched)
+          if [ -z "$changed" ]; then
+            echo "Nothing new."
+            exit 0
+          fi
+          title="deck-tailscale changed: check Game Repo Go's Tailscale set-up"
+          if [ -n "$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[].number')" ]; then
+            echo "An issue is open for it already."
+            exit 0
+          fi
+          body="The community deck-tailscale script has changed since Game Repo last looked at it:"$'\n\n'"$changed"$'\n'"Its changes usually follow a change in SteamOS or Tailscale. Check whether Game Repo Go's own installer, \`desktop/device/tailscale/setup.sh\` (D179), needs the same change; it reaches the Deck with Game Repo Go's next update. Then put the new commits in \`desktop/device/tailscale/watched\` and close this issue."$'\n\n'"Opened by the weekly deck-tailscale workflow."
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
