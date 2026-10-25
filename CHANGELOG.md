@@ -90,6 +90,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.54 (2026-10-25)
+
 - **Set up Tailscale on the Steam Deck.** Game Repo Go's Settings on the Deck has a *Tailscale* section: *Set up Tailscale* opens a terminal window (in Desktop Mode) that helps you choose a password for the Deck if it has none, installs the newest Tailscale from Tailscale's own website where SteamOS updates leave it, and signs you in, with Go opening Tailscale's sign-in page for you. Settings then shows the Deck's Tailscale name and address, and if a SteamOS update takes Tailscale away, Go says so and offers to set it up again. The installer is Game Repo's own and comes with Go's updates. On Windows and Android, Settings points to Tailscale's own app.
 ## 0.5.53 (2026-10-24)
 
