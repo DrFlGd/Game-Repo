@@ -803,7 +803,8 @@ fn the_devices_page_sees_what_a_device_holds_and_its_changes_wait_for_the_next_c
     pair(&app, &s);
     let records = Records::of(&lib);
     let all = records.all();
-    assert_eq!((all.len(), all[0].by.as_str(), all[0].name.as_str()), (1, "go", "Game Repo Go"), "{all:?}");
+    // named as it paired (the computer's name on Windows)
+    assert!(all.len() == 1 && all[0].by == "go" && !all[0].name.is_empty(), "{all:?}");
     let id = all[0].id.clone();
     // Mine.gb, which ES-DE lists and the library doesn't know, is there
     std::fs::write(d.home.join("ROMs/gb/Mine.gb"), b"mine").unwrap();
