@@ -49,11 +49,12 @@ pub fn game_name(key: &str) -> String {
 }
 
 /// A save file's name in a folder: the game's name for `{name}`, refused if it would
-/// leave the folder.
+/// leave the folder or couldn't be made on Windows (so one sent to a server on Linux works
+/// everywhere).
 pub fn file_name(name: &str, game: &str) -> Result<PathBuf> {
     let n = name.replace("{name}", game);
     let p = Path::new(&n);
-    if n.is_empty() || p.is_absolute() || p.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+    if n.is_empty() || n.contains(|c: char| c.is_control() || "<>:\"\\|?*".contains(c)) || p.is_absolute() || p.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
         bail!("{name} isn't a save file's name");
     }
     Ok(p.to_path_buf())
@@ -410,7 +411,7 @@ mod tests {
         }
         assert_eq!(store.versions(&state).len(), STATE_VERSIONS);
         assert_eq!(store.state(&state).unwrap().current.id, base);
-        assert!(file_name("../x", "g").is_err() && file_name("{name}.srm", "A: B").is_ok());
+        assert!(file_name("../x", "g").is_err() && file_name("{name}.srm", &game_name("snes/A: B")).is_ok() && file_name("C:x.srm", "g").is_err());
         assert_eq!(game_name("snes/A: B?"), "A_ B_");
     }
 }
