@@ -262,7 +262,7 @@ fn on_this_device_every_game_is_listed_and_removed_safely() {
     }
     put(&home, "ES-DE/gamelists/psx/gamelist.xml", b"<?xml version=\"1.0\"?>\n<gameList>\n\t<game>\n\t\t<path>./Saga.m3u</path>\n\t\t<name>Saga</name>\n\t\t<lastplayed>20240101T120000</lastplayed>\n\t</game>\n</gameList>\n");
     put(&home, "Saves/gb/Mine.srm", b"another save");
-    let outside = || (snapshot(&lib), snapshot(&dir.join("Roms")), snapshot(&home.join("Saves")), std::fs::read(home.join("ROMs/gb/My Alpha.srm")).unwrap());
+    let outside = || (library_snapshot(&lib), snapshot(&dir.join("Roms")), snapshot(&home.join("Saves")), std::fs::read(home.join("ROMs/gb/My Alpha.srm")).unwrap());
     let before = outside();
 
     let app = open_app(&dir, &home);

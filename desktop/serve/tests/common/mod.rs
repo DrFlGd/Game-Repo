@@ -200,6 +200,12 @@ pub fn paired(s: &Server) -> device::Server {
 }
 
 /// Every file under `dir` with its bytes and modified time.
+/// A library's files but those Game Repo Server writes itself (D181): `Saves/` and the
+/// devices' records.
+pub fn library_snapshot(lib: &Path) -> Vec<(String, Vec<u8>, Option<std::time::SystemTime>)> {
+    snapshot(lib).into_iter().filter(|(p, ..)| !p.starts_with("Saves/") && !p.starts_with("_library/devices/")).collect()
+}
+
 pub fn snapshot(dir: &Path) -> Vec<(String, Vec<u8>, Option<std::time::SystemTime>)> {
     let mut v = vec![];
     let mut stack = vec![dir.to_path_buf()];

@@ -205,7 +205,9 @@ impl Store {
         let udir = self.unit_dir(&v.unit);
         let vdir = udir.join(".versions");
         std::fs::create_dir_all(&vdir).with_context(|| format!("couldn't make {}", vdir.display()))?;
-        let mut made = now_ms();
+        // after every version there, so the newest is always the last made
+        let floor = self.versions(&v.unit).iter().map(|x| x.made + 1).max().unwrap_or(0);
+        let mut made = now_ms().max(floor);
         let dir = loop {
             let id = format!("{made:013}-{}", safe_name(&v.device));
             let d = vdir.join(&id);
