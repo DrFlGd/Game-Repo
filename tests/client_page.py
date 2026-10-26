@@ -93,10 +93,14 @@ def png(w, h, rgb):
 
 
 def snapshot(*dirs):
-    """Every file with its bytes' hash and modified time."""
+    """Every file with its bytes' hash and modified time, but those Game Repo Server writes in
+    the library itself (D181): Saves/ and the devices' records."""
     snap = {}
     for d in dirs:
         for p in sorted(Path(d).rglob("*")):
+            r = p.relative_to(d).parts
+            if Path(d) == lib and (r[:1] == ("Saves",) or r[:2] == ("_library", "devices")):
+                continue
             if p.is_file():
                 snap[str(p)] = (hashlib.sha1(p.read_bytes()).hexdigest(), p.stat().st_mtime_ns)
     return snap
