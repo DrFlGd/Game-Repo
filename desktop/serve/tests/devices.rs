@@ -82,7 +82,7 @@ fn games_are_added_to_a_device_and_removed_and_the_library_is_left_as_it_was() {
     assert_eq!(page.items.len(), 1);
     let quest = &page.items[0];
     assert_eq!((quest.key.as_str(), quest.title.as_str(), quest.discs), ("psx/Quest (USA) (Disc 1)", "Quest", 2));
-    assert_eq!(quest.size, (2 * 2352 * 4 + cue("Quest (USA) (Disc 1)").len() + cue("Quest (USA) (Disc 2)").len()) as u64, "{quest:?}");
+    assert_eq!(quest.size, (2352 * 20 + 2352 * 4 + cue("Quest (USA) (Disc 1)").len() + cue("Quest (USA) (Disc 2)").len()) as u64, "{quest:?}");
     let found: Page = phone.get("/v1/games?q=alph").unwrap();
     assert_eq!(found.items.iter().map(|g| g.key.as_str()).collect::<Vec<_>>(), ["gb/Alpha (Europe)"]);
     assert_eq!(found.items[0].picture.as_deref(), Some("cover"));

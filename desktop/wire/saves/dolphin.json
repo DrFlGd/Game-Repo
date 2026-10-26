@@ -1,0 +1,78 @@
+{
+  "format": 1,
+  "id": "dolphin",
+  "name": "Dolphin",
+  "about": "Dolphin on Windows, Linux, the Steam Deck and Android. GameCube saves are its memory cards (one card for every game) or its GCI folders (a file for each save); Wii saves are each game's folder in its Wii NAND; states are in StateSaves by the disc's ID.",
+  "kind": "folders",
+  "save_format": "dolphin",
+  "state_format": "dolphin:Dolphin",
+  "processes": [
+    "dolphin.exe",
+    "dolphin-emu",
+    "dolphin-emu-qt2",
+    "dolphin-emu-nogui"
+  ],
+  "roots": {
+    "windows": [
+      "{appdata}/Dolphin Emulator",
+      "{documents}/Dolphin Emulator",
+      "{home}/OneDrive/Documents/Dolphin Emulator"
+    ],
+    "linux": [
+      "{home}/.var/app/org.DolphinEmu.dolphin-emu/data/dolphin-emu",
+      "{home}/.local/share/dolphin-emu"
+    ],
+    "android": [
+      "{home}/Android/data/org.dolphinemu.dolphinemu/files",
+      "{home}/dolphin-emu",
+      "{home}/Android/data/org.mm.jr/files"
+    ]
+  },
+  "look_for": [
+    "GC",
+    "Wii",
+    "StateSaves"
+  ],
+  "systems": [
+    "gc",
+    "wii"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "GC/{region}/Card A/*-{id4}-*.gci",
+        "GC/{region}/Card B/*-{id4}-*.gci"
+      ],
+      "systems": [
+        "gc"
+      ]
+    },
+    {
+      "kind": "save",
+      "files": [
+        "GC/MemoryCardA.*.raw",
+        "GC/MemoryCardB.*.raw"
+      ],
+      "systems": [
+        "gc"
+      ],
+      "whole": true
+    },
+    {
+      "kind": "save",
+      "files": [
+        "Wii/title/00010000/{id4_hex}/data/**"
+      ],
+      "systems": [
+        "wii"
+      ]
+    },
+    {
+      "kind": "state",
+      "files": [
+        "StateSaves/{id}.s{slot}"
+      ]
+    }
+  ]
+}

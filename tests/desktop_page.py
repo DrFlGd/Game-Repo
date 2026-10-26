@@ -1338,19 +1338,21 @@ async def disc_sets(pg, base, home, library):
           of == "Disc 2 of Quest, a game on 2 discs" and "Two discs" in inside, (of, inside))
 
 
-def save_version(library, key, vid, device, text, made, played, base="", **more):
+def save_version(library, key, vid, device, text, made, played, base="", unit_format="retroarch", file="{name}.srm", **more):
     """A save's version as Game Repo Server writes one (D181): its file under `.versions`, then
     its version.json; and the newest copied up beside them, with save.json saying which."""
     system, name = key.split("/", 1)
-    unit = {"key": key, "format": "retroarch", "slot": ""}
-    udir = library / "Saves" / system / name / "Save (retroarch)"
+    unit = {"key": key, "format": unit_format, "slot": ""}
+    udir = library / "Saves" / system / name / f"Save ({unit_format})"
     vdir = udir / ".versions" / vid
     vdir.mkdir(parents=True, exist_ok=True)
-    (vdir / f"{name}.srm").write_text(text)
+    (vdir / file.replace("{name}", name)).write_text(text)
     sha1 = hashlib.sha1(text.encode()).hexdigest()
     v = {"id": vid, "unit": unit, "device": device, "device_name": device, "emulator": "RetroArch", "made": made, "played": played, "base": base,
-         "files": [{"name": "{name}.srm", "sha1": sha1, "size": len(text), "modified": played}], **more}
+         "files": [{"name": file, "sha1": sha1, "size": len(text), "modified": played}], **more}
     (vdir / "version.json").write_text(json.dumps(v))
+    if unit_format != "retroarch":
+        (udir / "save.json").write_text(json.dumps({"unit": unit, "current": vid, "files": [file]}))
     return v
 
 
@@ -1411,8 +1413,17 @@ async def saves(pg, base, home, library):
     await pg.click("#saves-states")
     await toast_text(pg, "Only saves are synced")
     meta = json.loads((library / "_library" / "library.json").read_text())
-    check("Settings › Saves syncs states until turned off, kept in library.json, and lists RetroArch (D180, D182)",
-          on and profiles == ["retroarch"] and meta.get("saves") == {"states": False}, (on, profiles, meta.get("saves")))
+    check("Settings › Saves syncs states until turned off, kept in library.json, and lists RetroArch and the emulators of their own (D180, D182, D192)",
+          on and profiles[0] == "retroarch" and {"ppsspp", "dolphin", "pcsx2", "armsx2", "duckstation"} <= set(profiles) and meta.get("saves") == {"states": False}, (on, profiles, meta.get("saves")))
+    # a memory card every PlayStation 2 game shares, kept as one save (D192)
+    card = save_version(library, "ps2/Memory cards", "1761400300000-phone", "Phone", "card", 1761400300000, 1761400290, unit_format="pcsx2", file="Mcd001.ps2")
+    await pg.goto(base + "#/library")
+    await pg.goto(base + "#/settings")
+    cards = '#saves-cards li[data-cards="ps2/Memory cards"]'
+    await pg.wait_for_selector(cards, timeout=15000)
+    line = " ".join((await pg.inner_text(cards)).split())
+    check("Settings › Saves lists the memory cards every game of a system shares, with their versions (D192)",
+          "PlayStation 2" in line and "Save (PCSX2)" in line and "Phone" in line, line)
 
 
 async def devices_page(pg, base, home, library):

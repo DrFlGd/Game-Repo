@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "id": "armsx2",
+  "name": "ARMSX2",
+  "about": "ARMSX2 on Android: it keeps everything in the folder you chose when it first started (often ARMSX2 at the top of the storage or SD card); set it here if it isn't found. Its memory cards are files every game shares (kept as one save), or folders with a folder for each game's save; states are in sstates by the disc's serial.",
+  "kind": "folders",
+  "save_format": "pcsx2",
+  "state_format": "pcsx2:ARMSX2",
+  "processes": [],
+  "roots": {
+    "android": [
+      "{home}/ARMSX2",
+      "{home}/armsx2"
+    ]
+  },
+  "look_for": [
+    "memcards",
+    "sstates"
+  ],
+  "systems": [
+    "ps2"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "memcards/*.ps2",
+        "memcards/*.mc2"
+      ],
+      "whole": true
+    },
+    {
+      "kind": "save",
+      "files": [
+        "memcards/*.ps2/B?{id}*/*"
+      ]
+    },
+    {
+      "kind": "state",
+      "files": [
+        "sstates/{id} (*).{slot}.p2s"
+      ]
+    }
+  ]
+}

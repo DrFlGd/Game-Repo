@@ -1,0 +1,56 @@
+{
+  "format": 1,
+  "id": "ppsspp",
+  "name": "PPSSPP",
+  "about": "PPSSPP on Windows, Linux, the Steam Deck and Android. Saves are in its memory stick's PSP/SAVEDATA, a folder for each by the game's ID; states in PSP/PPSSPP_STATE, with their pictures.",
+  "kind": "folders",
+  "save_format": "ppsspp",
+  "state_format": "ppsspp:PPSSPP",
+  "processes": [
+    "ppssppwindows64.exe",
+    "ppssppwindows.exe",
+    "ppssppqt",
+    "ppssppsdl",
+    "ppsspp"
+  ],
+  "roots": {
+    "windows": [
+      "{documents}/PPSSPP",
+      "{home}/OneDrive/Documents/PPSSPP"
+    ],
+    "linux": [
+      "{home}/.var/app/org.ppsspp.PPSSPP/config/ppsspp",
+      "{config}/ppsspp",
+      "{home}/retrodeck/saves/psp/ppsspp",
+      "{home}/Emulation/saves/ppsspp"
+    ],
+    "android": [
+      "{home}",
+      
+      "{home}/Android/data/org.ppsspp.ppsspp/files",
+      "{home}/Android/data/org.ppsspp.ppssppgold/files"
+    ]
+  },
+  "look_for": [
+    "PSP/SAVEDATA",
+    "PSP/PPSSPP_STATE"
+  ],
+  "systems": [
+    "psp"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "PSP/SAVEDATA/{id_compact}*/*"
+      ]
+    },
+    {
+      "kind": "state",
+      "files": [
+        "PSP/PPSSPP_STATE/{id_compact}_*_{slot}.ppst",
+        "PSP/PPSSPP_STATE/{id_compact}_*_{slot}.jpg"
+      ]
+    }
+  ]
+}

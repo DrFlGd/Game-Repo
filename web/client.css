@@ -148,6 +148,9 @@ progress { accent-color: var(--tool); height: 8px; }
 .go-set-do { display: flex; flex-wrap: wrap; gap: 8px; }
 .go-folder-row { display: flex; gap: 8px; }
 .go-folder-row input { flex: 1; min-width: 0; }
+.go-emus { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.go-emus .field-block > span { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.go-emus .field-block > span > span { font-weight: 400; font-size: 13px; }
 .go-pair { max-width: 640px; }
 .go-found { display: grid; gap: 6px; }
 .go-found-item { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 2px; border: 1px solid var(--steel-2); text-align: left; }

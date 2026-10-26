@@ -50,8 +50,8 @@ impl Unit {
     /// What it's called on a page: "Save" or "State 3", with the emulator.
     pub fn label(&self) -> String {
         let (emu, core) = self.format.split_once(':').unwrap_or((&self.format, ""));
-        let emu = if emu == "retroarch" { "RetroArch".to_string() } else { emu.to_string() };
-        let by = if core.is_empty() { emu } else { format!("{emu}, {core}") };
+        let emu = NAMES.iter().find(|(id, _)| *id == emu).map(|(_, n)| n.to_string()).unwrap_or_else(|| emu.to_string());
+        let by = if core.is_empty() || core == emu { emu } else { format!("{emu}, {core}") };
         match self.slot.as_str() {
             "" => format!("Save ({by})"),
             "auto" => format!("Automatic state ({by})"),
@@ -59,6 +59,28 @@ impl Unit {
         }
     }
 }
+
+/// What each save format is called on a page.
+pub const NAMES: &[(&str, &str)] = &[
+    ("retroarch", "RetroArch"),
+    ("ppsspp", "PPSSPP"),
+    ("dolphin", "Dolphin"),
+    ("pcsx2", "PCSX2"),
+    ("duckstation", "DuckStation"),
+    ("citra", "Azahar"),
+    ("flycast", "Flycast"),
+    ("melonds", "melonDS"),
+    ("mgba", "mGBA"),
+    ("drastic", "DraStic"),
+];
+
+/// The key a memory card every game of a system shares is kept under (a [`Spot`] that's
+/// `whole`): `ps2/Memory cards`.
+pub fn cards_key(system: &str) -> String {
+    format!("{system}/{CARDS}")
+}
+
+pub const CARDS: &str = "Memory cards";
 
 /// One of a save's files. `name` is its path in the save's folder with the game's file name
 /// (without its extension) as `{name}`, so the same save is written under each device's
@@ -185,10 +207,14 @@ pub struct Profile {
     pub id: String,
     pub name: String,
     pub about: String,
-    /// How it's read: `retroarch` (its `retroarch.cfg` says where its folders are)
+    /// How it's read: `retroarch` (its `retroarch.cfg` says where its folders are) or
+    /// `folders` (its own folder, and where in it each save is: [`Spot`])
     pub kind: String,
-    /// The format its saves are in (a state's adds `:<core>`)
+    /// The format its saves are in (a RetroArch state's adds `:<core>`)
     pub save_format: String,
+    /// A `folders` emulator's states' format (`pcsx2:ARMSX2`): a state loads only in the
+    /// emulator that made it
+    pub state_format: String,
     /// Its programs' names, so nothing is written while one runs (D185)
     pub processes: Vec<String>,
     /// Its settings file, for each of `windows`, `linux` and `android`, first found first:
@@ -207,10 +233,68 @@ pub struct Profile {
     /// The core each system starts in when the folders don't say (ES-DE's defaults), by
     /// ES-DE's system folder
     pub cores: std::collections::BTreeMap<String, String>,
+    /// A `folders` emulator's own folder on each system, the same way as `configs` (first
+    /// found first; `{documents}` is Windows' Documents); a folder counts when it holds one
+    /// of `look_for`
+    pub roots: std::collections::BTreeMap<String, Vec<String>>,
+    pub look_for: Vec<String>,
+    /// The systems it plays, by ES-DE's system folder
+    pub systems: Vec<String>,
+    pub spots: Vec<Spot>,
+}
+
+/// Where in a `folders` emulator's folder a game's saves or states are: paths, `/`
+/// between folders, with `*` for any part of a name, `?` for any letter, `**` for any
+/// folders, and the game's own names. `{id}` its ID (`SLUS-20062`, `GALE01`,
+/// `0004000000030700`), `{id_compact}` without its `-`, `{id4}` its first four letters,
+/// `{id4_hex}` those as hex (a Wii title's folder), `{region}` a GameCube disc's (`USA`,
+/// `EUR`, `JAP`), `{tid_low}` a 3DS title ID's last eight letters (lower case), `{name}`
+/// its file's name without the extension, `{title}` its name in the library, and `{slot}`
+/// a state's slot.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Spot {
+    /// `save` or `state`
+    pub kind: String,
+    pub files: Vec<String>,
+    /// Only for these systems (none: all the emulator's)
+    pub systems: Vec<String>,
+    /// A memory card every game shares, kept as one save ([`cards_key`])
+    pub whole: bool,
+    /// In the game's own folder, not the emulator's
+    pub beside: bool,
+}
+
+/// `POST /v1/ids`: the IDs of these games' discs, for the emulators that name saves by
+/// them.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct IdsAsk {
+    pub keys: Vec<String>,
+}
+
+/// The answer: each game's ID ("" when it has none that can be read).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Ids {
+    pub ids: std::collections::BTreeMap<String, String>,
 }
 
 /// The built-in save profiles.
-pub const PROFILES: &[&str] = &[include_str!("../saves/retroarch.json")];
+pub const PROFILES: &[&str] = &[
+    include_str!("../saves/retroarch.json"),
+    include_str!("../saves/ppsspp.json"),
+    include_str!("../saves/dolphin.json"),
+    include_str!("../saves/pcsx2.json"),
+    include_str!("../saves/aethersx2.json"),
+    include_str!("../saves/armsx2.json"),
+    include_str!("../saves/duckstation.json"),
+    include_str!("../saves/azahar.json"),
+    include_str!("../saves/flycast.json"),
+    include_str!("../saves/melonds.json"),
+    include_str!("../saves/mgba.json"),
+    include_str!("../saves/drastic.json"),
+];
 
 pub fn built_in() -> Vec<Profile> {
     PROFILES.iter().filter_map(|t| serde_json::from_str(t).ok()).collect()
@@ -238,6 +322,21 @@ mod tests {
         for os in ["windows", "linux", "android"] {
             assert!(!ra.configs[os].is_empty(), "{os}");
         }
+        for f in p.iter().filter(|p| p.kind == "folders") {
+            assert!(!f.roots.is_empty() && !f.systems.is_empty() && !f.spots.is_empty(), "{}", f.id);
+            assert!(NAMES.iter().any(|(id, _)| *id == f.save_format), "{} has a name", f.save_format);
+            assert!(f.state_format.starts_with(&format!("{}:", f.save_format)), "{}", f.id);
+            for s in &f.spots {
+                assert!(["save", "state"].contains(&s.kind.as_str()) && !s.files.is_empty(), "{}", f.id);
+                assert!(!s.whole || s.kind == "save", "{}: only a save is a whole card", f.id);
+            }
+        }
+        let mut ids: Vec<&str> = p.iter().map(|p| p.id.as_str()).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), p.len(), "each has its own id");
+        assert_eq!(Unit::state("ps2/X", "pcsx2:ARMSX2", "1").label(), "State 1 (PCSX2, ARMSX2)");
+        assert_eq!(Unit::save("gc/X", "dolphin").label(), "Save (Dolphin)");
     }
 
     #[test]

@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "id": "melonds",
+  "name": "melonDS",
+  "about": "melonDS on Windows, Linux and the Steam Deck, and melonDS on Android: saves and states beside the game, as it keeps them unless you've set folders of its own. It's looked for by its settings folder.",
+  "kind": "folders",
+  "save_format": "melonds",
+  "state_format": "melonds:melonDS",
+  "processes": [
+    "melonds.exe",
+    "melonds"
+  ],
+  "roots": {
+    "windows": [
+      "{appdata}/melonDS"
+    ],
+    "linux": [
+      "{home}/.var/app/net.kuribo64.melonDS/config/melonDS",
+      "{config}/melonDS"
+    ],
+    "android": [
+      "{home}/Android/data/me.magnum.melonds/files"
+    ]
+  },
+  "look_for": [],
+  "systems": [
+    "nds"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "{name}.sav"
+      ],
+      "beside": true
+    },
+    {
+      "kind": "state",
+      "files": [
+        "{name}.ml{slot}"
+      ],
+      "beside": true
+    }
+  ]
+}

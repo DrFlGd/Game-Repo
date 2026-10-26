@@ -330,7 +330,25 @@ pub fn settings(lib: &crate::library::Library) -> serde_json::Value {
         "folder": dir,
         "size": size(&dir),
         "profiles": profiles,
+        "cards": cards(lib.root()),
     })
+}
+
+/// The memory cards kept that every game of a system shares (D192), by their key, with the
+/// system's name.
+pub fn cards(library: &Path) -> Vec<serde_json::Value> {
+    let store = Store::of(library);
+    let mut out = vec![];
+    for e in std::fs::read_dir(library.join(FOLDER)).into_iter().flatten().flatten() {
+        let system = e.file_name().to_string_lossy().into_owned();
+        let key = gamerepo_wire::saves::cards_key(&system);
+        if !store.units_of(&key).is_empty() {
+            let name = crate::platforms::name_of(&system);
+            out.push(serde_json::json!({ "key": key, "system": name }));
+        }
+    }
+    out.sort_by(|a, b| a["system"].as_str().cmp(&b["system"].as_str()));
+    out
 }
 
 fn set_modified(path: &Path, secs: i64) {

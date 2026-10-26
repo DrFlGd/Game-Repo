@@ -53,6 +53,7 @@ pub mod datupdate;
 pub mod devices;
 pub mod docs;
 pub mod export;
+pub mod gameid;
 pub mod hash;
 pub mod history;
 pub mod identify;

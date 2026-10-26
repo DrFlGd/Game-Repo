@@ -106,6 +106,9 @@ pub struct Settings {
     /// it isn't where it's looked for (D182)
     pub saves: bool,
     pub retroarch: String,
+    /// Each emulator's own folder when it isn't where it's looked for (D193), by its
+    /// profile's id
+    pub save_folders: BTreeMap<String, String>,
 }
 
 impl Default for Settings {
@@ -131,6 +134,7 @@ impl Default for Settings {
             full_screen: "usual".into(),
             saves: true,
             retroarch: String::new(),
+            save_folders: BTreeMap::new(),
         }
     }
 }
@@ -583,6 +587,14 @@ impl App {
                 if !new.retroarch.is_empty() && !Path::new(&new.retroarch).is_file() {
                     bail!("{} isn't RetroArch's settings file (retroarch.cfg).", new.retroarch);
                 }
+                let mut new = new;
+                new.save_folders.retain(|_, v| !v.trim().is_empty());
+                for (id, f) in &new.save_folders {
+                    let Some(p) = gamerepo_wire::saves::built_in().into_iter().find(|p| p.id == *id && p.kind == "folders") else { bail!("There's no emulator {id} whose saves are synced.") };
+                    if !Path::new(f).is_dir() {
+                        bail!("{f} isn't a folder (for {}).", p.name);
+                    }
+                }
                 if !new.steam.is_empty() && !Path::new(&new.steam).join("userdata").is_dir() {
                     bail!("{} isn't Steam's folder (it has no userdata folder).", new.steam);
                 }
@@ -823,13 +835,23 @@ impl App {
         Ok(())
     }
 
-    /// RetroArch's save profile and where it keeps saves here (D182).
-    fn retroarch(&self) -> Option<(gamerepo_wire::saves::Profile, saves::RetroArch)> {
-        let p = gamerepo_wire::saves::built_in().into_iter().find(|p| p.kind == "retroarch")?;
-        let set = self.settings().retroarch;
+    /// Each emulator's save profile, and where it keeps saves here if it's found (D182,
+    /// D192): RetroArch's from its settings file, the others' from their own folder, either
+    /// as set in Settings (D193).
+    fn emulators(&self) -> Vec<(gamerepo_wire::saves::Profile, Option<saves::At>)> {
+        let st = self.settings();
         let homes = self.homes.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let ra = saves::retroarch(&p, &homes, (!set.is_empty()).then(|| Path::new(&set)))?;
-        Some((p, ra))
+        gamerepo_wire::saves::built_in()
+            .into_iter()
+            .map(|p| {
+                let at = if p.kind == "retroarch" {
+                    saves::retroarch(&p, &homes, (!st.retroarch.is_empty()).then(|| Path::new(&st.retroarch))).map(saves::At::RetroArch)
+                } else {
+                    saves::folder_of(&p, &homes, st.save_folders.get(&p.id).map(Path::new)).map(saves::At::Folder)
+                };
+                (p, at)
+            })
+            .collect()
     }
 
     /// The library's games here, by their files, for their saves (D183): those Go added and
@@ -854,10 +876,11 @@ impl App {
         let Some(app) = self.me.upgrade() else { return };
         std::thread::spawn(move || {
             app.changed("saves");
-            if let (Some(s), Ok(d), Some((p, ra))) = (app.server(), app.device(), app.retroarch()) {
+            let found: Vec<(gamerepo_wire::saves::Profile, saves::At)> = app.emulators().into_iter().filter_map(|(p, at)| Some((p, at?))).collect();
+            if let (Some(s), Ok(d), false) = (app.server(), app.device(), found.is_empty()) {
                 let held = app.held_for_saves();
-                let here = saves::Here { profile: &p, ra, roms: d.places["roms"].clone(), emulator: p.name.clone() };
-                saves::sync(&s, &app.data, &here, &held);
+                let heres: Vec<saves::Here> = found.iter().map(|(p, at)| saves::Here { profile: p, at: at.clone(), roms: d.places["roms"].clone(), emulator: p.name.clone() }).collect();
+                saves::sync(&s, &app.data, &heres, &held);
             }
             *app.saving.lock().unwrap_or_else(|e| e.into_inner()) = false;
             app.changed("saves");
@@ -868,18 +891,36 @@ impl App {
     /// as, and where RetroArch's saves were found.
     fn saves_status(&self) -> Value {
         let kept = saves::load(&self.data);
-        let ra = self.retroarch();
+        let emulators = self.emulators();
+        let ra = emulators.iter().find_map(|(_, at)| match at {
+            Some(saves::At::RetroArch(r)) => Some(r.clone()),
+            _ => None,
+        });
+        let set = self.settings().save_folders;
+        let list: Vec<Value> = emulators
+            .iter()
+            .filter(|(p, _)| p.kind == "folders" && p.roots.contains_key(saves::os()) || set.contains_key(&p.id))
+            .map(|(p, at)| {
+                let folder = match at {
+                    Some(saves::At::Folder(f)) => json!(f),
+                    _ => Value::Null,
+                };
+                json!({ "id": p.id, "name": p.name, "about": p.about, "folder": folder, "set": set.get(&p.id).cloned().unwrap_or_default() })
+            })
+            .collect();
         let mut games: BTreeMap<String, Vec<Value>> = BTreeMap::new();
         for (id, h) in &kept.had {
-            if let Some(u) = gamerepo_wire::saves::Unit::from_id(id) {
-                games.entry(u.key.clone()).or_default().push(json!({ "label": u.label(), "state": u.is_state(), "at": h.at, "conflict": kept.last.conflicts.contains(id) }));
+            if let Some(u) = saves::unit_of(id) {
+                let unit = u.id();
+                games.entry(u.key.clone()).or_default().push(json!({ "label": u.label(), "state": u.is_state(), "at": h.at, "conflict": kept.last.conflicts.contains(&unit) }));
             }
         }
         json!({
             "on": self.settings().saves,
             "running": *self.saving.lock().unwrap_or_else(|e| e.into_inner()),
             "last": kept.last,
-            "retroarch": ra.map(|(_, r)| r),
+            "retroarch": ra,
+            "emulators": list,
             "games": games,
         })
     }

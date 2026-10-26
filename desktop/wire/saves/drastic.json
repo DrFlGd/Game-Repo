@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "id": "drastic",
+  "name": "DraStic",
+  "about": "DraStic on Android and Linux handhelds: saves in its backup folder, states in savestates, by the game's file name.",
+  "kind": "folders",
+  "save_format": "drastic",
+  "state_format": "drastic:DraStic",
+  "processes": [
+    "drastic"
+  ],
+  "roots": {
+    "android": [
+      "{home}/DraStic",
+      "{home}/Android/data/com.dsemu.drastic/files"
+    ],
+    "linux": [
+      "{home}/.local/share/drastic",
+      "{home}/drastic"
+    ]
+  },
+  "look_for": [
+    "backup",
+    "savestates"
+  ],
+  "systems": [
+    "nds"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "backup/{name}.dsv"
+      ]
+    },
+    {
+      "kind": "state",
+      "files": [
+        "savestates/{name}_{slot}.dss"
+      ]
+    }
+  ]
+}

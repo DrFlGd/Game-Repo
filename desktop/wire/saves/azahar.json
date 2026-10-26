@@ -1,0 +1,63 @@
+{
+  "format": 1,
+  "id": "azahar",
+  "name": "Azahar (and Citra, Lime3DS)",
+  "about": "Azahar, and Citra and Lime3DS before it, on Windows, Linux, the Steam Deck and Android. Saves are each game's folder in its SD card (sdmc) by the title ID; states are in states.",
+  "kind": "folders",
+  "save_format": "citra",
+  "state_format": "citra:Azahar",
+  "processes": [
+    "azahar.exe",
+    "azahar",
+    "azahar-qt",
+    "citra-qt.exe",
+    "citra-qt",
+    "lime3ds.exe",
+    "lime3ds-gui",
+    "lime3ds"
+  ],
+  "roots": {
+    "windows": [
+      "{appdata}/Azahar",
+      "{appdata}/Lime3DS",
+      "{appdata}/Citra"
+    ],
+    "linux": [
+      "{home}/.var/app/org.azahar_emu.Azahar/data/azahar",
+      "{home}/.local/share/azahar",
+      "{home}/.local/share/azahar-emu",
+      "{home}/.var/app/io.github.lime3ds.Lime3DS/data/lime3ds-emu",
+      "{home}/.local/share/lime3ds-emu",
+      "{home}/.var/app/org.citra_emu.citra/data/citra-emu",
+      "{home}/.local/share/citra-emu"
+    ],
+    "android": [
+      "{home}/azahar",
+      "{home}/Azahar",
+      "{home}/Android/data/org.azahar_emu.azahar/files",
+      "{home}/lime3ds",
+      "{home}/citra-emu"
+    ]
+  },
+  "look_for": [
+    "sdmc",
+    "states"
+  ],
+  "systems": [
+    "n3ds"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "sdmc/Nintendo 3DS/*/*/title/00040000/{tid_low}/data/**"
+      ]
+    },
+    {
+      "kind": "state",
+      "files": [
+        "states/{id}.{slot}.cst"
+      ]
+    }
+  ]
+}

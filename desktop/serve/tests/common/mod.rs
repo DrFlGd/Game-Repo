@@ -59,6 +59,39 @@ pub fn png(w: u32, h: u32) -> Vec<u8> {
     out.into_inner()
 }
 
+/// A PlayStation disc's track (raw mode 2 sectors) whose SYSTEM.CNF starts `program`, so
+/// its serial can be read (D192); the rest of it made up.
+pub fn ps1_track(seed: u32, program: &str) -> Vec<u8> {
+    let mut t = bytes(seed, 2352 * 20);
+    let data = |t: &mut Vec<u8>, n: usize, d: &[u8]| {
+        let at = n * 2352 + 24;
+        t[at..at + 2048].fill(0);
+        t[at..at + d.len()].copy_from_slice(d);
+    };
+    for s in t.chunks_mut(2352) {
+        s[..12].copy_from_slice(&[0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0]);
+        s[15] = 2;
+    }
+    let cnf = format!("BOOT = cdrom:\\{program};1\r\n");
+    let mut pvd = vec![0u8; 190];
+    pvd[0] = 1;
+    pvd[1..6].copy_from_slice(b"CD001");
+    pvd[156] = 34;
+    pvd[158..162].copy_from_slice(&17u32.to_le_bytes());
+    pvd[166..170].copy_from_slice(&2048u32.to_le_bytes());
+    data(&mut t, 16, &pvd);
+    let id = b"SYSTEM.CNF;1";
+    let mut rec = vec![0u8; 33 + id.len() + 1];
+    rec[0] = rec.len() as u8;
+    rec[2..6].copy_from_slice(&18u32.to_le_bytes());
+    rec[10..14].copy_from_slice(&(cnf.len() as u32).to_le_bytes());
+    rec[32] = id.len() as u8;
+    rec[33..33 + id.len()].copy_from_slice(id);
+    data(&mut t, 17, &rec);
+    data(&mut t, 18, cnf.as_bytes());
+    t
+}
+
 /// The sizes of the Game Boy games' files.
 pub const BIG: usize = 6 << 20;
 pub const HUGE: usize = 40 << 20;
@@ -88,7 +121,7 @@ pub fn library(dir: &Path) -> PathBuf {
     std::fs::create_dir_all(&psx).unwrap();
     let mut xml = String::new();
     for (i, n) in ["Quest (USA) (Disc 1)", "Quest (USA) (Disc 2)"].iter().enumerate() {
-        let track = bytes(10 + i as u32, 2352 * 4);
+        let track = if i == 0 { ps1_track(10, "SLUS_012.34") } else { bytes(11, 2352 * 4) };
         let cue = cue(n);
         std::fs::write(psx.join(format!("{n}.bin")), &track).unwrap();
         std::fs::write(psx.join(format!("{n}.cue")), &cue).unwrap();
