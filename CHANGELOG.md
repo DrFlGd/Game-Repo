@@ -91,6 +91,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.57 (2026-10-26)
+
 - **SD cards, drives and shares as devices.** On the Devices page, *More › Add a card or drive…* makes an SD card (in a reader), a handheld that shows as a drive, an external drive or a network share a device, its games laid out for ES-DE, Knulli, ROCKNIX, muOS or another layout with one folder. Game Repo knows it again on whichever drive it comes back, shows what's on it (from the library or not), and the games you add or remove are made as soon as it's connected while Game Repo is open: one change in History, with Undo.
 
 ## 0.5.56 (2026-10-26)
