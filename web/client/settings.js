@@ -192,7 +192,7 @@ function SavesSettings({ settings, set, paired }) {
       <p class="muted">Each keeps its saves in a folder of its own. Those found are synced; set the folder of one that isn't found, or that you've moved (on Android 11 and later an app's own Android/data folder can't be read, so move it somewhere it can).</p>
       <ul class="go-emus" id="set-saves-emulators">${sv.emulators.map((e) => html`<li key=${e.id} data-emulator=${e.id} data-found=${e.folder ? "yes" : "no"}>
         <label class="field-block"><span>${e.name} <span class=${e.folder ? "muted" : "warn-note"}>${e.folder ? `found in ${e.folder}` : "not found"}</span></span>
-          <input data-folder=${e.id} value=${e.set} placeholder=${e.folder && !e.set ? e.folder : "Its folder"} title=${e.about}
+          <input id=${`set-folder-${e.id}`} data-folder=${e.id} value=${e.set} placeholder=${e.folder && !e.set ? e.folder : "Its folder"} title=${e.about}
             onChange=${(ev) => set({ save_folders: { ...(settings.save_folders || {}), [e.id]: ev.currentTarget.value.trim() } })} /></label></li>`)}</ul>` : null}
     <div class="go-set-do"><button type="button" class="ghost" id="set-saves-sync" disabled=${!paired || !settings.saves || sv?.running} onClick=${() => call("saves_sync").catch((e) => say(message(e)))}>${sv?.running ? "Syncing saves…" : "Sync saves now"}</button></div>
   </section>`;
