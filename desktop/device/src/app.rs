@@ -725,6 +725,9 @@ impl App {
                         if let Ok(d) = app.device() {
                             app.tell_holding(&d);
                         }
+                        // the Devices page's changes, then what's here for it (D188); best done
+                        let _ = app.take_changes(&s);
+                        let _ = app.tell_contents(&s);
                         app.sync_saves();
                     }
                     r
@@ -749,6 +752,75 @@ impl App {
             }
             app.changed("sync");
         });
+    }
+
+    /// What's on the device, for Game Repo's Devices page (D188).
+    fn tell_contents(&self, s: &Server) -> Result<()> {
+        let d = self.device()?;
+        let (rows, _) = self.rows()?;
+        let free = fs4::available_space(crate::existing(&d.places["roms"])).unwrap_or(0);
+        let games = rows
+            .into_iter()
+            .filter(|r| !r.missing)
+            .map(|r| gamerepo_wire::devices::Held { id: r.id, key: r.key, from: r.from, name: r.name, system: r.system, size: r.size, last_played: r.last_played, added: r.added })
+            .collect();
+        s.call::<Value>("PUT", "/v1/device/contents", Some(&gamerepo_wire::devices::Contents { at: now(), free, games }))?;
+        Ok(())
+    }
+
+    /// The changes Game Repo's Devices page queued for this device (D188): games to add go
+    /// into the downloads, games to remove are removed as *On this device* removes them
+    /// (the user chose them there, so they aren't asked about again), and what became of each
+    /// is told back.
+    fn take_changes(&self, s: &Server) -> Result<()> {
+        use gamerepo_wire::devices::{Change, Outcome};
+        let waiting: Vec<Change> = s.get("/v1/device/queue")?;
+        if waiting.is_empty() {
+            return Ok(());
+        }
+        let d = self.device()?;
+        let (rows, _) = self.rows()?;
+        let mut outcomes = vec![];
+        let outcome = |c: &Change, state: &str, note: String| Outcome { id: c.id.clone(), at: now(), state: state.into(), note };
+        let mut adds = vec![];
+        for c in waiting.iter().filter(|c| c.action == "add") {
+            if rows.iter().any(|r| r.key == c.key && !r.missing) {
+                outcomes.push(outcome(c, "done", "It was on the device already.".into()));
+            } else if self.queue.shown().items.iter().any(|i| i.key == c.key) {
+                outcomes.push(outcome(c, "taken", "It's in Game Repo Go's downloads.".into()));
+            } else {
+                adds.push(c);
+            }
+        }
+        if !adds.is_empty() {
+            let keys: Vec<String> = adds.iter().map(|c| c.key.clone()).collect();
+            match self.add(&keys, &json!({})) {
+                Ok(_) => outcomes.extend(adds.iter().map(|c| outcome(c, "taken", "It's in Game Repo Go's downloads.".into()))),
+                Err(e) => outcomes.extend(adds.iter().map(|c| outcome(c, "failed", format!("{e:#}")))),
+            }
+        }
+        let mut removed = false;
+        for c in waiting.iter().filter(|c| c.action == "remove") {
+            let Some(r) = rows.iter().find(|r| (!c.game.is_empty() && r.id == c.game) || (!c.key.is_empty() && r.key == c.key)) else {
+                outcomes.push(outcome(c, "done", "It wasn't on the device.".into()));
+                continue;
+            };
+            let ask = RemoveAsk { id: r.id.clone(), key: r.key.clone(), kinds: vec![] };
+            match removing::remove(&d, &self.found(&d), &[ask]) {
+                Ok(rm) => {
+                    self.after_removal(&d, &rm);
+                    removed = true;
+                    outcomes.push(outcome(c, "done", String::new()));
+                }
+                Err(e) => outcomes.push(outcome(c, "failed", format!("{e:#}"))),
+            }
+        }
+        if removed {
+            self.tell_holding(&d);
+            self.changed("device");
+        }
+        s.call::<Value>("POST", "/v1/device/done", Some(&outcomes))?;
+        Ok(())
     }
 
     /// RetroArch's save profile and where it keeps saves here (D182).

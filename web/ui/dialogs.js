@@ -24,6 +24,7 @@ import { VariantDialogs } from "./variants.js";
 import { AuditDialogs } from "./audit.js";
 import { ShelfDialogs } from "./shelf.js";
 import { BacklogDialogs } from "./backlog.js";
+import { DeviceDialogs } from "./devices.js";
 import { AddSystemDialogs } from "./addsystem.js";
 
 export const close = () => ui.set({ dialog: null });
@@ -215,5 +216,5 @@ export function Dialogs() {
   if (dialog.type === "make-dat") return html`<${MakeDatDialog} ...${dialog} />`;
   if (dialog.type === "organise") return html`<${OrganiseDialog} key=${dialog.plan?.id || "new"} ...${dialog} />`;
   if (dialog.type === "convert") return html`<${ConvertDialog} ...${dialog} />`;
-  return SystemDialogs({ dialog }) || CollectionDialogs({ dialog }) || PcDialogs({ dialog }) || MetaDialogs({ dialog }) || DocDialogs({ dialog }) || MagazineDialogs({ dialog }) || VideoDialogs({ dialog }) || BiosDialogs({ dialog }) || ImportDialogs({ dialog }) || LayoutDialogs({ dialog }) || BrowseDialogs({ dialog }) || VariantDialogs({ dialog }) || AuditDialogs({ dialog }) || ShelfDialogs({ dialog }) || BacklogDialogs({ dialog }) || AddSystemDialogs({ dialog });
+  return SystemDialogs({ dialog }) || CollectionDialogs({ dialog }) || PcDialogs({ dialog }) || MetaDialogs({ dialog }) || DocDialogs({ dialog }) || MagazineDialogs({ dialog }) || VideoDialogs({ dialog }) || BiosDialogs({ dialog }) || ImportDialogs({ dialog }) || LayoutDialogs({ dialog }) || BrowseDialogs({ dialog }) || VariantDialogs({ dialog }) || AuditDialogs({ dialog }) || ShelfDialogs({ dialog }) || BacklogDialogs({ dialog }) || DeviceDialogs({ dialog }) || AddSystemDialogs({ dialog });
 }

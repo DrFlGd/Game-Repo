@@ -6166,7 +6166,27 @@ What the first pull request built, from the build order above:
   home), and Go's Settings › Saves (`client_page.py`). Not tried with a real RetroArch on a
   device yet.
 
-## 8. Working in a cloud session
+### Save sync notes, part 2: the Devices page with Game Repo Go devices (built 2026-10-26)
+
+Built second, ahead of the other emulators' profiles, since those need title IDs and the
+paths checked on real installs (the build order's 2 and 3 swapped).
+- `gamerepo-wire`'s `devices.rs` and `gamerepo-core`'s `devices.rs` (`Records`): the records of
+  D187 in `_library/devices/<id>/`. A change queued for a game already waiting isn't queued
+  twice; adding a game waiting to be removed (or the other way round) takes that one back.
+- Game Repo Server: `PUT /v1/device/contents` writes `device.json` and `contents.json` from
+  what Go sends; `GET /v1/device/queue` gives the changes waiting; `POST /v1/device/done` adds
+  their outcomes (`taken`: in Go's downloads; `done`; `failed`, tried again next time).
+- Game Repo Go: after each read of the library, `take_changes` (added games into the
+  downloads, removals made as *On this device* makes them, without asking again) and then
+  `tell_contents` (*On this device*'s rows and the free space).
+- Game Repo: the *Devices* page in the menu (after Backlog's group), a device's games by
+  system with Remove, its changes with Cancel, Add games…, Forget this device; a game's page has
+  Devices (which hold it, Send to a device…). An added game shows as done once the device
+  reports it.
+- Tests: the records (core), a Go device sending its contents, taking an add and a removal
+  from the queue at its next connects (`serve/tests/client.rs`), and the page
+  (`desktop_page.py`, its own home "devices").
+
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
   blocked in many cloud sessions, so `vendor.yml` pushes the dependencies of every crate

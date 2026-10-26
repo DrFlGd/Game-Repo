@@ -624,6 +624,27 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
             sh.devices.lock().unwrap().remove(&device.id)?;
             return ok(Response::json(200, &json!({})));
         }
+        // the Devices page's record of it (D187, D188): what it holds, and the changes waiting for it
+        ("PUT", "/v1/device/contents") => {
+            let c: gamerepo_wire::devices::Contents = match body(req) {
+                Ok(c) => c,
+                Err(r) => return ok(r),
+            };
+            let info = gamerepo_wire::devices::Info { id: device.id.clone(), name: device.name.clone(), kind: device.kind.clone(), by: "go".into(), ..Default::default() };
+            gamerepo_core::devices::Records::of(sh.lib.root()).connected(info, &c)?;
+            return ok(Response::json(200, &json!({})));
+        }
+        ("GET", "/v1/device/queue") => {
+            return ok(Response::json(200, &gamerepo_core::devices::Records::of(sh.lib.root()).waiting(&device.id)));
+        }
+        ("POST", "/v1/device/done") => {
+            let o: Vec<gamerepo_wire::devices::Outcome> = match body(req) {
+                Ok(o) => o,
+                Err(r) => return ok(r),
+            };
+            gamerepo_core::devices::Records::of(sh.lib.root()).record(&device.id, &o)?;
+            return ok(Response::json(200, &json!({})));
+        }
         _ => {}
     }
     if path.starts_with("/v1/files/") && (m == "GET" || m == "HEAD") {

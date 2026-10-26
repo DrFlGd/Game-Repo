@@ -789,3 +789,57 @@ fn saves_and_states_go_between_devices_with_versions_and_a_conflict_keeps_both()
     s.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_devices_page_sees_what_a_device_holds_and_its_changes_wait_for_the_next_connect() {
+    use gamerepo_core::devices::Records;
+    use gamerepo_wire::devices::Change;
+    let dir = temp("go-devices");
+    let lib = library(&dir);
+    let s = start(&lib, &dir.join("server"));
+    let d = a_device(&dir);
+    std::fs::create_dir_all(d.home.join("ROMs/gb")).unwrap();
+    let app = open_app(&dir, &d.home);
+    pair(&app, &s);
+    let records = Records::of(&lib);
+    let all = records.all();
+    assert_eq!((all.len(), all[0].by.as_str(), all[0].name.as_str()), (1, "go", "Game Repo Go"), "{all:?}");
+    let id = all[0].id.clone();
+    // Mine.gb, which ES-DE lists and the library doesn't know, is there
+    std::fs::write(d.home.join("ROMs/gb/Mine.gb"), b"mine").unwrap();
+    call(&app, "sync", json!({}));
+    synced(&app);
+    assert!(records.contents(&id).games.iter().any(|g| g.name == "Mine"), "{:?}", records.contents(&id));
+
+    // a game queued on the Devices page goes into the device's downloads at its next connect
+    let add = Change { action: "add".into(), key: ALPHA.into(), title: "Alpha".into(), system: "gb".into(), ..Default::default() };
+    assert_eq!(records.add(&id, vec![add]).unwrap(), 1);
+    assert!(!d.home.join("ROMs/gb/Alpha (Europe).gb").exists(), "nothing until it connects");
+    call(&app, "sync", json!({}));
+    synced(&app);
+    queue_done(&app);
+    assert!(d.home.join("ROMs/gb/Alpha (Europe).gb").is_file());
+    assert!(records.waiting(&id).is_empty());
+    call(&app, "sync", json!({}));
+    synced(&app);
+    let v = records.view(&id).unwrap();
+    assert_eq!(v["changes"][0]["state"], "done", "{v}");
+    assert!(records.contents(&id).games.iter().any(|g| g.key == ALPHA));
+    assert_eq!(records.holding(ALPHA).len(), 1);
+
+    // and a removal, made without asking again on the device
+    let held = records.contents(&id).games.into_iter().find(|g| g.key == ALPHA).unwrap();
+    let remove = Change { action: "remove".into(), key: ALPHA.into(), game: held.id.clone(), title: "Alpha".into(), ..Default::default() };
+    records.add(&id, vec![remove]).unwrap();
+    call(&app, "sync", json!({}));
+    synced(&app);
+    assert!(!d.home.join("ROMs/gb/Alpha (Europe).gb").exists());
+    assert!(records.waiting(&id).is_empty());
+    call(&app, "sync", json!({}));
+    synced(&app);
+    assert!(records.holding(ALPHA).is_empty());
+    assert!(d.home.join("ROMs/gb/Mine.gb").is_file(), "only what was asked for");
+    app.queue.quit();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}

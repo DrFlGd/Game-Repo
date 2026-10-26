@@ -647,7 +647,7 @@ impl App {
         if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
             return self.collection_call(cmd, args).await;
         }
-        if ["layout", "bios", "magazine", "video", "backlog", "saves_"].iter().any(|p| cmd.starts_with(p)) {
+        if ["layout", "bios", "magazine", "video", "backlog", "saves_", "devices_"].iter().any(|p| cmd.starts_with(p)) {
             return self.device_call(cmd, args).await;
         }
         if cmd.starts_with("serve_") {
@@ -2276,6 +2276,45 @@ impl App {
                 let ticked = args["ticked"].as_bool();
                 let page = args["page"].as_u64().map(|p| p as u32);
                 j(self.with_index(move |ix| crate::magtext::set_game(ix, &lib, &title, &file, &key, ticked, page)).await?)
+            }
+            // the Devices page (D187, D188): each device's record, contents and waiting changes
+            "devices_list" => {
+                let lib = self.library()?;
+                j(crate::devices::Records::of(lib.root()).list())
+            }
+            "devices_view" => {
+                let lib = self.library()?;
+                j(crate::devices::Records::of(lib.root()).view(arg(&args, "id").map_err(e2s)?).map_err(e2s)?)
+            }
+            "devices_queue" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let changes: Vec<gamerepo_wire::devices::Change> = serde_json::from_value(args["changes"].clone()).map_err(|e| e.to_string())?;
+                let r = crate::devices::Records::of(lib.root());
+                let added = r.add(&id, changes).map_err(e2s)?;
+                let mut v = r.view(&id).map_err(e2s)?;
+                v["added"] = json!(added);
+                j(v)
+            }
+            "devices_cancel" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let ids: Vec<String> = serde_json::from_value(args["ids"].clone()).map_err(|e| e.to_string())?;
+                let r = crate::devices::Records::of(lib.root());
+                r.cancel(&id, &ids).map_err(e2s)?;
+                j(r.view(&id).map_err(e2s)?)
+            }
+            "devices_forget" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                crate::devices::Records::of(lib.root()).forget(arg(&args, "id").map_err(e2s)?).map_err(e2s)?;
+                j(json!({}))
+            }
+            "devices_holding" => {
+                let lib = self.library()?;
+                j(json!(crate::devices::Records::of(lib.root()).holding(arg(&args, "key").map_err(e2s)?)))
             }
             // saves (D181, D184, D191): a game's, *Use this one*, and Settings › Saves
             "saves_of" => {

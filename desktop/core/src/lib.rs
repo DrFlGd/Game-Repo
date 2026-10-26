@@ -50,6 +50,7 @@ pub mod convert;
 pub mod cue;
 pub mod dat;
 pub mod datupdate;
+pub mod devices;
 pub mod docs;
 pub mod export;
 pub mod hash;

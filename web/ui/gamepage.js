@@ -34,6 +34,7 @@ import { watch, videoFacts } from "./videos.js";
 import { variantDialog, undoVariants } from "./variants.js";
 import { addToBacklog, backlogDo, dayText } from "./backlog.js";
 import { GameSaves } from "./saves.js";
+import { GameDevices } from "./devices.js";
 
 /** The key a collection knows a game by (D175): a disc's game's, an update's or DLC's game's. */
 const inKey = (g) => g.disc_of?.key || g.addon?.base?.key || g.key;
@@ -405,6 +406,7 @@ export function GamePage() {
         <dt>Files</dt><dd>${(g.roms || []).length}</dd></dl>` : null}
     </section>`}
     ${pc ? null : html`<${GameSaves} gameKey=${g.disc_of?.key || g.key} off=${off} />`}
+    ${g.disc_of || g.addon ? null : html`<${GameDevices} g=${g} off=${off} />`}
     ${dat ? html`<section class="ls-section" id="game-collections"><h2>Collections</h2>
       ${g.collections?.length ? html`<ul class="ls-list">${g.collections.map((c) => html`<li key=${c.id} data-id=${c.id}><a href=${routeHash("collections")}>${c.name}</a>
         <button type="button" class="ghost compact" data-action="remove-from" disabled=${off} title=${`Remove it from ${c.name}`} onClick=${() => removeFrom(c)}>Remove from collection</button></li>`)}</ul>` : html`<p class="muted">In none.</p>`}

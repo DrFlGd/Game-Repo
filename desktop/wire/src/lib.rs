@@ -6,6 +6,7 @@
 
 pub mod api;
 pub mod control;
+pub mod devices;
 pub mod gamelist;
 pub mod plan;
 pub mod saves;

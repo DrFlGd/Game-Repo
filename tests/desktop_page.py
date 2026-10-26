@@ -1415,8 +1415,83 @@ async def saves(pg, base, home, library):
           on and profiles == ["retroarch"] and meta.get("saves") == {"states": False}, (on, profiles, meta.get("saves")))
 
 
+async def devices_page(pg, base, home, library):
+    """D187–D188: the Devices page lists each device's record from the library, its games by
+    system, Add games… and Remove queue changes for its next connect (Cancel takes one back),
+    and a game's page says which devices hold it, with Send to a device…."""
+    gb = home / "Game Boy"
+    gb.mkdir()
+    roms = {n: make_fixtures.rom(90 + i, 4096) for i, n in enumerate(["Alpha (USA)", "Beta (USA)"])}
+    for n, b in roms.items():
+        (gb / f"{n}.gb").write_bytes(b)
+    dat = home / "gb.dat"
+    dat.write_text(make_fixtures.logiqx("Nintendo - Game Boy", "20261001", [(n, None, [make_fixtures.rom_xml(f"{n}.gb", b)]) for n, b in roms.items()]))
+    pick(gb, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    pick(dat, base)
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await back_home(pg, base)
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    await pg.goto(base + "#/devices")
+    await pg.wait_for_selector("#devices-none", timeout=15000)
+    # a Steam Deck's record, as Game Repo Server writes it when Game Repo Go connects
+    rec = library / "_library" / "devices" / "deck-1"
+    rec.mkdir(parents=True)
+    (rec / "device.json").write_text(json.dumps({"id": "deck-1", "name": "Steam Deck", "kind": "steamdeck", "by": "go", "seen": 1793000000, "free": 50 << 30, "size": 4096, "games": 2}))
+    (rec / "contents.json").write_text(json.dumps({"at": 1793000000, "free": 50 << 30, "games": [
+        {"id": "gb/Alpha (USA).gb", "key": "gb/Alpha (USA)", "from": "library", "name": "Alpha", "system": "gb", "size": 4096, "added": 1},
+        {"id": "gb/Mine.gb", "from": "elsewhere", "name": "Mine", "system": "gb", "size": 10, "added": 1}]}))
+    await pg.goto(base + "#/library")
+    await pg.goto(base + "#/devices")
+    await pg.wait_for_selector('#device-view[data-id="deck-1"]', timeout=15000)
+    line = await pg.inner_text("#device-line")
+    side = await pg.eval_on_selector_all("#device-panel-list a", "els => els.map(e => e.textContent)")
+    names = await pg.eval_on_selector_all("#device-games li[data-id]", "els => els.map(e => e.dataset.id)")
+    await pg.screenshot(path=str(out / "81-devices.png"))
+    check("the Devices page shows a device from its record: its kind, games and free space, and its games by system (D187)",
+          "Steam Deck" in line and "2 games" in line and "free" in line and names == ["gb/Alpha (USA).gb", "gb/Mine.gb"] and any("Steam Deck" in x for x in side), (line, names, side))
+    # Remove: queued for its next connect, and Cancel takes it back
+    await pg.check('#device-games li[data-id="gb/Mine.gb"] input')
+    await pg.click("#device-remove")
+    await toast_text(pg, "will be removed from Steam Deck")
+    await pg.wait_for_selector('#device-waiting li[data-action="remove"][data-state="waiting"]')
+    queued = json.loads((rec / "queue.json").read_text())["changes"]
+    await pg.click('#device-waiting li[data-action="remove"] [data-action="cancel"]')
+    await pg.wait_for_function("() => !document.querySelector('#device-waiting li[data-action=remove]')")
+    left = json.loads((rec / "queue.json").read_text())["changes"]
+    check("Remove queues a removal for the device's next connect, by its path on the device, and Cancel takes it back (D187)",
+          len(queued) == 1 and queued[0]["action"] == "remove" and queued[0]["game"] == "gb/Mine.gb" and left == [], (queued, left))
+    # Add games…: from the Library, the room they take beside its free space
+    await pg.click("#device-add")
+    await pg.wait_for_selector("#device-add-dialog")
+    await pg.fill("#device-add-search", "Beta")
+    await pg.wait_for_selector('#device-add-list li[data-key="gb/Beta (USA)"]', timeout=15000)
+    await pg.check('#device-add-list li[data-key="gb/Beta (USA)"] input')
+    room = await pg.inner_text("#device-add-room")
+    await pg.click("#device-add-dialog button[type=submit]")
+    await toast_text(pg, "will go to Steam Deck the next time it connects")
+    await pg.wait_for_selector('#device-waiting li[data-action="add"][data-state="waiting"]')
+    queued = json.loads((rec / "queue.json").read_text())["changes"]
+    check("Add games… finds Library games, says the room they take, and queues them for the device's next connect (D187)",
+          [c["key"] for c in queued] == ["gb/Beta (USA)"] and "free on Steam Deck" in room, (queued, room))
+    # a game's page: which devices hold it, and Send to a device…
+    await pg.goto(base + "#/game/gb/" + urllib.parse.quote("Alpha (USA)"))
+    await pg.wait_for_selector("#game-devices-line", timeout=15000)
+    on = await pg.inner_text("#game-devices-line")
+    await pg.goto(base + "#/game/gb/" + urllib.parse.quote("Beta (USA)"))
+    await pg.wait_for_selector("#game-device-to", timeout=15000)
+    await pg.select_option("#game-device-to", "deck-1")
+    await pg.click("#game-device-send")
+    await toast_text(pg, "waiting for Steam Deck already")
+    check("a game's page says which devices hold it, and Send to a device… doesn't queue a game twice (D187)", on == "On Steam Deck.", on)
+
+
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves)]
+             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page)]
 
 
 async def main():
