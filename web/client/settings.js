@@ -170,23 +170,30 @@ function TailscaleSettings() {
 }
 
 /** Saves (D180–D186): synced with the library while Game Repo Go's open, where RetroArch
- *  keeps them on this device, and the last sync. */
+ *  and each emulator of its own keep them on this device, each folder one you can set
+ *  (D192, D193), and the last sync. */
 function SavesSettings({ settings, set, paired }) {
   const rev = useStore(go, (x) => x.savesRev);
   const [sv, setSv] = useState(null);
-  useEffect(() => { call("saves").then(setSv).catch(() => setSv(null)); }, [rev, settings.saves, settings.retroarch]);
+  useEffect(() => { call("saves").then(setSv).catch(() => setSv(null)); }, [rev, settings.saves, settings.retroarch, JSON.stringify(settings.save_folders || {})]);
   const last = sv?.last;
   const ra = sv?.retroarch;
   return html`<section class="go-set" id="set-saves">
     <h2>Saves</h2>
     <label class="check-row"><input type="checkbox" id="set-saves-on" checked=${settings.saves} onChange=${() => set({ saves: !settings.saves })} />
       <span>Sync saves and save states with the library</span></label>
-    <p class="muted">Each game's saves go to the library, every version kept, and saves played on your other devices come here when Game Repo Go is open. A save is never written while RetroArch is running, and one played both here and elsewhere is kept as it is here until you choose one in Game Repo.</p>
+    <p class="muted">Each game's saves go to the library, every version kept, and saves played on your other devices come here when Game Repo Go is open. A save is never written while its emulator is running, and one played both here and elsewhere is kept as it is here until you choose one in Game Repo.</p>
     ${sv ? html`<p id="set-saves-retroarch" class=${ra ? null : "warn-note"}>${ra ? `RetroArch's saves are in ${ra.saves || "the games' own folders"}${ra.states && ra.states !== ra.saves ? `, its states in ${ra.states}` : ""}${ra.config ? ` (as ${ra.config} says)` : ""}.` : "RetroArch isn't found on this device: set where its retroarch.cfg is below."}</p>` : null}
-    ${last?.at ? html`<p class="muted" id="set-saves-last">Last synced ${ago(last.at)}: ${count(last.sent)} sent, ${count(last.brought)} brought${last.waiting ? `, ${count(last.waiting)} waiting for RetroArch to close` : ""}.${last.error ? ` ${last.error}` : ""}</p>` : null}
+    ${last?.at ? html`<p class="muted" id="set-saves-last">Last synced ${ago(last.at)}: ${count(last.sent)} sent, ${count(last.brought)} brought${last.waiting ? `, ${count(last.waiting)} waiting for an emulator to close` : ""}.${last.error ? ` ${last.error}` : ""}</p>` : null}
     ${last?.conflicts?.length ? html`<p class="warn-note" id="set-saves-conflicts">${last.conflicts.length === 1 ? "A save differs" : `${count(last.conflicts.length)} saves differ`} here and in the library: this device keeps its own until you choose one on the game's page in Game Repo.</p>` : null}
     <label class="field-block"><span>RetroArch's settings file</span>
       <input id="set-retroarch" value=${settings.retroarch} placeholder="Found by itself (retroarch.cfg)" onChange=${(e) => set({ retroarch: e.currentTarget.value.trim() })} /></label>
+    ${sv?.emulators?.length ? html`<h3>Emulators of their own</h3>
+      <p class="muted">Each keeps its saves in a folder of its own. Those found are synced; set the folder of one that isn't found, or that you've moved (on Android 11 and later an app's own Android/data folder can't be read, so move it somewhere it can).</p>
+      <ul class="go-emus" id="set-saves-emulators">${sv.emulators.map((e) => html`<li key=${e.id} data-emulator=${e.id} data-found=${e.folder ? "yes" : "no"}>
+        <label class="field-block"><span>${e.name} <span class=${e.folder ? "muted" : "warn-note"}>${e.folder ? `found in ${e.folder}` : "not found"}</span></span>
+          <input data-folder=${e.id} value=${e.set} placeholder=${e.folder && !e.set ? e.folder : "Its folder"} title=${e.about}
+            onChange=${(ev) => set({ save_folders: { ...(settings.save_folders || {}), [e.id]: ev.currentTarget.value.trim() } })} /></label></li>`)}</ul>` : null}
     <div class="go-set-do"><button type="button" class="ghost" id="set-saves-sync" disabled=${!paired || !settings.saves || sv?.running} onClick=${() => call("saves_sync").catch((e) => say(message(e)))}>${sv?.running ? "Syncing saves…" : "Sync saves now"}</button></div>
   </section>`;
 }

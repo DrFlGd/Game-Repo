@@ -1,7 +1,8 @@
 // Saves (docs/PLAN.md, "Save sync and the Devices page", D180–D191): a game's saves and
 // states as Game Repo Go devices sent them, each with its versions, *Use this one* when two
 // differ and *Put this version back* (each a new version, so nothing's lost); and Settings ›
-// Saves, whether states are synced, where saves are kept and the save profiles built in.
+// Saves, whether states are synced, where saves are kept, the save profiles built in and
+// the memory cards every game of a system shares.
 import { html, useState, useEffect } from "../lib/html.js";
 import { api, toast, isDesktop, size, plural } from "./library.js";
 import { reveal } from "./games.js";
@@ -58,6 +59,17 @@ export function GameSaves({ gameKey, off }) {
   </section>`;
 }
 
+/** A memory card every game of a system shares (D192), kept as one save, in Settings › Saves. */
+function CardSaves({ card, off }) {
+  const [r, setR] = useState(null);
+  const read = () => api("saves_of", { key: card.key }).then(setR).catch((e) => setR({ error: err(e), units: [] }));
+  useEffect(() => { read(); }, [card.key]);
+  if (!r) return null;
+  return html`<li data-cards=${card.key}><span class="op-paths"><span class="op-to">${card.system}</span>
+    ${r.error ? html`<span class="warn-note" role="alert">${r.error}</span>` : null}
+    <ul class="ls-list">${r.units.map((u) => html`<${Unit} key=${u.id} u=${u} off=${off} onChange=${read} />`)}</ul></span></li>`;
+}
+
 /** Settings › Saves (D180, D182). */
 export function SavesSettings({ lib }) {
   const [r, setR] = useState(null);
@@ -77,6 +89,9 @@ export function SavesSettings({ lib }) {
     ${r && !r.error ? html`<label class="check-row"><input type="checkbox" id="saves-states" checked=${r.states} disabled=${!!lib.read_only} onChange=${(e) => setStates(e.target.checked)} /> Sync save states too <span class="muted">(a state slot keeps its newest ten versions)</span></label>
       <h3>Emulators</h3>
       <ul class="ls-list" id="saves-profiles">${r.profiles.map((p) => html`<li key=${p.id} data-profile=${p.id}><span class="op-paths"><span class="op-to">${p.name}</span><span class="muted">${p.about}</span></span></li>`)}</ul>
+      ${r.cards?.length ? html`<h3>Memory cards</h3>
+        <p class="muted">Some emulators keep every game's saves on one memory card (PCSX2's, Dolphin's, DuckStation's shared card, Flycast's VMUs): each is kept here as one save, with its versions.</p>
+        <ul class="ls-list" id="saves-cards">${r.cards.map((c) => html`<${CardSaves} key=${c.key} card=${c} off=${!!lib.read_only} />`)}</ul>` : null}
       ${isDesktop() && r.folder ? html`<div class="home-actions"><button type="button" class="ghost compact" id="saves-show" onClick=${() => reveal(r.folder)}>Show the saves folder</button></div>` : null}` : null}
   </section>`;
 }

@@ -1,0 +1,48 @@
+{
+  "format": 1,
+  "id": "flycast",
+  "name": "Flycast",
+  "about": "Flycast on Windows, Linux, the Steam Deck and Android. Its VMUs are shared by every game (kept as one save); states are by the game's file name.",
+  "kind": "folders",
+  "save_format": "flycast",
+  "state_format": "flycast:Flycast",
+  "processes": [
+    "flycast.exe",
+    "flycast"
+  ],
+  "roots": {
+    "windows": [
+      "{appdata}/flycast"
+    ],
+    "linux": [
+      "{home}/.var/app/org.flycast.Flycast/data/flycast",
+      "{home}/.local/share/flycast"
+    ],
+    "android": [
+      "{home}/Flycast",
+      "{home}/Android/data/com.flycast.emulator/files"
+    ]
+  },
+  "look_for": [
+    "data"
+  ],
+  "systems": [
+    "dreamcast"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "data/vmu_save_*.bin"
+      ],
+      "whole": true
+    },
+    {
+      "kind": "state",
+      "files": [
+        "data/{name}.state",
+        "data/{name}_{slot}.state"
+      ]
+    }
+  ]
+}

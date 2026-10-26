@@ -255,7 +255,7 @@ impl ChdImage {
     }
 
     /// Bytes from `offset` of the CHD's data into `buf` (within one hunk or across several).
-    fn read_at(&mut self, mut offset: u64, mut buf: &mut [u8]) -> io::Result<()> {
+    pub(crate) fn read_at(&mut self, mut offset: u64, mut buf: &mut [u8]) -> io::Result<()> {
         let hs = self.hunk.len() as u64;
         while !buf.is_empty() {
             let n = (offset / hs) as u32;
@@ -666,7 +666,7 @@ pub fn extract_whole(image: &Path, kind: &str, to: &Path, cancel: &AtomicBool) -
 // ------------------------------------------------------------ CSO / ZSO
 
 /// A CSO (v1 or v2) or ZSO, unpacked block by block as it's read.
-struct CsoReader {
+pub(crate) struct CsoReader {
     f: BufReader<std::fs::File>,
     total: u64,
     block: usize,
@@ -681,7 +681,7 @@ struct CsoReader {
 }
 
 impl CsoReader {
-    fn open(path: &Path) -> io::Result<Self> {
+    pub(crate) fn open(path: &Path) -> io::Result<Self> {
         let mut f = BufReader::new(std::fs::File::open(path)?);
         let mut h = [0u8; 24];
         f.read_exact(&mut h)?;
@@ -742,6 +742,26 @@ impl CsoReader {
             return Err(other(format!("block {n} is short")));
         }
         self.buf.truncate(want);
+        self.pos = 0;
+        Ok(())
+    }
+
+    /// Bytes from `offset` of the ISO into `buf`, a block at a time (for a disc's ID).
+    pub(crate) fn read_at(&mut self, mut offset: u64, mut buf: &mut [u8]) -> io::Result<()> {
+        while !buf.is_empty() {
+            if offset >= self.total {
+                return Err(io::ErrorKind::UnexpectedEof.into());
+            }
+            let n = (offset / self.block as u64) as usize;
+            self.load(n)?;
+            let at = (offset - n as u64 * self.block as u64) as usize;
+            let take = buf.len().min(self.buf.len() - at);
+            buf[..take].copy_from_slice(&self.buf[at..at + take]);
+            buf = &mut buf[take..];
+            offset += take as u64;
+        }
+        // reading on from here starts again where it was
+        self.buf.clear();
         self.pos = 0;
         Ok(())
     }

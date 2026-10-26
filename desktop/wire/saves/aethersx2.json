@@ -1,0 +1,46 @@
+{
+  "format": 1,
+  "id": "aethersx2",
+  "name": "AetherSX2 and NetherSX2",
+  "about": "AetherSX2, and NetherSX2 (the same app, patched), on Android: its folder is Android/data/xyz.aethersx2.android/files, which Android 11 and later keep from other apps, so set where you've moved it if it isn't found. Its memory cards are files every game shares (kept as one save), or folders with a folder for each game's save; states are in sstates by the disc's serial.",
+  "kind": "folders",
+  "save_format": "pcsx2",
+  "state_format": "pcsx2:AetherSX2",
+  "processes": [],
+  "roots": {
+    "android": [
+      "{home}/Android/data/xyz.aethersx2.android/files",
+      "{home}/AetherSX2",
+      "{home}/NetherSX2"
+    ]
+  },
+  "look_for": [
+    "memcards",
+    "sstates"
+  ],
+  "systems": [
+    "ps2"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "memcards/*.ps2",
+        "memcards/*.mc2"
+      ],
+      "whole": true
+    },
+    {
+      "kind": "save",
+      "files": [
+        "memcards/*.ps2/B?{id}*/*"
+      ]
+    },
+    {
+      "kind": "state",
+      "files": [
+        "sstates/{id} (*).{slot}.p2s"
+      ]
+    }
+  ]
+}

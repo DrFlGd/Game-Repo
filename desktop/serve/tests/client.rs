@@ -791,6 +791,61 @@ fn saves_and_states_go_between_devices_with_versions_and_a_conflict_keeps_both()
 }
 
 #[test]
+fn an_emulator_of_its_own_syncs_saves_by_the_discs_serial_and_a_card_every_game_shares() {
+    use gamerepo_core::saves::Store;
+    use gamerepo_wire::saves::Unit;
+    let dir = temp("go-emu-saves");
+    let lib = library(&dir);
+    let s = start(&lib, &dir.join("server"));
+    let (da, db) = (a_device(&dir.join("a")), a_device(&dir.join("b")));
+    let (a, b) = (open_app(&dir.join("a"), &da.home), open_app(&dir.join("b"), &db.home));
+    // DuckStation's folder, set in Settings on each (D193)
+    let (fa, fb) = (da.home.join("Emu/DuckStation"), db.home.join("Emu/DuckStation"));
+    for (app, f) in [(&a, &fa), (&b, &fb)] {
+        pair(app, &s);
+        call(app, "add", json!({ "keys": [QUEST] }));
+        queue_done(app);
+        std::fs::create_dir_all(f.join("memcards")).unwrap();
+        call(app, "set_settings", json!({ "save_folders": { "duckstation": f } }));
+    }
+    let st = call(&a, "saves", json!({}));
+    let duck = st["emulators"].as_array().unwrap().iter().find(|e| e["id"] == "duckstation").unwrap();
+    assert_eq!(duck["folder"], json!(fa), "{st}");
+
+    // the Deck's card for the game (by the disc's serial, read by the library), a state, and the card every game shares
+    played(&fa.join("memcards/SLUS-01234_1.mcd"), "card", 100);
+    played(&fa.join("savestates/SLUS-01234_3.sav"), "state", 100);
+    played(&fa.join("memcards/shared_card_1.mcd"), "shared", 100);
+    played(&fa.join("memcards/SLUS-99999_1.mcd"), "not a game here", 100);
+    let last = sync_saves(&a);
+    assert_eq!(last["sent"], 3, "{last}");
+    let store = Store::of(&lib);
+    assert_eq!(store.versions(&Unit::save(QUEST, "duckstation")).len(), 1);
+    assert_eq!(store.versions(&Unit::state(QUEST, "duckstation:DuckStation", "3")).len(), 1);
+    assert_eq!(store.versions(&Unit::save("psx/Memory cards", "duckstation")).len(), 1);
+    // the phone gets them where its DuckStation looks for them
+    let last = sync_saves(&b);
+    assert_eq!(last["brought"], 3, "{last}");
+    assert_eq!(std::fs::read_to_string(fb.join("memcards/SLUS-01234_1.mcd")).unwrap(), "card");
+    assert_eq!(std::fs::read_to_string(fb.join("savestates/SLUS-01234_3.sav")).unwrap(), "state");
+    assert_eq!(std::fs::read_to_string(fb.join("memcards/shared_card_1.mcd")).unwrap(), "shared");
+    assert!(!fb.join("memcards/SLUS-99999_1.mcd").exists());
+    // played on the phone: back to the Deck
+    played(&fb.join("memcards/shared_card_1.mcd"), "shared 2", 90);
+    assert_eq!(sync_saves(&b)["sent"], 1);
+    assert_eq!(sync_saves(&a)["brought"], 1);
+    assert_eq!(std::fs::read_to_string(fa.join("memcards/shared_card_1.mcd")).unwrap(), "shared 2");
+    // a folder that isn't one is refused
+    let bad = a.call("set_settings", &json!({ "save_folders": { "duckstation": dir.join("nowhere") } }));
+    assert!(bad.is_err());
+    for app in [a, b] {
+        app.queue.quit();
+    }
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn the_devices_page_sees_what_a_device_holds_and_its_changes_wait_for_the_next_connect() {
     use gamerepo_core::devices::Records;
     use gamerepo_wire::devices::Change;

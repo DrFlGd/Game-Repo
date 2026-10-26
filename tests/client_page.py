@@ -620,6 +620,21 @@ async def main():
             await shot(pg, "16-settings-saves")
             check("Settings › Saves syncs saves by default, finds RetroArch's folders from its retroarch.cfg, and Sync saves now syncs them (D182, D186)",
                   on and "0 sent, 0 brought" in last, last)
+            # each emulator of its own listed with where it was found, its folder one you can set (D192, D193)
+            psp = phone / "Emulators" / "PPSSPP"
+            (psp / "PSP" / "SAVEDATA").mkdir(parents=True, exist_ok=True)
+            box = '#set-saves-emulators input[data-folder="ppsspp"]'
+            await pg.fill(box, str(psp))
+            await pg.press(box, "Tab")
+            await pg.wait_for_selector('#set-saves-emulators li[data-emulator="ppsspp"][data-found="yes"]')
+            emus = await pg.eval_on_selector_all("#set-saves-emulators li", "els => els.map(e => e.dataset.emulator)")
+            found = await pg.inner_text('#set-saves-emulators li[data-emulator="ppsspp"]')
+            kept = await pg.evaluate("async () => (await (await import('./client/backend.js')).call('settings')).save_folders")
+            await shot(pg, "16b-settings-saves-emulators")
+            check("Settings › Saves lists the emulators of their own (Dolphin, PPSSPP, PCSX2, DuckStation, …) and PPSSPP's folder set there is found and kept (D192, D193)",
+                  {"dolphin", "ppsspp", "pcsx2", "duckstation"} <= set(emus) and str(psp) in found and kept.get("ppsspp") == str(psp), f"{emus} {found} {kept}")
+            await pg.fill(box, "")
+            await pg.press(box, "Tab")
             shell(kind="linux", game_mode=True)
             await pg.set_viewport_size({"width": 1280, "height": 800})
             await pg.reload()

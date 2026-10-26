@@ -701,6 +701,19 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
             };
             ok(Response::json(200, &identify(ix, &found)?))
         }
+        // the games' disc IDs, for the emulators that name saves by them (D192)
+        ("POST", "/v1/ids") => {
+            let ask: gamerepo_wire::saves::IdsAsk = match body(req) {
+                Ok(a) => a,
+                Err(r) => return ok(r),
+            };
+            let mut ids = gamerepo_wire::saves::Ids::default();
+            for key in ask.keys.iter().take(1000) {
+                let lib_key = catalogue::keys_of(ix, key)?.and_then(|k| k.into_iter().next()).unwrap_or_else(|| key.clone());
+                ids.ids.insert(key.clone(), gamerepo_core::gameid::of_key(ix.conn(), lib, &lib_key).unwrap_or_default());
+            }
+            ok(Response::json(200, &ids))
+        }
         ("POST", "/v1/plans") => {
             let ask: PlanAsk = match body(req) {
                 Ok(a) => a,

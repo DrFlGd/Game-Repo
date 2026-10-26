@@ -1,0 +1,46 @@
+{
+  "format": 1,
+  "id": "mgba",
+  "name": "mGBA",
+  "about": "mGBA on Windows, Linux and the Steam Deck: saves and states beside the game. It's looked for by its settings folder.",
+  "kind": "folders",
+  "save_format": "mgba",
+  "state_format": "mgba:mGBA",
+  "processes": [
+    "mgba.exe",
+    "mgba-qt",
+    "mgba"
+  ],
+  "roots": {
+    "windows": [
+      "{appdata}/mGBA",
+      "{localappdata}/mGBA"
+    ],
+    "linux": [
+      "{home}/.var/app/io.mgba.mGBA/config/mgba",
+      "{config}/mgba"
+    ]
+  },
+  "look_for": [],
+  "systems": [
+    "gba",
+    "gb",
+    "gbc"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "{name}.sav"
+      ],
+      "beside": true
+    },
+    {
+      "kind": "state",
+      "files": [
+        "{name}.ss{slot}"
+      ],
+      "beside": true
+    }
+  ]
+}

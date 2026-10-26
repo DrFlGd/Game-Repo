@@ -1,0 +1,60 @@
+{
+  "format": 1,
+  "id": "duckstation",
+  "name": "DuckStation",
+  "about": "DuckStation on Windows, Linux, the Steam Deck and Android. Each game's memory card is in memcards by its title or serial (a card every game shares kept as one save); states are in savestates by the serial, the one it resumes from too.",
+  "kind": "folders",
+  "save_format": "duckstation",
+  "state_format": "duckstation:DuckStation",
+  "processes": [
+    "duckstation-qt-x64-releaseltcg.exe",
+    "duckstation-qt.exe",
+    "duckstation-qt",
+    "duckstation-nogui"
+  ],
+  "roots": {
+    "windows": [
+      "{documents}/DuckStation",
+      "{home}/OneDrive/Documents/DuckStation",
+      "{localappdata}/DuckStation"
+    ],
+    "linux": [
+      "{home}/.var/app/org.duckstation.DuckStation/data/duckstation",
+      "{home}/.local/share/duckstation"
+    ],
+    "android": [
+      "{home}/Android/data/com.github.stenzek.duckstation/files",
+      "{home}/duckstation"
+    ]
+  },
+  "look_for": [
+    "memcards",
+    "savestates"
+  ],
+  "systems": [
+    "psx"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "memcards/{id}_*.mcd",
+        "memcards/{title}_*.mcd",
+        "memcards/{name}_*.mcd"
+      ]
+    },
+    {
+      "kind": "save",
+      "files": [
+        "memcards/shared_card_*.mcd"
+      ],
+      "whole": true
+    },
+    {
+      "kind": "state",
+      "files": [
+        "savestates/{id}_{slot}.sav"
+      ]
+    }
+  ]
+}
