@@ -3,12 +3,15 @@
 // by system, and the changes waiting for it. Add games… and Remove queue changes, which the
 // device takes the next time it connects (Game Repo Go when it reaches the library); a change
 // not taken yet can be cancelled. A game's page says which devices hold it, with Send to a
-// device… (`GameDevices`).
+// device… (`GameDevices`). A card, a drive or a share is a folder device (D189): Add a card or
+// drive… marks it, Game Repo knows it again wherever it comes back, and while Game Repo runs
+// its waiting changes are made as soon as it's connected, as a change with Undo.
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
-import { routeHash } from "./context.js";
-import { api, toast, size, plural } from "./library.js";
+import { routeHash, ctx } from "./context.js";
+import { api, toast, size, plural, followJob, isDesktop } from "./library.js";
+import { undoChange } from "./organise.js";
 import { CommandBar } from "./layout.js";
 import { useSidePanel, useRouteArg, argHash } from "./panels.js";
 import { Dialog, close } from "./dialogs.js";
@@ -73,14 +76,95 @@ function AddDialog({ device, free, has = [], onDone }) {
   <//>`;
 }
 
+/** Add a card or drive…: its folder, a name, and the layout its games are laid out by. */
+function FolderDialog() {
+  const [layouts, setLayouts] = useState([]);
+  const [folder, setFolder] = useState("");
+  const [name, setName] = useState("");
+  const [layout, setLayout] = useState("esde-card");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { api("devices_layouts").then(setLayouts).catch((e) => setError(err(e))); }, []);
+  const pick = async () => {
+    const f = await ctx.platform.library.pickFolder("The card, drive or folder");
+    if (f) setFolder(f);
+  };
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const d = await api("devices_folder_add", { folder: folder.trim(), name: name.trim(), layout });
+      close();
+      changed();
+      location.hash = argHash("devices", d.id);
+      toast(`${d.name} is a device now: Game Repo knows it again whenever it's connected.`, 8000);
+    } catch (e) {
+      setError(err(e));
+      setBusy(false);
+    }
+  };
+  return html`<${Dialog} title="Add a card or drive" id="device-folder-dialog" onSubmit=${submit} busy=${busy || !folder.trim() || !name.trim()} error=${error} submitLabel="Add">
+    <p class="muted">An SD card in a reader, a handheld that shows as a drive, an external drive or a share. Game Repo writes a small file at its top, <code>.gamerepo/device.json</code>, to know it again.</p>
+    <label class="field">Its folder<div class="pick-row"><input id="device-folder" class="compact" value=${folder} onInput=${(e) => setFolder(e.target.value)} placeholder=${isDesktop() ? "E:\\" : "/media/card"} />
+      ${isDesktop() ? html`<button type="button" class="ghost compact" id="device-folder-choose" onClick=${pick}>Choose…</button>` : null}</div></label>
+    <label class="field">Its name<input id="device-folder-name" class="compact" value=${name} onInput=${(e) => setName(e.target.value)} placeholder="Handheld's card" /></label>
+    <label class="field">What's on it<select id="device-folder-layout" class="compact" value=${layout} onChange=${(e) => setLayout(e.target.value)}>
+      ${layouts.map((l) => html`<option key=${l.id} value=${l.id}>${l.name}</option>`)}</select></label>
+  <//>`;
+}
+
 export function DeviceDialogs({ dialog }) {
   if (dialog.type === "device-add") return html`<${AddDialog} ...${dialog} />`;
+  if (dialog.type === "device-folder") return html`<${FolderDialog} />`;
   return null;
+}
+
+// ---- folder devices found while Game Repo runs (D189)
+
+let present = [];
+const syncing = new Set();
+
+/** A folder device's waiting changes made now, said with Undo. */
+export async function syncFolder(d, auto = false) {
+  if (syncing.has(d.id)) return;
+  syncing.add(d.id);
+  try {
+    const { job } = await api("devices_folder_sync", { id: d.id, auto });
+    const done = await followJob(job, `Changing the games on ${d.name}`);
+    changed();
+    if (done.error) throw new Error(done.error);
+    const r = done.result || {};
+    if (r.nothing) { if (!auto) toast(`${d.name} read again: ${plural(r.games, "game", "games")}, ${size(r.free)} free.`, 6000); return; }
+    const failed = r.failed?.length ? ` ${plural(r.failed.length, "step", "steps")} failed: ${r.failed[0].error}` : "";
+    toast(`Changed the games on ${d.name}: ${plural(r.games, "game", "games")} on it now, ${size(r.free)} free.${failed}`, { ms: 12000, action: r.id ? { label: "Undo", run: async () => { await undoChange(r.id); changed(); } } : null });
+  } catch (e) {
+    toast(`Couldn't change the games on ${d.name}: ${err(e)}`, 10000);
+  } finally {
+    syncing.delete(d.id);
+  }
+}
+
+/** Every few seconds, the folder devices that are here; one that's just come with changes
+ *  waiting gets them. */
+export async function lookForDevices() {
+  if (!ui.get().library || ui.get().library.read_only) return;
+  let now;
+  try { now = await api("devices_present"); } catch { return; }
+  const was = new Set(present.map((p) => p.id));
+  present = now;
+  ui.set({ devicesHere: now });
+  if (!now.some((p) => !was.has(p.id))) return;
+  const all = await api("devices_list").catch(() => []);
+  for (const p of now.filter((x) => !was.has(x.id))) {
+    const d = all.find((x) => x.info.id === p.id);
+    if (d?.waiting) syncFolder(d.info, true);
+  }
 }
 
 /** One device's page. */
 function DeviceView({ id, off }) {
   const rev = useStore(ui, (s) => s.changes);
+  const here_ = useStore(ui, (s) => s.devicesHere);
   const [v, setV] = useState(null);
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState(() => new Set());
@@ -108,8 +192,15 @@ function DeviceView({ id, off }) {
     try { setV(await api("devices_cancel", { id, ids })); changed(); } catch (e) { toast(err(e), 8000); }
   };
   const tick = (g) => setPicked((s) => { const n = new Set(s); n.has(g.id) ? n.delete(g.id) : n.add(g.id); return n; });
+  const here = d.by === "folder" ? (here_ || []).find((p) => p.id === d.id) : null;
+  const read = async () => {
+    try { setV(await api("devices_folder_read", { id })); changed(); toast(`${d.name} read again.`); } catch (e) { toast(err(e), 8000); }
+  };
   return html`<div class="device-view" id="device-view" data-id=${d.id}>
     <p class="muted" id="device-line">${[kindName(d.kind), `last connected ${seenText(d.seen)}`, plural(d.games, "game", "games"), size(d.size), `${size(d.free)} free`].join(" · ")}</p>
+    ${d.by === "folder" ? html`<p id="device-here" data-here=${here ? "yes" : "no"} class=${here ? null : "muted"}>${here ? html`Connected at <code>${here.at}</code>. <button type="button" class="ghost compact" id="device-sync" disabled=${off} onClick=${() => syncFolder(d)}>${waiting.length ? `Make the ${plural(waiting.length, "change", "changes")} now` : "Read it again"}</button>
+      ${waiting.length ? html` <button type="button" class="linkish" id="device-read" disabled=${off} onClick=${read}>Read it again</button>` : null}`
+      : `Not connected. Put the card in, or plug the drive in, and Game Repo finds it${d.at ? ` (it was at ${d.at})` : ""}.`}</p>` : null}
     <section class="ls-section" id="device-waiting"><h2>Waiting for its next connect</h2>
       ${v.changes.length ? html`<ul class="ls-list">${v.changes.map((c) => html`<li key=${c.change.id} data-change=${c.change.id} data-state=${c.state} data-action=${c.change.action}>
         <span class="op-paths"><span class="op-to">${c.change.action === "add" ? "Add" : "Remove"} ${c.change.key ? html`<a href=${gameHash(c.change.key)}>${c.change.title}</a>` : c.change.title}</span>
@@ -154,9 +245,13 @@ export function Devices() {
     const v = await api("devices_view", { id: cur.id });
     ui.set({ dialog: { type: "device-add", device: cur, free: cur.free, has: (v.contents.games || []).map((g) => g.key).filter(Boolean) } });
   };
+  const addFolder = () => ui.set({ dialog: { type: "device-folder" } });
   const head = html`<${CommandBar} id="devices-head" title=${html`<h1 id="devices-title">${cur?.name || "Devices"}</h1>`}
     primary=${cur ? html`<button type="button" class="primary compact" id="device-add" disabled=${off} onClick=${add}>${Icon.plus(15)} Add games…</button>` : null}
-    more=${cur ? { id: "device-menu", title: "Forget this device", items: () => [{ id: "device-forget", label: "Forget this device", icon: "trash", disabled: off, run: forget }] } : null} />`;
+    more=${{ id: "device-menu", title: "More", items: () => [
+      { id: "device-add-folder", label: "Add a card or drive…", icon: "plus", disabled: off, run: addFolder },
+      ...(cur ? [{ id: "device-forget", label: "Forget this device", icon: "trash", disabled: off, run: forget }] : []),
+    ] }} />`;
   if (!s.library) return html`${head}<div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   if (all?.error) return html`${head}<div class="pages"><p class="warn-note" role="alert">${all.error}</p></div>`;
   if (!all) return html`${head}<div class="pages"><p class="muted">Reading…</p></div>`;
@@ -164,7 +259,9 @@ export function Devices() {
     ${cur ? html`<${DeviceView} id=${cur.id} off=${off} key=${cur.id} />` : html`<div id="devices-none">
       <p class="page-lead">No devices yet.</p>
       <p class="muted">A phone, a Steam Deck or a PC with Game Repo Go shows here once it's paired (Settings › Serve to devices › Pair a device…) and has reached the library: what it holds, and the games to add to it or remove, which it takes the next time it connects.</p>
-      <div class="home-actions"><a class="button ghost" href=${routeHash("settings")} id="devices-to-settings">Open Settings</a></div></div>`}
+      <p class="muted">An SD card, a drive or a share is a device too: Game Repo lays its games out for ES-DE, muOS, Knulli or ROCKNIX, and makes the changes you ask for whenever it's connected.</p>
+      <div class="home-actions"><a class="button ghost" href=${routeHash("settings")} id="devices-to-settings">Open Settings</a>
+        <button type="button" class="ghost" id="devices-add-folder" disabled=${off} onClick=${addFolder}>Add a card or drive…</button></div></div>`}
   </div>`;
 }
 

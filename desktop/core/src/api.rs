@@ -2312,6 +2312,59 @@ impl App {
                 crate::devices::Records::of(lib.root()).forget(arg(&args, "id").map_err(e2s)?).map_err(e2s)?;
                 j(json!({}))
             }
+            // folder devices (D189): a card, drive or share made a device, found again, read and changed
+            "devices_layouts" => {
+                let lib = self.library()?;
+                let v: Vec<Value> = crate::layout::all(Some(&lib)).iter().filter(|l| crate::export::device_place(l).is_ok()).map(|l| json!({ "id": l.id, "name": l.name })).collect();
+                j(json!(v))
+            }
+            "devices_folder_add" => {
+                let lib = self.library()?;
+                let folder = PathBuf::from(arg(&args, "folder").map_err(e2s)?.trim());
+                let info = crate::devices::add_folder(&lib, &folder, args["name"].as_str().unwrap_or(""), arg(&args, "layout").map_err(e2s)?).map_err(e2s)?;
+                crate::devices::read_folder(&lib, &info.id, &folder).map_err(e2s)?;
+                j(json!(info))
+            }
+            "devices_present" => {
+                let lib = self.library()?;
+                let v: Vec<Value> = crate::devices::present(&lib).into_iter().map(|(i, at)| json!({ "id": i.id, "at": at.display().to_string() })).collect();
+                j(json!(v))
+            }
+            "devices_folder_read" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let at = crate::devices::where_is(&lib, &id).ok_or("It isn't connected: put the card in, or plug the drive in, and try again.")?;
+                crate::devices::read_folder(&lib, &id, &at).map_err(e2s)?;
+                j(crate::devices::Records::of(lib.root()).view(&id).map_err(e2s)?)
+            }
+            "devices_folder_sync" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let at = crate::devices::where_is(&lib, &id).ok_or("It isn't connected: put the card in, or plug the drive in, and try again.")?;
+                let name = crate::devices::Records::of(lib.root()).info(&id).map(|i| i.name).unwrap_or_default();
+                let running = self.begin_change(&format!("device-{id}"))?;
+                j(self.spawn_job_as(&format!("Changing the games on {name}"), args["auto"].as_bool().unwrap_or(false), move |app, jid, cancel| {
+                    let _running = running;
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    crate::meta::sync(&ix, &lib)?;
+                    let waiting = crate::devices::Records::of(lib.root()).waiting(&id);
+                    let (r, contents) = if waiting.is_empty() {
+                        (json!({ "done": 0, "failed": [], "nothing": true }), crate::devices::read_folder(&lib, &id, &at)?)
+                    } else {
+                        let (plan, changes) = crate::devices::plan_folder(&ix, &lib, &id, &at)?;
+                        let r = organise::run(&ix, &lib, &plan, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                        let c = crate::devices::folder_done(&lib, &id, &at, Some(&plan), &changes, &r)?;
+                        (r, c)
+                    };
+                    let mut r = r;
+                    r["device"] = json!(id);
+                    r["games"] = json!(contents.games.len());
+                    r["free"] = json!(contents.free);
+                    Ok(r)
+                }))
+            }
             "devices_holding" => {
                 let lib = self.library()?;
                 j(json!(crate::devices::Records::of(lib.root()).holding(arg(&args, "key").map_err(e2s)?)))

@@ -139,10 +139,11 @@ export const PAGES = [
     "In progress marks a game you're playing (as many as you like): it's highlighted, and its page says since when. Completed moves it to the list beside, the newest first, with the date; drag it back, or Back to the backlog, to play it again.",
     "Every change has Undo (Ctrl+Z too). A game opened from either list (a double click or Enter) has Previous and Next through it.",
   ]],
-  ["devices", "Devices", "Your phones, handhelds and PCs with Game Repo Go, each with what it held when it last connected and the changes waiting for it.", [
+  ["devices", "Devices", "Your phones, handhelds and PCs with Game Repo Go, and your SD cards, drives and shares, each with what it held when it last connected and the changes waiting for it.", [
     "Choose a device down the side to see its games by system, its free space and when it last connected.",
     "Add games… finds games in the Library to put on it; tick games and Remove to take them off. Each change waits until the device next connects (Game Repo Go there reaching the library), which adds them to its downloads or removes them; Cancel takes back one not taken yet.",
     "A game's page says which devices have it, with Send to a device….",
+    "More › Add a card or drive… makes an SD card, a handheld that shows as a drive, an external drive or a share a device, its games laid out for ES-DE, muOS, Knulli or ROCKNIX. Game Repo writes .gamerepo/device.json at its top to know it again on whichever drive it comes back. While Game Repo is open it looks for it every few seconds, and when it's connected makes its waiting changes as a change of its own: History has it, and Undo puts it back. Games removed from it are set aside on it until you empty them in History.",
   ]],
   ["layouts", "Export layouts", "Where an export puts things for ES-DE, RetroArch, Pegasus, LaunchBox, Playnite, a device's firmware or a folder.", [
     "See a layout as a folder tree with a collection's games, change it, and Save as new…; edit its JSON, or import one.",
