@@ -534,6 +534,8 @@ async def main():
             check("in the games Right moves a card, X ticks it and Enter opens it, Esc comes back", right == "1" and len(ticked) == 1 and opened and cols >= 2, (right, ticked, opened, cols))
             await pg.goto(B + "#settings")
             await pg.wait_for_selector("#set-version")
+            # every control there, the emulators' folders too (they come with the saves' status)
+            await pg.wait_for_selector("#set-saves-emulators")
             await pg.evaluate("() => document.activeElement?.blur()")
             stops = await pg.evaluate("() => [...document.querySelectorAll('#go-root button, #go-root input, #go-root select, #go-root a[href]')].filter(e => e.getClientRects().length).length")
             order = await focus_order(pg, stops + 2)
