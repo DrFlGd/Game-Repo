@@ -6187,6 +6187,36 @@ paths checked on real installs (the build order's 2 and 3 swapped).
   from the queue at its next connects (`serve/tests/client.rs`), and the page
   (`desktop_page.py`, its own home "devices").
 
+### Save sync notes, part 3: cards, drives and shares (built 2026-10-26)
+
+- `gamerepo-core`'s `devices.rs`: *Add a card or drive…* (`add_folder`) writes the marker
+  `.gamerepo/device.json` (the device's id, its name and the library's id) and the record
+  (`by: folder`, `kind: card`, its layout, where it was) with `folder.json` (the layout and
+  the export that placed its games). Only a layout that asks for one folder lays out a device
+  (`export::device_place`: ES-DE on a card, Knulli, ROCKNIX, muOS, Pegasus, LaunchBox,
+  Playnite, a plain folder).
+- Found again (`present`): each drive letter on Windows, `/media/<user>`, `/run/media/<user>`,
+  `/media`, `/mnt` and `/Volumes` elsewhere, and wherever each was last (a share's path), a
+  folder there with a marker of this library's.
+- Read (`read_folder`): the library's games are those its export placed (the export's record
+  says which, so an Undo is followed); every other file in a system's games folder with one of
+  the system's extensions (or zip, 7z, m3u, cue, gdi, iso and its formats) is a game from
+  elsewhere. Not told by hash yet: a game from elsewhere the library has is still "not from
+  the library".
+- Its changes (`plan_folder`, `folder_done`): its games are an export of their own
+  (`export::device_plan`, collection `device:<id>`, kept out of Export's list) updated with
+  the games added and removed, so a removed library game is set aside as an export's update
+  sets one aside, gamelists and all; a game from elsewhere removed is set aside on the device.
+  It's one change, *Changed the games on <name>*, in History with Undo; set-aside files stay
+  on the device until emptied in History.
+- Game Repo looks for its cards every 5 seconds while it's open (`lookForDevices` in
+  `web/ui/devices.js`); one that's just come with changes waiting gets them at once (a job
+  marked `auto`). A connected one's page has *Make the changes now* and *Read it again*.
+- Not yet: a folder device's saves (they need the handheld firmwares' profiles, part 4), and
+  *Eject* (Windows' safe removal); the games told by hash.
+- Tests: the core (`a_card_is_known_again_read_through_its_layout_and_changed_with_undo`) and the
+  page (`desktop_page.py`, own home "card").
+
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
   blocked in many cloud sessions, so `vendor.yml` pushes the dependencies of every crate

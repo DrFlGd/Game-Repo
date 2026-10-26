@@ -26,6 +26,12 @@ pub struct Info {
     pub free: u64,
     pub size: u64,
     pub games: u64,
+    /// A folder device's export layout (D189)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub layout: String,
+    /// Where a folder device was last found
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub at: String,
 }
 
 /// A game on a device, as *On this device* lists it.

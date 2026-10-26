@@ -16,7 +16,7 @@ import { Coming, COMING } from "./coming.js";
 import { Audit } from "./audit.js";
 import { Collections } from "./collections.js";
 import { Backlog } from "./backlog.js";
-import { Devices } from "./devices.js";
+import { Devices, lookForDevices } from "./devices.js";
 import { PcGames } from "./pcgames.js";
 import { Metadata } from "./metadata.js";
 import { Documents } from "./documents.js";
@@ -76,6 +76,8 @@ export function mountShell(context) {
   loadIndex();
   // what the check made as the app started found (the status bar says when there's a newer version)
   if (context.platform.kind === "desktop") startUpdates(context.platform.api).catch(() => {});
+  // cards and drives that are devices, looked for every few seconds (D189)
+  if (context.platform.kind === "desktop") setInterval(lookForDevices, 5000);
 }
 
 export { ui };

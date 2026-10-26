@@ -1490,8 +1490,78 @@ async def devices_page(pg, base, home, library):
     check("a game's page says which devices hold it, and Send to a device… doesn't queue a game twice (D187)", on == "On Steam Deck.", on)
 
 
+async def card_device(pg, base, home, library):
+    """D189: a folder (an SD card) made a device: its marker, its games laid out by Knulli's
+    layout when its changes are made, and a change waiting while it's away made as soon as
+    it's back, the whole an undoable change."""
+    gb = home / "Game Boy"
+    gb.mkdir()
+    roms = {n: make_fixtures.rom(120 + i, 4096) for i, n in enumerate(["Alpha (USA)", "Beta (USA)"])}
+    for n, b in roms.items():
+        (gb / f"{n}.gb").write_bytes(b)
+    dat = home / "gb.dat"
+    dat.write_text(make_fixtures.logiqx("Nintendo - Game Boy", "20261001", [(n, None, [make_fixtures.rom_xml(f"{n}.gb", b)]) for n, b in roms.items()]))
+    pick(gb, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    pick(dat, base)
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await back_home(pg, base)
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    card = home / "Card"
+    (card / "roms" / "gb").mkdir(parents=True)
+    (card / "roms" / "gb" / "Mine.gb").write_bytes(b"mine")
+    await pg.goto(base + "#/devices")
+    await pg.wait_for_selector("#devices-none", timeout=15000)
+    await pg.click("#devices-add-folder")
+    await pg.wait_for_selector("#device-folder-dialog")
+    await pg.fill("#device-folder", str(card))
+    await pg.fill("#device-folder-name", "Handheld")
+    await pg.wait_for_selector('#device-folder-layout option[value="knulli"]', state="attached")
+    layouts = await pg.eval_on_selector_all("#device-folder-layout option", "els => els.map(e => e.value)")
+    await pg.select_option("#device-folder-layout", "knulli")
+    await pg.click("#device-folder-dialog button[type=submit]")
+    await toast_text(pg, "Handheld is a device now")
+    await pg.wait_for_selector('#device-here[data-here="yes"]', timeout=15000)
+    names = await pg.eval_on_selector_all("#device-games li[data-id]", "els => els.map(e => e.dataset.id)")
+    marker = json.loads((card / ".gamerepo" / "device.json").read_text())
+    check("Add a card or drive… marks the folder, offers the layouts with one folder, and reads what's on it (D189)",
+          marker["name"] == "Handheld" and "knulli" in layouts and "esde" not in layouts and names == ["roms/gb/Mine.gb"], (marker, layouts, names))
+    # a game added: made now, laid out as Knulli has it, with Undo
+    await pg.click("#device-add")
+    await pg.wait_for_selector("#device-add-dialog")
+    await pg.fill("#device-add-search", "Beta")
+    await pg.wait_for_selector('#device-add-list li[data-key="gb/Beta (USA)"]', timeout=15000)
+    await pg.check('#device-add-list li[data-key="gb/Beta (USA)"] input')
+    await pg.click("#device-add-dialog button[type=submit]")
+    await pg.wait_for_selector('#device-waiting li[data-action="add"][data-state="waiting"]')
+    await pg.click("#device-sync")
+    said = await toast_text(pg, "Changed the games on Handheld", timeout=30000)
+    await pg.wait_for_selector('#device-games li[data-id="roms/gb/Beta (USA).gb"]', timeout=15000)
+    check("its waiting change is made at once while it's connected: the game laid out as its layout has it, the change Done (D189)",
+          (card / "roms/gb/Beta (USA).gb").read_bytes() == roms["Beta (USA)"] and (card / "roms/gb/gamelist.xml").is_file()
+          and await pg.get_attribute('#device-waiting li[data-action="add"]', "data-state") == "done", said)
+    await pg.screenshot(path=str(out / "82-card-device.png"))
+    # away: a removal waits; back: made as soon as Game Repo sees it again
+    away = home / "Card away"
+    card.rename(away)
+    await pg.wait_for_selector('#device-here[data-here="no"]', timeout=20000)
+    await pg.check('#device-games li[data-id="roms/gb/Mine.gb"] input')
+    await pg.click("#device-remove")
+    await toast_text(pg, "will be removed from Handheld")
+    away.rename(card)
+    await toast_text(pg, "Changed the games on Handheld", timeout=30000)
+    await pg.wait_for_function("() => !document.querySelector('#device-games li[data-id=\"roms/gb/Mine.gb\"]')", timeout=15000)
+    aside = list((card / ".gamerepo-set-aside").rglob("Mine.gb"))
+    check("a change made while it was away is made as soon as it's back, the game set aside on it for Undo (D189)",
+          not (card / "roms/gb/Mine.gb").exists() and len(aside) == 1, aside)
+
+
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page)]
+             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device)]
 
 
 async def main():

@@ -171,6 +171,8 @@ pub fn list(lib: &Library) -> Vec<Value> {
         .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
         .map(|e| config::read_json_object(&e.path()))
         .filter(|e| e["id"].is_string())
+        // a folder device's games are its own (D189), shown on the Devices page
+        .filter(|e| !e["collection"].as_str().is_some_and(|c| c.starts_with(DEVICE)))
         .map(|mut e| {
             let files = e["files"].as_array().map(Vec::len).unwrap_or(0);
             let c = e["collection"].as_str().unwrap_or("").to_string();
@@ -219,7 +221,7 @@ fn rel_to(top: &Path, p: &Path) -> Option<String> {
 }
 
 /// A file outside the folders with games, as a change's step reads or sets it aside.
-fn outside(top: &Path, p: &Path) -> Src {
+pub(crate) fn outside(top: &Path, p: &Path) -> Src {
     Src {
         file_id: 0, root: format!("dir:{}", top.display()), rel: rel_to(top, p).unwrap_or_default(), path: p.display().to_string(),
         member: None, size: std::fs::metadata(p).map(|m| m.len()).unwrap_or(0), crc32: String::new(), sha1: None,
@@ -1114,6 +1116,54 @@ fn plan_with(ix: &Index, lib: &Library, o: &Options, given: Option<collection::C
         "first": first, "files": wanted, "drop": drop, "total": total, "limit": c.size_limit, "notes": notes,
     }));
     Ok(plan)
+}
+
+/// What a folder device's export is made for, before its id: `device:<id>` (D189).
+pub const DEVICE: &str = "device:";
+
+/// A folder device's games laid out on it by its layout (D189): a new export of them, or an
+/// update of the one it had (so the games it no longer has are set aside there, with Undo).
+pub fn device_plan(ix: &Index, lib: &Library, device: &str, name: &str, layout_id: &str, folder: &Path, games: &[String], export_id: Option<&str>) -> Result<Plan> {
+    let l = layout::get(Some(lib), layout_id).map_err(|_| anyhow!("There's no export layout {layout_id}."))?;
+    let place = device_place(&l)?;
+    let mut systems: Vec<String> = vec![];
+    for k in games {
+        let (system, _) = k.split_once('/').ok_or_else(|| anyhow!("{k} isn't a game's key (<system>/<name>)."))?;
+        if !systems.iter().any(|s| s == system) {
+            systems.push(system.to_string());
+        }
+    }
+    let c = collection::Collection {
+        id: format!("{DEVICE}{device}"),
+        name: name.to_string(),
+        rules: collection::Rules { platforms: systems, include: "none".into(), ..Default::default() },
+        added: games.to_vec(),
+        ..Default::default()
+    };
+    let carry = Carry {
+        fields: crate::meta::FIELDS.iter().map(|(f, _)| f.to_string()).collect(),
+        media: vec!["cover".into(), "screenshot".into()],
+        image_size: 640,
+        ..Default::default()
+    };
+    let o = Options {
+        layout: l.id.clone(), places: BTreeMap::from([(place, folder.to_path_buf())]), always_copy: true, short_names: true, carry,
+        export_id: export_id.filter(|id| load(lib, id).is_ok()).map(String::from),
+        ..Default::default()
+    };
+    let mut p = plan_with(ix, lib, &o, Some(c), &mut Lists::default())?;
+    p.label = format!("Changed the games on {name}");
+    p.title = format!("Change the games on {name}");
+    Ok(p)
+}
+
+/// The one place a folder device's layout asks for (its card or folder).
+pub fn device_place(l: &layout::Layout) -> Result<String> {
+    let asked: Vec<&layout::Place> = l.asked().filter(|p| !p.device).collect();
+    match asked.as_slice() {
+        [one] => Ok(one.id.clone()),
+        _ => bail!("{} asks for more than one folder, so it can't lay out a card or a drive.", l.name),
+    }
 }
 
 /// What a device asks for (D93): some games of the library, by key (`<system>/<DAT
