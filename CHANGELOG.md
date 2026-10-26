@@ -92,6 +92,9 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 ## Unreleased
 
 - **Saves from emulators of their own.** Game Repo Go now syncs the saves and save states of PPSSPP, Dolphin (GameCube cards and GCI folders, Wii saves), PCSX2, AetherSX2 and NetherSX2, ARMSX2, DuckStation, Azahar (and Citra, Lime3DS), Flycast, melonDS, mGBA and DraStic, as well as RetroArch's. Those that name saves after the disc's serial or ID have it read from the game in your library (PlayStation, PlayStation 2, PSP, GameCube, Wii and 3DS discs, whatever they're kept as). A memory card every game shares, as PCSX2's usually is, is kept as one save, listed in Game Repo's Settings › Saves. In Game Repo Go's Settings › Saves each emulator says where its saves were found, and you can set its folder there: on Android 11 and later an emulator whose saves are in its own Android/data folder can't be read, so it needs moving and setting. Not yet tried on real installs; Switch, Wii U and PS3 emulators aren't in yet.
+
+## 0.5.57 (2026-10-26)
+
 - **SD cards, drives and shares as devices.** On the Devices page, *More › Add a card or drive…* makes an SD card (in a reader), a handheld that shows as a drive, an external drive or a network share a device, its games laid out for ES-DE, Knulli, ROCKNIX, muOS or another layout with one folder. Game Repo knows it again on whichever drive it comes back, shows what's on it (from the library or not), and the games you add or remove are made as soon as it's connected while Game Repo is open: one change in History, with Undo.
 
 ## 0.5.56 (2026-10-26)
