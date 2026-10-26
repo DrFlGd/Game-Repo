@@ -6,7 +6,8 @@
 // Each detail lists what the other sources said, and each kind of picture the other
 // sources' ones, with Use this ("Phase 6b design", D46, D47); Scrape again… and Delete
 // metadata… are in its menu (D48). Previous and Next go through the Library list it was
-// opened from (or a collection's, or the backlog's). Its place in the backlog is shown with
+// opened from (or a collection's, or the backlog's). Its saves from devices, with their
+// versions (D191). Its place in the backlog is shown with
 // In progress, Completed and the rest (D157–D159). A PC game's page is the same, its details and pictures kept as any game's,
 // with a PC section for what only a PC game has: the program, Unpack, its folder and files
 // ("PC game page design", D55); its title and year name its folder, so they're its own.
@@ -32,6 +33,7 @@ import { isVideo, Video } from "./video.js";
 import { watch, videoFacts } from "./videos.js";
 import { variantDialog, undoVariants } from "./variants.js";
 import { addToBacklog, backlogDo, dayText } from "./backlog.js";
+import { GameSaves } from "./saves.js";
 
 /** The key a collection knows a game by (D175): a disc's game's, an update's or DLC's game's. */
 const inKey = (g) => g.disc_of?.key || g.addon?.base?.key || g.key;
@@ -402,6 +404,7 @@ export function GamePage() {
         ${g.regions ? html`<dt>Regions</dt><dd>${g.regions}</dd>` : null}
         <dt>Files</dt><dd>${(g.roms || []).length}</dd></dl>` : null}
     </section>`}
+    ${pc ? null : html`<${GameSaves} gameKey=${g.disc_of?.key || g.key} off=${off} />`}
     ${dat ? html`<section class="ls-section" id="game-collections"><h2>Collections</h2>
       ${g.collections?.length ? html`<ul class="ls-list">${g.collections.map((c) => html`<li key=${c.id} data-id=${c.id}><a href=${routeHash("collections")}>${c.name}</a>
         <button type="button" class="ghost compact" data-action="remove-from" disabled=${off} title=${`Remove it from ${c.name}`} onClick=${() => removeFrom(c)}>Remove from collection</button></li>`)}</ul>` : html`<p class="muted">In none.</p>`}

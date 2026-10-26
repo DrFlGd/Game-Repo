@@ -647,7 +647,7 @@ impl App {
         if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
             return self.collection_call(cmd, args).await;
         }
-        if ["layout", "bios", "magazine", "video", "backlog"].iter().any(|p| cmd.starts_with(p)) {
+        if ["layout", "bios", "magazine", "video", "backlog", "saves_"].iter().any(|p| cmd.starts_with(p)) {
             return self.device_call(cmd, args).await;
         }
         if cmd.starts_with("serve_") {
@@ -2276,6 +2276,29 @@ impl App {
                 let ticked = args["ticked"].as_bool();
                 let page = args["page"].as_u64().map(|p| p as u32);
                 j(self.with_index(move |ix| crate::magtext::set_game(ix, &lib, &title, &file, &key, ticked, page)).await?)
+            }
+            // saves (D181, D184, D191): a game's, *Use this one*, and Settings › Saves
+            "saves_of" => {
+                let lib = self.library()?;
+                let key = arg(&args, "key").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || Ok(crate::saves::of_game(&lib, &key)))).await?)
+            }
+            "saves_use" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let unit = gamerepo_wire::saves::Unit::from_id(arg(&args, "unit").map_err(e2s)?).ok_or("That isn't a save.")?;
+                let version = arg(&args, "version").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || Ok(serde_json::to_value(crate::saves::Store::of(lib.root()).choose(&unit, &version, "game-repo", "Game Repo")?)?))).await?)
+            }
+            "saves_settings" => {
+                let lib = self.library()?;
+                j(blocking(Box::new(move || Ok(crate::saves::settings(&lib)))).await?)
+            }
+            "saves_set" => {
+                let lib = self.library()?;
+                let states = args["states"].as_bool().ok_or("Say whether states are synced.")?;
+                lib.update_meta(json!({ "saves": { "states": states } })).map_err(e2s)?;
+                j(crate::saves::settings(&lib))
             }
             // the backlog (D157-D159): every change returns it with what it was before, for Undo
             "backlog" => {

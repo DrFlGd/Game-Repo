@@ -16,6 +16,7 @@ pub mod installs;
 pub mod pcgames;
 pub mod queue;
 pub mod removing;
+pub mod saves;
 pub mod scan;
 pub mod steam;
 pub mod tailscale;
@@ -185,7 +186,7 @@ fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 /// A file written whole that only its user can read (mode 600 on Linux).
-fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d)?;
     }

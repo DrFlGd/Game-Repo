@@ -8,6 +8,7 @@ pub mod api;
 pub mod control;
 pub mod gamelist;
 pub mod plan;
+pub mod saves;
 
 pub use plan::{Entry, File, Left, Lines, List, Plan, Program};
 

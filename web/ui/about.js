@@ -67,8 +67,8 @@ const DONE = [
   ["Tailscale on the Steam Deck", "Game Repo Go sets up Tailscale on the Deck from its Settings, the first part of reaching your library away from home"],
 ];
 export const NEXT = [
+  ["Save sync and Devices", "Saves and save states synced between your devices with every version kept, then a Devices page for Game Repo Go devices, SD cards, drives and shares whose changes wait for the next connect (handhelds with no app among them)", true],
   ["Phase 9d", "The Server on Unraid and reached away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only"],
-  ["Handhelds", "Handhelds with no app of their own (muOS and the like): the games they can play served to their SD cards"],
   ["Android games", "APKs kept in the library and installed on Android devices through Game Repo Go"],
   ["GOG installers", "A PC game that has only its GOG installer unpacked, so Game Repo Go can install it too"],
 ];

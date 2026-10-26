@@ -1338,8 +1338,85 @@ async def disc_sets(pg, base, home, library):
           of == "Disc 2 of Quest, a game on 2 discs" and "Two discs" in inside, (of, inside))
 
 
+def save_version(library, key, vid, device, text, made, played, base="", **more):
+    """A save's version as Game Repo Server writes one (D181): its file under `.versions`, then
+    its version.json; and the newest copied up beside them, with save.json saying which."""
+    system, name = key.split("/", 1)
+    unit = {"key": key, "format": "retroarch", "slot": ""}
+    udir = library / "Saves" / system / name / "Save (retroarch)"
+    vdir = udir / ".versions" / vid
+    vdir.mkdir(parents=True, exist_ok=True)
+    (vdir / f"{name}.srm").write_text(text)
+    sha1 = hashlib.sha1(text.encode()).hexdigest()
+    v = {"id": vid, "unit": unit, "device": device, "device_name": device, "emulator": "RetroArch", "made": made, "played": played, "base": base,
+         "files": [{"name": "{name}.srm", "sha1": sha1, "size": len(text), "modified": played}], **more}
+    (vdir / "version.json").write_text(json.dumps(v))
+    return v
+
+
+async def saves(pg, base, home, library):
+    """D180–D191: a game's saves from devices on its page, each version, Two saves differ with
+    Use this one (a new version, so nothing's lost), and Settings › Saves."""
+    gb = home / "Game Boy"
+    gb.mkdir()
+    rom = make_fixtures.rom(81, 4096)
+    (gb / "Alpha (USA).gb").write_bytes(rom)
+    dat = home / "gb.dat"
+    dat.write_text(make_fixtures.logiqx("Nintendo - Game Boy", "20261001", [("Alpha (USA)", None, [make_fixtures.rom_xml("Alpha (USA).gb", rom)])]))
+    pick(gb, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    pick(dat, base)
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await back_home(pg, base)
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    key = "gb/Alpha (USA)"
+    await pg.goto(base + "#/game/gb/" + urllib.parse.quote("Alpha (USA)"))
+    await pg.wait_for_selector("#game-saves-none", timeout=15000)
+    # the Deck's save, then the phone's from it, then the Deck's played on from its own, earlier: a conflict
+    first = save_version(library, key, "1761400000000-deck", "Steam Deck", "one", 1761400000000, 1761399990)
+    second = save_version(library, key, "1761400100000-phone", "Phone", "two", 1761400100000, 1761400090, base=first["id"])
+    third = save_version(library, key, "1761400200000-deck", "Steam Deck", "three", 1761400200000, 1761400050, base=first["id"], differs=second["id"], behind=True)
+    udir = library / "Saves" / "gb" / "Alpha (USA)" / "Save (retroarch)"
+    (udir / "Alpha (USA).srm").write_text("two")
+    (udir / "save.json").write_text(json.dumps({"unit": first["unit"], "current": second["id"], "files": ["{name}.srm"]}))
+    await pg.goto(base + "#/library")
+    await pg.goto(base + "#/game/gb/" + urllib.parse.quote("Alpha (USA)"))
+    row = '#game-saves-list li[data-unit="gb/Alpha (USA)|retroarch|"]'
+    await pg.wait_for_selector(row, timeout=15000)
+    line = " ".join((await pg.inner_text(row)).split())
+    await pg.click(f'{row} [data-action="versions"]')
+    versions = await pg.eval_on_selector_all(f"{row} .save-versions li", "els => els.map(e => e.dataset.current)")
+    await pg.screenshot(path=str(out / "80-game-saves.png"))
+    # newest made first: the Deck's kept beside the phone's, the newest
+    check("a game's page lists its save from devices: the newest the phone's, three versions, and Two saves differ with the Deck's kept beside it (D184, D191)",
+          await pg.get_attribute(row, "data-conflict") == "yes" and "Save (RetroArch)" in line and "Phone" in line and "3 versions" in line
+          and "Two saves differ" in line and "Use Steam Deck's" in line and versions == ["no", "yes", "no"], (line, versions))
+    await pg.click(f'{row} [data-action="use"]')
+    await toast_text(pg, "Using Save")
+    await pg.wait_for_selector(f'{row}[data-conflict="no"]', timeout=15000)
+    line = " ".join((await pg.inner_text(row)).split())
+    copied = (udir / "Alpha (USA).srm").read_text()
+    made = sorted(p.name for p in (udir / ".versions").iterdir())
+    check("Use Steam Deck's makes its save the newest as a version of its own, ends the conflict and every version stays (D184)",
+          copied == "three" and len(made) == 4 and made[-1].endswith("-game-repo") and "4 versions" in line, (copied, made, line))
+    # Settings › Saves: states synced unless turned off
+    await pg.goto(base + "#/settings")
+    await pg.wait_for_selector("#saves-states", timeout=15000)
+    on = await pg.is_checked("#saves-states")
+    profiles = await pg.eval_on_selector_all("#saves-profiles li", "els => els.map(e => e.dataset.profile)")
+    await pg.click("#saves-states")
+    await toast_text(pg, "Only saves are synced")
+    meta = json.loads((library / "_library" / "library.json").read_text())
+    check("Settings › Saves syncs states until turned off, kept in library.json, and lists RetroArch (D180, D182)",
+          on and profiles == ["retroarch"] and meta.get("saves") == {"states": False}, (on, profiles, meta.get("saves")))
+
+
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets)]
+             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves)]
 
 
 async def main():

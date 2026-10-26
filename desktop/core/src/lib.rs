@@ -72,6 +72,7 @@ pub mod pcmeta;
 pub mod platforms;
 pub mod redump;
 pub mod roots;
+pub mod saves;
 pub mod scan;
 pub mod scrape;
 pub mod scrapers;

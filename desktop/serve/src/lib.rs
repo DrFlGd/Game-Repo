@@ -17,6 +17,7 @@ pub mod files;
 pub mod http;
 pub mod made;
 pub mod plans;
+pub mod saves;
 pub mod tls;
 pub mod unpacked;
 
@@ -627,6 +628,10 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
     }
     if path.starts_with("/v1/files/") && (m == "GET" || m == "HEAD") {
         return files_route(sh, req, &device);
+    }
+    // saves need no index (D181)
+    if let Some(r) = saves::route(&sh.lib, &sh.data, req, &device) {
+        return ok(r?);
     }
     if !sh.ready.load(Ordering::SeqCst) {
         return ok(Response::problem(503, NOT_READY).with("Retry-After", "5"));

@@ -7,7 +7,7 @@ import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
 import { call, pictureUrl } from "./backend.js";
 import { back, go, open, showDialog } from "./state.js";
-import { bytes, kindName, message } from "./format.js";
+import { ago, bytes, kindName, message } from "./format.js";
 import { pick } from "./library.js";
 import { enqueue } from "./add.js";
 
@@ -20,8 +20,11 @@ function Picture({ k, kind, size, alt }) {
 const list = (v) => (Array.isArray(v) ? v.join(", ") : v);
 
 export function GamePage({ gameKey }) {
-  const s = useStore(go, (x) => ({ systems: x.systems, picked: x.picked, deviceRev: x.deviceRev }));
+  const s = useStore(go, (x) => ({ systems: x.systems, picked: x.picked, deviceRev: x.deviceRev, savesRev: x.savesRev }));
   const [g, setG] = useState(null);
+  const [saves, setSaves] = useState([]);
+  // its saves as last synced (D191)
+  useEffect(() => { call("saves").then((v) => setSaves(v?.games?.[gameKey] || [])).catch(() => setSaves([])); }, [gameKey, s.savesRev]);
   const [error, setError] = useState("");
   useEffect(() => {
     setError("");
@@ -58,6 +61,7 @@ export function GamePage({ gameKey }) {
                   <button type="button" class="ghost" id="go-game-enqueue" onClick=${() => enqueue([game.key])}>Add to queue</button>
                   <button type="button" class="ghost" id="go-game-tick" aria-pressed=${ticked ? "true" : "false"} onClick=${() => pick([game])}>${ticked ? "Selected" : "Select"}</button>`}
           </div>
+          ${saves.length ? html`<ul class="go-sizes" id="go-game-saves">${saves.map((x) => html`<li data-conflict=${x.conflict ? "yes" : "no"}><span>${x.label}</span><span class="muted">${x.conflict ? "differs from the library's: choose one in Game Repo" : `synced ${ago(x.at)}`}</span></li>`)}</ul>` : null}
           ${d.description ? html`<div class="go-game-text">${String(d.description).split(/\n\s*\n/).map((p) => html`<p>${p}</p>`)}</div>` : null}
           ${facts.length ? html`<dl class="go-facts">${facts.map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>` : null}
           ${media.length ? html`<h2>Pictures and manuals</h2>

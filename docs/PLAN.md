@@ -6136,6 +6136,36 @@ when it was last synced, and its Settings has *Sync saves now* and the backgroun
 4. Folder devices: cards, drives and shares (D189), with their saves.
 5. Background sync (D186): Windows and the Steam Deck, then Android.
 
+### Save sync notes, part 1: saves and RetroArch (built 2026-10-26)
+
+What the first pull request built, from the build order above:
+- `gamerepo-wire`'s `saves.rs`: `Unit` (key, format, slot; a state's format is
+  `retroarch:<core>`), `SaveFile` with `{name}` for the game's own file name, `Version`,
+  `UnitState` (`conflict`, `against`: the versions the newest differs from), the requests, and
+  `Profile`, with RetroArch's built in (`wire/saves/retroarch.json`: its settings files on
+  Windows, Linux and Android, the save suffixes, `.state{slot}` with its `.png`, and the core
+  ES-DE starts each system in).
+- `gamerepo-core`'s `saves.rs`: the library's `Saves/` as D181 says. Each save's folder is
+  `Save (<format>)` or `State <slot> (<format>)` with `save.json` (the save and its newest
+  version); versions are `.versions/<made ms>-<device>/`. A device's save whose base isn't the
+  newest is a conflict (`differs`), and `behind` when it was played earlier than the newest.
+- Game Repo Server: `/v1/saves`, `/v1/saves/blob/<sha1>` (each file sent first, checked by its
+  SHA-1, up to 512 MB), `/v1/saves/versions`, `/v1/saves/file`.
+- Game Repo Go: RetroArch found from its `retroarch.cfg` (or the one set in Settings ›
+  Saves), its folders read for the games held (sorted by content or by core as the settings
+  say; a state's core from its folder, else the system's usual core), and synced after each
+  read of the library, every five minutes and with *Sync saves now*. A save is sent once it's
+  been still for 30 seconds; nothing is written while RetroArch runs; a device whose last
+  version is a side of a conflict keeps its own (D184).
+- Game Repo: a game's Saves section and Settings › Saves (states on or off, the folder, the
+  profiles). Saves not matched (D183's last two ways, title IDs and names alone) come with the
+  standalone emulators in part 2, which need title IDs anyway.
+- Tests: the store's versions and conflicts (core), RetroArch's settings and folders (device),
+  two devices syncing a save and a state through the server, with a conflict and *Use this one*
+  (`serve/tests/client.rs`), the game page and Settings › Saves (`desktop_page.py`, its own
+  home), and Go's Settings › Saves (`client_page.py`). Not tried with a real RetroArch on a
+  device yet.
+
 ## 8. Working in a cloud session
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been

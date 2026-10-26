@@ -10,6 +10,7 @@ use crate::installs;
 use crate::pcgames;
 use crate::queue::{self, Ctx, Queue};
 use crate::removing::{self, Ask as RemoveAsk};
+use crate::saves;
 use crate::scan::{self, Found};
 use crate::steam;
 use crate::tailscale;
@@ -101,6 +102,10 @@ pub struct Settings {
     pub pc_games: String,
     /// Full screen (D127): usual (in Steam's Game Mode, else a window), always or never
     pub full_screen: String,
+    /// Saves and states synced with the library (D186), and RetroArch's settings file when
+    /// it isn't where it's looked for (D182)
+    pub saves: bool,
+    pub retroarch: String,
 }
 
 impl Default for Settings {
@@ -124,6 +129,8 @@ impl Default for Settings {
             proton: "proton_experimental".into(),
             pc_games: String::new(),
             full_screen: "usual".into(),
+            saves: true,
+            retroarch: String::new(),
         }
     }
 }
@@ -196,7 +203,12 @@ pub struct App {
     own: Mutex<Own>,
     /// The folder Tailscale and SteamOS are looked for in (D179): `/`, or a stand-in for it
     root: Mutex<PathBuf>,
+    /// A sync of saves going on (D186)
+    saving: Mutex<bool>,
 }
+
+/// While Go is open, saves are synced this often (D186).
+const SAVES_EVERY: Duration = Duration::from_secs(5 * 60);
 
 /// Game Repo Go's own program and icon, and the command line of its Steam helper
 /// ([`crate::steam::helper`]), as the app (or the stand-in) gives them.
@@ -244,11 +256,20 @@ impl App {
                     }
                 }),
             );
-            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default(), root: Mutex::new(PathBuf::from("/")) }
+            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default(), root: Mutex::new(PathBuf::from("/")), saving: Mutex::new(false) }
         });
         let me = Arc::downgrade(&app);
         app.queue.on_away(Box::new(move || me.upgrade().is_some_and(|a| a.find_again())));
         app.queue.start();
+        // saves synced every few minutes while Go's open (D186)
+        let me = Arc::downgrade(&app);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(SAVES_EVERY);
+            match me.upgrade() {
+                Some(a) => a.sync_saves(),
+                None => break,
+            }
+        });
         Ok(app)
     }
 
@@ -529,6 +550,14 @@ impl App {
                 }
                 v
             }
+            "saves" => self.saves_status(),
+            "saves_sync" => {
+                if self.server().is_none() {
+                    bail!("This device isn't paired with a library.");
+                }
+                self.sync_saves();
+                json!({})
+            }
             "settings" => json!(self.settings()),
             "set_settings" => {
                 let mut v = serde_json::to_value(self.settings())?;
@@ -550,6 +579,9 @@ impl App {
                 }
                 if !["usual", "always", "never"].contains(&new.full_screen.as_str()) {
                     bail!("Full screen is usual, always or never, not {}.", new.full_screen);
+                }
+                if !new.retroarch.is_empty() && !Path::new(&new.retroarch).is_file() {
+                    bail!("{} isn't RetroArch's settings file (retroarch.cfg).", new.retroarch);
                 }
                 if !new.steam.is_empty() && !Path::new(&new.steam).join("userdata").is_dir() {
                     bail!("{} isn't Steam's folder (it has no userdata folder).", new.steam);
@@ -693,6 +725,7 @@ impl App {
                         if let Ok(d) = app.device() {
                             app.tell_holding(&d);
                         }
+                        app.sync_saves();
                     }
                     r
                 }
@@ -716,6 +749,67 @@ impl App {
             }
             app.changed("sync");
         });
+    }
+
+    /// RetroArch's save profile and where it keeps saves here (D182).
+    fn retroarch(&self) -> Option<(gamerepo_wire::saves::Profile, saves::RetroArch)> {
+        let p = gamerepo_wire::saves::built_in().into_iter().find(|p| p.kind == "retroarch")?;
+        let set = self.settings().retroarch;
+        let homes = self.homes.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let ra = saves::retroarch(&p, &homes, (!set.is_empty()).then(|| Path::new(&set)))?;
+        Some((p, ra))
+    }
+
+    /// The library's games here, by their files, for their saves (D183): those Go added and
+    /// those from elsewhere the library knows.
+    fn held_for_saves(&self) -> Vec<saves::Held> {
+        let Ok((rows, _)) = self.rows() else { return vec![] };
+        rows.into_iter().filter(|r| !r.key.is_empty() && !r.missing && !r.id.starts_with("pc:") && (r.from == "library" || r.from == "known")).map(|r| saves::Held { key: r.key, rom: r.id }).collect()
+    }
+
+    /// A sync of saves (D184–D186) in the background, unless one's going on or it's off.
+    pub fn sync_saves(&self) {
+        if !self.settings().saves || self.server().is_none() {
+            return;
+        }
+        {
+            let mut busy = self.saving.lock().unwrap_or_else(|e| e.into_inner());
+            if *busy {
+                return;
+            }
+            *busy = true;
+        }
+        let Some(app) = self.me.upgrade() else { return };
+        std::thread::spawn(move || {
+            app.changed("saves");
+            if let (Some(s), Ok(d), Some((p, ra))) = (app.server(), app.device(), app.retroarch()) {
+                let held = app.held_for_saves();
+                let here = saves::Here { profile: &p, ra, roms: d.places["roms"].clone(), emulator: p.name.clone() };
+                saves::sync(&s, &app.data, &here, &held);
+            }
+            *app.saving.lock().unwrap_or_else(|e| e.into_inner()) = false;
+            app.changed("saves");
+        });
+    }
+
+    /// Settings › Saves and a game's page (D191): the last sync, what each save was synced
+    /// as, and where RetroArch's saves were found.
+    fn saves_status(&self) -> Value {
+        let kept = saves::load(&self.data);
+        let ra = self.retroarch();
+        let mut games: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+        for (id, h) in &kept.had {
+            if let Some(u) = gamerepo_wire::saves::Unit::from_id(id) {
+                games.entry(u.key.clone()).or_default().push(json!({ "label": u.label(), "state": u.is_state(), "at": h.at, "conflict": kept.last.conflicts.contains(id) }));
+            }
+        }
+        json!({
+            "on": self.settings().saves,
+            "running": *self.saving.lock().unwrap_or_else(|e| e.into_inner()),
+            "last": kept.last,
+            "retroarch": ra.map(|(_, r)| r),
+            "games": games,
+        })
     }
 
     /// After PC games are removed (D112): their Steam shortcuts taken out, and the files
