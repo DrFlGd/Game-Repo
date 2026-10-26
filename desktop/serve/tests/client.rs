@@ -262,7 +262,7 @@ fn on_this_device_every_game_is_listed_and_removed_safely() {
     }
     put(&home, "ES-DE/gamelists/psx/gamelist.xml", b"<?xml version=\"1.0\"?>\n<gameList>\n\t<game>\n\t\t<path>./Saga.m3u</path>\n\t\t<name>Saga</name>\n\t\t<lastplayed>20240101T120000</lastplayed>\n\t</game>\n</gameList>\n");
     put(&home, "Saves/gb/Mine.srm", b"another save");
-    let outside = || (snapshot(&lib), snapshot(&dir.join("Roms")), snapshot(&home.join("Saves")), std::fs::read(home.join("ROMs/gb/My Alpha.srm")).unwrap());
+    let outside = || (library_snapshot(&lib), snapshot(&dir.join("Roms")), snapshot(&home.join("Saves")), std::fs::read(home.join("ROMs/gb/My Alpha.srm")).unwrap());
     let before = outside();
 
     let app = open_app(&dir, &home);
@@ -690,6 +690,156 @@ fn timing_game_repo_go_reading_100k_games() {
     for (what, took) in [("a page", deep), ("a system's page by size", by_size), ("a search", search)] {
         assert!(took < Duration::from_millis(50), "{what} took {took:?}");
     }
+    app.queue.quit();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A device's RetroArch (D182): its settings file with its saves and states folders, states
+/// sorted by core.
+fn retroarch_on(app: &App, home: &Path) -> (PathBuf, PathBuf) {
+    let cfg = home.join("RetroArch/retroarch.cfg");
+    std::fs::create_dir_all(cfg.parent().unwrap()).unwrap();
+    std::fs::write(&cfg, "savefile_directory = \":/saves\"\nsavestate_directory = \":/states\"\nsort_savestates_enable = \"true\"\n").unwrap();
+    call(app, "set_settings", json!({ "retroarch": cfg }));
+    (home.join("RetroArch/saves"), home.join("RetroArch/states"))
+}
+
+/// A save written as if played `ago` seconds back.
+fn played(path: &Path, text: &str, ago: u64) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+    let f = std::fs::File::options().write(true).open(path).unwrap();
+    f.set_modified(std::time::SystemTime::now() - Duration::from_secs(ago)).unwrap();
+}
+
+fn sync_saves(app: &App) -> Value {
+    call(app, "saves_sync", json!({}));
+    until("the saves synced", 60, || !call(app, "saves", json!({}))["running"].as_bool().unwrap(), || call(app, "saves", json!({})).to_string());
+    let st = call(app, "saves", json!({}));
+    assert_eq!(st["last"]["error"], "", "{st}");
+    st["last"].clone()
+}
+
+#[test]
+fn saves_and_states_go_between_devices_with_versions_and_a_conflict_keeps_both() {
+    use gamerepo_core::saves::Store;
+    use gamerepo_wire::saves::Unit;
+    let dir = temp("go-saves");
+    let lib = library(&dir);
+    let s = start(&lib, &dir.join("server"));
+    let (da, db) = (a_device(&dir.join("a")), a_device(&dir.join("b")));
+    let (a, b) = (open_app(&dir.join("a"), &da.home), open_app(&dir.join("b"), &db.home));
+    for app in [&a, &b] {
+        pair(app, &s);
+        call(app, "add", json!({ "keys": [ALPHA] }));
+        queue_done(app);
+    }
+    let ((sa, ta), (sb, tb)) = (retroarch_on(&a, &da.home), retroarch_on(&b, &db.home));
+    let srm = "Alpha (Europe).srm";
+    let in_lib = lib.join("Saves/gb/Alpha (Europe)/Save (retroarch)").join(srm);
+    let unit = Unit::save(ALPHA, "retroarch");
+    let store = Store::of(&lib);
+
+    // the Deck's save and state go to the library, then to the phone (the state into its core's folder)
+    played(&sa.join(srm), "a1", 100);
+    played(&ta.join("Gambatte/Alpha (Europe).state1"), "state", 100);
+    let last = sync_saves(&a);
+    assert_eq!(last["sent"], 2, "{last}");
+    assert_eq!(std::fs::read_to_string(&in_lib).unwrap(), "a1");
+    let last = sync_saves(&b);
+    assert_eq!(last["brought"], 2, "{last}");
+    assert_eq!(std::fs::read_to_string(sb.join(srm)).unwrap(), "a1");
+    assert_eq!(std::fs::read_to_string(tb.join("Gambatte/Alpha (Europe).state1")).unwrap(), "state");
+    assert_eq!(sync_saves(&b)["sent"], 0, "a save that came down isn't sent back up");
+
+    // played on the phone: the Deck gets it, each a version
+    played(&sb.join(srm), "b2", 90);
+    assert_eq!(sync_saves(&b)["sent"], 1);
+    assert_eq!(sync_saves(&a)["brought"], 1);
+    assert_eq!(std::fs::read_to_string(sa.join(srm)).unwrap(), "b2");
+    assert_eq!(store.versions(&unit).len(), 2);
+
+    // both played before syncing: the later is the newest, and neither device's save is overwritten
+    played(&sa.join(srm), "a3", 80);
+    played(&sb.join(srm), "b3", 70);
+    assert_eq!(sync_saves(&a)["sent"], 1);
+    let last = sync_saves(&b);
+    assert_eq!(last["conflicts"].as_array().unwrap().len(), 1, "{last}");
+    let st = store.state(&unit).unwrap();
+    assert!(st.conflict && st.against.len() == 1, "{st:?}");
+    assert_eq!(std::fs::read_to_string(&in_lib).unwrap(), "b3");
+    let last = sync_saves(&a);
+    assert_eq!((last["brought"].as_u64(), last["conflicts"].as_array().unwrap().len()), (Some(0), 1), "{last}");
+    assert_eq!(std::fs::read_to_string(sa.join(srm)).unwrap(), "a3", "the Deck keeps its own");
+    let shown = call(&a, "saves", json!({}));
+    let save = shown["games"][ALPHA].as_array().unwrap().iter().find(|u| u["state"] == false).unwrap();
+    assert_eq!(save["conflict"], true, "{shown}");
+
+    // the Deck's chosen in Game Repo: it goes everywhere
+    let deck = store.versions(&unit).into_iter().find(|v| std::fs::read_to_string(store.file(&unit, &v.id, "{name}.srm").unwrap()).unwrap() == "a3").unwrap();
+    store.choose(&unit, &deck.id, "game-repo", "Game Repo").unwrap();
+    assert!(sync_saves(&a)["conflicts"].as_array().unwrap().is_empty());
+    assert_eq!(sync_saves(&b)["brought"], 1);
+    assert_eq!(std::fs::read_to_string(sb.join(srm)).unwrap(), "a3");
+    assert_eq!(store.versions(&unit).len(), 5, "every version kept");
+    for app in [a, b] {
+        app.queue.quit();
+    }
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_devices_page_sees_what_a_device_holds_and_its_changes_wait_for_the_next_connect() {
+    use gamerepo_core::devices::Records;
+    use gamerepo_wire::devices::Change;
+    let dir = temp("go-devices");
+    let lib = library(&dir);
+    let s = start(&lib, &dir.join("server"));
+    let d = a_device(&dir);
+    std::fs::create_dir_all(d.home.join("ROMs/gb")).unwrap();
+    let app = open_app(&dir, &d.home);
+    pair(&app, &s);
+    let records = Records::of(&lib);
+    let all = records.all();
+    // named as it paired (the computer's name on Windows)
+    assert!(all.len() == 1 && all[0].by == "go" && !all[0].name.is_empty(), "{all:?}");
+    let id = all[0].id.clone();
+    // Mine.gb, which ES-DE lists and the library doesn't know, is there
+    std::fs::write(d.home.join("ROMs/gb/Mine.gb"), b"mine").unwrap();
+    call(&app, "sync", json!({}));
+    synced(&app);
+    assert!(records.contents(&id).games.iter().any(|g| g.name == "Mine"), "{:?}", records.contents(&id));
+
+    // a game queued on the Devices page goes into the device's downloads at its next connect
+    let add = Change { action: "add".into(), key: ALPHA.into(), title: "Alpha".into(), system: "gb".into(), ..Default::default() };
+    assert_eq!(records.add(&id, vec![add]).unwrap(), 1);
+    assert!(!d.home.join("ROMs/gb/Alpha (Europe).gb").exists(), "nothing until it connects");
+    call(&app, "sync", json!({}));
+    synced(&app);
+    queue_done(&app);
+    assert!(d.home.join("ROMs/gb/Alpha (Europe).gb").is_file());
+    assert!(records.waiting(&id).is_empty());
+    call(&app, "sync", json!({}));
+    synced(&app);
+    let v = records.view(&id).unwrap();
+    assert_eq!(v["changes"][0]["state"], "done", "{v}");
+    assert!(records.contents(&id).games.iter().any(|g| g.key == ALPHA));
+    assert_eq!(records.holding(ALPHA).len(), 1);
+
+    // and a removal, made without asking again on the device
+    let held = records.contents(&id).games.into_iter().find(|g| g.key == ALPHA).unwrap();
+    let remove = Change { action: "remove".into(), key: ALPHA.into(), game: held.id.clone(), title: "Alpha".into(), ..Default::default() };
+    records.add(&id, vec![remove]).unwrap();
+    call(&app, "sync", json!({}));
+    synced(&app);
+    assert!(!d.home.join("ROMs/gb/Alpha (Europe).gb").exists());
+    assert!(records.waiting(&id).is_empty());
+    call(&app, "sync", json!({}));
+    synced(&app);
+    assert!(records.holding(ALPHA).is_empty());
+    assert!(d.home.join("ROMs/gb/Mine.gb").is_file(), "only what was asked for");
     app.queue.quit();
     s.stop();
     let _ = std::fs::remove_dir_all(&dir);

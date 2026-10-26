@@ -1,0 +1,79 @@
+{
+  "format": 1,
+  "id": "retroarch",
+  "name": "RetroArch",
+  "about": "RetroArch and its cores, as ES-DE starts them on Windows, Linux, the Steam Deck (as a plain install, EmuDeck's or RetroDECK's) and Android. Its retroarch.cfg says where saves and states go (savefile_directory, savestate_directory) and whether they're sorted into folders by the game's folder or by core; saves are named after the game's file.",
+  "kind": "retroarch",
+  "save_format": "retroarch",
+  "processes": ["retroarch", "retroarch.exe"],
+  "configs": {
+    "windows": [
+      "{appdata}/RetroArch/retroarch.cfg",
+      "C:/RetroArch-Win64/retroarch.cfg",
+      "C:/RetroArch/retroarch.cfg",
+      "{appdata}/EmuDeck/Emulators/RetroArch/retroarch.cfg",
+      "{home}/scoop/apps/retroarch/current/retroarch.cfg"
+    ],
+    "linux": [
+      "{home}/.var/app/net.retrodeck.retrodeck/config/retroarch/retroarch.cfg",
+      "{home}/.var/app/org.libretro.RetroArch/config/retroarch/retroarch.cfg",
+      "{config}/retroarch/retroarch.cfg",
+      "{home}/.local/share/Steam/steamapps/common/RetroArch/retroarch.cfg"
+    ],
+    "android": [
+      "{home}/Android/data/com.retroarch/files/retroarch.cfg",
+      "{home}/Android/data/com.retroarch.aarch64/files/retroarch.cfg",
+      "{home}/RetroArch/retroarch.cfg"
+    ]
+  },
+  "saves_folders": {
+    "android": ["{home}/RetroArch/saves"]
+  },
+  "states_folders": {
+    "android": ["{home}/RetroArch/states"]
+  },
+  "saves": [".srm", ".rtc", ".sav"],
+  "state": ".state{slot}",
+  "state_extras": [".png"],
+  "cores": {
+    "nes": "Mesen",
+    "fds": "Mesen",
+    "snes": "Snes9x",
+    "sfc": "Snes9x",
+    "n64": "Mupen64Plus-Next",
+    "gb": "Gambatte",
+    "gbc": "Gambatte",
+    "gba": "mGBA",
+    "nds": "melonDS DS",
+    "virtualboy": "Beetle VB",
+    "pokemini": "PokeMini",
+    "genesis": "Genesis Plus GX",
+    "megadrive": "Genesis Plus GX",
+    "mastersystem": "Genesis Plus GX",
+    "gamegear": "Genesis Plus GX",
+    "segacd": "Genesis Plus GX",
+    "megacd": "Genesis Plus GX",
+    "sg-1000": "Genesis Plus GX",
+    "sega32x": "PicoDrive",
+    "saturn": "Beetle Saturn",
+    "dreamcast": "Flycast",
+    "psx": "Beetle PSX",
+    "psp": "PPSSPP",
+    "pcengine": "Beetle PCE",
+    "pcenginecd": "Beetle PCE",
+    "tg16": "Beetle PCE",
+    "atari2600": "Stella",
+    "atari7800": "ProSystem",
+    "lynx": "Beetle Lynx",
+    "ngp": "Beetle NeoPop",
+    "ngpc": "Beetle NeoPop",
+    "wonderswan": "Beetle WonderSwan",
+    "wonderswancolor": "Beetle WonderSwan",
+    "colecovision": "blueMSX",
+    "msx": "blueMSX",
+    "arcade": "MAME",
+    "mame": "MAME",
+    "fbneo": "FinalBurn Neo",
+    "neogeo": "FinalBurn Neo"
+  }
+}

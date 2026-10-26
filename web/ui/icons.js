@@ -66,6 +66,7 @@ export const Icon = {
   gamepad: (s) => svg(html`<path d="M7 7h10a5 5 0 0 1 4.9 6l-.6 3.2a2.3 2.3 0 0 1-4 1L15 15H9l-2.3 2.2a2.3 2.3 0 0 1-4-1L2.1 13A5 5 0 0 1 7 7z" /><path d="M7.5 10v3M6 11.5h3" /><path d="M15.5 11h.01M17.5 12.5h.01" />`, s),
   audit: (s) => svg(html`<path d="M9 4h6v3H9z" /><path d="M15 5.5h3v15H6v-15h3" /><path d="M9 12l2 2 4-4M9 17h6" />`, s),
   collection: (s) => svg(html`<rect x="4" y="7" width="13" height="14" rx="1.5" /><path d="M7 4h11.5A1.5 1.5 0 0 1 20 5.5V18" /><path d="M8 12h5M8 15.5h5" />`, s),
+  handheld: (s) => svg(html`<rect x="2.5" y="6" width="19" height="12" rx="3" /><rect x="8.5" y="8.5" width="7" height="7" rx="1" /><path d="M5.5 12h1M6 11.5v1M18 11.2v.1M18 12.8v.1" />`, s),
   monitor: (s) => svg(html`<rect x="3" y="4" width="18" height="12" rx="1.5" /><path d="M9 20h6M12 16v4" />`, s),
   scrape: (s) => svg(html`<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 8.5a4 4 0 0 1-.5 8" /><path d="M12 11v9M9 17l3 3 3-3" />`, s),
   database: (s) => svg(html`<ellipse cx="12" cy="5.5" rx="7.5" ry="2.5" /><path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13" /><path d="M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5" />`, s),

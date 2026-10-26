@@ -93,10 +93,14 @@ def png(w, h, rgb):
 
 
 def snapshot(*dirs):
-    """Every file with its bytes' hash and modified time."""
+    """Every file with its bytes' hash and modified time, but those Game Repo Server writes in
+    the library itself (D181): Saves/ and the devices' records."""
     snap = {}
     for d in dirs:
         for p in sorted(Path(d).rglob("*")):
+            r = p.relative_to(d).parts
+            if Path(d) == lib and (r[:1] == ("Saves",) or r[:2] == ("_library", "devices")):
+                continue
             if p.is_file():
                 snap[str(p)] = (hashlib.sha1(p.read_bytes()).hexdigest(), p.stat().st_mtime_ns)
     return snap
@@ -602,6 +606,20 @@ async def main():
             not_on_windows = await pg.query_selector("#set-steam") is None
             app_note = await pg.inner_text("#set-tailscale-app")
             check("on Android, Settings › Tailscale points to Tailscale's own app (D179)", "app of its own for Android" in app_note, app_note)
+            # Settings › Saves (D186): RetroArch's folders from the retroarch.cfg set, and Sync saves now
+            cfg = phone / "RetroArch" / "retroarch.cfg"
+            cfg.parent.mkdir(parents=True, exist_ok=True)
+            cfg.write_text('savefile_directory = ":/saves"\nsavestate_directory = ":/states"\n')
+            on = await pg.is_checked("#set-saves-on")
+            await pg.fill("#set-retroarch", str(cfg))
+            await pg.press("#set-retroarch", "Tab")
+            await pg.wait_for_function("(p) => document.querySelector('#set-saves-retroarch')?.textContent.includes(p)", arg=str(cfg.parent / "saves"))
+            await pg.click("#set-saves-sync")
+            await pg.wait_for_selector("#set-saves-last", timeout=30000)
+            last = await pg.inner_text("#set-saves-last")
+            await shot(pg, "16-settings-saves")
+            check("Settings › Saves syncs saves by default, finds RetroArch's folders from its retroarch.cfg, and Sync saves now syncs them (D182, D186)",
+                  on and "0 sent, 0 brought" in last, last)
             shell(kind="linux", game_mode=True)
             await pg.set_viewport_size({"width": 1280, "height": 800})
             await pg.reload()

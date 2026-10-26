@@ -17,6 +17,7 @@ export const TERMS = [
   ["dat", "DAT", "A list of games and the exact files each is made of (names, sizes and hashes), from No-Intro, Redump, TOSEC, libretro or another tool. The app reads Logiqx XML and ClrMamePro DATs, alone or zipped."],
   ["game", "Game", "One game a DAT lists, and the files that make it up. A ROM, disc image or archive is a file of a game."],
   ["discs", "Games on several discs", "A game a DAT lists disc by disc, (Disc 1), (Disc 2) and so on, is one game: one tile in the Library and one game in a collection, which takes all its discs. Its page lists each disc and its files. Convert makes a CHD of each disc and an .m3u playlist of them beside the CHDs, which the emulators open as one game; for ES-DE an export puts the discs in a folder with their playlist. Audit still counts each disc, as the DAT lists them."],
+  ["saves", "Saves and save states", "A game's save (its battery save or memory card) and its save states, which Game Repo Go sends to the library from each device and gives to your others. Every version is kept in the library's Saves folder. When two devices both played on from the same save, both are kept: the one played last is the newest, the other device keeps its own, and the game's page says Two saves differ until you choose one. A state goes only to devices with the same emulator, which is the only one that can load it."],
   ["main-dat", "Main DAT", "The DAT whose counts are a system's totals on the Audit page, when the system has more than one. Chosen in Audit › DATs…, or with Make it the main DAT in Import › DAT files."],
   ["include-in-audit", "Include in Audit", "Ticked in Audit › DATs… for another DAT of a system (a translation group's, say): Audit checks the files against it too, the files it knows are off Unknown, and its games are in the Library and collections beside the main DAT's."],
   ["full-set", "Audited games", "The games of the DATs Audit checks a system against: its main DAT, those included in Audit and its custom DAT. Collections are made from them."],
@@ -138,6 +139,11 @@ export const PAGES = [
     "In progress marks a game you're playing (as many as you like): it's highlighted, and its page says since when. Completed moves it to the list beside, the newest first, with the date; drag it back, or Back to the backlog, to play it again.",
     "Every change has Undo (Ctrl+Z too). A game opened from either list (a double click or Enter) has Previous and Next through it.",
   ]],
+  ["devices", "Devices", "Your phones, handhelds and PCs with Game Repo Go, each with what it held when it last connected and the changes waiting for it.", [
+    "Choose a device down the side to see its games by system, its free space and when it last connected.",
+    "Add games… finds games in the Library to put on it; tick games and Remove to take them off. Each change waits until the device next connects (Game Repo Go there reaching the library), which adds them to its downloads or removes them; Cancel takes back one not taken yet.",
+    "A game's page says which devices have it, with Send to a device….",
+  ]],
   ["layouts", "Export layouts", "Where an export puts things for ES-DE, RetroArch, Pegasus, LaunchBox, Playnite, a device's firmware or a folder.", [
     "See a layout as a folder tree with a collection's games, change it, and Save as new…; edit its JSON, or import one.",
   ]],
@@ -150,7 +156,7 @@ export const PAGES = [
     "The library's name and folder, how the folders with games are scanned, systems added by hand, naming, preferred formats, and where PC games and their inbox are.",
     "DATs: Update DATs… downloads the newest DAT of each system with one (or every system), Redump's own for the disc systems and libretro's copies for the rest, keeping every version you have to go back to with Use this version.",
     "Sources and their keys, which source each detail comes from and the space details and pictures take, Steam's folder, and tools (dolphin-tool for RVZ, innoextract for GOG installers; CHD, CSO and ZSO the app writes itself).",
-    "Serve to devices: Game Repo Server, which serves the library to Game Repo Go on your phones and handhelds, with Pair a device… and the devices paired. Updates, the index on this computer, the skin and the theme.",
+    "Serve to devices: Game Repo Server, which serves the library to Game Repo Go on your phones and handhelds, with Pair a device… and the devices paired. Saves: whether save states are synced as well as saves, where they're kept and the emulators whose saves are found. Updates, the index on this computer, the skin and the theme.",
   ]],
   ["about", "About", "The app's version and updates, what's changed and what's coming, how a library is laid out, and the licences and credits.", []],
 ];

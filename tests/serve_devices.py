@@ -78,10 +78,14 @@ def run_json(*args):
 
 
 def snapshot(*dirs):
-    """Every file under the folders, with its bytes' SHA-1 and its modified time."""
+    """Every file under the folders, with its bytes' SHA-1 and its modified time, but those
+    Game Repo Server writes in the library itself (D181): Saves/ and the devices' records."""
     files = {}
     for d in dirs:
         for p in sorted(Path(d).rglob("*")):
+            r = p.relative_to(d).parts
+            if Path(d) == lib and (r[:1] == ("Saves",) or r[:2] == ("_library", "devices")):
+                continue
             if p.is_file():
                 st = p.stat()
                 files[str(p.relative_to(home))] = (hashlib.sha1(p.read_bytes()).hexdigest(), st.st_mtime_ns, st.st_size)
@@ -242,7 +246,9 @@ try:
     check("a removed device is refused", refused.returncode != 0 and "pair it again" in refused.stderr, refused.stderr)
 
     # the library as it was
-    check("the library and its folders with games are as they were", snapshot(lib, fixtures / "Roms") == before)
+    after = snapshot(lib, fixtures / "Roms")
+    check("the library and its folders with games are as they were", after == before,
+          sorted(k for k in set(after) | set(before) if after.get(k) != before.get(k)))
 finally:
     run("serve-devices", "stop", "--data", data, ok=False)
     try:

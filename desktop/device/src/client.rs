@@ -265,6 +265,38 @@ impl Server {
         self.call("GET", path, None::<&()>)
     }
 
+    /// A request with these bytes as its body (a save's file, D181).
+    pub fn put_bytes(&self, path: &str, bytes: &[u8]) -> Result<()> {
+        let mut r = self.open()?;
+        let head = send(&mut r, "PUT", path, &[self.auth(), ("Content-Type", "application/octet-stream".into())], bytes)?;
+        let body = read_body(&mut r, &head)?;
+        if head.status != 200 {
+            let message = problem(head.status, &body).to_string();
+            return Err(Refused { status: head.status, message }.into());
+        }
+        Ok(())
+    }
+
+    /// Whether a request is answered 200 (a save's file the server has, say).
+    pub fn has(&self, path: &str) -> Result<bool> {
+        let mut r = self.open()?;
+        let head = send(&mut r, "GET", path, &[self.auth()], &[])?;
+        let _ = read_body(&mut r, &head)?;
+        Ok(head.status == 200)
+    }
+
+    /// A small file's bytes (a save's, D181).
+    pub fn bytes(&self, path: &str) -> Result<Vec<u8>> {
+        let mut r = self.open()?;
+        let head = send(&mut r, "GET", path, &[self.auth()], &[])?;
+        let body = read_body(&mut r, &head)?;
+        if head.status != 200 {
+            let message = problem(head.status, &body).to_string();
+            return Err(Refused { status: head.status, message }.into());
+        }
+        Ok(body)
+    }
+
     /// A request whose answer's body is left to read (a download, for the tests).
     pub fn open_request(&self, method: &str, path: &str) -> Result<(Head, Box<dyn Read + Send>)> {
         let mut r = self.open()?;

@@ -5984,7 +5984,7 @@ upload/delete existing games. Once a device is connected, it's contents should b
 app should allow for making changes to the devices games and they will sync on next connect. In
 most cases I assume this will require the go app to be opened but I'm open to a background
 process." The decisions below are Claude's defaults for that ask, followed unless he says
-otherwise; D190 is put to him.
+otherwise; D190 was put to him, and he chose Claude's recommendation (2026-10-26).
 
 It is two features that share one idea: a device Game Repo has seen is remembered in the
 library, with what it holds, its saves and the changes waiting for it, and whenever the device
@@ -6112,12 +6112,12 @@ its layout), and applies its waiting changes as an Organise change (the export's
 added games, with the gamelists or catalogue entries; removals deleted from the card, since the
 library has them), with History and Undo, and a note of what it did. *Eject* closes it safely.
 
-**D190 Android phones over USB (put to Jerred).** A phone plugged into a PC over USB isn't a
+**D190 Android phones over USB (Jerred, 2026-10-26).** A phone plugged into a PC over USB isn't a
 drive: Windows reaches it only through MTP, which is slow, can't be read like a folder and
 breaks on large copies. Claude's recommendation is that phones and the Deck are reached over
 Wi-Fi through Game Repo Go (D188), which already runs there and does the work on the device, and
-that a phone's SD card in a card reader is a folder device (D189); MTP is left out. Until Jerred
-answers, it's built that way.
+that a phone's SD card in a card reader is a folder device (D189); MTP is left out. Jerred chose
+this ("Wi-Fi through Go, no MTP").
 
 **D191 Saves in Game Repo.** A game's page gets a *Saves* section: the newest save and each
 state with their device, emulator and time, the versions under it, *Put this version back*,
@@ -6136,7 +6136,57 @@ when it was last synced, and its Settings has *Sync saves now* and the backgroun
 4. Folder devices: cards, drives and shares (D189), with their saves.
 5. Background sync (D186): Windows and the Steam Deck, then Android.
 
-## 8. Working in a cloud session
+### Save sync notes, part 1: saves and RetroArch (built 2026-10-26)
+
+What the first pull request built, from the build order above:
+- `gamerepo-wire`'s `saves.rs`: `Unit` (key, format, slot; a state's format is
+  `retroarch:<core>`), `SaveFile` with `{name}` for the game's own file name, `Version`,
+  `UnitState` (`conflict`, `against`: the versions the newest differs from), the requests, and
+  `Profile`, with RetroArch's built in (`wire/saves/retroarch.json`: its settings files on
+  Windows, Linux and Android, the save suffixes, `.state{slot}` with its `.png`, and the core
+  ES-DE starts each system in).
+- `gamerepo-core`'s `saves.rs`: the library's `Saves/` as D181 says. Each save's folder is
+  `Save (<format>)` or `State <slot> (<format>)` with `save.json` (the save and its newest
+  version); versions are `.versions/<made ms>-<device>/`. A device's save whose base isn't the
+  newest is a conflict (`differs`), and `behind` when it was played earlier than the newest.
+- Game Repo Server: `/v1/saves`, `/v1/saves/blob/<sha1>` (each file sent first, checked by its
+  SHA-1, up to 512 MB), `/v1/saves/versions`, `/v1/saves/file`.
+- Game Repo Go: RetroArch found from its `retroarch.cfg` (or the one set in Settings ›
+  Saves), its folders read for the games held (sorted by content or by core as the settings
+  say; a state's core from its folder, else the system's usual core), and synced after each
+  read of the library, every five minutes and with *Sync saves now*. A save is sent once it's
+  been still for 30 seconds; nothing is written while RetroArch runs; a device whose last
+  version is a side of a conflict keeps its own (D184).
+- Game Repo: a game's Saves section and Settings › Saves (states on or off, the folder, the
+  profiles). Saves not matched (D183's last two ways, title IDs and names alone) come with the
+  standalone emulators in part 2, which need title IDs anyway.
+- Tests: the store's versions and conflicts (core), RetroArch's settings and folders (device),
+  two devices syncing a save and a state through the server, with a conflict and *Use this one*
+  (`serve/tests/client.rs`), the game page and Settings › Saves (`desktop_page.py`, its own
+  home), and Go's Settings › Saves (`client_page.py`). Not tried with a real RetroArch on a
+  device yet.
+
+### Save sync notes, part 2: the Devices page with Game Repo Go devices (built 2026-10-26)
+
+Built second, ahead of the other emulators' profiles, since those need title IDs and the
+paths checked on real installs (the build order's 2 and 3 swapped).
+- `gamerepo-wire`'s `devices.rs` and `gamerepo-core`'s `devices.rs` (`Records`): the records of
+  D187 in `_library/devices/<id>/`. A change queued for a game already waiting isn't queued
+  twice; adding a game waiting to be removed (or the other way round) takes that one back.
+- Game Repo Server: `PUT /v1/device/contents` writes `device.json` and `contents.json` from
+  what Go sends; `GET /v1/device/queue` gives the changes waiting; `POST /v1/device/done` adds
+  their outcomes (`taken`: in Go's downloads; `done`; `failed`, tried again next time).
+- Game Repo Go: after each read of the library, `take_changes` (added games into the
+  downloads, removals made as *On this device* makes them, without asking again) and then
+  `tell_contents` (*On this device*'s rows and the free space).
+- Game Repo: the *Devices* page in the menu (after Backlog's group), a device's games by
+  system with Remove, its changes with Cancel, Add games…, Forget this device; a game's page has
+  Devices (which hold it, Send to a device…). An added game shows as done once the device
+  reports it.
+- Tests: the records (core), a Go device sending its contents, taking an add and a removal
+  from the queue at its next connects (`serve/tests/client.rs`), and the page
+  (`desktop_page.py`, its own home "devices").
+
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
   blocked in many cloud sessions, so `vendor.yml` pushes the dependencies of every crate
@@ -6282,7 +6332,7 @@ when it was last synced, and its Settings has *Sync saves now* and the backgroun
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D192). D180–D191 are in "Save sync and the Devices page" (2026-10-26), Claude's defaults for Jerred's ask, D190 (phones over USB) put to him, followed unless he says otherwise. D179 is in "Setting up Tailscale on the Steam Deck" (2026-10-24), Jerred's agreement to Claude's suggestion, revised and built on 2026-10-25 as he asked (the installer in the app, Game Repo's own since the community script has no licence), with Claude's defaults for the details. D177–D178 are in "The October 2026 review's fixes, convert on import and tool downloads" (2026-10-24): Jerred's asks, with his choice to download and verify the tools (Tesseract's page), the rest Claude's defaults, followed unless he says otherwise. D174–D176 are in "Games on several discs as one" (2026-10-23), Jerred's ask with his choice of a CHD per disc and a playlist, and Claude's defaults for the rest, followed unless he says otherwise. D172–D173 are in "Updating every system's DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D168–D171 are in "Set aside in History, PC games as a shelf, the Documents grid, a collection's systems" (2026-10-23), Claude's defaults for Jerred's list, followed unless he says otherwise. D165–D167 are in "Adding a system, PlayStation 5 and Redump's own DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D192). D180–D191 are in "Save sync and the Devices page" (2026-10-26), Claude's defaults for Jerred's ask, D190 (phones over USB) his choice of Claude's recommendation, the rest followed unless he says otherwise. D179 is in "Setting up Tailscale on the Steam Deck" (2026-10-24), Jerred's agreement to Claude's suggestion, revised and built on 2026-10-25 as he asked (the installer in the app, Game Repo's own since the community script has no licence), with Claude's defaults for the details. D177–D178 are in "The October 2026 review's fixes, convert on import and tool downloads" (2026-10-24): Jerred's asks, with his choice to download and verify the tools (Tesseract's page), the rest Claude's defaults, followed unless he says otherwise. D174–D176 are in "Games on several discs as one" (2026-10-23), Jerred's ask with his choice of a CHD per disc and a playlist, and Claude's defaults for the rest, followed unless he says otherwise. D172–D173 are in "Updating every system's DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D168–D171 are in "Set aside in History, PC games as a shelf, the Documents grid, a collection's systems" (2026-10-23), Claude's defaults for Jerred's list, followed unless he says otherwise. D165–D167 are in "Adding a system, PlayStation 5 and Redump's own DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 

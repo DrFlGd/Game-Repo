@@ -119,7 +119,9 @@ pub fn read_request<R: BufRead>(r: &mut R) -> Result<Option<Request>> {
         bail!("chunked bodies aren't taken");
     }
     let len: usize = req.header("content-length").map(|l| l.parse()).transpose()?.unwrap_or(0);
-    if len > MAX_BODY {
+    // a save's file can be bigger (D181)
+    let max = if req.path.starts_with("/v1/saves/blob/") { gamerepo_wire::saves::MAX_FILE as usize } else { MAX_BODY };
+    if len > max {
         bail!("the request's body is too long");
     }
     req.body = vec![0; len];

@@ -24,6 +24,7 @@ export const go = createStore({
   libraryRev: 0,               // counts the catalogue's changes, so lists read again
   deviceRev: 0,                // counts the device's changes (On this device)
   queueRev: 0,
+  savesRev: 0,                 // counts the saves' syncs (D186)
   tailscaleRev: 0,             // counts what Tailscale's doing changing while a set-up runs (D179)
   deviceSort: "system",        // On this device's order (D115)
   roomFor: 0,                  // Make room: the bytes the Library's selected games need
@@ -143,6 +144,8 @@ export async function load() {
       statusSoon();
     } else if (what === "update") {
       refreshUpdates();
+    } else if (what === "saves") {
+      go.set((s) => ({ savesRev: s.savesRev + 1 }));
     } else if (what === "tailscale") {
       go.set((s) => ({ tailscaleRev: s.tailscaleRev + 1 }));
     }

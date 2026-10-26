@@ -23,6 +23,7 @@ import { Icon } from "./icons.js";
 import { ServePanel } from "./serve.js";
 import { UpdatePanel } from "./updates.js";
 import { readMagazines } from "./magazines.js";
+import { SavesSettings } from "./saves.js";
 
 function RenameForm({ lib }) {
   const [name, setName] = useState(lib.name || "");
@@ -568,7 +569,7 @@ export function Settings() {
         <ul class="ls-list" id="recent-libraries">${others.map((p) => html`<li key=${p}><span>${p}</span>
           <button type="button" class="ghost" onClick=${() => openLibrary(p)}>Open</button></li>`)}</ul>` : null}
     </section>
-    ${lib ? html`<${ScanSection} lib=${lib} key=${`s-${lib.path}`} /><${SystemsSection} lib=${lib} /><${DatUpdatesSection} lib=${lib} key=${`d-${lib.path}`} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${LayoutsSection} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${MetadataSection} lib=${lib} key=${`m-${lib.path}`} /><${ServePanel} call=${api} />` : null}
+    ${lib ? html`<${ScanSection} lib=${lib} key=${`s-${lib.path}`} /><${SystemsSection} lib=${lib} /><${DatUpdatesSection} lib=${lib} key=${`d-${lib.path}`} /><${NamingSection} lib=${lib} key=${`n-${lib.path}`} /><${FormatsSection} lib=${lib} /><${LayoutsSection} /><${PcSettings} lib=${lib} key=${`pc-${lib.path}`} /><${MetadataSection} lib=${lib} key=${`m-${lib.path}`} /><${ServePanel} call=${api} /><${SavesSettings} lib=${lib} key=${`sv-${lib.path}`} />` : null}
     <${SourcesSettings} />
     <${SteamSettings} />
     <${ToolsSection} />

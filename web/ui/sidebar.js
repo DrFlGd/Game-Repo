@@ -49,6 +49,7 @@ export function Sidebar() {
         <${NavLink} route="documents" label="Documents" icon="book" current=${s.route} off=${!s.open} child=${true} />
         <${NavLink} route="collections" label="Collections" icon="collection" current=${s.route} off=${!s.open} />
         <${NavLink} route="backlog" label="Backlog" icon="list" current=${s.route} off=${!s.open} child=${true} />
+        <${NavLink} route="devices" label="Devices" icon="handheld" current=${s.route} off=${!s.open} />
         <${NavLink} route="layouts" label="Export layouts" icon="layers" current=${s.route} off=${!s.open} />
         <${NavLink} route="history" label="History" icon="clock" current=${s.route} off=${!s.open} />
       </ul>
