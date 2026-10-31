@@ -28,7 +28,7 @@ import { identifyDialog, PcParts, pcLine, removePc, unmatchPc } from "./pcgames.
 import { convertDialog } from "./organise.js";
 import { opened, gameHash, systemColour, libraryHash, addonLabel, discsLine } from "./browse.js";
 import { Icon } from "./icons.js";
-import { Inspector } from "./panels.js";
+import { Inspector, argHash } from "./panels.js";
 import { isVideo, Video } from "./video.js";
 import { watch, videoFacts } from "./videos.js";
 import { variantDialog, undoVariants } from "./variants.js";
@@ -376,6 +376,9 @@ export function GamePage() {
         : html`<p class="muted">None yet.${dat ? " Attach your own (or drop files on this page), or scrape its manual." : pc ? " Attach your own (or drop files on this page): a manual, a guide, a map." : ""}</p>`}
       ${(dat || pc) && isDesktop() ? html`<button type="button" class="ghost compact" id="game-attach" disabled=${off} onClick=${() => attach()}>${Icon.file(14)} Attach documents…</button>` : null}
     </section>
+    ${dat || pc ? html`<section class="ls-section" id="game-cheats"><h2>Cheats</h2>
+      <p class="muted">${g.cheats ? html`${plural(g.cheats, "cheat", "cheats")}. <a href=${argHash("cheats", g.key)}>Edit them on the Cheats page</a>.` : html`None yet. <a href=${argHash("cheats", g.key)}>Get or make them on the Cheats page</a>.`}</p>
+    </section>` : null}
     ${g.magazines?.length ? html`<section class="ls-section" id="game-magazines"><h2>In magazines</h2>
       <ul class="ls-list">${g.magazines.map((x) => html`<li key=${x.path} data-path=${x.path}><span>${x.title}</span>
         <span class="mag-game-pages">${x.pages.length ? x.pages.map((p) => html`<button type="button" class="linkish" key=${p} data-page=${p} disabled=${!x.doc} title=${`Read page ${p}`} onClick=${() => viewDoc(x.doc, { page: p, find: g.title })}>p. ${p}</button>`)

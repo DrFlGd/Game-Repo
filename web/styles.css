@@ -2112,3 +2112,14 @@ html.drop-over-import #main-root { outline: 2px dashed var(--accent-edge); outli
 .import-places li.import-place small.warn { color: var(--warn, #b45309); }
 .subset-unknown li.import-unknown { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: nowrap; }
 .game-variant-of { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 4px 0; font-weight: 600; }
+
+/* Cheats (D199): a .cht's cheats as rows, the emulators' files as text */
+.cheats-editor { display: grid; gap: 10px; min-width: 0; }
+.cheats-top { margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); background: var(--white); }
+.cheat-file h3 { margin: 4px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+.cheat-rows { gap: 6px; }
+.cheat-row { align-items: flex-start !important; border-bottom: 1px solid var(--steel-2); padding-bottom: 6px !important; }
+.cheat-fields { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.cheat-fields input, .cheat-fields textarea, .cheat-text-box { width: 100%; box-sizing: border-box; }
+.cheat-code, .cheat-text-box { font-family: var(--mono, ui-monospace, Consolas, monospace); font-size: 12.5px; padding: 5px 7px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); background: var(--white); color: var(--ink); resize: vertical; }
+.cheat-moves { display: flex; flex: none !important; gap: 2px; }

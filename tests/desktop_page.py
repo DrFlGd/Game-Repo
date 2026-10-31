@@ -58,6 +58,7 @@ import base64
 import functools
 import hashlib
 import http.server
+import io
 import json
 import os
 import shutil
@@ -86,6 +87,7 @@ ap.add_argument("--home", required=True)
 ap.add_argument("--out", default="shots")
 ap.add_argument("--port", type=int, default=8790)
 ap.add_argument("--chromium", help="a Chromium to use instead of Playwright's own")
+ap.add_argument("--only", help="run only this part with a home of its own (a name in OWN_HOMES), to try one locally")
 a = ap.parse_args()
 out = Path(a.out)
 out.mkdir(parents=True, exist_ok=True)
@@ -1607,8 +1609,109 @@ async def card_device(pg, base, home, library):
           and not await pg.query_selector("#device-eject"), (said, in_lib.is_file(), line))
 
 
+def cheat_pack(entries):
+    """A zip shaped as libretro's cheats.zip: `<system>/<game>.cht`, each with its cheats."""
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, cheats in entries:
+            body = f"cheats = {len(cheats)}\n" + "".join(f'\ncheat{i}_desc = "{d}"\ncheat{i}_code = "{c}"\ncheat{i}_enable = false\n' for i, (d, c) in enumerate(cheats))
+            z.writestr(name, body)
+    return buf.getvalue()
+
+
+async def cheats_page(pg, base, home, library):
+    """D197–D199: Get cheats… fetches libretro's pack (a stand-in here), brings in the file
+    named after a game you have and offers one of the same title for a yes; the Cheats page
+    lists the game, its panel edits the .cht as a list (a cheat added and saved, its version
+    before kept), a game's page links there, and Games without cheats lists the rest."""
+    gb = home / "GB"
+    gb.mkdir()
+    alpha, beta, gamma = make_fixtures.rom(61, 1024), make_fixtures.rom(62, 1024), make_fixtures.rom(63, 1024)
+    for n, r in (("Cheat Alpha (USA).gb", alpha), ("Cheat Beta (Japan).gb", beta), ("Cheat Gamma (World).gb", gamma)):
+        (gb / n).write_bytes(r)
+    dat = home / "gb.dat"
+    dat.write_text(make_fixtures.logiqx("Nintendo - Game Boy", "20261001", [
+        ("Cheat Alpha (USA)", None, [make_fixtures.rom_xml("Cheat Alpha (USA).gb", alpha)]),
+        ("Cheat Beta (Japan)", None, [make_fixtures.rom_xml("Cheat Beta (Japan).gb", beta)]),
+        ("Cheat Gamma (World)", None, [make_fixtures.rom_xml("Cheat Gamma (World).gb", gamma)]),
+    ]))
+    pick(gb, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    pick(dat, base)
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await back_home(pg, base)
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    # the stand-in for libretro's buildbot
+    d = home / "cheat-source"
+    d.mkdir()
+    (d / "cheats.zip").write_bytes(cheat_pack([
+        ("Nintendo - Game Boy/Cheat Alpha (USA).cht", [("Infinite Lives", "C0DE0001"), ("Max Score", "C0DE0002")]),
+        ("Nintendo - Game Boy/Cheat Beta (USA).cht", [("Level Select", "C0DE0003")]),
+        ("Nintendo - Super Nintendo Entertainment System/Cheat Alpha (USA).cht", [("Another system's", "C0DE0004")]),
+    ]))
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(d))
+    handler.log_message = lambda *args: None
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    cfg_path = home / "config" / "config.json"
+    cfg = json.loads(cfg_path.read_text()) if cfg_path.is_file() else {}
+    cfg["cheats_source"] = f"http://127.0.0.1:{srv.server_port}"
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text(json.dumps(cfg))
+    await pg.click('.sidebar a[href="#/cheats"]')
+    await pg.wait_for_selector("#cheats-empty")
+    await pg.click("#cheats-get")
+    await pg.wait_for_selector("#cheats-found li", timeout=20000)
+    rows = await pg.eval_on_selector_all("#cheats-found li", "els => els.map(e => [e.dataset.key, e.dataset.pairing, e.dataset.include])")
+    said = await pg.inner_text("#cheats-found-dialog")
+    await pg.screenshot(path=str(out / "90-cheats-found.png"))
+    check("Get cheats… finds libretro's file named after a game you have (ticked) and one of the same title for another release (left for a yes) (D198)",
+          ["gb/Cheat Alpha (USA)", "sure", "yes"] in rows and ["gb/Cheat Beta (Japan)", "likely", "no"] in rows and len(rows) == 2
+          and "matched by a close name" in said and "CC BY-SA" in said, (rows, said))
+    await pg.click("#cheats-found-dialog button[type=submit]")
+    await pg.wait_for_selector("#cheats-found-dialog .op-paths", timeout=15000)
+    await pg.click("#cheats-found-dialog button[type=submit]")
+    await toast_text(pg, "cheats|Brought")
+    item = '#cheats-items [data-id="gb/Cheat Alpha (USA)"]'
+    await pg.wait_for_selector(item, timeout=15000)
+    meta = await pg.inner_text(item)
+    on_disk = library / "_library" / "games" / "gb" / "Cheat Alpha (USA)" / "cheats" / "Cheat Alpha (USA).cht"
+    check("the game is on the Cheats page with its cheats, kept in its folder's cheats/ (D197, D199)",
+          "2 cheats" in meta and on_disk.is_file() and "Infinite Lives" in on_disk.read_text(), (meta, on_disk))
+    await pg.click(item)
+    await pg.wait_for_selector("#cheats-panel .cheat-row")
+    await pg.click('#cheats-panel [data-action="add-cheat"]')
+    await pg.fill("#cheats-panel .cheat-row:last-child .cheat-desc", "Moon Jump")
+    await pg.fill("#cheats-panel .cheat-row:last-child .cheat-code", "C0DE0009")
+    await pg.check("#cheats-panel .cheat-row:last-child .cheat-enable")
+    await pg.click('#cheats-panel .cheat-list [data-action="save"]')
+    await toast_text(pg, "Saved")
+    await pg.wait_for_function("() => document.querySelectorAll('#cheats-panel .cheat-row').length === 3 && /Versions… \\(1\\)/.test(document.querySelector('#cheats-panel [data-action=versions]')?.textContent)")
+    text = on_disk.read_text()
+    await pg.screenshot(path=str(out / "91-cheats-edit.png"))
+    check("a cheat added in the panel is saved to the .cht, on at start, with the version before kept (D199)",
+          'cheat2_desc = "Moon Jump"' in text and "cheat2_enable = true" in text and "cheats = 3" in text, text)
+    await pg.goto(base + "#/game/gb/Cheat%20Alpha%20(USA)")
+    await pg.wait_for_selector("#game-cheats a", timeout=15000)
+    line = await pg.inner_text("#game-cheats")
+    await pg.click("#game-cheats a")
+    await pg.wait_for_selector("#cheats-top .cheat-row", timeout=15000)
+    check("a game's page says how many cheats it has, and its link opens them on the Cheats page", "3 cheats" in line, line)
+    await pg.click('#cheats-show [data-show="without"]')
+    await pg.wait_for_selector('#cheats-items [data-id="gb/Cheat Gamma (World)"]', timeout=15000)
+    without = await pg.eval_on_selector_all("#cheats-items [data-id]", "els => els.map(e => e.dataset.id)")
+    check("Games without cheats lists the games you have with none", "gb/Cheat Gamma (World)" in without and "gb/Cheat Alpha (USA)" not in without, without)
+    await pg.click('#cheats-show [data-show="with"]')
+    srv.shutdown()
+
+
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device)]
+             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device), ("cheats", cheats_page)]
 
 
 async def main():
@@ -1631,6 +1734,16 @@ async def main():
                     except Exception:
                         pass
             pg.on("response", lambda r: asyncio.ensure_future(refused(r)))
+            if a.only:
+                for i, (name, part) in enumerate(OWN_HOMES, 1):
+                    if name == a.only:
+                        await own_home(b, name, a.port + i, part)
+                await b.close()
+                for e in errors:
+                    print("PAGE ERROR:", e)
+                failed = [n for n, ok in results if not ok]
+                print(f"{len(results) - len(failed)} of {len(results)} checks passed")
+                return 1 if failed or errors or not results else 0
             await pg.goto(B)
             await pg.wait_for_selector("#first-run", timeout=30000)
 
@@ -1668,7 +1781,7 @@ async def main():
                 active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
                 lead = await pg.inner_text("#audit-empty")
                 check("the menu's places open, with the pages still to come saying what they'll do",
-                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Backlog", "Devices", "Export layouts", "History", "Settings", "Help", "About"]
+                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Cheats", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Backlog", "Devices", "Export layouts", "History", "Settings", "Help", "About"]
                       and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
                 await pg.screenshot(path=str(out / "01-coming.png"))
 
