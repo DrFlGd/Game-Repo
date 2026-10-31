@@ -175,13 +175,18 @@ function TailscaleSettings() {
 function SavesSettings({ settings, set, paired }) {
   const rev = useStore(go, (x) => x.savesRev);
   const [sv, setSv] = useState(null);
-  useEffect(() => { call("saves").then(setSv).catch(() => setSv(null)); }, [rev, settings.saves, settings.retroarch, JSON.stringify(settings.save_folders || {})]);
+  useEffect(() => { call("saves").then(setSv).catch(() => setSv(null)); }, [rev, settings.saves, settings.background_saves, settings.retroarch, JSON.stringify(settings.save_folders || {})]);
   const last = sv?.last;
   const ra = sv?.retroarch;
   return html`<section class="go-set" id="set-saves">
     <h2>Saves</h2>
     <label class="check-row"><input type="checkbox" id="set-saves-on" checked=${settings.saves} onChange=${() => set({ saves: !settings.saves })} />
       <span>Sync saves and save states with the library</span></label>
+    ${sv?.background?.can ? html`<label class="check-row"><input type="checkbox" id="set-saves-background" checked=${settings.background_saves} disabled=${!settings.saves} onChange=${() => set({ background_saves: !settings.background_saves })} />
+      <span>Sync them in the background too, with Game Repo Go closed</span></label>
+      <p class="muted" id="set-saves-background-note">${sv.background.error ? html`<span class="warn-note">${sv.background.error}</span>` : settings.saves && settings.background_saves && paired
+        ? `Every ${sv.background.every} minutes while you're signed in (${navigator.userAgent.includes("Windows") ? "a task in Windows' Task Scheduler" : "a systemd timer, in Game Mode too"}).`
+        : "Saves are synced only while Game Repo Go is open."}</p>` : null}
     <p class="muted">Each game's saves go to the library, every version kept, and saves played on your other devices come here when Game Repo Go is open. A save is never written while its emulator is running, and one played both here and elsewhere is kept as it is here until you choose one in Game Repo.</p>
     ${sv ? html`<p id="set-saves-retroarch" class=${ra ? null : "warn-note"}>${ra ? `RetroArch's saves are in ${ra.saves || "the games' own folders"}${ra.states && ra.states !== ra.saves ? `, its states in ${ra.states}` : ""}${ra.config ? ` (as ${ra.config} says)` : ""}.` : "RetroArch isn't found on this device: set where its retroarch.cfg is below."}</p>` : null}
     ${last?.at ? html`<p class="muted" id="set-saves-last">Last synced ${ago(last.at)}: ${count(last.sent)} sent, ${count(last.brought)} brought${last.waiting ? `, ${count(last.waiting)} waiting for an emulator to close` : ""}.${last.error ? ` ${last.error}` : ""}</p>` : null}

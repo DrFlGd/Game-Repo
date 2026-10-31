@@ -10,7 +10,8 @@
 // (D97). On Linux it can add itself to Steam and open Steam's keyboard (D107). It opens full
 // screen in Steam's Game Mode, or as Settings says (D127). It updates itself: on Windows and
 // Linux with gamerepo-update (D134), on Android with android_updates.rs (D139), `update_*`
-// through the `api` command.
+// through the `api` command. On Windows and Linux it syncs saves with its window closed too,
+// started every few minutes with `--sync-saves` (D186, gamerepo_device::background).
 
 #[cfg(not(target_os = "android"))]
 mod secrets;
@@ -277,6 +278,20 @@ fn watch(app: AppHandle) {
     });
 }
 
+/// The sync of saves in the background (D186): started with `--sync-saves <data folder>`
+/// every few minutes, with no window; it syncs once and ends. False: it couldn't open.
+#[cfg(desktop)]
+pub fn sync_saves_alone(data: &std::path::Path) -> bool {
+    let homes = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(std::path::PathBuf::from).into_iter().collect();
+    match App::open_with(data, homes, KIND, secrets::store(data), Box::new(|_| {}), true) {
+        Ok(go) => {
+            go.sync_saves_now();
+            true
+        }
+        Err(_) => false,
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     static HANDLE: OnceLock<AppHandle> = OnceLock::new();
@@ -315,6 +330,15 @@ pub fn run() {
             let go = App::open(&data, homes, KIND, kept, events)?;
             #[cfg(target_os = "linux")]
             go.set_own(own(&data));
+            // saves synced with the window closed too (D186): set up (or taken away) as Settings say
+            #[cfg(desktop)]
+            {
+                let program = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from).filter(|_| cfg!(target_os = "linux")).or_else(|| std::env::current_exe().ok());
+                if let Some(p) = program {
+                    let go = go.clone();
+                    std::thread::spawn(move || go.set_background(&p, true));
+                }
+            }
             app.manage(Go { app: go, hidden: AtomicBool::new(false) });
             #[cfg(desktop)]
             {

@@ -109,6 +109,9 @@ pub struct Settings {
     /// Each emulator's own folder when it isn't where it's looked for (D193), by its
     /// profile's id
     pub save_folders: BTreeMap<String, String>,
+    /// Saves synced with Game Repo Go closed too (D186): Windows' Task Scheduler, a systemd
+    /// user timer on Linux and the Steam Deck
+    pub background_saves: bool,
 }
 
 impl Default for Settings {
@@ -135,6 +138,7 @@ impl Default for Settings {
             saves: true,
             retroarch: String::new(),
             save_folders: BTreeMap::new(),
+            background_saves: true,
         }
     }
 }
@@ -209,6 +213,9 @@ pub struct App {
     root: Mutex<PathBuf>,
     /// A sync of saves going on (D186)
     saving: Mutex<bool>,
+    /// The program the sync in the background starts, whether it's really set up (not the
+    /// stand-in's), and what went wrong setting it up last (D186)
+    background: Mutex<Option<(PathBuf, bool, String)>>,
 }
 
 /// While Go is open, saves are synced this often (D186).
@@ -244,6 +251,12 @@ impl App {
     /// The client with its data in `data`, ES-DE looked for in `homes` (each with an
     /// `ES-DE` folder), `kind` being what it tells the library it is (windows, android).
     pub fn open(data: &Path, homes: Vec<PathBuf>, kind: &str, secrets: Box<dyn Secrets>, events: Box<dyn Fn(&str) + Send + Sync>) -> Result<Arc<App>> {
+        Self::open_with(data, homes, kind, secrets, events, false)
+    }
+
+    /// The same, `alone` for the sync in the background (D186): no downloads, nothing on a
+    /// timer, only what [`App::sync_saves_now`] asks for.
+    pub fn open_with(data: &Path, homes: Vec<PathBuf>, kind: &str, secrets: Box<dyn Secrets>, events: Box<dyn Fn(&str) + Send + Sync>, alone: bool) -> Result<Arc<App>> {
         std::fs::create_dir_all(data)?;
         let settings: Settings = std::fs::read(data.join("settings.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let catalogue = Arc::new(Catalogue::open(data)?);
@@ -260,8 +273,11 @@ impl App {
                     }
                 }),
             );
-            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default(), root: Mutex::new(PathBuf::from("/")), saving: Mutex::new(false) }
+            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default(), root: Mutex::new(PathBuf::from("/")), saving: Mutex::new(false), background: Mutex::default() }
         });
+        if alone {
+            return Ok(app);
+        }
         let me = Arc::downgrade(&app);
         app.queue.on_away(Box::new(move || me.upgrade().is_some_and(|a| a.find_again())));
         app.queue.start();
@@ -393,6 +409,7 @@ impl App {
                 self.secrets.delete("server")?;
                 self.catalogue.forget()?;
                 self.update_settings(|s| s.library.clear())?;
+                self.background_again();
                 self.changed("sync");
                 json!({})
             }
@@ -606,6 +623,10 @@ impl App {
                 if (&old.esde, &old.roms, &old.pc_games) != (&new.esde, &new.roms, &new.pc_games) {
                     self.changed("device");
                 }
+                if (old.saves, old.background_saves) != (new.saves, new.background_saves) {
+                    self.background_again();
+                    self.changed("saves");
+                }
                 json!(new)
             }
             _ => bail!("There's no command {cmd}."),
@@ -676,6 +697,7 @@ impl App {
             let _ = old.call::<Value>("DELETE", "/v1/device", None::<&()>);
         }
         self.secrets.set("server", &serde_json::to_string(&s)?)?;
+        self.background_again();
         self.update_settings(|x| {
             x.library = info.library.clone();
             if x.name.trim().is_empty() {
@@ -876,15 +898,56 @@ impl App {
         let Some(app) = self.me.upgrade() else { return };
         std::thread::spawn(move || {
             app.changed("saves");
-            let found: Vec<(gamerepo_wire::saves::Profile, saves::At)> = app.emulators().into_iter().filter_map(|(p, at)| Some((p, at?))).collect();
-            if let (Some(s), Ok(d), false) = (app.server(), app.device(), found.is_empty()) {
-                let held = app.held_for_saves();
-                let heres: Vec<saves::Here> = found.iter().map(|(p, at)| saves::Here { profile: p, at: at.clone(), roms: d.places["roms"].clone(), emulator: p.name.clone() }).collect();
-                saves::sync(&s, &app.data, &heres, &held);
-            }
+            app.sync_once();
             *app.saving.lock().unwrap_or_else(|e| e.into_inner()) = false;
             app.changed("saves");
         });
+    }
+
+    fn sync_once(&self) -> Option<saves::Summary> {
+        let found: Vec<(gamerepo_wire::saves::Profile, saves::At)> = self.emulators().into_iter().filter_map(|(p, at)| Some((p, at?))).collect();
+        let (Some(s), Ok(d), false) = (self.server(), self.device(), found.is_empty()) else { return None };
+        let held = self.held_for_saves();
+        let heres: Vec<saves::Here> = found.iter().map(|(p, at)| saves::Here { profile: p, at: at.clone(), roms: d.places["roms"].clone(), emulator: p.name.clone() }).collect();
+        Some(saves::sync(&s, &self.data, &heres, &held))
+    }
+
+    /// One sync of saves, waited for: the background's (D186). None: nothing to sync (saves
+    /// off, not paired, no emulator found).
+    pub fn sync_saves_now(&self) -> Option<saves::Summary> {
+        if !self.settings().saves || !self.settings().background_saves {
+            return None;
+        }
+        self.sync_once()
+    }
+
+    /// The sync in the background set up as Settings say (D186), for this program: on while
+    /// it's paired and saves are synced, else taken away; again each time they change.
+    /// `real` false only writes systemd's units, in the first home (the stand-in).
+    pub fn set_background(&self, program: &Path, real: bool) {
+        *self.background.lock().unwrap_or_else(|e| e.into_inner()) = Some((program.to_path_buf(), real, String::new()));
+        self.background_again();
+    }
+
+    fn background_again(&self) {
+        let mut b = self.background.lock().unwrap_or_else(|e| e.into_inner());
+        let Some((program, real, error)) = b.as_mut() else { return };
+        let s = self.settings();
+        let on = s.saves && s.background_saves && self.server().is_some();
+        let dir = self.units_dir(*real);
+        *error = match crate::background::set(on, &crate::background::command(program, &self.data), &dir, *real) {
+            Ok(()) => String::new(),
+            Err(e) => format!("{e:#}"),
+        };
+    }
+
+    fn units_dir(&self, real: bool) -> PathBuf {
+        let home = self.homes.lock().unwrap_or_else(|e| e.into_inner()).first().cloned().unwrap_or_default();
+        if real {
+            crate::background::units_dir(&home)
+        } else {
+            home.join(".config").join("systemd").join("user")
+        }
     }
 
     /// Settings › Saves and a game's page (D191): the last sync, what each save was synced
@@ -921,8 +984,19 @@ impl App {
             "last": kept.last,
             "retroarch": ra,
             "emulators": list,
+            "background": self.background_status(),
             "games": games,
         })
+    }
+
+    /// The sync in the background (D186): whether this program can set one up (Windows,
+    /// Linux), whether it's set up, and what went wrong.
+    fn background_status(&self) -> Value {
+        let b = self.background.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        match b {
+            Some((_, real, error)) => json!({ "can": true, "set": crate::background::is_set(&self.units_dir(real), real), "error": error, "every": crate::background::EVERY_MINUTES }),
+            None => json!({ "can": false }),
+        }
     }
 
     /// After PC games are removed (D112): their Steam shortcuts taken out, and the files

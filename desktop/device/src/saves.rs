@@ -645,6 +645,16 @@ impl Here<'_> {
 /// brought when only the library did, and a conflict when both did (the device's kept, and
 /// sent as a version of its own).
 pub fn sync(s: &Server, data: &Path, heres: &[Here], held: &[Held]) -> Summary {
+    // one sync at a time, whichever program it's in: Go's window, or the one in the background (D186)
+    let lock = std::fs::create_dir_all(data).and_then(|_| std::fs::File::options().create(true).truncate(false).write(true).open(data.join("saves.lock")));
+    let _held = match lock {
+        Ok(f) => match f.try_lock() {
+            Ok(()) => Some(f),
+            Err(std::fs::TryLockError::WouldBlock) => return load(data).last,
+            Err(_) => None,
+        },
+        Err(_) => None,
+    };
     let mut kept = load(data);
     let mut sum = Summary { at: now(), ..Default::default() };
     let mut errors = vec![];

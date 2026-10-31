@@ -10,6 +10,7 @@
 //! that holds `ES-DE/` and `ROMs/`; 9b's client is built on it too.
 
 pub mod app;
+pub mod background;
 pub mod catalogue;
 pub mod client;
 pub mod installs;

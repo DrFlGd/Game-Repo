@@ -637,6 +637,20 @@ async def main():
                   {"dolphin", "ppsspp", "pcsx2", "duckstation"} <= set(emus) and str(psp) in found and kept.get("ppsspp") == str(psp), f"{emus} {found} {kept}")
             await pg.fill(box, "")
             await pg.press(box, "Tab")
+            # saves synced in the background too, on by default (D186): its timer written, taken away when turned off
+            timer = phone / ".config" / "systemd" / "user" / "game-repo-go-saves.timer"
+            service = phone / ".config" / "systemd" / "user" / "game-repo-go-saves.service"
+            bg_on = await pg.is_checked("#set-saves-background")
+            note = await pg.inner_text("#set-saves-background-note")
+            # (systemd's quoting doubles a Windows path's backslashes)
+            written = timer.is_file() and "--sync-saves" in service.read_text() and str(go_data).replace("\\", "\\\\") in service.read_text()
+            await pg.click("#set-saves-background")
+            await pg.wait_for_function("() => document.querySelector('#set-saves-background-note')?.textContent.includes('only while')")
+            gone = not timer.exists()
+            await pg.click("#set-saves-background")
+            await pg.wait_for_function("() => document.querySelector('#set-saves-background-note')?.textContent.includes('Every 5 minutes')")
+            check("Settings › Saves syncs in the background too by default, every 5 minutes, its timer taken away when turned off and back when on (D186)",
+                  bg_on and "Every 5 minutes" in note and written and gone and timer.is_file(), (bg_on, note, written, gone))
             shell(kind="linux", game_mode=True)
             await pg.set_viewport_size({"width": 1280, "height": 800})
             await pg.reload()
