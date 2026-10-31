@@ -59,5 +59,9 @@
         "states/{id}.{slot}.cst"
       ]
     }
-  ]
+  ],
+  "textures": {
+    "*": "load/textures/{id}/"
+  },
+  "textures_setting": "Emulation › Configure › Graphics › Use Custom Textures"
 }

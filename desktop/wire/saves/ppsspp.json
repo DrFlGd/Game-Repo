@@ -26,7 +26,6 @@
     ],
     "android": [
       "{home}",
-      
       "{home}/Android/data/org.ppsspp.ppsspp/files",
       "{home}/Android/data/org.ppsspp.ppssppgold/files"
     ]
@@ -52,5 +51,9 @@
         "PSP/PPSSPP_STATE/{id_compact}_*_{slot}.jpg"
       ]
     }
-  ]
+  ],
+  "textures": {
+    "*": "PSP/TEXTURES/{id_nodash}/"
+  },
+  "textures_setting": "Settings › Graphics › Texture replacement › Replace textures"
 }

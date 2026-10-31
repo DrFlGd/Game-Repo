@@ -57,5 +57,9 @@
         "nand/user/save/0000000000000000/{user}/{id}/**"
       ]
     }
-  ]
+  ],
+  "textures": {
+    "*": "load/{id}/{pack}/"
+  },
+  "textures_setting": "the game's Properties › Add-Ons (the pack is listed by its name)"
 }

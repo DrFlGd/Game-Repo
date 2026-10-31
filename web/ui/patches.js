@@ -5,8 +5,8 @@
 // or a download's ZIP (each paired with its game: a BPS's or UPS's own CRC32 against your
 // files is sure, the name likely), and applied to a copy of the game that's a variant of it
 // in the system's custom DAT, never changing the game's file. IPS, UPS, BPS, PPF and xdelta
-// are read here; Test applies one in memory and says whether it fits. Texture packs (D204)
-// and PC mods (D205) are the other tabs, still to come.
+// are read here; Test applies one in memory and says whether it fits. Texture packs (D204,
+// web/ui/textures.js) are the second tab; PC mods (D205) the third, still to come.
 // `#/patches/<key>` opens a game's patches above the list (a game's page links there).
 import { html, useState, useEffect, useMemo } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
@@ -20,6 +20,7 @@ import { gameHash, systemColour } from "./browse.js";
 import { Icon } from "./icons.js";
 import { useRouteArg, argHash } from "./panels.js";
 import { Shelf, useShelfState, Pic, byName } from "./shelf.js";
+import { TexturePacks } from "./textures.js";
 
 const err = (e) => e.message || String(e);
 const again = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
@@ -262,9 +263,7 @@ const COLUMNS = [
 const COLS = "minmax(140px, 2.4fr) minmax(140px, 2.4fr) 100px 100px 80px 100px";
 
 function Coming({ tab }) {
-  const text = tab === "textures"
-    ? "Texture packs, installed where each emulator loads them (each emulator's own folder for them), are the next part of this page."
-    : "PC games' mods, applied as Game Repo Go installs the game, are a later part of this page.";
+  const text = "PC games' mods, applied as Game Repo Go installs the game, are a later part of this page.";
   return html`<div class="library-settings" id="patches-coming" data-tab=${tab}><p class="page-lead">Coming next.</p><p class="muted">${text}</p></div>`;
 }
 
@@ -305,6 +304,7 @@ export function Patches() {
   const primary = html`<button type="button" class="primary compact" id="patches-import" disabled=${off || !isDesktop()} onClick=${() => importPatches()}>${Icon.inbox(15)} Import patches…</button>`;
   if (!s.library) return html`<${CommandBar} id="patches-head" title="Patches" /><div class="pages"><p class="page-lead">Open a library first.</p></div>`;
   const switches = html`<span class="seg" role="tablist" aria-label="Kind of patch" id="patches-tabs">${TABS.map(([v, label]) => html`<button type="button" role="tab" key=${v} class=${`ghost compact${tab === v ? " on" : ""}`} data-tab=${v} aria-selected=${tab === v ? "true" : "false"} onClick=${() => set({ tab: v })}>${label}</button>`)}</span>`;
+  if (tab === "textures") return html`<${TexturePacks} switches=${switches} opened=${opened} off=${off} />`;
   if (tab !== "rom") {
     return html`<${CommandBar} id="patches-head" title="Patches" /><div class="pages"><div class="lib-switches">${switches}</div><${Coming} tab=${tab} /></div>`;
   }

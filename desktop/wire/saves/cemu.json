@@ -42,5 +42,9 @@
         "mlc01/usr/save/00050000/{tid_low}/**"
       ]
     }
-  ]
+  ],
+  "textures": {
+    "*": "graphicPacks/{pack}/"
+  },
+  "textures_setting": "Options › Graphic packs (the pack is listed there)"
 }

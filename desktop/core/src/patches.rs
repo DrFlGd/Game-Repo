@@ -642,7 +642,7 @@ pub fn test(ix: &Index, lib: &Library, key: &str, patch: &Path) -> Result<Value>
 }
 
 /// A game's folder for its patches: its own, else one planned (its game.json written by the change).
-fn folder_for(conn: &Connection, lib: &Library, g: &LibGame) -> Result<(PathBuf, Option<Value>)> {
+pub(crate) fn folder_for(conn: &Connection, lib: &Library, g: &LibGame) -> Result<(PathBuf, Option<Value>)> {
     if let Some(d) = g.folder.as_ref().and_then(|x| lib.resolve(x).ok()).filter(|d| d.join("game.json").is_file()) {
         return Ok((d, None));
     }

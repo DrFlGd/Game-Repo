@@ -38,7 +38,7 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing PC games", add: "Importing a game", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", videos: "Importing videos", bios: "Importing BIOS files", metadata: "Deleting metadata", pc_remove: "Removing a PC game", video_remove: "Removing videos", magazine_move: "Moving magazine issues", cheats: "Bringing in cheats", patches: "Bringing in patches", patch: "Applying patches" })[kind] || "Organising";
+const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing PC games", add: "Importing a game", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", videos: "Importing videos", bios: "Importing BIOS files", metadata: "Deleting metadata", pc_remove: "Removing a PC game", video_remove: "Removing videos", magazine_move: "Moving magazine issues", cheats: "Bringing in cheats", patches: "Bringing in patches", patch: "Applying patches", textures: "Bringing in texture packs", textures_install: "Installing a texture pack" })[kind] || "Organising";
 
 /** The changes that bring files into the library (the Import page's Recent imports, D78). */
 export const IMPORT_KINDS = ["bring", "add", "import", "docs", "magazines", "videos", "bios"];
@@ -69,6 +69,7 @@ const COUNTS = {
   pc_remove: ["PC game", "PC games", "remove from the library"], videos: ["video", "videos", "import"], video_remove: ["video", "videos", "remove"],
   magazine_move: ["issue", "issues", "move"], cheats: ["game's cheats", "games' cheats", "bring in"],
   patches: ["game's patches", "games' patches", "bring in"], patch: ["patched copy", "patched copies", "make"],
+  textures: ["game's texture packs", "games' texture packs", "bring in"], textures_install: ["texture pack", "texture packs", "install"],
 };
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */

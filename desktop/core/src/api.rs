@@ -653,6 +653,9 @@ impl App {
         if cmd.starts_with("patches_") {
             return self.patch_call(cmd, args).await;
         }
+        if cmd.starts_with("textures_") {
+            return self.texture_call(cmd, args).await;
+        }
         if ["layout", "bios", "magazine", "video", "backlog", "saves_", "devices_"].iter().any(|p| cmd.starts_with(p)) {
             return self.device_call(cmd, args).await;
         }
@@ -1297,6 +1300,8 @@ impl App {
                     "cheats" => "Bringing in cheats",
                     "patches" => "Bringing in patches",
                     "patch" => "Applying patches",
+                    "textures" => "Bringing in texture packs",
+                    "textures_install" => "Installing a texture pack",
                     "video_remove" => "Removing videos",
                     "magazine_move" => "Moving magazine issues",
                     "bios" => "Importing BIOS files",
@@ -2238,6 +2243,64 @@ impl App {
                         Ok(json!({ "name": patches::variant_name(&g.name, &ds) }))
                     })
                     .await?)
+            }
+            _ => Err(format!("unknown command {cmd}")),
+        }
+    }
+
+    /// Texture packs (D204): kept with their games, installed into an emulator's folder.
+    async fn texture_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
+        use crate::textures;
+        let j = |v: Value| Ok(Reply::Json(v));
+        let data_dir = self.paths.data_dir.clone();
+        let s = |k: &str| args[k].as_str().unwrap_or("").to_string();
+        let lib = self.library()?;
+        let dirs = self.config().emulator_dirs;
+        match cmd {
+            "textures_list" => j(self.with_index(move |ix| textures::list(ix, &lib)).await?),
+            "textures_packs" => {
+                let key = s("key");
+                let mut v = self.with_index(move |ix| textures::packs(ix, &lib, &key)).await?;
+                // each emulator's folder on this computer, when it was chosen before
+                for e in v["emulators"].as_array_mut().into_iter().flatten() {
+                    e["folder"] = json!(e["id"].as_str().and_then(|id| dirs.get(id)));
+                }
+                j(v)
+            }
+            "textures_import" => {
+                let (key, how) = (s("key"), s("how"));
+                let paths: Vec<PathBuf> = args["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).map(PathBuf::from).collect();
+                j(self
+                    .with_index(move |ix| {
+                        let plan = textures::import_plan(ix, &lib, &key, &paths, &how)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            "textures_install" => {
+                let (key, pack, emulator) = (s("key"), s("pack"), s("emulator"));
+                let folder = args["folder"].as_str().filter(|f| !f.is_empty()).map(String::from).or_else(|| dirs.get(&emulator).cloned()).ok_or("Choose the emulator's folder.")?;
+                let (em, at) = (emulator.clone(), folder.clone());
+                let v = self
+                    .with_index(move |ix| {
+                        let plan = textures::install_plan(ix, &lib, &data_dir, &key, &pack, &em, Path::new(&at))?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        let mut v = plan.summary();
+                        v["to"] = plan.dat["to"].clone();
+                        Ok(v)
+                    })
+                    .await?;
+                let mut cfg = self.config();
+                if cfg.emulator_dirs.get(&emulator) != Some(&folder) {
+                    cfg.emulator_dirs.insert(emulator, folder);
+                    cfg.save(&self.config_path()).map_err(e2s)?;
+                }
+                j(v)
+            }
+            "textures_remove" => {
+                let (key, pack) = (s("key"), s("pack"));
+                j(self.with_index(move |ix| textures::remove(ix, &lib, &key, &pack)).await?)
             }
             _ => Err(format!("unknown command {cmd}")),
         }

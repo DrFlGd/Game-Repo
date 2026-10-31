@@ -2118,6 +2118,7 @@ html.drop-over-import #main-root { outline: 2px dashed var(--accent-edge); outli
 .patch-file { border-top: 1px solid var(--steel-2); padding-top: 8px; }
 .patch-file.on { border-left: 3px solid var(--accent-edge); padding-left: 8px; }
 .patch-file h3 { margin: 4px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+.patch-file p, .patch-file code { overflow-wrap: anywhere; }
 .patch-readme { max-height: 240px; overflow: auto; white-space: pre-wrap; font-size: 12px; background: var(--white); border: 1px solid var(--steel-2); border-radius: var(--radius-s); padding: 6px 8px; }
 .patch-found-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
 .patch-found-row input[type="text"] { width: 120px; }

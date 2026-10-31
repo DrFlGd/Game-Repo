@@ -75,5 +75,10 @@
     "mame": "MAME",
     "fbneo": "FinalBurn Neo",
     "neogeo": "FinalBurn Neo"
-  }
+  },
+  "textures": {
+    "n64": "system/Mupen64plus/cache/",
+    "nes": "system/HdPacks/{stem}/"
+  },
+  "textures_setting": "Quick Menu › Options: Mesen's HD Packs, or Mupen64Plus-Next's Use High-Res Textures"
 }

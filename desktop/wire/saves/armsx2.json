@@ -41,5 +41,9 @@
         "sstates/{id} (*).{slot}.p2s"
       ]
     }
-  ]
+  ],
+  "textures": {
+    "*": "textures/{id}/replacements/"
+  },
+  "textures_setting": "Graphics › Texture Replacement › Load Textures"
 }

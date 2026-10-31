@@ -58,6 +58,10 @@ pub struct AppConfig {
     /// (crate::cheats::PACK_URL); with it, GitHub's stand-ins: `<base>/api` and `<base>/raw/`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cheats_source: Option<String>,
+    /// Each emulator's folder on this computer (by its save profile's id), for installing
+    /// texture packs into it (D204)
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub emulator_dirs: std::collections::BTreeMap<String, String>,
     /// Where Redump's own DATs are downloaded from, when not redump.org (crate::redump::SOURCE)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub redump_source: Option<String>,
