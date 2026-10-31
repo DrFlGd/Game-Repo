@@ -1,7 +1,7 @@
 {
   "format": 1,
   "id": "folder",
-  "version": 1,
+  "version": 2,
   "name": "Plain folder",
   "about": "A plain folder: each system's games in a folder named as its DAT (Nintendo - Game Boy), named as Settings › Naming says, with pictures and documents beside each game in a folder of its name.",
   "places": [
@@ -60,5 +60,8 @@
   "collection": null,
   "bios": {
     "path": "{out}/BIOS/{dat_name}/{bios_file}"
+  },
+  "cheats": {
+    "path": "{out}/{dat_name}/{stem}/{stem}.cht"
   }
 }

@@ -91,6 +91,7 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **Cheats on devices and exports.** A game's RetroArch cheats go with it: Game Repo Go puts them in RetroArch's cheats folder, in the core's folder and named after the game's file, so RetroArch finds them when the game starts (Settings › Saves › *Cheats*, on by default; a cheat file you put there yourself is left alone). Exports to ES-DE, RetroArch or a plain folder can carry *Cheats* too. The emulators with their own cheat formats, and the handheld cards, come later.
 - **Cheats.** A new *Cheats* page under the Library: *Get cheats…* looks in RetroArch's own cheat database (libretro's, CC BY-SA 4.0) for the games you have and brings in each one's `.cht` file, kept in the game's library folder (`cheats/`), as one change you can undo; a file for another release of the same game waits for you to tick it. *Import cheat files…* brings in your own (`.cht`, PCSX2's `.pnach`, PPSSPP's, Dolphin's, DuckStation's, Azahar's, Eden's, melonDS's). Pick a game to edit its cheats: a `.cht` is a list (what each does, its code, on at start), and other files are text; each save keeps the version before (*Versions…*). A file you've edited is never replaced; when libretro's copy is newer, you're offered it. *Games without cheats* lists the rest, to make files for, and a game's page says how many cheats it has.
 
 ## 0.5.61 (2026-10-31)

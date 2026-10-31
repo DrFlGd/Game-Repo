@@ -1326,6 +1326,32 @@ pub fn take_newer(ix: &Index, lib: &Library, data_dir: &Path, key: &str, name: &
     game(ix, lib, data_dir, key)
 }
 
+/// The `.cht` of a game's folder an export or a device takes (D200): one edited here first,
+/// else libretro's, else any.
+pub fn retroarch_file(game_dir: &Path) -> Option<PathBuf> {
+    let dir = game_dir.join(FOLDER);
+    let m = read_json_object(&dir.join(MANIFEST));
+    let mut best: Option<(u8, PathBuf)> = None;
+    for (name, p) in files_in(&dir) {
+        let e = &m["files"][&name];
+        let format = e["format"].as_str().map(String::from).unwrap_or_else(|| guess_format(&name, &read_text(&p)).to_string());
+        if format != "retroarch" {
+            continue;
+        }
+        let rank = if e["edited"].as_bool().unwrap_or(false) { 0 } else if e["source"] == "libretro" { 1 } else { 2 };
+        if best.as_ref().is_none_or(|b| rank < b.0) {
+            best = Some((rank, p));
+        }
+    }
+    best.map(|b| b.1)
+}
+
+/// The RetroArch core that runs a system, as its folder of cheats is named (the RetroArch
+/// save profile's `cores`, D192).
+pub fn core_of(system: &str) -> Option<String> {
+    gamerepo_wire::saves::built_in().into_iter().find(|p| p.id == "retroarch")?.cores.get(system).cloned()
+}
+
 /// How many cheats a game has (for its page's tab).
 pub fn count_of(conn: &Connection, folder: Option<&str>) -> i64 {
     let Some(f) = folder else { return 0 };

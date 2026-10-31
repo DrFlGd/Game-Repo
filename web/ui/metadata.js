@@ -241,8 +241,8 @@ export function CarryChoices({ value, onChange, carries, layout }) {
   const fields = c.fields.filter((f) => can.fields.includes(f.id));
   const pictures = c.media.filter((m) => m.id !== "manual" && can.media.includes(m.id));
   const where = layout?.gamelist ? "in each system's gamelist" : "as text files beside the pictures";
-  return html`<details class="field-block carry" id="export-carry" open=${!!(value.fields.length || value.media.length || value.manuals || value.docs || value.bios || value.magazines)}>
-    <summary>What it carries <span class="muted">(details, pictures, manuals, BIOS files, magazines)</span></summary>
+  return html`<details class="field-block carry" id="export-carry" open=${!!(value.fields.length || value.media.length || value.manuals || value.docs || value.bios || value.magazines || value.cheats)}>
+    <summary>What it carries <span class="muted">(details, pictures, manuals, cheats, BIOS files, magazines)</span></summary>
     <p class="muted">The library keeps everything it scraped; an export takes only what you tick here, where ${layout ? `the layout ${layout.name}` : "its layout"} puts it.</p>
     ${fields.length ? html`<div class="field-block"><span class="field-label">Details, ${where}</span>
       <${Ticks} id="carry-fields" items=${fields} value=${value.fields} onChange=${(f) => set({ fields: f })} /></div>` : null}
@@ -251,6 +251,7 @@ export function CarryChoices({ value, onChange, carries, layout }) {
       ${layout?.id === "esde" ? html`<small class="muted">Into ES-DE's downloaded_media folder (or the one its settings name), named after each game: give ES-DE's folder above.</small>` : null}</div>` : null}
     ${can.manuals ? html`<label class="check-row"><input type="checkbox" id="carry-manuals" checked=${value.manuals} onChange=${(e) => set({ manuals: e.target.checked })} /> Each game's manual (yours first, else a scraped one)</label>` : null}
     ${can.docs ? html`<label class="check-row"><input type="checkbox" id="carry-docs" checked=${value.docs} onChange=${(e) => set({ docs: e.target.checked })} /> Every document of each game (guides, maps, posters)</label>` : null}
+    ${can.cheats ? html`<label class="check-row"><input type="checkbox" id="carry-cheats" checked=${!!value.cheats} onChange=${(e) => set({ cheats: e.target.checked })} /> Each game's RetroArch cheats, where RetroArch looks for them (<a href=${routeHash("cheats")} onClick=${close}>Cheats</a>)</label>` : null}
     ${can.bios ? html`<label class="check-row"><input type="checkbox" id="carry-bios" checked=${!!value.bios} onChange=${(e) => set({ bios: e.target.checked })} /> The systems' BIOS files the library has (<a href=${routeHash("bios")} onClick=${close}>BIOS files</a>)</label>` : null}
     <label class="check-row"><input type="checkbox" id="carry-magazines" checked=${!!value.magazines} onChange=${(e) => set({ magazines: e.target.checked })} /> The library's magazines, in a Magazines folder (<a href=${routeHash("magazines")} onClick=${close}>Magazines</a>)</label>
     ${value.media.length && pictures.length ? html`<label class="field-inline"><span>Picture size</span>
@@ -261,7 +262,7 @@ export function CarryChoices({ value, onChange, carries, layout }) {
   </details>`;
 }
 
-export const NO_CARRY = { fields: [], media: [], manuals: false, docs: false, bios: false, magazines: false, image_size: 0 };
+export const NO_CARRY = { fields: [], media: [], manuals: false, docs: false, bios: false, magazines: false, cheats: false, image_size: 0 };
 
 // ------------------------------------------------------------ a game's panel
 

@@ -1,7 +1,7 @@
 {
   "format": 1,
   "id": "retroarch",
-  "version": 1,
+  "version": 2,
   "name": "RetroArch",
   "about": "RetroArch: each system's games in a folder of their own, a playlist per system named as RetroArch's database names it, and the box art, screenshots and title screens as its thumbnails. RetroArch chooses the core for each game.",
   "places": [
@@ -57,5 +57,8 @@
   "pictures": {
     "max": 0,
     "as": "png"
+  },
+  "cheats": {
+    "path": "{retroarch}/cheats/{core}/{stem}.cht"
   }
 }

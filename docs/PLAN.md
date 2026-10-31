@@ -6604,6 +6604,29 @@ D197–D199 in `desktop/core/src/cheats.rs` and `web/ui/cheats.js`:
   from a stand-in, matched, brought in, edited, kept and taken back, files paired and
   undone); `desktop_page.py`'s `cheats` part (`--only cheats` runs it alone).
 
+### Cheats notes, part 2: on devices and exports (built 2026-10-31)
+
+D200 for RetroArch:
+- A layout's new `cheats` entry (`layout.rs`; tokens: the game's and `{core}`, which is
+  the RetroArch profile's `cores` name for the system, `cheats::core_of`) says where a
+  game's `.cht` goes. ES-DE's (version 3) has an optional place *RetroArch's cheats
+  folder* (`{cheats}/{core}/{stem}.cht`), RetroArch's (version 2)
+  `{retroarch}/cheats/{core}/{stem}.cht`, the plain folder's (version 2) beside the game
+  (`{out}/{dat_name}/{stem}/{stem}.cht`, no core needed). `cheats::retroarch_file` picks
+  the file: an edited one, then libretro's, then any `.cht`.
+- *What it carries* has *Cheats* (`Carry.cheats`, `#carry-cheats`); collections carry it.
+- Game Repo Go: `PlanAsk.cheats`; Settings › Saves has *Cheats* (`#set-cheats`, on by
+  default), and the place `cheats` is RetroArch's `cheat_database_path` from
+  `retroarch.cfg`, else `cheats/` beside it (`saves::RetroArch.cheats`). `keep_theirs`
+  leaves a cheat file Go didn't put there alone and says so in the plan's notes.
+- Not in this part: the emulators of their own (PCSX2, PPSSPP, Azahar, Eden, DuckStation,
+  Dolphin; they need D197's code lists turned into their formats) and the cards (Knulli,
+  muOS, ROCKNIX: where their RetroArch keeps cheats isn't checked yet, so their layouts
+  have no `cheats` entry).
+- Tests: `export.rs` (a game's cheats go in its core's folder, named after its file);
+  `device` (a cheat file Go didn't put there is kept); `saves.rs` (the cheats folder read
+  from `retroarch.cfg`).
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -6855,7 +6878,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     devices, cards and exports; ROM patches (translations, hacks, fixes) kept with their
     game and applied to a copy kept as a variant; texture packs installed where each
     emulator loads them; PC mods applied as Game Repo Go installs the game. In progress:
-    part 1 (cheats kept, gathered and edited) built.
+    part 1 (cheats kept, gathered and edited) and part 2 (RetroArch's cheats on devices
+    and exports) built.
 29. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices

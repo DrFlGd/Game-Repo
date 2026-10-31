@@ -423,7 +423,7 @@ function ExportDialog({ c, sum, plan: given, only, count }) {
       prefs()?.set("gr-export", { layout, places: { ...(saved.places || {}), [layout]: at }, carry, groups: offered.length > 1 ? groupsTo : saved.groups || "collections" });
       const can = l.carries;
       const carried = { ...carry, fields: carry.fields.filter((f) => can.fields.includes(f)), media: carry.media.filter((m) => can.media.includes(m)),
-        manuals: carry.manuals && can.manuals, docs: carry.docs && can.docs, bios: !!carry.bios && can.bios };
+        manuals: carry.manuals && can.manuals, docs: carry.docs && can.docs, bios: !!carry.bios && can.bios, cheats: !!carry.cheats && !!can.cheats };
       setPlan(await api("export_plan", { collection: c.id, layout, places: at, always_copy: alwaysCopy, short_names: shortNames, carry: carried, only: only || [], groups: groupsTo }));
     } catch (e) {
       setError(err(e));

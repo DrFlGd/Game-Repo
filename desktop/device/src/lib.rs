@@ -234,11 +234,13 @@ pub struct AddOptions {
     pub adopt: Vec<(String, Vec<HeldFile>)>,
     /// PC games' pictures for Steam's grid too (Linux, D112)
     pub steam_art: bool,
+    /// Each game's RetroArch cheats, into the device's place `cheats` (D200)
+    pub cheats: bool,
 }
 
 impl Default for AddOptions {
     fn default() -> Self {
-        Self { media: vec!["cover".into()], manuals: false, size: 0, collection: String::new(), bios: false, at_once: 3, media_only: false, adopt: vec![], steam_art: false }
+        Self { media: vec!["cover".into()], manuals: false, size: 0, collection: String::new(), bios: false, at_once: 3, media_only: false, adopt: vec![], steam_art: false, cheats: false }
     }
 }
 
@@ -255,6 +257,7 @@ impl AddOptions {
             media_only: self.media_only,
             named: self.adopt.iter().filter_map(|(k, files)| Some((k.clone(), files.first()?.path.clone()))).collect(),
             steam_art: self.steam_art,
+            cheats: self.cheats,
             ..Default::default()
         }
     }
@@ -295,6 +298,20 @@ fn files_of<'a>(plan: &'a Plan, key: &str, system: &str) -> Vec<&'a gamerepo_wir
         .iter()
         .filter(|f| f.key == key || (f.key.is_empty() && (f.needed_by.iter().any(|k| k == key) || (f.needed_by.is_empty() && f.system == system))))
         .collect()
+}
+
+/// A plan without the cheat files there already that Game Repo Go didn't put there (D200):
+/// a `.cht` saved in RetroArch, say, is never written over.
+pub fn keep_theirs(d: &Device, plan: &Plan) -> Plan {
+    let rec = d.record();
+    let ours: HashSet<(String, String)> = rec.games.iter().flat_map(|g| &g.files).map(|f| (f.place.clone(), f.path.clone())).collect();
+    let mut p = plan.clone();
+    let before = p.files.len();
+    p.files.retain(|f| f.role != "cheat" || ours.contains(&(f.place.clone(), f.path.clone())) || !d.at(&f.place, &f.path).is_ok_and(|at| at.exists()));
+    if p.files.len() < before {
+        p.notes.push(format!("{} of RetroArch's cheat files there already were kept as they are.", before - p.files.len()));
+    }
+    p
 }
 
 /// The plan's files the device doesn't have as the record has them (their places in
@@ -359,6 +376,7 @@ pub fn add(s: &Server, d: &Device, keys: &[String], o: &AddOptions, progress: &m
 /// is kept to carry on from, and the games are put in the lists and the record only once
 /// every file is in.
 pub fn add_planned(s: &Server, d: &Device, plan: &Plan, keys: &[String], o: &AddOptions, watch: Watch, progress: &mut dyn FnMut(&str)) -> Result<Added> {
+    let plan = &keep_theirs(d, plan);
     let (todo, there) = to_fetch(d, plan)?;
     let mut out = Added { left: plan.left.clone(), notes: plan.notes.clone(), there, ..Default::default() };
     progress(&format!("{} files to fetch, {} there already", todo.len(), out.there));
@@ -689,6 +707,25 @@ mod tests {
         assert!(d.at("roms", "../outside.txt").is_err());
         assert!(d.at("roms", "/etc/passwd").is_err());
         assert!(d.at("saves", "x").is_err());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_cheat_file_go_didnt_put_there_is_kept() {
+        let home = std::env::temp_dir().join(format!("gamerepo-device-cheats-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join("ES-DE/settings")).unwrap();
+        std::fs::write(home.join("ES-DE/settings/es_settings.xml"), "<?xml version=\"1.0\"?>\n").unwrap();
+        let mut d = Device::open(&home).unwrap();
+        d.places.insert("cheats".into(), home.join("cheats"));
+        std::fs::create_dir_all(home.join("cheats/Gambatte")).unwrap();
+        std::fs::write(home.join("cheats/Gambatte/Mine (USA).cht"), "saved in RetroArch").unwrap();
+        let file = |path: &str, role: &str| gamerepo_wire::File { place: if role == "cheat" { "cheats" } else { "roms" }.into(), path: path.into(), role: role.into(), ..Default::default() };
+        let plan = Plan { files: vec![file("gb/Mine (USA).gb", "game"), file("Gambatte/Mine (USA).cht", "cheat"), file("Gambatte/New (USA).cht", "cheat")], ..Default::default() };
+        let kept = keep_theirs(&d, &plan);
+        let paths: Vec<&str> = kept.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, vec!["gb/Mine (USA).gb", "Gambatte/New (USA).cht"]);
+        assert_eq!(kept.notes.len(), 1);
         let _ = std::fs::remove_dir_all(&home);
     }
 }

@@ -104,6 +104,8 @@ pub struct Carry {
     pub bios: bool,
     /// The library's magazines, in `Magazines/<Title>/` in the export's folder (D68)
     pub magazines: bool,
+    /// Each game's RetroArch cheats, where the layout puts them (D200)
+    pub cheats: bool,
 }
 
 /// The pictures an export can make smaller or write in another format.
@@ -111,7 +113,7 @@ const PICTURES: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp"];
 
 impl Carry {
     fn wants_game_files(&self) -> bool {
-        !self.fields.is_empty() || !self.media.is_empty() || self.manuals || self.docs
+        !self.fields.is_empty() || !self.media.is_empty() || self.manuals || self.docs || self.cheats
     }
 
 }
@@ -774,6 +776,21 @@ fn plan_with(ix: &Index, lib: &Library, o: &Options, given: Option<collection::C
                             if !files_at.contains(&key(&to)) && files_from.insert((game.clone(), key(&src))) {
                                 files_at.insert(key(&to));
                                 files.push((src, to, "doc", game.clone(), system.clone()));
+                            }
+                        }
+                    }
+                }
+                // its RetroArch cheats, in the folder of the core that runs its system (D200)
+                if o.carry.cheats {
+                    // a path with no {core} (a plain folder's, beside the game) needs none
+                    let core = l.cheats.as_ref().and_then(|c| if c.path.contains("{core}") { crate::cheats::core_of(system) } else { Some(String::new()) });
+                    if let (Some(out_of), Some(src), Some(core)) = (&l.cheats, crate::cheats::retroarch_file(&dir), core) {
+                        let mut v = vars.clone();
+                        v.insert("core", core);
+                        if let Some(to) = layout::expand(&out_of.path, &places, &v)? {
+                            if !files_at.contains(&key(&to)) && files_from.insert((game.clone(), key(&src))) {
+                                files_at.insert(key(&to));
+                                files.push((src, to, "cheat", game.clone(), system.clone()));
                             }
                         }
                     }
@@ -2576,6 +2593,27 @@ mod tests {
         let flat = dir.join("Flat");
         run(&ix, &lib, &Options { collection: c.id.clone(), target: "folder".into(), out: flat.clone(), ..Default::default() });
         assert!(tree(&flat).iter().any(|p| p.ends_with("Quest (USA) (Disc 2)/Quest (USA) (Disc 2).cue")), "{:?}", tree(&flat));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // D200: a game's RetroArch cheats go to RetroArch's cheats folder, in its core's folder
+    #[test]
+    fn a_games_cheats_go_in_its_cores_folder_named_after_its_file() {
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = fixture("export-cheats");
+        let g = crate::meta::dat_game_named(ix.conn(), &lib, "gb", "Alpha (Europe)").unwrap().unwrap();
+        let folder = crate::meta::ensure_folder(&ix, &lib, &g).unwrap();
+        std::fs::create_dir_all(folder.join("cheats")).unwrap();
+        std::fs::write(folder.join("cheats").join("mine.txt"), "notes, not RetroArch's").unwrap();
+        std::fs::write(folder.join("cheats").join("Alpha (Europe).cht"), "cheats = 1\ncheat0_desc = \"Lives\"\ncheat0_code = \"00\"\ncheat0_enable = false\n").unwrap();
+        let games = vec!["gb/Alpha (Europe)".to_string(), "gb/Delta (World)".to_string()];
+        let ask = DeviceAsk { games: games.clone(), carry: Carry { cheats: true, ..Default::default() }, ..Default::default() };
+        let laid = lay_out(&ix, &lib, &ask, &dir.join("plan")).unwrap();
+        let cheats: Vec<(String, String, String)> = laid.plan.files.iter().filter(|f| f.role == "cheat").map(|f| (f.place.clone(), f.path.clone(), f.game.clone())).collect();
+        assert_eq!(cheats, vec![("cheats".to_string(), "Gambatte/Alpha (Europe).cht".to_string(), "Alpha (Europe)".to_string())]);
+        // not asked for: none
+        let ask = DeviceAsk { games, ..Default::default() };
+        assert!(lay_out(&ix, &lib, &ask, &dir.join("plan2")).unwrap().plan.files.iter().all(|f| f.role != "cheat"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
