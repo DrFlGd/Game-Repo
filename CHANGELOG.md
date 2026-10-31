@@ -91,6 +91,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.63 (2026-10-31)
+
 - **Patches: translations, hacks and fixes.** A new *Patches* page under the Library. *Import patches…* brings in patch files (IPS, UPS, BPS, PPF, xdelta) or the ZIPs they come in, with their readmes, each paired with its game: a BPS or UPS patch says which file it's for, so that pairing is sure; *Test* says whether one fits. The kind, language, version and author are guessed from the name and readme, and *Edit details…* changes them. *Apply…* makes a patched copy beside the game, named with the patch's tags (*(English Translated)*), as a variant of the game in the Library; the game's own file is never changed, and History can undo it. Disc games' patches, and texture packs and PC mods (the page's other tabs), come next.
 - **Cheats on devices and exports.** A game's RetroArch cheats go with it: Game Repo Go puts them in RetroArch's cheats folder, in the core's folder and named after the game's file, so RetroArch finds them when the game starts (Settings › Saves › *Cheats*, on by default; a cheat file you put there yourself is left alone). Exports to ES-DE, RetroArch or a plain folder can carry *Cheats* too. The emulators with their own cheat formats, and the handheld cards, come later.
 
