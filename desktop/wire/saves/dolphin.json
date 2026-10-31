@@ -74,5 +74,9 @@
         "StateSaves/{id}.s{slot}"
       ]
     }
-  ]
+  ],
+  "textures": {
+    "*": "Load/Textures/{id}/"
+  },
+  "textures_setting": "Graphics › Advanced › Load Custom Textures"
 }

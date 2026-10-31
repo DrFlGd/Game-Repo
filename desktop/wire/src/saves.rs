@@ -267,6 +267,14 @@ pub struct Profile {
     /// The systems it plays, by ES-DE's system folder
     pub systems: Vec<String>,
     pub spots: Vec<Spot>,
+    /// Where it loads a game's texture pack from, in its folder (D204), by ES-DE's system
+    /// folder or `*` for all: `{id}` the game's ID (`{id_nodash}` without its dash), `{stem}`
+    /// its file's name, `{pack}` the pack's own name
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub textures: std::collections::BTreeMap<String, String>,
+    /// The setting that turns texture packs on, as the emulator names it
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub textures_setting: String,
 }
 
 /// Where in a `folders` emulator's folder a game's saves or states are: paths, `/`

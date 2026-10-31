@@ -56,5 +56,9 @@
         "savestates/{id}_{slot}.sav"
       ]
     }
-  ]
+  ],
+  "textures": {
+    "*": "textures/{id}/"
+  },
+  "textures_setting": "Settings › Graphics › Texture Replacement › Enable Texture Replacement"
 }

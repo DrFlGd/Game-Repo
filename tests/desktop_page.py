@@ -1726,6 +1726,143 @@ async def patches_page(pg, base, home, library):
     check("a game's page says how many patches it has, with a link to them", "1 patch" in line, line)
 
 
+async def textures_page(pg, base, home, library):
+    """D204: Add a texture pack… on the Patches page's Texture packs tab asks for the game,
+    brings the pack's ZIP into the game's patches/textures/ (the download stays), and Install
+    into an emulator… unpacks it into where RetroArch loads a NES game's HD pack in the
+    folder given, remembered for next time."""
+    nes = home / "NES"
+    nes.mkdir()
+    rom = make_fixtures.rom(73, 2048)
+    (nes / "Tex Delta (World).nes").write_bytes(rom)
+    dat = home / "nes.dat"
+    dat.write_text(make_fixtures.logiqx("Nintendo - Nintendo Entertainment System", "20261001", [
+        ("Tex Delta (World)", None, [make_fixtures.rom_xml("Tex Delta (World).nes", rom)]),
+    ]))
+    pick(nes, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    pick(dat, base)
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await back_home(pg, base)
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    downloads = home / "downloads"
+    downloads.mkdir()
+    pack = downloads / "Tex Delta HD.zip"
+    with zipfile.ZipFile(pack, "w") as z:
+        z.writestr("Tex Delta HD/hires.txt", "<ver>106")
+        z.writestr("Tex Delta HD/tiles/a.png", "PNG1")
+    await pg.click('.sidebar a[href="#/patches"]')
+    await pg.click('#patches-tabs [data-tab="textures"]')
+    await pg.wait_for_selector("#textures-empty")
+    await pg.click("#textures-import")
+    await pg.fill("#shelf-game-search", "Tex Delta")
+    await pg.wait_for_selector('#shelf-game-pick option[value="nes/Tex Delta (World)"]', state="attached", timeout=15000)
+    pick(pack, base)
+    await pg.click("#shelf-game button[type=submit]")
+    await pg.wait_for_selector("#textures-import-dialog #textures-import-how")
+    await pg.click("#textures-import-dialog button[type=submit]")
+    await pg.wait_for_selector("#textures-import-dialog .op-paths", timeout=15000)
+    await pg.click("#textures-import-dialog button[type=submit]")
+    kept = library / "_library" / "games" / "nes" / "Tex Delta (World)" / "patches" / "textures" / "Tex Delta HD.zip"
+    for _ in range(100):
+        if kept.is_file():
+            break
+        await asyncio.sleep(0.1)
+    check("Add a texture pack… asks for the game and brings the pack's ZIP into its folder's patches/textures/, the download kept (D204)",
+          kept.is_file() and pack.is_file() and kept.read_bytes() == pack.read_bytes(), (kept.is_file(), pack.is_file()))
+    await pg.wait_for_selector("#textures-items [data-id]", timeout=15000)
+    await pg.click("#textures-items [data-id]")
+    await pg.wait_for_selector('#textures-panel [data-action="install"]')
+    said = await pg.inner_text("#textures-panel")
+    check("its panel says RetroArch loads NES packs", "RetroArch" in said and "Not installed" in said, said[:400])
+    await pg.click('#textures-panel [data-action="install"]')
+    emu = home / "RetroArch"
+    emu.mkdir()
+    await pg.fill("#textures-install-folder", str(emu))
+    await pg.click("#textures-install-dialog button[type=submit]")
+    await pg.wait_for_selector("#textures-install-dialog .op-paths", timeout=15000)
+    to = await pg.inner_text("#textures-install-to")
+    await pg.screenshot(path=str(out / "94-textures-install.png"))
+    await pg.click("#textures-install-dialog button[type=submit]")
+    at = emu / "system" / "HdPacks" / "Tex Delta (World)"
+    for _ in range(100):
+        if (at / "tiles" / "a.png").is_file():
+            break
+        await asyncio.sleep(0.1)
+    check("Install into an emulator… unpacks it into RetroArch's HdPacks/<the game's file name>/, its lone top folder dropped",
+          (at / "hires.txt").is_file() and (at / "hires.txt").read_text() == "<ver>106" and (at / "tiles" / "a.png").is_file() and "HdPacks" in to, (to, sorted(str(p.relative_to(emu)) for p in emu.rglob("*"))))
+    await pg.wait_for_selector('#textures-panel [data-installed="yes"]', timeout=15000)
+    await pg.screenshot(path=str(out / "95-textures-panel.png"))
+    cfg = json.loads((home / "config/config.json").read_text())
+    check("the emulator's folder is remembered for next time", cfg.get("emulator_dirs", {}).get("retroarch") == str(emu), cfg.get("emulator_dirs"))
+
+
+async def mods_page(pg, base, home, library):
+    """D205: Add a mod… on the Patches page's PC mods tab asks for the PC game, brings the
+    mod's ZIP in with its readme (how it goes in guessed: into the game's folder, its
+    archive's top folder named like it left out), and Install the ticked mods… puts its
+    files where the game is installed, the game's file it replaces set aside."""
+    pc = library / "PC" / "Mod Game (2001)"
+    pc.mkdir(parents=True)
+    (pc / "game.json").write_text(json.dumps({"id": "pc-modtest", "title": "Mod Game", "year": 2001}))
+    installed = home / "Games" / "Mod Game"
+    (installed / "Data").mkdir(parents=True)
+    (installed / "Data" / "textures.pak").write_text("OLD")
+    downloads = home / "downloads"
+    downloads.mkdir()
+    mod = downloads / "HD Pack v2.zip"
+    with zipfile.ZipFile(mod, "w") as z:
+        z.writestr("HD Pack v2/Data/textures.pak", "NEW")
+        z.writestr("HD Pack v2/Data/extra.pak", "EXTRA")
+    (downloads / "HD Pack v2.txt").write_text("HD Pack\nby Modder\n")
+    await pg.click('.sidebar a[href="#/patches"]')
+    await pg.click('#patches-tabs [data-tab="mods"]')
+    await pg.wait_for_selector("#mods-empty")
+    await pg.click("#mods-import")
+    await pg.fill("#shelf-game-search", "Mod Game")
+    await pg.wait_for_selector('#shelf-game-pick option[value="pc/pc-modtest"]', state="attached", timeout=15000)
+    pick(mod, base)
+    await pg.click("#shelf-game button[type=submit]")
+    await pg.wait_for_selector("#mods-import-dialog #mods-import-how")
+    await pg.click("#mods-import-dialog button[type=submit]")
+    await pg.wait_for_selector("#mods-import-dialog .op-paths", timeout=15000)
+    await pg.click("#mods-import-dialog button[type=submit]")
+    kept = library / "_library" / "games" / "pc" / "pc-modtest" / "patches" / "mods" / "HD Pack v2.zip"
+    for _ in range(100):
+        if kept.is_file():
+            break
+        await asyncio.sleep(0.1)
+    check("Add a mod… asks for the PC game and brings the mod's ZIP in with its readme, the download kept (D205)",
+          kept.is_file() and mod.is_file() and (kept.parent / "HD Pack v2.zip.readme.txt").is_file(), (kept.is_file(), sorted(x.name for x in kept.parent.iterdir()) if kept.parent.is_dir() else None))
+    await pg.wait_for_selector("#mods-items [data-id]", timeout=15000)
+    await pg.click("#mods-items [data-id]")
+    await pg.wait_for_selector('#mods-panel .patch-file[data-how="game"]', timeout=15000)
+    said = await pg.inner_text("#mods-panel")
+    check("its panel says it goes into the game's folder, ticked, with its readme, and asks where the game is installed",
+          await pg.is_checked('#mods-panel [data-action="on"]') and "v2" in said and "Modder" in said and "say where it's installed" in said, said[:500])
+    pick(installed, base)
+    await pg.click("#mods-where-choose")
+    await pg.wait_for_selector('#mods-where[data-found="yes"]', timeout=15000)
+    await pg.click("#mods-install")
+    await pg.wait_for_selector("#mods-install-dialog .op-paths", timeout=15000)
+    await pg.screenshot(path=str(out / "96-mods-install.png"))
+    await pg.click("#mods-install-dialog button[type=submit]")
+    for _ in range(100):
+        if (installed / "Data" / "extra.pak").is_file():
+            break
+        await asyncio.sleep(0.1)
+    held = list(installed.glob(".gamerepo-set-aside/*/Data/textures.pak"))
+    check("Install the ticked mods… puts its files where the game is installed, the game's file it replaces set aside",
+          (installed / "Data" / "textures.pak").read_text() == "NEW" and (installed / "Data" / "extra.pak").is_file() and len(held) == 1 and held[0].read_text() == "OLD",
+          sorted(str(p.relative_to(installed)) for p in installed.rglob("*")))
+    await pg.wait_for_selector('#mods-panel [data-installed="yes"]', timeout=15000)
+    await pg.screenshot(path=str(out / "97-mods-panel.png"))
+
+
 async def cheats_page(pg, base, home, library):
     """D197–D199: Get cheats… fetches libretro's pack (a stand-in here), brings in the file
     named after a game you have and offers one of the same title for a yes; the Cheats page
@@ -1817,7 +1954,7 @@ async def cheats_page(pg, base, home, library):
 
 
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device), ("cheats", cheats_page), ("patches", patches_page)]
+             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device), ("cheats", cheats_page), ("patches", patches_page), ("textures", textures_page), ("mods", mods_page)]
 
 
 async def main():
