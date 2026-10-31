@@ -239,8 +239,14 @@ class DevicePlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun savesBackground(invoke: Invoke) {
         val a = invoke.parseArgs(SavesArgs::class.java)
-        SavesWorker.set(activity.applicationContext, a.on, a.data, a.minutes.toLong())
-        invoke.resolve()
+        try {
+            SavesWorker.set(activity.applicationContext, a.on, a.data, a.minutes.toLong())
+            invoke.resolve()
+        } catch (e: Exception) {
+            // said in Settings › Saves, not a crash
+            android.util.Log.e("GameRepoGoSaves", "the saves' job couldn't be set", e)
+            invoke.reject("Android's background jobs couldn't be set up: ${e.message ?: e.javaClass.simpleName}")
+        }
     }
 
     /** Waits for Pause, Resume or Cancel tapped on the notification (one at a time; the Rust

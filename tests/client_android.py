@@ -32,7 +32,8 @@ wasn't installed; Back on the Library sends the app to the background; no page e
 
 The release APK (minified, its web view not open to debugging), where the emulator can run
 arm64 apps: it starts on the pairing page with the access note, which needs the Kotlin
-plugin's commands to have come through minifying, and doesn't crash.
+plugin's commands to have come through minifying, doesn't crash, and sets its saves' job
+up through WorkManager without an error.
 """
 import argparse
 import base64
@@ -136,8 +137,11 @@ if a.smoke:
     (out / "logcat-release.txt").write_text(log, encoding="utf-8")
     check("the release APK starts on the pairing page", "Pair with your library" in screen, screen[-1500:])
     check("its plugin answers after minifying (the access note needs it)", "access to all files" in screen, screen[-1500:])
-    crashed = re.search(rf"FATAL EXCEPTION[^\n]*\n[^\n]*Process: {re.escape(PKG)}", log)
+    crashed = re.search(rf"FATAL EXCEPTION[^\n]*\n[^\n]*Process: {re.escape(PKG)}(?:\n[^\n]*AndroidRuntime[^\n]*){{0,40}}", log)
     check("it doesn't crash", sh(f"pidof {PKG}", ok=False).strip() and not crashed, crashed.group(0) if crashed else "not running")
+    # the saves' job (D186) set up or taken away as it starts, through WorkManager
+    jobs = [l for l in log.splitlines() if "GameRepoGoSaves" in l or ("WM-" in l and " E " in l)]
+    check("its saves' job is set up through WorkManager after minifying", not any(" E " in l or " W " in l for l in jobs), jobs[-20:])
     (out / "client-android-release.json").write_text(json.dumps(results, indent=1), encoding="utf-8")
     finish()
 
