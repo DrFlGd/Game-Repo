@@ -2327,7 +2327,7 @@ impl App {
             }
             "devices_present" => {
                 let lib = self.library()?;
-                let v: Vec<Value> = crate::devices::present(&lib).into_iter().map(|(i, at)| json!({ "id": i.id, "at": at.display().to_string() })).collect();
+                let v: Vec<Value> = crate::devices::present(&lib).into_iter().map(|(i, at)| json!({ "id": i.id, "at": at.display().to_string(), "eject": crate::devices::can_eject(&at) })).collect();
                 j(json!(v))
             }
             "devices_folder_read" => {
@@ -2359,11 +2359,22 @@ impl App {
                         (r, c)
                     };
                     let mut r = r;
+                    // its saves too (D189), where its layout says they are
+                    r["saves"] = json!(crate::devices::sync_folder_saves(&lib, &id, &at, &contents));
                     r["device"] = json!(id);
                     r["games"] = json!(contents.games.len());
                     r["free"] = json!(contents.free);
                     Ok(r)
                 }))
+            }
+            // *Eject* (D189): made safe to take out, unless it's being changed
+            "devices_folder_eject" => {
+                let lib = self.library()?;
+                let id = arg(&args, "id").map_err(e2s)?.to_string();
+                let at = crate::devices::where_is(&lib, &id).ok_or("It isn't connected.")?;
+                let _running = self.begin_change(&format!("device-{id}"))?;
+                crate::devices::eject(&at).map_err(e2s)?;
+                j(json!({}))
             }
             "devices_holding" => {
                 let lib = self.library()?;
@@ -2385,6 +2396,23 @@ impl App {
             "saves_settings" => {
                 let lib = self.library()?;
                 j(blocking(Box::new(move || Ok(crate::saves::settings(&lib)))).await?)
+            }
+            // saves not matched (D195): given a game, or thrown away
+            "saves_loose_give" | "saves_loose_drop" => {
+                let lib = self.library()?;
+                lib.writable().map_err(e2s)?;
+                let sha1 = arg(&args, "sha1").map_err(e2s)?.to_string();
+                let key = args["key"].as_str().unwrap_or("").to_string();
+                let give = cmd == "saves_loose_give";
+                j(blocking(Box::new(move || {
+                    let store = crate::saves::Store::of(lib.root());
+                    if give {
+                        store.give(&sha1, &key)?;
+                    } else {
+                        store.drop_loose(&sha1)?;
+                    }
+                    Ok(crate::saves::settings(&lib))
+                })).await?)
             }
             "saves_set" => {
                 let lib = self.library()?;

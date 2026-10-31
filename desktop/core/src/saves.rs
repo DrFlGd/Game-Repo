@@ -4,16 +4,19 @@
 //! Versions are only ever added, each in a folder of its own, so Game Repo and Game Repo
 //! Server can both write here without a lock; the newest is worked out from them (the
 //! newest made that isn't behind a conflict), and its files copied up beside `.versions`
-//! by whichever wrote last.
+//! by whichever wrote last. Saves a device found that no game is named like wait in
+//! `.not matched/<sha1>/` until they're given a game (D195).
 
 use crate::config;
 use anyhow::{bail, Context, Result};
-use gamerepo_wire::saves::{same_files, SaveFile, Unit, UnitState, Upload, Uploaded, Version};
+use gamerepo_wire::saves::{same_files, Loose, SaveFile, Unit, UnitState, Upload, Uploaded, Version};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// The library's folder of saves.
 pub const FOLDER: &str = "Saves";
+/// Where saves not matched to a game wait (D195).
+pub const LOOSE: &str = ".not matched";
 /// A state's slot keeps this many versions (saves keep every one, D184).
 pub const STATE_VERSIONS: usize = 10;
 
@@ -29,6 +32,17 @@ struct UnitFile {
 
 pub struct Store {
     dir: PathBuf,
+}
+
+/// A save not matched to a game, as the library keeps it (`found.json` beside its file):
+/// what it is, the device it was found on, and when.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LooseKept {
+    pub save: Loose,
+    pub device: String,
+    pub device_name: String,
+    pub found: i64,
 }
 
 /// A name that works as a file or folder name on Windows and elsewhere.
@@ -177,6 +191,69 @@ impl Store {
             }
         }
         self.write(v, |f| blob(f).with_context(|| format!("{} wasn't sent first.", f.name)))
+    }
+
+    /// A save not matched to a game kept apart (D195), its file copied from `from`; one
+    /// kept already (by its file's SHA-1) is left as it is.
+    pub fn add_loose(&self, l: &Loose, device: &str, device_name: &str, from: &Path) -> Result<()> {
+        let sha1 = l.file.sha1.to_ascii_lowercase();
+        if sha1.len() != 40 || !sha1.bytes().all(|b| b.is_ascii_hexdigit()) {
+            bail!("That isn't a SHA-1.");
+        }
+        let dir = self.dir.join(LOOSE).join(&sha1);
+        if dir.join("found.json").is_file() {
+            return Ok(());
+        }
+        let name = safe_name(&l.file.name);
+        if name.is_empty() {
+            bail!("The save has no name.");
+        }
+        std::fs::create_dir_all(&dir).with_context(|| format!("couldn't make {}", dir.display()))?;
+        std::fs::copy(from, dir.join(&name)).with_context(|| format!("couldn't copy {}", from.display()))?;
+        set_modified(&dir.join(&name), l.file.modified);
+        let mut save = l.clone();
+        save.file.name = name;
+        save.file.sha1 = sha1;
+        let found = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        config::write_json(&dir.join("found.json"), &serde_json::to_value(LooseKept { save, device: device.into(), device_name: device_name.into(), found })?)
+    }
+
+    /// The saves not matched, newest found first.
+    pub fn loose(&self) -> Vec<LooseKept> {
+        let mut v: Vec<LooseKept> = std::fs::read_dir(self.dir.join(LOOSE)).into_iter().flatten().flatten()
+            .filter_map(|e| std::fs::read(e.path().join("found.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()))
+            .collect();
+        v.sort_by(|a: &LooseKept, b| b.found.cmp(&a.found).then_with(|| a.save.file.name.cmp(&b.save.file.name)));
+        v
+    }
+
+    /// A save not matched given a game (D195): the game's newest save from now on, so it
+    /// goes to every device with the game (the one before it kept as a version), and gone
+    /// from those not matched.
+    pub fn give(&self, sha1: &str, key: &str) -> Result<Uploaded> {
+        let dir = self.dir.join(LOOSE).join(safe_name(sha1));
+        let kept: LooseKept = std::fs::read(dir.join("found.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).context("That save isn't waiting for a game.")?;
+        if key.is_empty() || !key.contains('/') {
+            bail!("Choose a game from the library.");
+        }
+        let unit = Unit::save(key, &kept.save.format);
+        let base = self.state(&unit).map(|st| st.current.id).unwrap_or_default();
+        let mut file = kept.save.file.clone();
+        file.name = format!("{{name}}{}", kept.save.suffix);
+        let from = dir.join(&kept.save.file.name);
+        let up = Upload { unit, base, files: vec![file], emulator: kept.save.emulator.clone() };
+        let r = self.add(&up, &kept.device, &kept.device_name, &|_| Some(from.clone()))?;
+        std::fs::remove_dir_all(&dir).with_context(|| format!("couldn't remove {}", dir.display()))?;
+        Ok(r)
+    }
+
+    /// A save not matched thrown away.
+    pub fn drop_loose(&self, sha1: &str) -> Result<()> {
+        let dir = self.dir.join(LOOSE).join(safe_name(sha1));
+        if !dir.join("found.json").is_file() {
+            bail!("That save isn't waiting for a game.");
+        }
+        std::fs::remove_dir_all(&dir).with_context(|| format!("couldn't remove {}", dir.display()))
     }
 
     /// *Use this one* or *Put this version back* (D184, D191): that version made again as
@@ -331,6 +408,7 @@ pub fn settings(lib: &crate::library::Library) -> serde_json::Value {
         "size": size(&dir),
         "profiles": profiles,
         "cards": cards(lib.root()),
+        "loose": Store::of(lib.root()).loose(),
     })
 }
 

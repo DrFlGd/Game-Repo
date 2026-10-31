@@ -1,9 +1,9 @@
 {
   "format": 1,
   "id": "rocknix",
-  "version": 2,
+  "version": 3,
   "name": "ROCKNIX",
-  "about": "ROCKNIX's games card: a folder per system in roms/ (/storage/roms on the device), with its gamelist.xml and pictures beside the games. ROCKNIX keeps custom collections in its storage partition, which Windows can't write, so a collection's groups can go in folders of their own instead. BIOS files go in roms/bios/.",
+  "about": "ROCKNIX's games card: a folder per system in roms/ (/storage/roms on the device), with its gamelist.xml and pictures beside the games. ROCKNIX keeps custom collections in its storage partition, which Windows can't write, so a collection's groups can go in folders of their own instead. BIOS files go in roms/bios/. RetroArch's saves are beside the games, its states in roms/savestates/, a folder per system.",
   "places": [
     {
       "id": "card",
@@ -18,6 +18,10 @@
   "games": {
     "path": "{card}/roms/{folder}/{group}/{file}",
     "style": "frontend"
+  },
+  "saves": {
+    "files": "",
+    "states": "{card}/roms/savestates/{folder}"
   },
   "gamelist": {
     "kind": "es-xml",

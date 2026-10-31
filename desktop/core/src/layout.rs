@@ -76,6 +76,10 @@ pub struct Layout {
     /// How a collection's groups after the first can be placed besides as collections (D75)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub groups: Option<GroupsOut>,
+    /// Where the device's RetroArch keeps saves and states, so a card's are synced (D189);
+    /// none: they aren't
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saves: Option<SavesOut>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub copied_from: Option<Value>,
     #[serde(flatten)]
@@ -147,6 +151,19 @@ pub struct GroupsOut {
     /// The folder of a group as a system of its own, beside its system's (`{folder}-{group}`,
     /// where `{group}` is the group's name in lower case with hyphens); empty: they can't be
     pub system: String,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+/// Where a device's RetroArch keeps a system's saves (`files`) and states, as paths with the
+/// system's tokens (`{folder}`); one ending in `/{core}` is sorted into a folder for each
+/// core, as RetroArch's *Sort saves into folders by core name* does. `files` empty: beside
+/// the game, as RetroArch's *Write saves to content directory* does (D189).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SavesOut {
+    pub files: String,
+    pub states: String,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -301,6 +318,12 @@ impl Layout {
         }
         if let Some(e) = &self.es_de {
             v.push(("es_de".into(), e.as_str()));
+        }
+        // (a folder sorted by core ends in /{core}, filled in by the saves' sync)
+        if let Some(s) = &self.saves {
+            for (k, p) in [("files", s.files.trim()), ("states", s.states.trim())].into_iter().filter(|(_, p)| !p.is_empty()) {
+                v.push((format!("saves.{k}"), p.strip_suffix("/{core}").unwrap_or(p)));
+            }
         }
         if let Some(c) = self.collections.as_ref().filter(|_| self.collection.as_deref() == Some("es-cfg")) {
             v.push(("collections.path".into(), c.path.as_str()));
@@ -655,6 +678,7 @@ pub fn check(l: &Layout) -> Vec<Problem> {
             // a folder, the same for every system
             "es_de" | "collections" => allowed.clear(),
             "bios" => allowed.push("bios_file"),
+            "saves" => {}
             "documents" => allowed.extend(GAME_TOKENS.iter().chain(&["doc_file"])),
             _ => {
                 allowed.extend(GAME_TOKENS);
@@ -712,7 +736,10 @@ pub fn check(l: &Layout) -> Vec<Problem> {
             }
             _ => {}
         }
-        // two kinds that would write the same file
+        // two kinds that would write the same file (saves and states share a folder on some devices)
+        if what == "saves" {
+            continue;
+        }
         let k = at.split('.').nth(1).unwrap_or("");
         let shape = format!("{{{place}}}/{}", parts.join("/")).replace("{kind}", k).to_lowercase();
         if let Some(other) = seen.insert(shape, at.clone()) {

@@ -1,9 +1,9 @@
 {
   "format": 1,
   "id": "knulli",
-  "version": 2,
+  "version": 3,
   "name": "Knulli",
-  "about": "Knulli's SHARE partition (/userdata on the device): a folder per system in roms/ (names are case-sensitive), with its gamelist.xml and pictures beside the games. A collection is a custom collection in system/configs/emulationstation/collections/, as Batocera keeps them. BIOS files go in bios/.",
+  "about": "Knulli's SHARE partition (/userdata on the device): a folder per system in roms/ (names are case-sensitive), with its gamelist.xml and pictures beside the games. A collection is a custom collection in system/configs/emulationstation/collections/, as Batocera keeps them. BIOS files go in bios/. RetroArch's saves and states are in saves/, a folder per system.",
   "places": [
     {
       "id": "card",
@@ -25,6 +25,10 @@
   "games": {
     "path": "{card}/roms/{folder}/{group}/{file}",
     "style": "frontend"
+  },
+  "saves": {
+    "files": "{card}/saves/{folder}",
+    "states": "{card}/saves/{folder}"
   },
   "gamelist": {
     "kind": "es-xml",

@@ -826,6 +826,37 @@ fn saves_and_states_go_between_devices_with_versions_and_a_conflict_keeps_both()
 }
 
 #[test]
+fn a_save_no_game_is_named_like_waits_in_the_library_until_its_given_one() {
+    use gamerepo_core::saves::Store;
+    let dir = temp("go-loose");
+    let lib = library(&dir);
+    let s = start(&lib, &dir.join("server"));
+    let d = a_device(&dir.join("a"));
+    let a = open_app(&dir.join("a"), &d.home);
+    pair(&a, &s);
+    call(&a, "add", json!({ "keys": [ALPHA] }));
+    queue_done(&a);
+    let (saves, _) = retroarch_on(&a, &d.home);
+    // a save for a game from elsewhere (or Alpha under another name)
+    played(&saves.join("Alpha (E) [!].srm"), "found", 100);
+    let last = sync_saves(&a);
+    assert_eq!((last["loose"].as_u64(), last["sent"].as_u64()), (Some(1), Some(0)), "{last}");
+    let store = Store::of(&lib);
+    let loose = store.loose();
+    assert_eq!(loose.len(), 1);
+    assert_eq!((loose[0].save.game.as_str(), loose[0].save.suffix.as_str(), loose[0].save.format.as_str()), ("Alpha (E) [!]", ".srm", "retroarch"));
+    assert_eq!(sync_saves(&a)["loose"], 0, "sent once");
+    // given Alpha in Game Repo: Alpha's save, brought to the device under its own file's name
+    store.give(&loose[0].save.file.sha1, ALPHA).unwrap();
+    assert!(store.loose().is_empty());
+    assert_eq!(sync_saves(&a)["brought"], 1);
+    assert_eq!(std::fs::read_to_string(saves.join("Alpha (Europe).srm")).unwrap(), "found");
+    a.queue.quit();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn an_emulator_of_its_own_syncs_saves_by_the_discs_serial_and_a_card_every_game_shares() {
     use gamerepo_core::saves::Store;
     use gamerepo_wire::saves::Unit;

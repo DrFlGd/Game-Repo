@@ -1,9 +1,9 @@
 {
   "format": 1,
   "id": "muos",
-  "version": 1,
+  "version": 2,
   "name": "muOS",
-  "about": "muOS's SD card: the games in ROMS/, a folder per system, and its catalogue of box art, previews and descriptions in MUOS/info/catalogue/, named after each game's file (pictures as PNG). The catalogue's system names are those of muOS's info/assign/<system>.ini (catalogue=). BIOS files go in MUOS/bios/.",
+  "about": "muOS's SD card: the games in ROMS/, a folder per system, and its catalogue of box art, previews and descriptions in MUOS/info/catalogue/, named after each game's file (pictures as PNG). The catalogue's system names are those of muOS's info/assign/<system>.ini (catalogue=). BIOS files go in MUOS/bios/. RetroArch's saves are in MUOS/save/file/ and its states in MUOS/save/state/, in a folder for each core.",
   "places": [
     {
       "id": "card",
@@ -176,6 +176,10 @@
   "games": {
     "path": "{card}/ROMS/{folder}/{file}",
     "style": "frontend"
+  },
+  "saves": {
+    "files": "{card}/MUOS/save/file/{core}",
+    "states": "{card}/MUOS/save/state/{core}"
   },
   "gamelist": null,
   "media": {

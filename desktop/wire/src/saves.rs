@@ -1,7 +1,8 @@
 //! Saves and save states synced between devices (docs/PLAN.md, "Save sync and the Devices
 //! page", D180–D186): what a save is (a [`Unit`]: a game's save, or one of its states, in an
 //! emulator's format), its versions, what Game Repo Server and Game Repo Go say about them
-//! under `/v1/saves`, and the save profiles (D182) that say where each emulator keeps them.
+//! under `/v1/saves` (saves not matched to a game too, D195), and the save profiles (D182)
+//! that say where each emulator keeps them.
 //! Kept here so the library's side (gamerepo-core) and the device's (gamerepo-device) can't
 //! drift.
 
@@ -193,6 +194,28 @@ pub struct Upload {
 pub struct Uploaded {
     pub version: Version,
     pub state: UnitState,
+}
+
+/// `POST /v1/saves/loose`: saves found on the device that none of the games there is named
+/// like (D183, D195), each file sent first with `PUT /v1/saves/blob/<sha1>`. The library
+/// keeps them apart, under *Saves not matched* in Game Repo, until one's given a game.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct LooseAsk {
+    pub saves: Vec<Loose>,
+}
+
+/// A save not matched to a game: its emulator's format (`retroarch`) and name, the file as
+/// it was found (its own name), and that name taken apart: the game's name it was saved
+/// under and the save's suffix (`Pokemon Red` and `.srm`).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Loose {
+    pub format: String,
+    pub emulator: String,
+    pub file: SaveFile,
+    pub game: String,
+    pub suffix: String,
 }
 
 /// The largest save file a device sends (a PlayStation 3 save or a big state fits).

@@ -216,6 +216,8 @@ pub struct App {
     saving: Mutex<bool>,
     /// The sync in the background (D186)
     background: Mutex<Option<Background>>,
+    /// Opened for the sync in the background alone ([`App::open_with`])
+    alone: bool,
 }
 
 /// Who sets the sync in the background up, what went wrong setting it up last, and whether
@@ -281,7 +283,7 @@ impl App {
                     }
                 }),
             );
-            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default(), root: Mutex::new(PathBuf::from("/")), saving: Mutex::new(false), background: Mutex::default() }
+            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default(), root: Mutex::new(PathBuf::from("/")), saving: Mutex::new(false), background: Mutex::default(), alone }
         });
         if alone {
             return Ok(app);
@@ -916,7 +918,9 @@ impl App {
         let found: Vec<(gamerepo_wire::saves::Profile, saves::At)> = self.emulators().into_iter().filter_map(|(p, at)| Some((p, at?))).collect();
         let (Some(s), Ok(d), false) = (self.server(), self.device(), found.is_empty()) else { return None };
         let held = self.held_for_saves();
-        let heres: Vec<saves::Here> = found.iter().map(|(p, at)| saves::Here { profile: p, at: at.clone(), roms: d.places["roms"].clone(), emulator: p.name.clone() }).collect();
+        // (on Android, the job in the background can't tell whether an emulator's running: it only sends)
+        let busy = (self.alone && cfg!(target_os = "android")).then_some(true);
+        let heres: Vec<saves::Here> = found.iter().map(|(p, at)| saves::Here { profile: p, at: at.clone(), roms: d.places["roms"].clone(), emulator: p.name.clone(), busy, only: None }).collect();
         Some(saves::sync(&s, &self.data, &heres, &held))
     }
 

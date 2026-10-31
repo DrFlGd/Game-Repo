@@ -2,7 +2,8 @@
 //! the one place Game Repo Server writes in the library besides the devices' records. A
 //! device sends each file of a save first (`PUT /v1/saves/blob/<sha1>`, kept in the
 //! server's data folder until it's part of a version), then the save itself, which becomes
-//! a version in the library's `Saves/` (gamerepo-core's `saves::Store`).
+//! a version in the library's `Saves/` (gamerepo-core's `saves::Store`). Saves no game
+//! there is named like come to `POST /v1/saves/loose` the same way (D195).
 
 use crate::devices::Device;
 use crate::files;
@@ -96,6 +97,26 @@ fn answer(lib: &Library, data: &Path, req: &Request, device: &Device) -> Result<
             };
             tidy(&dir);
             Ok(r)
+        }
+        // saves not matched to a game, kept apart in the library (D195)
+        ("POST", "/v1/saves/loose") => {
+            let ask: gamerepo_wire::saves::LooseAsk = match serde_json::from_slice(&req.body) {
+                Ok(a) => a,
+                Err(e) => return Ok(Response::problem(400, format!("That request can't be read: {e}"))),
+            };
+            let dir = incoming(data);
+            for l in &ask.saves {
+                let sha1 = l.file.sha1.to_ascii_lowercase();
+                let p = dir.join(&sha1);
+                if !is_sha1(&sha1) || !std::fs::metadata(&p).is_ok_and(|m| m.len() == l.file.size) {
+                    return Ok(Response::problem(400, format!("{} wasn't sent first.", l.file.name)));
+                }
+                if let Err(e) = store.add_loose(l, &device.id, &device.name, &p) {
+                    return Ok(Response::problem(400, format!("{e:#}")));
+                }
+            }
+            tidy(&dir);
+            Ok(Response::json(200, &serde_json::json!({})))
         }
         ("GET", "/v1/saves/file") => {
             let unit = req.param("unit").and_then(Unit::from_id);

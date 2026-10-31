@@ -1545,6 +1545,7 @@ dependencies = [
  "crc32fast",
  "flate2",
  "fs4",
+ "gamerepo-device",
  "gamerepo-steam",
  "gamerepo-wire",
  "hex",
