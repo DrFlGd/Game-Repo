@@ -6822,8 +6822,10 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     the PCSX2 family with ARMSX2, DuckStation, Azahar, Flycast, melonDS, mGBA, DraStic, Eden
     and the yuzu family, Cemu, RPCS3), in the background too, and a Devices page for Game
     Repo Go devices, cards, drives and shares, with changes that wait for the next connect.
-    It takes in the handhelds with no app (muOS and the like). Built; left: Jerred's checks
-    on real installs (the emulators' folders are from their docs).
+    It takes in the handhelds with no app (muOS and the like). Released in 0.5.56–0.5.60;
+    Jerred took it as tested on 2026-10-31, with Claude's defaults (the emulators' folders
+    from their docs). Left as they are: Ryujinx (no saves by title ID), saves not matched
+    only for RetroArch, Android's job only sending, no states for Eden, Cemu or RPCS3.
 28. Cheats and patches (D197–D206, Jerred, 2026-10-31): cheats kept in each game's folder,
     gathered from libretro's cheat pack, listed and edited on a Cheats page, and taken to
     devices, cards and exports; ROM patches (translations, hacks, fixes) kept with their
