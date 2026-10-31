@@ -1709,8 +1709,8 @@ async def patches_page(pg, base, home, library):
           kept.is_file() and made.is_file() and made.read_bytes() == target and (gb / "Patch Delta (World).gb").read_bytes() == delta,
           (kept.is_file(), made.is_file(), sorted(x.name for x in gb.iterdir())))
     item = '#patches-items [data-id]'
-    await pg.wait_for_function("() => /Applied/.test(document.querySelector('#patches-items [data-id]')?.textContent || '')", timeout=15000)
-    meta = await pg.inner_text(item)
+    # the list is read again after the change (twice: the run, then the Apply): read its row once it says Applied
+    meta = await (await pg.wait_for_function("() => { const t = document.querySelector('#patches-items [data-id]')?.innerText || ''; return /Applied/.test(t) && t; }", timeout=15000)).json_value()
     await pg.click(item)
     await pg.wait_for_selector("#patches-panel .patch-file")
     panel = await pg.inner_text("#patches-panel")
