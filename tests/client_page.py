@@ -642,7 +642,8 @@ async def main():
             service = phone / ".config" / "systemd" / "user" / "game-repo-go-saves.service"
             bg_on = await pg.is_checked("#set-saves-background")
             note = await pg.inner_text("#set-saves-background-note")
-            written = timer.is_file() and "--sync-saves" in service.read_text() and str(go_data) in service.read_text()
+            # (systemd's quoting doubles a Windows path's backslashes)
+            written = timer.is_file() and "--sync-saves" in service.read_text() and str(go_data).replace("\\", "\\\\") in service.read_text()
             await pg.click("#set-saves-background")
             await pg.wait_for_function("() => document.querySelector('#set-saves-background-note')?.textContent.includes('only while')")
             gone = not timer.exists()
