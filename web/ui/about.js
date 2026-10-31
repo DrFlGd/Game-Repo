@@ -68,6 +68,7 @@ const DONE = [
   ["Save sync and Devices", "Saves and save states synced between your devices with every version kept (RetroArch, PPSSPP, Dolphin, the PCSX2 family, DuckStation, Azahar, Eden, Cemu, RPCS3 and more), in the background with Game Repo Go closed and from handhelds' SD cards, and a Devices page for Game Repo Go devices, SD cards, drives and shares whose changes wait for the next connect"],
 ];
 export const NEXT = [
+  ["Cheats and patches", "Each game's cheats kept in its folder, gathered from RetroArch's cheat database, edited on a Cheats page and taken to your devices; patches (translations, hacks, fixes) applied to a copy kept as a variant, texture packs installed where each emulator loads them, and PC games' mods applied as Game Repo Go installs them", true],
   ["Phase 9d", "The Server on Unraid and reached away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only"],
   ["Android games", "APKs kept in the library and installed on Android devices through Game Repo Go"],
   ["GOG installers", "A PC game that has only its GOG installer unpacked, so Game Repo Go can install it too"],
