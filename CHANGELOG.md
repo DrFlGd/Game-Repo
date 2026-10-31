@@ -91,6 +91,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.59 (2026-10-31)
+
 - **Saves synced with Game Repo Go closed.** On Windows and the Steam Deck (and Linux), Game Repo Go now syncs saves in the background every five minutes, even when it isn't open: a task in Windows' Task Scheduler, or a systemd timer that runs in Game Mode too. It's on by default, and Settings › Saves turns it off. Android comes next.
 ## 0.5.58 (2026-10-26)
 
