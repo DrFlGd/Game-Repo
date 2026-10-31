@@ -91,6 +91,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.61 (2026-10-31)
+
 - **Plans**: cheats and patches are on the roadmap. Each game's cheats will be kept in its folder, gathered from RetroArch's own cheat database and edited on a Cheats page, and go to your devices with the game; patches (translations, hacks, fixes) will be kept with their game and applied to a copy that shows as a variant, texture packs installed where each emulator loads them, and PC games' mods applied when Game Repo Go installs the game.
 - **Save sync is finished.** About's roadmap lists save sync and the Devices page as done.
 
