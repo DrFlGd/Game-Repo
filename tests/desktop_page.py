@@ -1801,6 +1801,68 @@ async def textures_page(pg, base, home, library):
     check("the emulator's folder is remembered for next time", cfg.get("emulator_dirs", {}).get("retroarch") == str(emu), cfg.get("emulator_dirs"))
 
 
+async def mods_page(pg, base, home, library):
+    """D205: Add a mod… on the Patches page's PC mods tab asks for the PC game, brings the
+    mod's ZIP in with its readme (how it goes in guessed: into the game's folder, its
+    archive's top folder named like it left out), and Install the ticked mods… puts its
+    files where the game is installed, the game's file it replaces set aside."""
+    pc = library / "PC" / "Mod Game (2001)"
+    pc.mkdir(parents=True)
+    (pc / "game.json").write_text(json.dumps({"id": "pc-modtest", "title": "Mod Game", "year": 2001}))
+    installed = home / "Games" / "Mod Game"
+    (installed / "Data").mkdir(parents=True)
+    (installed / "Data" / "textures.pak").write_text("OLD")
+    downloads = home / "downloads"
+    downloads.mkdir()
+    mod = downloads / "HD Pack v2.zip"
+    with zipfile.ZipFile(mod, "w") as z:
+        z.writestr("HD Pack v2/Data/textures.pak", "NEW")
+        z.writestr("HD Pack v2/Data/extra.pak", "EXTRA")
+    (downloads / "HD Pack v2.txt").write_text("HD Pack\nby Modder\n")
+    await pg.click('.sidebar a[href="#/patches"]')
+    await pg.click('#patches-tabs [data-tab="mods"]')
+    await pg.wait_for_selector("#mods-empty")
+    await pg.click("#mods-import")
+    await pg.fill("#shelf-game-search", "Mod Game")
+    await pg.wait_for_selector('#shelf-game-pick option[value="pc/pc-modtest"]', state="attached", timeout=15000)
+    pick(mod, base)
+    await pg.click("#shelf-game button[type=submit]")
+    await pg.wait_for_selector("#mods-import-dialog #mods-import-how")
+    await pg.click("#mods-import-dialog button[type=submit]")
+    await pg.wait_for_selector("#mods-import-dialog .op-paths", timeout=15000)
+    await pg.click("#mods-import-dialog button[type=submit]")
+    kept = library / "_library" / "games" / "pc" / "pc-modtest" / "patches" / "mods" / "HD Pack v2.zip"
+    for _ in range(100):
+        if kept.is_file():
+            break
+        await asyncio.sleep(0.1)
+    check("Add a mod… asks for the PC game and brings the mod's ZIP in with its readme, the download kept (D205)",
+          kept.is_file() and mod.is_file() and (kept.parent / "HD Pack v2.zip.readme.txt").is_file(), (kept.is_file(), sorted(x.name for x in kept.parent.iterdir()) if kept.parent.is_dir() else None))
+    await pg.wait_for_selector("#mods-items [data-id]", timeout=15000)
+    await pg.click("#mods-items [data-id]")
+    await pg.wait_for_selector('#mods-panel .patch-file[data-how="game"]', timeout=15000)
+    said = await pg.inner_text("#mods-panel")
+    check("its panel says it goes into the game's folder, ticked, with its readme, and asks where the game is installed",
+          await pg.is_checked('#mods-panel [data-action="on"]') and "v2" in said and "Modder" in said and "say where it's installed" in said, said[:500])
+    pick(installed, base)
+    await pg.click("#mods-where-choose")
+    await pg.wait_for_selector('#mods-where[data-found="yes"]', timeout=15000)
+    await pg.click("#mods-install")
+    await pg.wait_for_selector("#mods-install-dialog .op-paths", timeout=15000)
+    await pg.screenshot(path=str(out / "96-mods-install.png"))
+    await pg.click("#mods-install-dialog button[type=submit]")
+    for _ in range(100):
+        if (installed / "Data" / "extra.pak").is_file():
+            break
+        await asyncio.sleep(0.1)
+    held = list(installed.glob(".gamerepo-set-aside/*/Data/textures.pak"))
+    check("Install the ticked mods… puts its files where the game is installed, the game's file it replaces set aside",
+          (installed / "Data" / "textures.pak").read_text() == "NEW" and (installed / "Data" / "extra.pak").is_file() and len(held) == 1 and held[0].read_text() == "OLD",
+          sorted(str(p.relative_to(installed)) for p in installed.rglob("*")))
+    await pg.wait_for_selector('#mods-panel [data-installed="yes"]', timeout=15000)
+    await pg.screenshot(path=str(out / "97-mods-panel.png"))
+
+
 async def cheats_page(pg, base, home, library):
     """D197–D199: Get cheats… fetches libretro's pack (a stand-in here), brings in the file
     named after a game you have and offers one of the same title for a yes; the Cheats page
@@ -1892,7 +1954,7 @@ async def cheats_page(pg, base, home, library):
 
 
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device), ("cheats", cheats_page), ("patches", patches_page), ("textures", textures_page)]
+             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device), ("cheats", cheats_page), ("patches", patches_page), ("textures", textures_page), ("mods", mods_page)]
 
 
 async def main():

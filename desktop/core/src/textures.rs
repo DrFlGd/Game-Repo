@@ -58,12 +58,12 @@ fn dir_of(conn: &rusqlite::Connection, lib: &Library, g: &LibGame) -> Result<Opt
     Ok(patches::game_dir(conn, lib, g)?.map(|d| d.join(patches::FOLDER).join(FOLDER)))
 }
 
-fn is_archive(name: &str) -> bool {
+pub(crate) fn is_archive(name: &str) -> bool {
     let n = name.to_lowercase();
     [".zip", ".7z", ".rar"].iter().any(|x| n.ends_with(x))
 }
 
-fn size_of(p: &Path) -> u64 {
+pub(crate) fn size_of(p: &Path) -> u64 {
     if p.is_dir() {
         crate::cheats::walk(p).iter().filter_map(|f| std::fs::metadata(f).ok()).map(|m| m.len()).sum()
     } else {
@@ -193,7 +193,7 @@ pub fn import_plan(ix: &Index, lib: &Library, key: &str, paths: &[PathBuf], how:
     Ok(plan_of("textures", format!("Brought in {label} for {}", g.title), format!("Bring in {label} for {}", g.title), lib, ops, &g.platform, json!({ "key": key })))
 }
 
-fn plan_of(kind: &str, label: String, title: String, lib: &Library, ops: Vec<Op>, platform: &str, dat: Value) -> Plan {
+pub(crate) fn plan_of(kind: &str, label: String, title: String, lib: &Library, ops: Vec<Op>, platform: &str, dat: Value) -> Plan {
     Plan {
         id: organise::new_id(),
         created: now(),
@@ -221,7 +221,7 @@ fn plan_of(kind: &str, label: String, title: String, lib: &Library, ops: Vec<Op>
 }
 
 /// Unpack an archive into `to` (each member a file under it).
-fn unpack(archive: &Path, to: &Path) -> Result<()> {
+pub(crate) fn unpack(archive: &Path, to: &Path) -> Result<()> {
     std::fs::create_dir_all(to)?;
     let never = AtomicBool::new(false);
     crate::archive::each(archive, &never, &mut |name, _, r| {
@@ -245,7 +245,7 @@ fn unpack(archive: &Path, to: &Path) -> Result<()> {
 
 /// The pack's files, by their paths inside it: a lone top folder (a ZIP of `GALE01/…`, or
 /// of the pack's own name) isn't part of where they go.
-fn pack_files(root: &Path) -> Vec<(PathBuf, PathBuf)> {
+pub(crate) fn pack_files(root: &Path) -> Vec<(PathBuf, PathBuf)> {
     let files: Vec<PathBuf> = crate::cheats::walk(root);
     let rels: Vec<PathBuf> = files.iter().map(|f| f.strip_prefix(root).unwrap_or(f).to_path_buf()).collect();
     let tops: std::collections::HashSet<_> = rels.iter().filter_map(|r| r.components().next()).collect();

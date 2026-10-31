@@ -47,6 +47,7 @@ pub mod cheats;
 pub mod patches;
 pub mod rompatch;
 pub mod textures;
+pub mod mods;
 pub mod browse;
 pub mod collection;
 pub mod config;

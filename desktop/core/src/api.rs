@@ -653,7 +653,7 @@ impl App {
         if cmd.starts_with("patches_") {
             return self.patch_call(cmd, args).await;
         }
-        if cmd.starts_with("textures_") {
+        if cmd.starts_with("textures_") || cmd.starts_with("mods_") {
             return self.texture_call(cmd, args).await;
         }
         if ["layout", "bios", "magazine", "video", "backlog", "saves_", "devices_"].iter().any(|p| cmd.starts_with(p)) {
@@ -1302,6 +1302,8 @@ impl App {
                     "patch" => "Applying patches",
                     "textures" => "Bringing in texture packs",
                     "textures_install" => "Installing a texture pack",
+                    "mods" => "Bringing in mods",
+                    "mods_install" => "Installing mods",
                     "video_remove" => "Removing videos",
                     "magazine_move" => "Moving magazine issues",
                     "bios" => "Importing BIOS files",
@@ -2248,7 +2250,8 @@ impl App {
         }
     }
 
-    /// Texture packs (D204): kept with their games, installed into an emulator's folder.
+    /// Texture packs (D204): kept with their games, installed into an emulator's folder; and
+    /// PC games' mods (D205), installed where the game is.
     async fn texture_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
         use crate::textures;
         let j = |v: Value| Ok(Reply::Json(v));
@@ -2301,6 +2304,50 @@ impl App {
             "textures_remove" => {
                 let (key, pack) = (s("key"), s("pack"));
                 j(self.with_index(move |ix| textures::remove(ix, &lib, &key, &pack)).await?)
+            }
+            "mods_list" => j(self.with_index(move |ix| crate::mods::list(ix, &lib)).await?),
+            "mods_game" => {
+                let key = s("key");
+                j(self.with_index(move |ix| crate::mods::mods(ix, &lib, &key)).await?)
+            }
+            "mods_import" => {
+                let (key, how) = (s("key"), s("how"));
+                let paths: Vec<PathBuf> = args["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).map(PathBuf::from).collect();
+                j(self
+                    .with_index(move |ix| {
+                        let plan = crate::mods::import_plan(ix, &lib, &data_dir, &key, &paths, &how)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            "mods_edit" => {
+                let (key, name) = (s("key"), s("name"));
+                let d: crate::mods::Details = serde_json::from_value(args["details"].clone()).map_err(|e| e.to_string())?;
+                j(self.with_index(move |ix| crate::mods::edit(ix, &lib, &key, &name, &d)).await?)
+            }
+            "mods_order" => {
+                let key = s("key");
+                let names: Vec<String> = args["names"].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect();
+                j(self.with_index(move |ix| crate::mods::order(ix, &lib, &key, &names)).await?)
+            }
+            "mods_remove" => {
+                let (key, name) = (s("key"), s("name"));
+                j(self.with_index(move |ix| crate::mods::remove(ix, &lib, &key, &name)).await?)
+            }
+            "mods_install" => {
+                let key = s("key");
+                let names: Option<Vec<String>> = args["names"].as_array().map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect());
+                j(self
+                    .with_index(move |ix| {
+                        let plan = crate::mods::install_plan(ix, &lib, &data_dir, &key, names.as_deref())?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        let mut v = plan.summary();
+                        v["to"] = plan.dat["to"].clone();
+                        v["skipped"] = plan.dat["skipped"].clone();
+                        Ok(v)
+                    })
+                    .await?)
             }
             _ => Err(format!("unknown command {cmd}")),
         }

@@ -6693,6 +6693,33 @@ D204 on this computer, in `desktop/core/src/textures.rs` and `web/ui/textures.js
 - Tests: `textures.rs` (each emulator's path, a pack brought in, installed into a
   RetroArch folder and undone); `desktop_page.py`'s `textures` part.
 
+### Patches notes, part 5: PC mods (built 2026-10-31)
+
+D205 on this computer, in `desktop/core/src/mods.rs` and `web/ui/mods.js`:
+- A PC game's mods are in its metadata folder, `_library/games/pc/<id>/patches/mods/`
+  (not the game's own `PC/` folder, whose files `game.json` lists), each with a readme
+  found beside it kept as `<mod>.readme.txt`. `patches.json`'s `mods` keeps each one's
+  `Details` (title, author, version, url, notes, `how`, `folder`, `inside`, `on`), its
+  `order`, and where it was installed.
+- *Add a mod…* (`import_plan`, kind `mods`): how it goes in is guessed (an archive or a
+  folder into the game's folder and ticked; an `.exe`, `.msi`, `.bat` a file to run; else
+  by hand), and an archive's lone top folder named like it is `inside`, left out of where
+  its files go. *Edit details…* and the panel change them at once (not a change); a
+  folder of the game's must stay inside it.
+- *Install the ticked mods…* (`install_plan`, kind `mods_install`): only where the PC
+  game's `game.json` `installed` says (set from the tab with `pc_update`), never the
+  library's copy. Archives are unpacked into `<data dir>/mods-staging/` (kept a day);
+  each place gets the last mod's file in the order; a file already there gets an `aside`
+  step first (set aside in the install's `.gamerepo-set-aside/<change>/`), so Undo puts
+  the game back as it was. Files to run and mods by hand are said in the preview, not
+  done.
+- Not in this part: Game Repo Go applying a game's ticked mods after installing it, with
+  `.gamerepo-mods/` (D205's device half), and texture packs on devices and cards (D204):
+  part 6. Steam Workshop and Nexus mods come in as their downloads do.
+- Tests: `mods.rs` (a mod and an installer brought in, guessed, ordered, installed over
+  the game and undone, then into a folder of the game's, removed); `desktop_page.py`'s
+  `mods` part.
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -6946,8 +6973,10 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     emulator loads them; PC mods applied as Game Repo Go installs the game. In progress:
     part 1 (cheats kept, gathered and edited), part 2 (RetroArch's cheats on devices
     and exports), part 3 (ROM patches kept, brought in and applied as variants) and
-    part 4 (texture packs kept and installed into an emulator on this computer) built;
-    texture packs on devices and cards, then PC mods, next.
+    part 4 (texture packs kept and installed into an emulator on this computer) and
+    part 5 (PC mods kept, ordered and installed where the game is on this computer)
+    built; next, part 6: texture packs on devices and cards, and Game Repo Go applying
+    a game's mods as it installs it.
 29. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices
