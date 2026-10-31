@@ -427,7 +427,7 @@ fn fill(pattern: &str, tokens: &[(&str, String)]) -> Option<String> {
     for (t, v) in tokens {
         s = s.replace(t, v);
     }
-    let rest = s.replace("{slot}", "");
+    let rest = s.replace("{slot}", "").replace("{user}", "");
     (!rest.contains('{')).then_some(s)
 }
 
@@ -545,13 +545,20 @@ pub fn find_folders(p: &Profile, root: &Path, roms: &Path, held: &[Held], ids: &
             let base = if s.beside { content.clone() } else { root.to_path_buf() };
             for pat in &s.files {
                 let Some(filled) = fill(pat, &toks) else { continue };
-                let parts: Vec<&str> = filled.split('/').collect();
-                let fixed = fixed_part(&filled);
-                for (rel, m) in list(&base, &fixed, if s.beside { 0 } else { 8 }).iter() {
-                    let Some(slot) = match_path(&parts, &rel.split('/').collect::<Vec<_>>()) else { continue };
-                    // a name that's the game's own file's is kept as `{name}`, for each device's own
-                    let name = if pat.contains("{name}") { rel.replace(stem.as_str(), "{name}") } else { rel.clone() };
-                    add(unit_for(s, &h.key, slot), &base, &stem, name, m);
+                // under an emulator's user's folder, the names are from there, so they're each device's own user's
+                let bases = match user_part(&filled) {
+                    Some((before, after)) => users_at(&base.join(before)).into_iter().map(|u| (u, after.clone())).collect(),
+                    None => vec![(base.clone(), filled)],
+                };
+                for (base, filled) in bases {
+                    let parts: Vec<&str> = filled.split('/').collect();
+                    let fixed = fixed_part(&filled);
+                    for (rel, m) in list(&base, &fixed, if s.beside { 0 } else { 8 }).iter() {
+                        let Some(slot) = match_path(&parts, &rel.split('/').collect::<Vec<_>>()) else { continue };
+                        // a name that's the game's own file's is kept as `{name}`, for each device's own
+                        let name = if pat.contains("{name}") { rel.replace(stem.as_str(), "{name}") } else { rel.clone() };
+                        add(unit_for(s, &h.key, slot), &base, &stem, name, m);
+                    }
                 }
             }
         }
@@ -598,9 +605,37 @@ pub fn place_folders(p: &Profile, root: &Path, roms: &Path, held: &[Held], unit:
     let h = held.iter().find(|h| h.key == unit.key)?;
     let (stem, _) = stem_of(&h.rom);
     let kind = if unit.is_state() { "state" } else { "save" };
-    let beside = p.spots.iter().any(|s| s.kind == kind && s.beside && spot_systems(p, s).iter().any(|x| x == system));
-    let dir = if beside { roms.join(Path::new(&h.rom)).parent()?.to_path_buf() } else { root.to_path_buf() };
+    let spots: Vec<&Spot> = p.spots.iter().filter(|s| s.kind == kind && spot_systems(p, s).iter().any(|x| x == system)).collect();
+    // in the emulator's user's folder: the one played last, and none till the emulator's made one
+    if let Some((before, _)) = spots.iter().flat_map(|s| &s.files).find_map(|f| user_part(f)) {
+        return Some((users_at(&root.join(before)).into_iter().next()?, stem));
+    }
+    let dir = if spots.iter().any(|s| s.beside) { roms.join(Path::new(&h.rom)).parent()?.to_path_buf() } else { root.to_path_buf() };
     Some((dir, stem))
+}
+
+/// A pattern split at its `{user}` part (an emulator's user's own folder, as the Switch
+/// emulators keep each user's saves by a number of their own): the folders before it and
+/// the parts after.
+fn user_part(pattern: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = pattern.split('/').collect();
+    let i = parts.iter().position(|p| *p == "{user}")?;
+    Some((parts[..i].join("/"), parts[i + 1..].join("/")))
+}
+
+/// The users' folders in `dir`, the one last changed first.
+fn users_at(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<(i64, PathBuf)> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let m = e.metadata().ok()?;
+            m.is_dir().then(|| (modified(&m), e.path()))
+        })
+        .collect();
+    v.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    v.into_iter().map(|(_, p)| p).collect()
 }
 
 /// Whether any of the profile's emulators is running here (D185). Android doesn't say: Go
@@ -1099,6 +1134,65 @@ mod tests {
         assert_eq!(names, [("gba/The Legend of Zelda (USA)|mgba:mGBA|2".to_string(), "{name}.ss2".to_string()), ("gba/The Legend of Zelda (USA)|mgba|".into(), "{name}.sav".into())]);
         assert_eq!(f[0].dir, roms.join("gba"));
         assert_eq!(place_folders(&p, &dir, &roms, &held, &Unit::save("gba/The Legend of Zelda (USA)", "mgba")), Some((roms.join("gba"), "Zelda (USA)".into())));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn switch_wii_u_and_ps3_saves_are_found_by_title_id_and_a_switch_save_goes_to_this_devices_user() {
+        let dir = std::env::temp_dir().join(format!("gamerepo-test-emus3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let roms = dir.join("ROMs");
+        let w = |p: &Path| {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "save").unwrap();
+        };
+        // Eden: each user's saves by a number of its own, kept as the save's names without it
+        let eden = dir.join("eden");
+        let user = "nand/user/save/0000000000000000/97A1DAE861CD445AB9645267B3AB99BE";
+        w(&eden.join(user).join("0100F2C0115B6000/progress.bin"));
+        w(&eden.join(user).join("0100F2C0115B6000/sub/slot1.bin"));
+        w(&eden.join(user).join("01007EF00011E000/other.bin"));
+        let p = built("eden");
+        assert_eq!(folder_of(&p, &[dir.clone()], Some(&eden)), Some(eden.clone()));
+        let held = vec![Held { key: "switch/Zelda (World)".into(), rom: "switch/Zelda (World).nsp".into() }];
+        let ids: BTreeMap<String, String> = [("switch/Zelda (World)".to_string(), "0100F2C0115B6000".to_string())].into();
+        let found = find_folders(&p, &eden, &roms, &held, &ids);
+        assert_eq!(found.len(), 1, "{found:?}");
+        let mut names: Vec<String> = found[0].files.iter().map(|f| f.name.clone()).collect();
+        names.sort();
+        assert_eq!(names, ["0100F2C0115B6000/progress.bin", "0100F2C0115B6000/sub/slot1.bin"]);
+        assert_eq!((found[0].unit.id(), found[0].dir.clone()), ("switch/Zelda (World)|yuzu|".to_string(), eden.join(user)));
+        // on another device the save goes to its own user, and nowhere till it has one
+        let other = dir.join("eden2");
+        std::fs::create_dir_all(other.join("nand/user/save")).unwrap();
+        assert_eq!(place_folders(&p, &other, &roms, &held, &Unit::save("switch/Zelda (World)", "yuzu")), None);
+        let theirs = other.join("nand/user/save/0000000000000000/0123456789ABCDEF0123456789ABCDEF");
+        std::fs::create_dir_all(&theirs).unwrap();
+        assert_eq!(place_folders(&p, &other, &roms, &held, &Unit::save("switch/Zelda (World)", "yuzu")), Some((theirs, "Zelda (World)".into())));
+
+        // Cemu: by the title ID's last eight letters, every user's in the one save
+        let cemu = dir.join("Cemu");
+        w(&cemu.join("mlc01/usr/save/00050000/101c9500/user/80000001/game.dat"));
+        w(&cemu.join("mlc01/usr/save/00050000/101c9500/meta/saveinfo.xml"));
+        let p = built("cemu");
+        let held = vec![Held { key: "wiiu/Zelda BotW (USA)".into(), rom: "wiiu/Zelda BotW (USA).wua".into() }];
+        let ids: BTreeMap<String, String> = [("wiiu/Zelda BotW (USA)".to_string(), "00050000101C9500".to_string())].into();
+        let found = find_folders(&p, &cemu, &roms, &held, &ids);
+        assert_eq!((found.len(), found[0].files.len()), (1, 2), "{found:?}");
+        assert_eq!(place_folders(&p, &cemu, &roms, &held, &Unit::save("wiiu/Zelda BotW (USA)", "cemu")), Some((cemu.clone(), "Zelda BotW (USA)".into())));
+
+        // RPCS3: each of the folders starting with the game's ID
+        let rpcs3 = dir.join("rpcs3");
+        w(&rpcs3.join("dev_hdd0/home/00000001/savedata/BLUS30443-AUTOSAVE/USR-DATA"));
+        w(&rpcs3.join("dev_hdd0/home/00000001/savedata/BLUS30443-PROFILE/PARAM.SFO"));
+        w(&rpcs3.join("dev_hdd0/home/00000001/savedata/BLES00932-SAVE/USR-DATA"));
+        let p = built("rpcs3");
+        let held = vec![Held { key: "ps3/Demon's Souls (USA)".into(), rom: "ps3/Demon's Souls (USA).iso".into() }];
+        let ids: BTreeMap<String, String> = [("ps3/Demon's Souls (USA)".to_string(), "BLUS-30443".to_string())].into();
+        let found = find_folders(&p, &rpcs3, &roms, &held, &ids);
+        let mut names: Vec<String> = found[0].files.iter().map(|f| f.name.clone()).collect();
+        names.sort();
+        assert_eq!(names, ["dev_hdd0/home/00000001/savedata/BLUS30443-AUTOSAVE/USR-DATA", "dev_hdd0/home/00000001/savedata/BLUS30443-PROFILE/PARAM.SFO"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

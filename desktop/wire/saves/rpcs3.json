@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "id": "rpcs3",
+  "name": "RPCS3",
+  "about": "RPCS3 on Windows, Linux and the Steam Deck. Saves are folders in its dev_hdd0 starting with the game's ID (BLUS30443…), for its first user. On Windows RPCS3 lives where it was unpacked: set its folder in Settings › Saves if it's not one of the usual places. Its states are left out, as they load only in the build that made them.",
+  "kind": "folders",
+  "save_format": "rpcs3",
+  "state_format": "",
+  "processes": [
+    "rpcs3.exe",
+    "rpcs3"
+  ],
+  "roots": {
+    "windows": [
+      "{home}/RPCS3",
+      "{documents}/RPCS3",
+      "{home}/Desktop/RPCS3",
+      "{home}/Downloads/RPCS3",
+      "{localappdata}/RPCS3",
+      "C:/RPCS3",
+      "C:/Emulation/emulators/RPCS3"
+    ],
+    "linux": [
+      "{home}/.var/app/net.rpcs3.RPCS3/config/rpcs3",
+      "{config}/rpcs3",
+      "{home}/Emulation/storage/rpcs3"
+    ]
+  },
+  "look_for": [
+    "dev_hdd0/home"
+  ],
+  "systems": [
+    "ps3"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "dev_hdd0/home/00000001/savedata/{id_compact}*/**"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "format": 1,
+  "id": "cemu",
+  "name": "Cemu",
+  "about": "Cemu on Windows, Linux, the Steam Deck and Android. Saves are each game's folder in its MLC (mlc01/usr/save) by the title ID, every user's in it; a folder Cemu was set to keep its MLC in is set in Settings › Saves. It has no states.",
+  "kind": "folders",
+  "save_format": "cemu",
+  "state_format": "",
+  "processes": [
+    "cemu.exe",
+    "cemu",
+    "Cemu"
+  ],
+  "roots": {
+    "windows": [
+      "{appdata}/Cemu",
+      "{localappdata}/Cemu",
+      "{documents}/Cemu",
+      "{home}/Cemu"
+    ],
+    "linux": [
+      "{home}/.var/app/info.cemu.Cemu/data/Cemu",
+      "{home}/.local/share/Cemu",
+      "{home}/.local/share/cemu",
+      "{home}/Emulation/storage/cemu",
+      "{home}/.config/Cemu"
+    ],
+    "android": [
+      "{home}/Android/data/info.cemu.cemu/files"
+    ]
+  },
+  "look_for": [
+    "mlc01/usr/save"
+  ],
+  "systems": [
+    "wiiu"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "mlc01/usr/save/00050000/{tid_low}/**"
+      ]
+    }
+  ]
+}

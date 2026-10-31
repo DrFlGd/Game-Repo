@@ -1,0 +1,61 @@
+{
+  "format": 1,
+  "id": "eden",
+  "name": "Eden (and yuzu, Citron, Sudachi, Suyu)",
+  "about": "Eden, and yuzu and the others made from it, on Windows, Linux, the Steam Deck and Android. Saves are each game's folder in its NAND by the title ID, under the emulator's user; a save from elsewhere goes to the user who played last. Ryujinx keeps its saves by numbers of its own, so it isn't one.",
+  "kind": "folders",
+  "save_format": "yuzu",
+  "state_format": "",
+  "processes": [
+    "eden.exe",
+    "eden",
+    "yuzu.exe",
+    "yuzu",
+    "citron.exe",
+    "citron",
+    "sudachi.exe",
+    "sudachi",
+    "suyu.exe",
+    "suyu"
+  ],
+  "roots": {
+    "windows": [
+      "{appdata}/eden",
+      "{appdata}/citron",
+      "{appdata}/sudachi",
+      "{appdata}/suyu",
+      "{appdata}/yuzu"
+    ],
+    "linux": [
+      "{home}/.local/share/eden",
+      "{home}/.var/app/dev.eden_emu.eden/data/eden",
+      "{home}/.local/share/citron",
+      "{home}/.local/share/sudachi",
+      "{home}/.local/share/suyu",
+      "{home}/.var/app/org.yuzu_emu.yuzu/data/yuzu",
+      "{home}/.local/share/yuzu",
+      "{home}/Emulation/storage/yuzu"
+    ],
+    "android": [
+      "{home}/Android/data/dev.eden.eden_emulator/files",
+      "{home}/Android/data/org.citron.citron_emu/files",
+      "{home}/Android/data/org.sudachi.sudachi_emu/files",
+      "{home}/Android/data/org.suyu.suyu_emu/files",
+      "{home}/Android/data/org.yuzu.yuzu_emu/files"
+    ]
+  },
+  "look_for": [
+    "nand/user/save"
+  ],
+  "systems": [
+    "switch"
+  ],
+  "spots": [
+    {
+      "kind": "save",
+      "files": [
+        "nand/user/save/0000000000000000/{user}/{id}/**"
+      ]
+    }
+  ]
+}
