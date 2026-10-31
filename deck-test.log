@@ -1,0 +1,68 @@
+   Compiling gamerepo-steam v0.5.64 (/home/runner/work/Game-Repo/Game-Repo/desktop/steam)
+   Compiling gamerepo-wire v0.5.64 (/home/runner/work/Game-Repo/Game-Repo/desktop/wire)
+   Compiling gamerepo-device v0.5.64 (/home/runner/work/Game-Repo/Game-Repo/desktop/device)
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+   --> device/src/client.rs:207:23
+    |
+207 |             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |                       ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+help: replace the use of the deprecated method
+    |
+207 -             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+207 +             let _ = g.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |
+
+warning: `gamerepo-device` (lib test) generated 1 warning (1 duplicate)
+warning: `gamerepo-device` (lib) generated 1 warning (run `cargo fix --lib -p gamerepo-device` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 22.55s
+     Running unittests src/lib.rs (target/release/deps/gamerepo_device-6b8447761ebaf951)
+
+running 22 tests
+test pcgames::tests::a_shortcuts_name_is_one_windows_takes ... ok
+test saves::tests::a_patterns_parts_match_names_and_say_the_slot ... ok
+test saves::tests::a_files_suffix_says_what_it_is ... ok
+test saves::tests::a_saves_last_sync_is_kept_by_its_emulator_too ... ok
+test background::tests::the_timer_is_written_for_the_program_and_taken_away ... ok
+test saves::tests::emulators_of_their_own_keep_saves_by_id_by_name_and_as_shared_cards ... ok
+test scan::tests::a_zips_crcs_come_from_its_directory_and_a_chds_sha1_from_its_header ... ok
+test saves::tests::retroarchs_settings_say_where_and_how_its_saves_are_sorted ... ok
+test scan::tests::room_is_made_from_the_games_played_longest_ago ... ok
+test saves::tests::switch_wii_u_and_ps3_saves_are_found_by_title_id_and_a_switch_save_goes_to_this_devices_user ... ok
+test scan::tests::es_des_games_are_found_with_their_tracks_discs_and_media ... ok
+test steam::tests::what_waits_is_written_once_and_taken_out_again ... ok
+test tailscale::tests::steamos_is_known_by_its_os_release ... ok
+test tailscale::tests::tailscale_status_and_passwd_are_read_as_the_page_needs_them ... ok
+test tests::a_cheat_file_go_didnt_put_there_is_kept ... ok
+test tests::es_des_folders_are_read_from_its_settings ... ok
+test update::tests::an_apk_is_checked_against_the_key_and_its_version ... ok
+test update::tests::the_update_file_names_this_devices_apk ... ok
+test update::tests::versions_compare_by_number ... ok
+test tailscale::tests::installer::a_download_that_isnt_what_tailscale_published_installs_nothing ... ok
+test tailscale::tests::installer::the_installer_puts_tailscale_where_steamos_keeps_it_and_again_over_it ... ok
+test tailscale::tests::installer::the_set_up_asks_for_a_password_when_there_is_none_installs_and_signs_in ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running unittests src/lib.rs (target/release/deps/gamerepo_steam-fe4324b34074be63)
+
+running 3 tests
+test text::tests::a_text_file_reads_and_writes_back_the_same ... ok
+test tests::a_vdf_file_reads_and_writes_back_the_same ... ok
+test tests::a_programs_shortcuts_go_beside_the_others_and_its_proton_with_them ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests gamerepo_device
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests gamerepo_steam
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

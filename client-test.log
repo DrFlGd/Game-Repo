@@ -1,0 +1,52 @@
+   Compiling gamerepo-update v0.5.64 (/home/runner/work/Game-Repo/Game-Repo/desktop/update)
+   Compiling gamerepo-client v0.5.64 (/home/runner/work/Game-Repo/Game-Repo/desktop/client)
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+   --> device/src/client.rs:207:23
+    |
+207 |             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |                       ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+help: replace the use of the deprecated method
+    |
+207 -             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+207 +             let _ = g.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |
+
+warning: `gamerepo-device` (lib) generated 1 warning (run `cargo fix --lib -p gamerepo-device` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 42.30s
+     Running unittests src/lib.rs (/home/runner/work/Game-Repo/Game-Repo/desktop/target/release/deps/gamerepo_client_lib-eccc859e3922c8f2)
+
+running 1 test
+test tests::a_picture_address_is_read_back ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/home/runner/work/Game-Repo/Game-Repo/desktop/target/release/deps/gamerepo_client-57256907782a89a5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/home/runner/work/Game-Repo/Game-Repo/desktop/target/release/deps/gamerepo_update-1e7e1a50c74a1883)
+
+running 4 tests
+test tests::a_copy_says_why_it_cant_update_itself ... ok
+test tests::the_update_file_is_in_the_newest_release ... ok
+test tests::checking_at_start_is_on_until_turned_off ... ok
+test tests::a_key_made_signs_what_the_updater_accepts ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+   Doc-tests gamerepo_client_lib
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests gamerepo_update
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

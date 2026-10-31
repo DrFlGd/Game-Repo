@@ -1,0 +1,3 @@
+
+(gamerepo-client:11189): dbind-WARNING **: 16:19:59.714: AT-SPI: Error retrieving accessibility bus address: org.freedesktop.DBus.Error.ServiceUnknown: The name org.a11y.Bus was not provided by any .service files
+exit 124

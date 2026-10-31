@@ -1,0 +1,8 @@
+
+(gamerepo-client:11354): dbind-WARNING **: 16:20:28.135: AT-SPI: Error retrieving accessibility bus address: org.freedesktop.DBus.Error.ServiceUnknown: The name org.a11y.Bus was not provided by any .service files
+Unable to revert mtime: /usr/share/fonts
+Unable to revert mtime: /usr/share/fonts/truetype
+Unable to revert mtime: /usr/share/fonts/truetype/dejavu
+Unable to revert mtime: /usr/share/fonts/truetype/lato
+Unable to revert mtime: /usr/share/fonts/truetype/liberation
+Unable to revert mtime: /usr/share/fonts/truetype/noto

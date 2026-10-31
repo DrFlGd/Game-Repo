@@ -1,0 +1,25 @@
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+   --> device/src/client.rs:207:23
+    |
+207 |             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |                       ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+help: replace the use of the deprecated method
+    |
+207 -             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+207 +             let _ = g.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |
+
+warning: `gamerepo-device` (lib) generated 1 warning (run `cargo fix --lib -p gamerepo-device` to apply 1 suggestion)
+   Compiling gamerepo-core v0.5.64 (/home/runner/work/Game-Repo/Game-Repo/desktop/core)
+    Finished `release` profile [optimized] target(s) in 1m 41s
+     Running unittests src/lib.rs (target/release/deps/gamerepo_core-e9faa183844305eb)
+
+running 3 tests
+test steam::tests::a_vdf_file_reads_and_writes_back_the_same ... ok
+test steam::tests::shortcuts_are_written_beside_the_others_backed_up_and_put_back ... ok
+test identify::tests::steam_gog_and_launchbox_answer_a_search_and_give_details ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 215 filtered out; finished in 0.01s
+
