@@ -70,7 +70,7 @@ pub fn formats(lib: &Library) -> Value {
 // ------------------------------------------------------------ planning
 
 /// A file of the index as a source: a file in a folder with games, or a member of an archive or image there.
-fn src_of(conn: &Connection, roots: &[Root], file_id: i64) -> Result<Option<Src>> {
+pub(crate) fn src_of(conn: &Connection, roots: &[Root], file_id: i64) -> Result<Option<Src>> {
     type Row = (String, String, Option<i64>, i64, Option<String>, Option<String>);
     let row: Option<Row> = conn
         .query_row(

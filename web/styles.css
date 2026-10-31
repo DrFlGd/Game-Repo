@@ -2113,6 +2113,16 @@ html.drop-over-import #main-root { outline: 2px dashed var(--accent-edge); outli
 .subset-unknown li.import-unknown { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: nowrap; }
 .game-variant-of { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 4px 0; font-weight: 600; }
 
+/* Patches (D201–D203): a game's ROM patches, each with its details and Apply… */
+.patches-editor { display: grid; gap: 10px; min-width: 0; }
+.patch-file { border-top: 1px solid var(--steel-2); padding-top: 8px; }
+.patch-file.on { border-left: 3px solid var(--accent-edge); padding-left: 8px; }
+.patch-file h3 { margin: 4px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+.patch-readme { max-height: 240px; overflow: auto; white-space: pre-wrap; font-size: 12px; background: var(--white); border: 1px solid var(--steel-2); border-radius: var(--radius-s); padding: 6px 8px; }
+.patch-found-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.patch-found-row input[type="text"] { width: 120px; }
+.patch-test { display: block; margin-top: 2px; }
+
 /* Cheats (D199): a .cht's cheats as rows, the emulators' files as text */
 .cheats-editor { display: grid; gap: 10px; min-width: 0; }
 .cheats-top { margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); background: var(--white); }

@@ -260,6 +260,16 @@ const MIGRATIONS: &[(&str, &str)] = &[
          CREATE INDEX cheats_folder ON cheats (folder);
          CREATE TABLE cheat_folders (folder TEXT PRIMARY KEY, sig TEXT NOT NULL) STRICT;",
     ),
+    (
+        "patches",
+        // D201: each game folder's ROM patches (patches.rs), read again as cheats are
+        "CREATE TABLE patches (
+            path TEXT PRIMARY KEY, folder TEXT NOT NULL, platform TEXT NOT NULL, name TEXT NOT NULL, format TEXT NOT NULL,
+            kind TEXT NOT NULL, title TEXT NOT NULL, author TEXT NOT NULL, version TEXT NOT NULL, language TEXT NOT NULL, applied TEXT NOT NULL
+         ) STRICT;
+         CREATE INDEX patches_folder ON patches (folder);
+         CREATE TABLE patch_folders (folder TEXT PRIMARY KEY, sig TEXT NOT NULL) STRICT;",
+    ),
 ];
 
 /// How many schema steps this build knows.

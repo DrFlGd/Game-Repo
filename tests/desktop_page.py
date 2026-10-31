@@ -1620,6 +1620,112 @@ def cheat_pack(entries):
     return buf.getvalue()
 
 
+def ups_patch(a, b):
+    """A UPS patch from `a` to `b`, as beat's tool makes them (D201's test)."""
+    def beat(v):
+        out = bytearray()
+        while True:
+            x = v & 0x7F
+            v >>= 7
+            if v == 0:
+                out.append(0x80 | x)
+                return bytes(out)
+            out.append(x)
+            v -= 1
+    p = bytearray(b"UPS1") + beat(len(a)) + beat(len(b))
+    n = max(len(a), len(b))
+    at = lambda v, i: v[i] if i < len(v) else 0
+    i = last = 0
+    while i < n:
+        if at(a, i) == at(b, i):
+            i += 1
+            continue
+        p += beat(i - last)
+        while i < n and at(a, i) != at(b, i):
+            p.append(at(a, i) ^ at(b, i))
+            i += 1
+        p.append(0)
+        i += 1
+        last = i
+    p += zlib.crc32(a).to_bytes(4, "little") + zlib.crc32(b).to_bytes(4, "little")
+    p += zlib.crc32(bytes(p)).to_bytes(4, "little")
+    return bytes(p)
+
+
+async def patches_page(pg, base, home, library):
+    """D201–D203: Import patches… pairs a UPS patch with the game whose file it's for (by
+    its CRC32), guesses it's an English translation from its readme, Test says it fits, and
+    bringing it in with Apply now ticked makes the patched copy beside the game, listed as
+    Applied; the game's own file isn't changed."""
+    gb = home / "GB"
+    gb.mkdir()
+    delta = make_fixtures.rom(71, 1024)
+    (gb / "Patch Delta (World).gb").write_bytes(delta)
+    dat = home / "gb.dat"
+    dat.write_text(make_fixtures.logiqx("Nintendo - Game Boy", "20261001", [
+        ("Patch Delta (World)", None, [make_fixtures.rom_xml("Patch Delta (World).gb", delta)]),
+    ]))
+    pick(gb, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    pick(dat, base)
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await back_home(pg, base)
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    target = bytearray(delta)
+    target[16:26] = b"TRANSLATED"
+    target = bytes(target) + b"MORE"
+    downloads = home / "downloads"
+    downloads.mkdir()
+    (downloads / "pdelta_eng_v1.0.ups").write_bytes(ups_patch(delta, target))
+    (downloads / "readme.txt").write_text("An English translation of Patch Delta.\nTranslated by Tester\n")
+    await pg.click('.sidebar a[href="#/patches"]')
+    await pg.wait_for_selector("#patches-empty")
+    pick(downloads, base)
+    await pg.click("#patches-import")
+    await pg.wait_for_selector("#patches-found li", timeout=20000)
+    rows = await pg.eval_on_selector_all("#patches-found li", "els => els.map(e => [e.dataset.key, e.dataset.pairing, e.dataset.include, e.dataset.format])")
+    said = await pg.inner_text("#patches-found")
+    apply_now = await pg.is_checked('#patches-found li [data-action="apply"]')
+    kind = await pg.eval_on_selector('#patches-found li [data-action="kind"]', "e => e.value")
+    check("Import patches… pairs a UPS patch with the game whose file it's for (its CRC32), with its readme, guessed an English translation, Apply now ticked (D202)",
+          rows == [["gb/Patch Delta (World)", "sure", "yes", "ups"]] and apply_now and kind == "translation" and "with its readme" in said and "Tester" in said, (rows, apply_now, kind, said))
+    await pg.click('#patches-found li [data-action="test"]')
+    await pg.wait_for_selector('#patches-found .patch-test[data-fits="yes"]', timeout=15000)
+    tested = await pg.inner_text("#patches-found .patch-test")
+    await pg.screenshot(path=str(out / "92-patches-found.png"))
+    check("Test applies it in memory and says it fits, checked by the CRC32 it gives", "It fits" in tested, tested)
+    await pg.click("#patches-found-dialog button[type=submit]")
+    await pg.wait_for_selector("#patches-found-dialog .op-paths", timeout=15000)
+    await pg.click("#patches-found-dialog button[type=submit]")
+    await toast_text(pg, "Made ")
+    name = "Patch Delta (World) (English Translated) (pdelta eng v1.0)"
+    made = gb / f"{name}.gb"
+    kept = library / "_library" / "games" / "gb" / "Patch Delta (World)" / "patches" / "pdelta_eng_v1.0.ups"
+    check("bringing it in keeps it in the game's patches/ and Apply now makes the patched copy beside the game, the game's own file unchanged (D201)",
+          kept.is_file() and made.is_file() and made.read_bytes() == target and (gb / "Patch Delta (World).gb").read_bytes() == delta,
+          (kept.is_file(), made.is_file(), sorted(x.name for x in gb.iterdir())))
+    item = '#patches-items [data-id]'
+    await pg.wait_for_function("() => /Applied/.test(document.querySelector('#patches-items [data-id]')?.textContent || '')", timeout=15000)
+    meta = await pg.inner_text(item)
+    await pg.click(item)
+    await pg.wait_for_selector("#patches-panel .patch-file")
+    panel = await pg.inner_text("#patches-panel")
+    await pg.screenshot(path=str(out / "93-patches-panel.png"))
+    check("the Patches page lists it as an applied translation, its panel naming the copy (D203)",
+          "Translation" in meta and "Applied" in meta and name in panel and "UPS" in panel, (meta, panel[:400]))
+    custom = list((library / "_library" / "dats" / "gb").glob("*custom*.dat"))
+    text = custom[0].read_text() if custom else ""
+    check("the copy is a variant of the game in the system's custom DAT (cloneof)", name in text and 'cloneof="Patch Delta (World)"' in text, text[:600])
+    await pg.goto(base + "#/game/gb/Patch%20Delta%20(World)")
+    await pg.wait_for_selector("#game-patches a", timeout=15000)
+    line = await pg.inner_text("#game-patches")
+    check("a game's page says how many patches it has, with a link to them", "1 patch" in line, line)
+
+
 async def cheats_page(pg, base, home, library):
     """D197–D199: Get cheats… fetches libretro's pack (a stand-in here), brings in the file
     named after a game you have and offers one of the same title for a yes; the Cheats page
@@ -1711,7 +1817,7 @@ async def cheats_page(pg, base, home, library):
 
 
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device), ("cheats", cheats_page)]
+             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device), ("cheats", cheats_page), ("patches", patches_page)]
 
 
 async def main():
@@ -1781,7 +1887,7 @@ async def main():
                 active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
                 lead = await pg.inner_text("#audit-empty")
                 check("the menu's places open, with the pages still to come saying what they'll do",
-                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Cheats", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Backlog", "Devices", "Export layouts", "History", "Settings", "Help", "About"]
+                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Cheats", "Patches", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Backlog", "Devices", "Export layouts", "History", "Settings", "Help", "About"]
                       and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
                 await pg.screenshot(path=str(out / "01-coming.png"))
 

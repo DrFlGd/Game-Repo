@@ -295,6 +295,7 @@ pub fn sync(ix: &Index, lib: &Library) -> Result<()> {
     tx.commit()?;
     crate::docs::sync(ix, lib)?;
     crate::cheats::sync(ix, lib)?;
+    crate::patches::sync(ix, lib)?;
     Ok(())
 }
 

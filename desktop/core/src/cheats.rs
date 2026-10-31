@@ -241,7 +241,7 @@ fn entry_of(manifest: &Value, name: &str, text: &str) -> (String, Option<String>
     (format, e["source"].as_str().map(String::from), e["edited"].as_bool().unwrap_or(false), e["fetched"].as_str().map(String::from))
 }
 
-fn stamp(p: &Path) -> Option<(i64, i64)> {
+pub(crate) fn stamp(p: &Path) -> Option<(i64, i64)> {
     let m = std::fs::metadata(p).ok()?;
     let t = m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64;
     Some((m.len() as i64, t))
@@ -369,19 +369,19 @@ pub fn game_of(conn: &Connection, key: &str) -> Result<LibGame> {
 }
 
 /// The games you have (not their updates, DLC or other discs), on `platforms` (all when empty).
-fn had_games(conn: &Connection, platforms: &[String]) -> Result<Vec<LibGame>> {
+pub(crate) fn had_games(conn: &Connection, platforms: &[String]) -> Result<Vec<LibGame>> {
     let mut q = conn.prepare(&format!("SELECT {LIB_COLS} FROM library WHERE have = 1 AND addon = '' ORDER BY platform, sort"))?;
     let all: Vec<LibGame> = q.query_map([], lib_game)?.collect::<rusqlite::Result<_>>()?;
     Ok(all.into_iter().filter(|g| platforms.is_empty() || platforms.contains(&g.platform)).collect())
 }
 
-fn shown(g: &LibGame) -> Value {
+pub(crate) fn shown(g: &LibGame) -> Value {
     json!({ "key": g.key, "kind": g.kind, "platform": g.platform, "platform_name": crate::browse::system_name(&g.platform), "title": g.title, "name": g.name, "picture": g.picture, "folder": g.folder })
 }
 
 /// The index's game folders, cheats and Library rows up to date (the Library's rows are
 /// made when a page asks for them).
-fn fresh(ix: &Index, lib: &Library) -> Result<()> {
+pub(crate) fn fresh(ix: &Index, lib: &Library) -> Result<()> {
     meta::sync(ix, lib)?;
     crate::browse::refresh(ix, lib)?;
     Ok(())
@@ -462,7 +462,7 @@ fn cheats_dir(lib: &Library, g: &LibGame) -> Result<Option<PathBuf>> {
 }
 
 /// A game's folder, made for a DAT game that has none yet.
-fn ensure_dir(ix: &Index, lib: &Library, g: &LibGame) -> Result<PathBuf> {
+pub(crate) fn ensure_dir(ix: &Index, lib: &Library, g: &LibGame) -> Result<PathBuf> {
     if let Some(f) = &g.folder {
         let d = lib.resolve(f)?;
         if d.join("game.json").is_file() {
@@ -521,7 +521,7 @@ pub fn game(ix: &Index, lib: &Library, data_dir: &Path, key: &str) -> Result<Val
     Ok(v)
 }
 
-fn sha1_hex(b: &[u8]) -> String {
+pub(crate) fn sha1_hex(b: &[u8]) -> String {
     use sha1::{Digest, Sha1};
     let mut h = Sha1::new();
     h.update(b);
@@ -766,7 +766,7 @@ fn cache_dir(data_dir: &Path) -> PathBuf {
 }
 
 /// The system a folder of the pack is for ("Nintendo - Super Nintendo Entertainment System").
-fn platform_of_folder(name: &str) -> Option<String> {
+pub(crate) fn platform_of_folder(name: &str) -> Option<String> {
     crate::platforms::from_dat_name(name).or_else(|| crate::platforms::from_folder(name)).map(|p| p.id.to_string())
 }
 
@@ -1023,7 +1023,7 @@ pub struct Found {
 }
 
 /// A title as compared, and the tags after it.
-fn title_and_tags(name: &str) -> (Vec<String>, Vec<String>) {
+pub(crate) fn title_and_tags(name: &str) -> (Vec<String>, Vec<String>) {
     (words(split_name(name).0), tags_of(name).into_iter().map(|t| t.to_lowercase()).collect())
 }
 
@@ -1165,7 +1165,7 @@ pub fn read_files(ix: &Index, lib: &Library, paths: &[PathBuf], key: Option<&str
     Ok(out)
 }
 
-fn walk(dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn walk(dir: &Path) -> Vec<PathBuf> {
     let mut out = vec![];
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
