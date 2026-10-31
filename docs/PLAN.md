@@ -6398,6 +6398,189 @@ the emulators' docs and untested on real installs, for Jerred to try:
 - Tests: `device/src/saves.rs` (each found by its ID, a Switch save placed in another
   device's own user), `core/src/gameid.rs` (each ID read).
 
+### Cheats and patches (D197–D206)
+
+Jerred, 2026-10-31 11:47: cheats and patches. Cheats live with the other content (pictures,
+videos) and have a view of their own like Documents; cheat data is gathered for each game
+automatically, and `.cht` files are added by hand for games that have none, or edited where
+they do. Patches are mods, hacks, translations and texture packs; each kind installs
+differently and may want a view of its own: translations and romhacks are diff files
+applied to the game, texture packs are loaded by the emulator, and every PC game's mods are
+their own.
+
+D197–D206 are Claude's defaults, followed unless Jerred says otherwise. D201 (a patched
+game kept as a variant) is asked on a card. Built in five pull requests, in this order:
+cheats kept, gathered, listed and edited (D197–D199); cheats taken to exports, devices and
+cards (D200); ROM patches and patched copies (D201–D203); texture packs (D204); PC mods
+(D205).
+
+**D197 A game's cheats are files in its folder.** Each game's folder (D13, D32,
+`_library/games/<system>/<Game>/`) gets `cheats/`, beside `media/` and `docs/`, and a PC
+game's is in its `_library/games/pc/…` folder. `cheats/cheats.json` keeps each file's
+format, emulator, title, source (`libretro`, `user`, or the file it was imported from),
+when it was fetched, its SHA-1 then, and `edited` once changed here; a file it doesn't list
+is guessed from its extension and contents. Formats:
+- RetroArch's `.cht` (`cheats = N`, then `cheatN_desc`, `cheatN_code`, `cheatN_enable`
+  and the memory-search keys kept as they are): the usual one, and the one the editor
+  shows as a list (D199).
+- The emulators' own, kept as they are and edited as text with the codes listed where the
+  format is plain: PCSX2's `.pnach` (`[name]` blocks of `patch=` lines), PPSSPP's CWCheat
+  `.ini` (`_C0 name` then `_L` lines), Azahar's `.txt` (`[name]` blocks), Eden's and yuzu's
+  `.txt` (`[name]` blocks, for one build ID), DuckStation's `.cht` (`[name]` blocks with
+  `Type`/`Activation` keys), Dolphin's game `.ini` (`[ActionReplay]`, `[Gecko]` and the
+  `_Enabled` sections only), melonDS's `.mch` (as text).
+- A PC game's cheats are notes (console commands, codes typed in the game) as text or
+  Markdown, or a trainer kept as a file (never run by Game Repo).
+A variant (D122) uses its original's cheats until it has its own. Cheats aren't a game's
+documents: they're not on the Documents page nor searched with them.
+
+**D198 Cheats gathered from libretro's database.** *Get cheats…* (the Cheats page, a
+system's ⋯ menu there, a game's Cheats tab) fetches RetroArch's own cheat pack, the one its
+Online Updater uses (`cheats.zip` from libretro's buildbot, the `cht/` folder of
+libretro-database, CC BY-SA 4.0, credited in About and the Cheats page), into
+`<data dir>/cheats-cache/` with its date, once a week at most (*Get the newest* forces it);
+when the buildbot can't be reached, the same files are read from libretro-database on
+GitHub (raw files, by the folder's list). It's never shipped. Each system's folder in it is
+named as libretro names the system (`Nintendo - Super Nintendo Entertainment System`,
+`platforms`' libretro name), each file after a No-Intro or Redump game. Matched for the
+games you have only: the DAT game's name exactly is *sure*; else the title without its
+tags compared as D120 does, the region order breaking ties, is *likely*. Sure ones are
+copied into the games' `cheats/` folders (source `libretro`); likely ones wait in a review
+list (*Cheats found by a close name: 12*), each with *Take it*, *Choose another…* (search
+that system's cheat files) or *Not this game*. It runs as a job (with Stop), as one change
+with Undo. Getting them again replaces a libretro file not edited here when libretro's has
+changed, and leaves an edited one, offering libretro's newer copy beside it (*libretro has
+a newer copy: Compare…*, which shows both lists side by side with *Use libretro's* and
+*Keep mine*). The emulators' own formats aren't gathered (their databases come with the
+emulators); a game's file can be made in them by hand or imported. A choice in the Cheats
+page's ⋯: *Get cheats for new games as they're added* (off by default).
+
+**D199 The Cheats page.** A page of its own under Library in the menu, beside Documents and
+Videos, on `shelf.js` (the Library's ribbon of systems, views, groups, search and bulk
+actions, as Documents is, D156). Each item is a game with cheats: its picture, name,
+system, how many cheats, the formats, the source, *Edited*. *Show* has *Games with cheats*
+(the default), *Games without cheats* (the games you have with none, to add to) and
+*Edited by you*. Search covers games' names and the cheats' names. Ticked games: *Get
+cheats…*, *Remove cheats…*. Opening one shows its cheat files in the panel on the right:
+- A `.cht` (or a plain format) is a list: each cheat's name, its code (one or several
+  lines), and *On at start* (`cheatN_enable`), with *Add a cheat*, edit in place, remove,
+  and drag to reorder; *As text* shows the whole file to edit as it is. Codes are checked
+  for the shape the system's usual codes take (Game Genie, Pro Action Replay, GameShark,
+  raw addresses), a warning only.
+- *New cheat file…* (format chosen from those the system's emulators read, RetroArch's
+  first), *Import cheats…* (files or a folder, paired with games as documents are, D30:
+  by name, sure or likely, with a review, then one change with Undo), *Show the file*,
+  *Remove*.
+- Saving writes the file (to a temporary file, then in its place) and marks it `edited`;
+  the version before goes to `cheats/.versions/<when>/` (the last twenty kept), and
+  *Versions…* lists them with *Go back to this one*.
+A game's page gets a *Cheats* tab (the same editor) with the count on it.
+
+**D200 Cheats go where the emulator looks, and only what Game Repo put there is changed.**
+- Game Repo Go puts a game's cheats on the device with it (Settings › Cheats, on by
+  default), for the emulator the save profiles (D192) find for it: RetroArch's go to
+  `<cheat_database_path>/<core>/<the game's file name>.cht` (from `retroarch.cfg`; the
+  core named as the profile's `cores` names it), which RetroArch loads when the game
+  starts (its *Auto-Apply Cheats During Game Load* turns on the ones marked *On at
+  start*); the emulators of their own get their own formats where they look, a new
+  `cheats` spot in each profile (PCSX2 `cheats/<CRC>.pnach`, PPSSPP
+  `PSP/Cheats/<ID>.ini`, Azahar `cheats/<title ID>.txt`, Eden
+  `load/<title ID>/Game Repo/cheats/<build ID>.txt`, DuckStation `cheats/<serial>.cht`,
+  Dolphin `GameSettings/<ID>.ini`, merged into the sections it uses so the user's own
+  settings in that file stay). A file that's there and wasn't put there by Go is left
+  alone, and Go says so on the game.
+- A card or drive (D188) gets RetroArch's under the firmware's cheats folder (the layout's
+  new `cheats` entry: muOS, Knulli and ROCKNIX keep RetroArch's), with the games.
+- An export's *What it carries* (D30) gets *Cheats*: for a RetroArch target the `.cht`
+  files in a `cheats/<core>/` folder beside the games, for a plain folder beside each game.
+- Cheats changed on a device aren't sent back (they're the library's, as pictures are).
+
+**D201 ROM patches are kept with the game, and applied to a copy that's a variant.** A
+game's `patches/` folder (beside `cheats/`) keeps its patch files as they came, with
+`patches/patches.json`: each patch's kind (*Translation*, *Hack*, *Fix* (bug fixes and
+improvements), *Restoration*, *Other*), title, author, version, language (a translation's),
+where it came from (a web address), notes (its readme, kept beside it), the format, and the
+file it's for. The formats are IPS (and IPS32), UPS, BPS, PPF (PlayStation) and xdelta
+(VCDIFF), read and applied in the core, so no tool is needed; an xdelta file that uses
+secondary compression asks for `xdelta3` (Settings › Tools, D178's *Get it…*). *Apply*
+makes a patched copy and never changes the game's file: the result is written beside the
+game in its system's folder, named after the game with the patch's tags (*Final Fantasy V
+(Japan) (English Translated) (RPGe v1.1).sfc*, zipped as the system's format says, D177),
+and added to the system's custom DAT (D119) as a variant of the game (`cloneof`) with the
+tags D121 keeps (*English Translated*, *Hack*, *Bug Fix*, *Restoration* and the patch's
+name), so it's a game in the Library under its original, in collections, exports, devices
+and save sync like any other, with the original's details and pictures until it has its
+own (D122). Its `game.json` records the patches applied, in order, and the original's
+SHA-1. Several patches can be applied in an order (a translation, then a fix for it). It's
+one change with Undo (the copy goes, the custom DAT goes back). *Apply again* after a
+patch's new version makes the new copy and sets the old one aside.
+
+**D202 Bringing patches in.** Dropping patch files (or a download's zip with its readme) on
+a game, *Add a patch…* on its page, or *Import patches…* on the Patches page for a folder.
+Each patch is paired with a game: a BPS's or UPS's own source CRC32 (and PPF 3's block)
+against the library's files is *sure* and picks the very release; else the name compared
+as D120 does, *likely*, the system from the folder's names or asked. The kind and language
+are guessed from the name and readme (*T-En*, *Translation*, *Traducción*, *Hack*,
+*Improvement*, *Fix*, *Restoration*), the version and author from the readme's first
+lines; the review list shows each with its game, how sure, its kind, and *Test*, which
+applies it in memory and says whether it fits (BPS and UPS check the result's CRC32 too;
+IPS can only say it didn't write past the end). Then it's one change with Undo, the
+patches copied into the games' `patches/` folders; *Apply now* is ticked for sure pairs.
+A disc game's patch is for one file of it (PPF and xdelta patches usually name a track or
+the image): the game's CHD is read out to its tracks for the patch, and the patched copy
+is made a CHD again (or kept as the format the system prefers). Romhacking.net and
+similar sites have no way for an app to ask them, so nothing is gathered automatically;
+each patch's web address is kept to find it again.
+
+**D203 The Patches page, with a view for each kind.** One page under Library, *Patches*,
+with three tabs, since each kind is put to use differently: *ROM patches* (D201–D202),
+*Texture packs* (D204) and *PC mods* (D205). Each is a shelf (`shelf.js`), its items the
+patches, grouped by system and game, with the ribbon of systems and search across titles,
+authors and games. ROM patches show the kind, language, version, and *Applied* (with a link
+to the variant) or *Not applied*, with *Apply…*, *Remove…*, *Edit details…*; a filter by
+kind and language (*English translations*). A game's page gets a *Patches* tab listing
+its patches of every kind, and a variant's page names the patches it was made with.
+
+**D204 Texture packs are installed by the emulator.** A texture pack is kept in the game's
+`patches/textures/` as it came (an archive or a folder; they're often gigabytes, so it's
+never copied twice: moved in on import if asked, and hard-linked on the same drive), with
+its title, author, version, size, the emulator it's for and, in `patches.json`, the game's
+ID the emulator wants (the disc's ID, serial or title ID, `core::gameid`). Each save
+profile gets a `textures` spot saying where the emulator loads them: Dolphin
+`Load/Textures/<game ID>/`, PCSX2 `textures/<serial>/replacements/`, PPSSPP
+`PSP/TEXTURES/<game ID>/`, DuckStation `textures/<serial>/`, Azahar `load/textures/<title
+ID>/`, Eden `load/<title ID>/<pack>/`, Cemu `graphicPacks/<pack>/`, RetroArch's Mesen
+`system/HdPacks/<game file name>/` and Mupen64Plus-Next's `system/Mupen64plus/cache/`
+(`.hts`/`.htc`). Installing:
+- On a Game Repo Go device: *Texture packs* on the game in Go, and the Devices page's
+  *Add texture packs…* (a queued change like games, D186), off by default since they're
+  big; Go unpacks it there and says which setting turns it on (Dolphin's *Load Custom
+  Textures*, PCSX2's *Load Textures*, PPSSPP's *Replace textures*, and so on).
+- On a card or drive: the same, where the firmware's RetroArch looks.
+- On this computer: *Install into an emulator…* asks for the emulator's folder (kept per
+  emulator in Settings › Emulators) and unpacks it there as a change with Undo.
+Only the files Game Repo put there are removed by *Remove from the device*.
+
+**D205 A PC game's mods are each its own.** A mod is kept in the game's `patches/mods/` (its
+archive or folder as downloaded, its readme), with its title, author, version, web address
+and how it goes in, one of: *Into the game's folder* (unpacked over it; the files it
+replaces kept to put back), *Into a folder of the game's* (a path like `Mods/` or
+`Data/Plugins/`, unpacked there), *A file to run* (an installer or patcher: Game Repo never
+runs it, and says to), or *By hand* (only kept, its readme shown). Mods have an order. They
+go in where the game is installed, never into the library's copy: Game Repo Go applies the
+game's ticked mods after installing it (Windows, the Steam Deck), in order, keeping what
+each replaces in `.gamerepo-mods/` in the game's folder, so *Remove the mod* puts the
+files back and a reinstall applies them again; and Game Repo, for a PC game pointed at
+where it's installed on this computer (Phase 4), *Install the mod* there, as a change with
+Undo. A mod is shown with the game it's for; Steam Workshop and Nexus mods are brought in as
+their downloads are (no sign-in to either).
+
+**D206 What's left out for now.** Gathering the emulators' own cheat databases (PPSSPP's
+`cheat.db`, DuckStation's, Dolphin's codes); soft-patching (a `.bps` beside the game for
+RetroArch to apply as it loads) in exports, which a patched variant makes unneeded;
+mod managers' formats (Vortex, Mod Organizer) and load-order files; texture packs on
+Android cards beyond RetroArch's; cheats sent back from devices.
+
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
   blocked in many cloud sessions, so `vendor.yml` pushes the dependencies of every crate
@@ -6543,7 +6726,7 @@ the emulators' docs and untested on real installs, for Jerred to try:
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D197). D196 is in "Save sync notes, part 9: Switch, Wii U and PlayStation 3 emulators" (2026-10-31), Claude's defaults for the emulators Jerred's go-ahead asked for. D195 is in "Save sync notes, part 8: saves not matched" (2026-10-31), Claude's default for D183's last step, built as Jerred's go-ahead on the remaining save sync work asked. D192–D194 are in "Save sync notes, part 4: emulators of their own" (2026-10-26), Jerred's ask (PPSSPP, Dolphin, ARMSX2 and the other popular emulators, folders set in Go) with Claude's defaults for the rest, followed unless he says otherwise. D180–D191 are in "Save sync and the Devices page" (2026-10-26), Claude's defaults for Jerred's ask, D190 (phones over USB) his choice of Claude's recommendation, the rest followed unless he says otherwise. D179 is in "Setting up Tailscale on the Steam Deck" (2026-10-24), Jerred's agreement to Claude's suggestion, revised and built on 2026-10-25 as he asked (the installer in the app, Game Repo's own since the community script has no licence), with Claude's defaults for the details. D177–D178 are in "The October 2026 review's fixes, convert on import and tool downloads" (2026-10-24): Jerred's asks, with his choice to download and verify the tools (Tesseract's page), the rest Claude's defaults, followed unless he says otherwise. D174–D176 are in "Games on several discs as one" (2026-10-23), Jerred's ask with his choice of a CHD per disc and a playlist, and Claude's defaults for the rest, followed unless he says otherwise. D172–D173 are in "Updating every system's DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D168–D171 are in "Set aside in History, PC games as a shelf, the Documents grid, a collection's systems" (2026-10-23), Claude's defaults for Jerred's list, followed unless he says otherwise. D165–D167 are in "Adding a system, PlayStation 5 and Redump's own DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D207). D197–D206 are in "Cheats and patches" (2026-10-31), Claude's defaults for Jerred's ask (D201, a patched game kept as a variant, asked on a card), followed unless he says otherwise. D196 is in "Save sync notes, part 9: Switch, Wii U and PlayStation 3 emulators" (2026-10-31), Claude's defaults for the emulators Jerred's go-ahead asked for. D195 is in "Save sync notes, part 8: saves not matched" (2026-10-31), Claude's default for D183's last step, built as Jerred's go-ahead on the remaining save sync work asked. D192–D194 are in "Save sync notes, part 4: emulators of their own" (2026-10-26), Jerred's ask (PPSSPP, Dolphin, ARMSX2 and the other popular emulators, folders set in Go) with Claude's defaults for the rest, followed unless he says otherwise. D180–D191 are in "Save sync and the Devices page" (2026-10-26), Claude's defaults for Jerred's ask, D190 (phones over USB) his choice of Claude's recommendation, the rest followed unless he says otherwise. D179 is in "Setting up Tailscale on the Steam Deck" (2026-10-24), Jerred's agreement to Claude's suggestion, revised and built on 2026-10-25 as he asked (the installer in the app, Game Repo's own since the community script has no licence), with Claude's defaults for the details. D177–D178 are in "The October 2026 review's fixes, convert on import and tool downloads" (2026-10-24): Jerred's asks, with his choice to download and verify the tools (Tesseract's page), the rest Claude's defaults, followed unless he says otherwise. D174–D176 are in "Games on several discs as one" (2026-10-23), Jerred's ask with his choice of a CHD per disc and a playlist, and Claude's defaults for the rest, followed unless he says otherwise. D172–D173 are in "Updating every system's DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D168–D171 are in "Set aside in History, PC games as a shelf, the Documents grid, a collection's systems" (2026-10-23), Claude's defaults for Jerred's list, followed unless he says otherwise. D165–D167 are in "Adding a system, PlayStation 5 and Redump's own DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -6643,7 +6826,12 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     Jerred took it as tested on 2026-10-31, with Claude's defaults (the emulators' folders
     from their docs). Left as they are: Ryujinx (no saves by title ID), saves not matched
     only for RetroArch, Android's job only sending, no states for Eden, Cemu or RPCS3.
-28. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
+28. Cheats and patches (D197–D206, Jerred, 2026-10-31): cheats kept in each game's folder,
+    gathered from libretro's cheat pack, listed and edited on a Cheats page, and taken to
+    devices, cards and exports; ROM patches (translations, hacks, fixes) kept with their
+    game and applied to a copy kept as a variant; texture packs installed where each
+    emulator loads them; PC mods applied as Game Repo Go installs the game. In progress.
+29. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices
     (D110). Smaller: re-applying a new picture size to pictures already exported (M20),
