@@ -569,6 +569,10 @@ try:
         return [l.strip() for l in jobs.splitlines() if "SystemJobService" in l or "Unsatisfied" in l][:8] + log.splitlines()[-25:]
     srm = f"{SD}/RetroArch/saves/Beta (Europe).srm"
     sh(f"mkdir -p {SD}/RetroArch/saves && echo beta-save > '{srm}'")
+    # a save's sent once it's been still 30 s (STILL): this one was written yesterday
+    sh(f"touch -t 202610300000.00 '{srm}'", ok=False)
+    if time.time() - int(sh(f"stat -c %Y '{srm}'", ok=False).strip() or 0) < 40:
+        time.sleep(31)
     end = time.time() + 30
     while time.time() < end and not saves_job():
         time.sleep(1)
