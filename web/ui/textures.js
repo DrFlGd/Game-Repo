@@ -72,7 +72,6 @@ function InstallDialog({ k, pack, emulators, onDone }) {
   const [plan, setPlan] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => { setFolder(emulators.find((x) => x.id === emu)?.folder || ""); }, [emu]);
   const choose = async () => {
     const f = await ctx.platform.library.pickFolder(`${e.name}'s folder`);
     if (f) setFolder(f);
@@ -98,7 +97,7 @@ function InstallDialog({ k, pack, emulators, onDone }) {
   }
   return html`<${Dialog} title=${`Install ${pack}`} id="textures-install-dialog" onSubmit=${preview} busy=${busy || !emu || !folder} error=${error} submitLabel=${busy ? "Planning…" : "Preview"}>
     <label class="field-block"><span class="field-label">The emulator</span>
-      <select id="textures-install-emulator" class="compact" value=${emu} onChange=${(x) => setEmu(x.target.value)}>
+      <select id="textures-install-emulator" class="compact" value=${emu} onChange=${(x) => { setEmu(x.target.value); setFolder(emulators.find((y) => y.id === x.target.value)?.folder || ""); }}>
         ${emulators.map((x) => html`<option key=${x.id} value=${x.id}>${x.name}</option>`)}</select></label>
     <label class="field-block"><span class="field-label">${e.name || "Its"} folder on this computer</span>
       <span class="field-row"><input type="text" id="textures-install-folder" value=${folder} placeholder="The folder with its settings (its user folder)" onInput=${(x) => setFolder(x.target.value)} />
