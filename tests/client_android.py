@@ -548,14 +548,18 @@ try:
     # 9. saves synced with Game Repo Go closed (D186): WorkManager's job, set up once it's paired,
     # run now, syncs Beta's RetroArch save to the library through the Rust library; turned off
     # in Settings, the job goes
-    def saves_job():
-        # (`JOB #u0a190/7: 1a2b3c io.github…/androidx.work…SystemJobService`; Android 14 may put a
-        # namespace before the number)
+    def saves_job(logged=True):
+        # JobScheduler's number for it: from its line in dumpsys (`… u0a190/7: 1a2b3c
+        # io.github…/androidx.work…SystemJobService`, its shape changing between Androids),
+        # else the last WorkManager said it scheduled
         for line in sh(f"dumpsys jobscheduler {PKG}", ok=False).splitlines():
-            m = re.search(r"JOB #[^/\s]+/(?:@[^\s]*@/)?(-?\d+):", line)
-            if m and "SystemJobService" in line:
+            m = re.search(r"/(?:@\S*@/)?(-?\d+): ", line)
+            if m and "SystemJobService" in line and PKG in line:
                 return m.group(1)
-        return None
+        if not logged:
+            return None
+        ids = re.findall(r"Scheduling work ID \S+?Job ID (\d+)", adb("logcat", "-d", "-s", "WM-SystemJobScheduler", ok=False, timeout=60))
+        return ids[-1] if ids else None
 
     def why_not():
         # what WorkManager and JobScheduler said, for a failure's report
@@ -565,7 +569,7 @@ try:
         log = adb("logcat", "-d", "-s", "WM-WorkerWrapper", "WM-DiagnosticsWrkr", "WM-SystemJobScheduler", "WM-Schedulers", "WM-WorkManagerImpl", "GameRepoGoSaves", "AndroidRuntime", ok=False, timeout=60)
         (out / "jobscheduler.txt").write_text(jobs, encoding="utf-8")
         (out / "workmanager-log.txt").write_text(log, encoding="utf-8")
-        return [l.strip() for l in jobs.splitlines() if "JOB #" in l or "Required constraints" in l or "Unsatisfied" in l][:8] + log.splitlines()[-25:]
+        return [l.strip() for l in jobs.splitlines() if "SystemJobService" in l or "Unsatisfied" in l][:8] + log.splitlines()[-25:]
     srm = f"{SD}/RetroArch/saves/Beta (Europe).srm"
     sh(f"mkdir -p {SD}/RetroArch/saves && echo beta-save > '{srm}'")
     job = None
@@ -585,9 +589,9 @@ try:
           (job, in_lib.is_file(), said[-5:], pg.api("saves").get("background"), None if job and in_lib.is_file() else why_not()))
     pg.api("set_settings", {"background_saves": False})
     end = time.time() + 30
-    while time.time() < end and saves_job():
+    while time.time() < end and saves_job(logged=False):
         time.sleep(1)
-    check("turned off in Settings, the job goes", not saves_job() and pg.api("saves")["background"]["set"] is False, pg.api("saves").get("background"))
+    check("turned off in Settings, the job goes", not saves_job(logged=False) and pg.api("saves")["background"]["set"] is False, pg.api("saves").get("background"))
     pg.api("set_settings", {"background_saves": True})
 
     # 10. updates (D139): Settings › Check for updates finds 9.9.9; an APK changed after it
