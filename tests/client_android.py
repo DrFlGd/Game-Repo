@@ -21,7 +21,8 @@ between games, X ticks one, A opens it and B comes back; a game added is downloa
 ES-DE's folders and gamelist; while the library can't be reached a game queued shows the
 downloads' notification from its foreground service, its Pause pauses the queue, and once
 the library's back the game comes and the notification goes; a game removed goes from the
-device; with --update (the same APK signed as 9.9.9 with the key the debug build was made
+device; saves are synced by WorkManager's job in the background (D186), which goes once
+it's turned off in Settings; with --update (the same APK signed as 9.9.9 with the key the debug build was made
 with, its .sig beside it, D139), the check as it starts finds nothing newer, Settings › Check
 for updates finds 9.9.9, an APK changed after signing is refused before Android sees it, the
 right one brings Android's installer to the front and backing out of it says the update
@@ -31,7 +32,8 @@ wasn't installed; Back on the Library sends the app to the background; no page e
 
 The release APK (minified, its web view not open to debugging), where the emulator can run
 arm64 apps: it starts on the pairing page with the access note, which needs the Kotlin
-plugin's commands to have come through minifying, and doesn't crash.
+plugin's commands to have come through minifying, doesn't crash, and sets its saves' job
+up through WorkManager without an error.
 """
 import argparse
 import base64
@@ -135,8 +137,11 @@ if a.smoke:
     (out / "logcat-release.txt").write_text(log, encoding="utf-8")
     check("the release APK starts on the pairing page", "Pair with your library" in screen, screen[-1500:])
     check("its plugin answers after minifying (the access note needs it)", "access to all files" in screen, screen[-1500:])
-    crashed = re.search(rf"FATAL EXCEPTION[^\n]*\n[^\n]*Process: {re.escape(PKG)}", log)
+    crashed = re.search(rf"FATAL EXCEPTION[^\n]*\n[^\n]*Process: {re.escape(PKG)}[^\n]*(?:\n[^\n]*AndroidRuntime[^\n]*){{0,40}}", log)
     check("it doesn't crash", sh(f"pidof {PKG}", ok=False).strip() and not crashed, crashed.group(0) if crashed else "not running")
+    # the saves' job (D186) set up or taken away as it starts, through WorkManager
+    jobs = [l for l in log.splitlines() if "GameRepoGoSaves" in l or ("WM-" in l and " E " in l)]
+    check("its saves' job is set up through WorkManager after minifying", not any(" E " in l or " W " in l for l in jobs), jobs[-20:])
     (out / "client-android-release.json").write_text(json.dumps(results, indent=1), encoding="utf-8")
     finish()
 
@@ -544,7 +549,56 @@ try:
     pg.api("remove", {"asks": [{"id": alpha}]})
     check("a game removed goes from the device", alpha and not there(rom) and there(beta), rows)
 
-    # 9. updates (D139): Settings › Check for updates finds 9.9.9; an APK changed after it
+    # 9. saves synced with Game Repo Go closed (D186): WorkManager's job, set up once it's paired;
+    # turned off in Settings, the job goes, and turned on again it runs at once (a periodic
+    # job's first run waits for nothing, and WorkManager puts off one forced early) and syncs
+    # Beta's RetroArch save to the library through the Rust library
+    def saves_job():
+        # its line in dumpsys (`JOB #u0a190/7: …` before Android 14, `JOB
+        # androidx.work.systemjobscheduler:u0a192/1: …` with its namespace since)
+        for line in sh(f"dumpsys jobscheduler {PKG}", ok=False).splitlines():
+            m = re.search(r"JOB \S*?/(-?\d+): ", line)
+            if m and "SystemJobService" in line and PKG in line:
+                return m.group(1)
+        return None
+
+    def why_not():
+        # what WorkManager and JobScheduler said, for a failure's report
+        sh(f"am broadcast -a androidx.work.diagnostics.REQUEST_DIAGNOSTICS -p {PKG}", ok=False)
+        time.sleep(3)
+        jobs = sh(f"dumpsys jobscheduler {PKG}", ok=False)
+        log = adb("logcat", "-d", "-s", "WM-WorkerWrapper", "WM-DiagnosticsWrkr", "WM-SystemJobScheduler", "WM-Schedulers", "WM-WorkManagerImpl", "GameRepoGoSaves", "AndroidRuntime", ok=False, timeout=60)
+        (out / "jobscheduler.txt").write_text(jobs, encoding="utf-8")
+        (out / "workmanager-log.txt").write_text(log, encoding="utf-8")
+        return [l.strip() for l in jobs.splitlines() if "SystemJobService" in l or "Unsatisfied" in l][:8] + log.splitlines()[-25:]
+    srm = f"{SD}/RetroArch/saves/Beta (Europe).srm"
+    sh(f"mkdir -p {SD}/RetroArch/saves && echo beta-save > '{srm}'")
+    # a save's sent once it's been still 30 s (STILL): this one was written yesterday
+    sh(f"touch -t 202610300000.00 '{srm}'", ok=False)
+    if time.time() - int(sh(f"stat -c %Y '{srm}'", ok=False).strip() or 0) < 40:
+        time.sleep(31)
+    end = time.time() + 30
+    while time.time() < end and not saves_job():
+        time.sleep(1)
+    was = saves_job()
+    pg.api("set_settings", {"background_saves": False})
+    end = time.time() + 30
+    while time.time() < end and saves_job():
+        time.sleep(1)
+    check("turned off in Settings, the job goes", was and not saves_job() and pg.api("saves")["background"]["set"] is False, (was, pg.api("saves").get("background")))
+    said_before = len(adb("logcat", "-d", "-s", "GameRepoGoSaves", ok=False, timeout=60).splitlines())
+    pg.api("set_settings", {"background_saves": True})
+    in_lib = lib / "Saves" / "gb" / "Beta (Europe)" / "Save (retroarch)" / "Beta (Europe).srm"
+    end, said = time.time() + 90, []
+    while time.time() < end and not (in_lib.is_file() and any("synced:" in l for l in said)):
+        time.sleep(1)
+        said = adb("logcat", "-d", "-s", "GameRepoGoSaves", ok=False, timeout=60).splitlines()[said_before:]
+    job = saves_job()
+    check("saves are synced in the background by WorkManager's job, through the Rust library",
+          job and in_lib.is_file() and in_lib.read_text().strip() == "beta-save" and any("synced: {" in l for l in said),
+          (job, in_lib.is_file(), said[-5:], pg.api("saves").get("background"), None if job and in_lib.is_file() and said else why_not()))
+
+    # 10. updates (D139): Settings › Check for updates finds 9.9.9; an APK changed after it
     # was signed is refused before Android sees it; the right one brings Android's installer
     # to the front, and backed out of there, the page says it wasn't installed
     if a.update:
@@ -575,7 +629,7 @@ try:
         check("backed out of Android's installer, the page says the update wasn't installed", kept and resumed() == PKG
               and pg.api("update_state")["version"] != "9.9.9", (resumed(), pg.eval("document.querySelector('#update-panel').innerText")))
 
-    # 10. Back on the Library sends Game Repo Go to the background
+    # 11. Back on the Library sends Game Repo Go to the background
     pg.eval("location.hash = '#library'")
     pg.wait("document.querySelector('#go-games')", 15, "the Library")
     key("KEYCODE_BACK")

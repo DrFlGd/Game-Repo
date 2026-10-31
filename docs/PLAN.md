@@ -6281,12 +6281,122 @@ clock, Task Scheduler starts it every five minutes to sync and end, so nothing s
   window. One sync at a time across both programs: `saves.lock` in the data folder.
 - Settings › Saves: *Sync them in the background too, with Game Repo Go closed* (on by
   default), with how often and how, or what went wrong setting it up.
-- Not yet: Android (WorkManager, next); in the background Go doesn't take the Devices page's
-  waiting changes yet (they need its downloads).
+- Not yet: Android (WorkManager, part 6); in the background Go doesn't take the Devices
+  page's waiting changes yet (they need its downloads).
 - Tests: the timer's units written and taken away (device), the backend opened alone syncing a
   save and not syncing once turned off (`serve/tests/client.rs`), Settings › Saves turning it
   off and on with its timer (`client_page.py`, the stand-in writes the units only). Task
   Scheduler and systemctl themselves are only asked on a real install.
+
+### Save sync notes, part 6: in the background on Android (built 2026-10-31)
+
+D186's Android side: a job of WorkManager's rather than a service of Go's own, so nothing
+stays running and Android chooses when (it puts background work off in Doze and for apps it
+thinks rarely used; periodic jobs are fifteen minutes apart at the most often).
+- The Kotlin plugin's `SavesWorker.kt`: unique periodic work *Game Repo Go saves*, every
+  fifteen minutes with a network and the battery not low, Go's data folder in its input. Set
+  up (`ExistingPeriodicWorkPolicy.UPDATE`, so Go starting again keeps its next time) or
+  cancelled through the plugin's `savesBackground`, which the Rust shell asks for through a
+  `background::Scheduler` (`App::set_background_by`), the same moments as on Windows and
+  Linux.
+- The job unseals the pairing itself (`Secrets.kt`), lists the storage volumes (`Volumes.kt`,
+  shared with the plugin's `volumes`), loads Go's Rust library (`libgamerepo_client_lib.so`,
+  already there when the app's open) and calls `SavesNative.sync` (JNI, the `jni` crate Tauri
+  uses), which is `android.rs`'s `sync_alone`: `App::open_with(…, alone)` with the pairing
+  given, `sync_saves_now`, and the pairing back when the library was found at another
+  address, which the job keeps. `saves.lock` keeps it from syncing beside the app's own.
+- Android doesn't say which app is running, so the job only sends: it brings nothing, which
+  could be written under an emulator playing (D185); what changed elsewhere comes when Go's
+  opened (`Here::busy`). Settings › Saves on Android says it runs about every fifteen minutes
+  when Android lets it, so open Go before playing to be sure of the newest save.
+- Tests: the scheduler set on and off with saves, background saves and pairing
+  (`serve/tests/client.rs`); on the emulator, the job set up once paired, run with
+  `cmd jobscheduler run -f`, syncing a RetroArch save to the library, and gone once turned
+  off in Settings (`client_android.py`).
+
+### Save sync notes, part 7: a card's saves, and Eject (built 2026-10-31)
+
+D189's saves for cards and the handhelds with no app: RetroArch's, where each firmware keeps
+them, synced each time the card's connected, in Game Repo itself (no server needed).
+- The layout says where (`saves` in a device layout, D36): `files` and `states`, paths with
+  the system's tokens; one ending in `/{core}` is sorted by core, an empty `files` is beside
+  the game. Built in, from each firmware's own settings: muOS `MUOS/save/file/{core}` and
+  `MUOS/save/state/{core}`; Knulli (Batocera's configgen) `saves/{folder}` for both; ROCKNIX
+  saves beside the game and states in `roms/savestates/{folder}` (its `setsettings.sh`). A
+  copy of a layout can change them; `layout::check` reads them.
+- `gamerepo-device`'s sync is reused (`saves::Library`, done for Game Repo Server by
+  `Server` and for the library's own folder by `devices::OwnSaves`): `devices::sync_folder_saves`
+  makes one `Here` for each system on the card (`only`, its folder of the ROMs folder, with
+  its own folders) for the library's games on it, never busy, what it last had of each kept
+  on the card in `.gamerepo/saves.json` and the last sync in the device's record
+  (`saves.json`, shown on its page). Versions are the card's (its id and name).
+- `devices_folder_sync` syncs them after the games' changes, and Game Repo does that for each
+  card as it comes (`lookForDevices`), not only one with changes waiting.
+- *Eject* on a connected card's page (`devices_folder_eject`, `devices::eject`), when it's a
+  drive of its own (`can_eject`: a drive letter that isn't the system's on Windows, a mount
+  under `/media`, `/run/media`, `/mnt` or `/Volumes` elsewhere), and not while a change runs:
+  on Windows its volume is locked (refused while something has a file open on it),
+  dismounted and ejected (`FSCTL_LOCK_VOLUME`, `FSCTL_DISMOUNT_VOLUME`,
+  `IOCTL_STORAGE_EJECT_MEDIA`); elsewhere `gio mount --eject`, `udisksctl unmount` or
+  `diskutil eject`. A share or a folder has none. Untested on a real card reader.
+- Fixed with it: a RetroArch whose saves and states are in one folder had each file counted
+  twice, so the save was sent again at every sync.
+- Not yet: the firmwares' standalone emulators (PPSSPP, DraStic and the like on Knulli and
+  ROCKNIX), ES-DE on a card (Android's RetroArch keeps saves on the phone, reached through Go),
+  and the games from elsewhere on a card (not told by hash yet).
+- Tests: `devices::tests::a_cards_retroarch_saves_go_to_the_library_and_come_back_where_its_firmware_keeps_them`
+  (Knulli sends a save and a state and brings another device's, muOS's by core, ROCKNIX's
+  beside the game, a plain folder none).
+
+### Save sync notes, part 8: saves not matched (built 2026-10-31)
+
+**D195 Saves not matched.** D183's last step: a save that can't be tied to a game for sure is
+kept as found and shown under *Saves not matched*, to be given a game by hand.
+- Which: RetroArch's saves (its save suffixes, not states) in its saves folder that no game
+  the device holds is named like (`saves::loose_retroarch`): a game from elsewhere, or one
+  the library has under another name. Not looked for when saves are beside the games (every
+  file there would be a stranger's), nor yet for the emulators of their own.
+- Sent once each (by the file's SHA-1, `Kept::loose`), after the sync, once it's been still a
+  while: its file as a blob, then `POST /v1/saves/loose` (`LooseAsk`, `Loose`: the format,
+  the emulator, the file, the game's name it was saved under and the suffix). A library too
+  old for it is asked again a day later. A card's go straight in (`OwnSaves::loose`).
+- Kept in `Saves/.not matched/<sha1>/`, the file under its own name and `found.json` (the
+  device and when, `saves::LooseKept`).
+- Settings › Saves in Game Repo lists them (`saves_settings`'s `loose`) with *Give it a
+  game…* (a search of the Library, one game, `saves_loose_give`, `Store::give`: a version of
+  the game's save from the device it came from, based on the newest so it's the newest, and
+  gone from the list) and *Throw away* (`saves_loose_drop`). Its next sync brings it to each
+  device with the game, under that device's name for the game.
+- Tests: `serve/tests/client.rs` (found, sent once, given Alpha and brought under Alpha's
+  name), `desktop_page.py` (listed in Settings › Saves and given a game).
+
+### Save sync notes, part 9: Switch, Wii U and PlayStation 3 emulators (built 2026-10-31)
+
+**D196 Switch, Wii U and PlayStation 3 saves.** Three more profiles of their own (D192), from
+the emulators' docs and untested on real installs, for Jerred to try:
+- *Eden (and yuzu, Citron, Sudachi, Suyu)* (`wire/saves/eden.json`, format `yuzu`): a
+  game's save is `nand/user/save/0000000000000000/<user>/<title ID>/`, every file in it.
+  The user's folder is a number each install makes, so a pattern's `{user}` part is each
+  device's own: what's found is kept without it (the save's names start at the title ID),
+  and a save from elsewhere goes to the user folder changed last; none yet (the emulator's
+  never saved), and it waits. Ryujinx isn't one: it keeps saves by numbers of its own in a
+  database (`imkvdb.arc`), not by title ID.
+- *Cemu* (`cemu.json`): `mlc01/usr/save/00050000/<the title ID's last eight letters>/`,
+  every user's (`user/80000001/…`) in the one save. An MLC kept elsewhere is set as its
+  folder in Go's Settings › Saves.
+- *RPCS3* (`rpcs3.json`): each folder in `dev_hdd0/home/00000001/savedata/` starting with the
+  game's ID without its `-` (`BLUS30443-AUTOSAVE`), as one save. Windows has no fixed place
+  (it runs where it's unpacked), so a few likely ones are tried and the folder can be set.
+- None of the three has states (Eden and Cemu have none; RPCS3's load only in the build
+  that made them).
+- The IDs (`core::gameid`): a Switch NSP's or NSZ's from its ticket's name in its file
+  list (an update's or DLC's is its game's), a WUA's from its top folder's name
+  (`0005000010101c00_v0`, in the names ZArchive's footer points to), a PlayStation 3
+  package's from its content ID and a disc's from `PS3_DISC.SFB` or `PS3_GAME/PARAM.SFO`;
+  else from the file's name (`[0100F2C0115B6000]`, `[BLUS30443]`), as XCIs, WUDs and most
+  shared files are named (`gameid::of_name`).
+- Tests: `device/src/saves.rs` (each found by its ID, a Switch save placed in another
+  device's own user), `core/src/gameid.rs` (each ID read).
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -6433,7 +6543,7 @@ clock, Task Scheduler starts it every five minutes to sync and end, so nothing s
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D195). D192–D194 are in "Save sync notes, part 4: emulators of their own" (2026-10-26), Jerred's ask (PPSSPP, Dolphin, ARMSX2 and the other popular emulators, folders set in Go) with Claude's defaults for the rest, followed unless he says otherwise. D180–D191 are in "Save sync and the Devices page" (2026-10-26), Claude's defaults for Jerred's ask, D190 (phones over USB) his choice of Claude's recommendation, the rest followed unless he says otherwise. D179 is in "Setting up Tailscale on the Steam Deck" (2026-10-24), Jerred's agreement to Claude's suggestion, revised and built on 2026-10-25 as he asked (the installer in the app, Game Repo's own since the community script has no licence), with Claude's defaults for the details. D177–D178 are in "The October 2026 review's fixes, convert on import and tool downloads" (2026-10-24): Jerred's asks, with his choice to download and verify the tools (Tesseract's page), the rest Claude's defaults, followed unless he says otherwise. D174–D176 are in "Games on several discs as one" (2026-10-23), Jerred's ask with his choice of a CHD per disc and a playlist, and Claude's defaults for the rest, followed unless he says otherwise. D172–D173 are in "Updating every system's DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D168–D171 are in "Set aside in History, PC games as a shelf, the Documents grid, a collection's systems" (2026-10-23), Claude's defaults for Jerred's list, followed unless he says otherwise. D165–D167 are in "Adding a system, PlayStation 5 and Redump's own DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D197). D196 is in "Save sync notes, part 9: Switch, Wii U and PlayStation 3 emulators" (2026-10-31), Claude's defaults for the emulators Jerred's go-ahead asked for. D195 is in "Save sync notes, part 8: saves not matched" (2026-10-31), Claude's default for D183's last step, built as Jerred's go-ahead on the remaining save sync work asked. D192–D194 are in "Save sync notes, part 4: emulators of their own" (2026-10-26), Jerred's ask (PPSSPP, Dolphin, ARMSX2 and the other popular emulators, folders set in Go) with Claude's defaults for the rest, followed unless he says otherwise. D180–D191 are in "Save sync and the Devices page" (2026-10-26), Claude's defaults for Jerred's ask, D190 (phones over USB) his choice of Claude's recommendation, the rest followed unless he says otherwise. D179 is in "Setting up Tailscale on the Steam Deck" (2026-10-24), Jerred's agreement to Claude's suggestion, revised and built on 2026-10-25 as he asked (the installer in the app, Game Repo's own since the community script has no licence), with Claude's defaults for the details. D177–D178 are in "The October 2026 review's fixes, convert on import and tool downloads" (2026-10-24): Jerred's asks, with his choice to download and verify the tools (Tesseract's page), the rest Claude's defaults, followed unless he says otherwise. D174–D176 are in "Games on several discs as one" (2026-10-23), Jerred's ask with his choice of a CHD per disc and a playlist, and Claude's defaults for the rest, followed unless he says otherwise. D172–D173 are in "Updating every system's DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D168–D171 are in "Set aside in History, PC games as a shelf, the Documents grid, a collection's systems" (2026-10-23), Claude's defaults for Jerred's list, followed unless he says otherwise. D165–D167 are in "Adding a system, PlayStation 5 and Redump's own DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -6524,11 +6634,13 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
 26. Setting up Tailscale on the Steam Deck (D179), ahead of the rest of 9d: *Set up Tailscale*
     in Game Repo Go's Settings, with Go's own installer, and a weekly check on the community
     script; released in 0.5.54.
-27. Save sync and the Devices page (D180–D194, Jerred, 2026-10-26): saves and states synced
+27. Save sync and the Devices page (D180–D196, Jerred, 2026-10-26): saves and states synced
     between devices with versions (RetroArch and the emulators of their own: PPSSPP, Dolphin,
-    the PCSX2 family with ARMSX2, DuckStation, Azahar, Flycast, melonDS, mGBA, DraStic), and a
-    Devices page for Game Repo Go devices, cards, drives and shares, with changes that wait
-    for the next connect; in progress (left: background sync on Android, a card's saves, Eject, saves not matched, Switch/Wii U/PS3 emulators). It takes in the handhelds with no app (muOS and the like).
+    the PCSX2 family with ARMSX2, DuckStation, Azahar, Flycast, melonDS, mGBA, DraStic, Eden
+    and the yuzu family, Cemu, RPCS3), in the background too, and a Devices page for Game
+    Repo Go devices, cards, drives and shares, with changes that wait for the next connect.
+    It takes in the handhelds with no app (muOS and the like). Built; left: Jerred's checks
+    on real installs (the emulators' folders are from their docs).
 28. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices

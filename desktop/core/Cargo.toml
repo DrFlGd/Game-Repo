@@ -11,6 +11,8 @@ name = "gamerepo_core"
 anyhow = "1"
 gamerepo-steam = { path = "../steam" }
 gamerepo-wire = { path = "../wire" }
+# a card's saves synced as Game Repo Go syncs a device's (D189)
+gamerepo-device = { path = "../device" }
 chd = { version = "0.4", features = ["encode"] }
 crc32fast = "1"
 flate2 = { version = "1", default-features = false, features = ["zlib"] }
@@ -35,7 +37,8 @@ ureq = "3"
 zip = { version = "9", default-features = false, features = ["deflate", "deflate64", "bzip2", "lzma"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+# (and *Eject* for a card, D189: its volume locked, dismounted and ejected)
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl"] }
 
 [dev-dependencies]
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["bzip2", "ppmd", "compress"] }

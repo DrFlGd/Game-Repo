@@ -2,16 +2,22 @@
 // plugin (desktop/client/plugin, `DevicePlugin`): the pairing token in the Android Keystore,
 // ES-DE looked for on every storage volume, All files access, a folder chosen with Android's
 // picker, the multicast lock while the library is looked for, and the downloads' foreground
-// service, its notification kept up to date and its Pause, Resume and Cancel heard. Each
-// plugin call waits for Android's main thread, so none is made from it.
+// service, its notification kept up to date and its Pause, Resume and Cancel heard; and the
+// saves synced in the background by WorkManager's job (SavesWorker.kt, D186), which calls
+// `sync_alone` here through JNI. Each plugin call waits for Android's main thread, so none is
+// made from it.
 
 use crate::Go;
-use gamerepo_device::app::Secrets;
+use gamerepo_device::app::{App, Secrets};
+use gamerepo_device::background::{By, Scheduler};
 use gamerepo_device::queue::State;
+use jni::objects::{JClass, JString};
+use jni::sys::jstring;
+use jni::JNIEnv;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_gamerepo_device::Android;
@@ -57,6 +63,72 @@ impl Secrets for Keystore {
 
 pub fn secrets(app: &AppHandle) -> Box<dyn Secrets> {
     Box::new(Keystore(plugin(app), Mutex::new(HashMap::new())))
+}
+
+/// WorkManager's job for the saves (D186), set up through the plugin. Android runs periodic
+/// jobs fifteen minutes apart at the most often.
+struct Jobs(Android<Wry>);
+
+const JOBS_EVERY: u32 = 15;
+
+impl Scheduler for Jobs {
+    fn set(&self, on: bool, data: &Path) -> anyhow::Result<()> {
+        self.0.call::<Value>("savesBackground", json!({ "on": on, "data": data.display().to_string(), "minutes": JOBS_EVERY })).map(|_| ()).map_err(anyhow::Error::msg)
+    }
+
+    fn every(&self) -> u32 {
+        JOBS_EVERY
+    }
+}
+
+/// The pairing the job unsealed (Secrets.kt), and what the sync left of it.
+struct Given(Arc<Mutex<Option<String>>>);
+
+impl Secrets for Given {
+    fn get(&self, name: &str) -> Option<String> {
+        (name == "server").then(|| self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()).flatten()
+    }
+
+    fn set(&self, name: &str, value: &str) -> anyhow::Result<()> {
+        if name == "server" {
+            *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(value.to_string());
+        }
+        Ok(())
+    }
+
+    fn delete(&self, name: &str) -> anyhow::Result<()> {
+        if name == "server" {
+            *self.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
+        Ok(())
+    }
+}
+
+/// One sync of saves for WorkManager's job (D186), with Go's window maybe not open (its
+/// process started for the job alone): Go's data folder, the storage volumes (one a line)
+/// and the pairing, as the job read them. The answer: the sync's summary (null: nothing to
+/// sync), what went wrong, and the pairing again when the library was found at another
+/// address, for the job to keep.
+fn sync_alone(data: &str, volumes: &str, server: &str) -> Value {
+    let kept = Arc::new(Mutex::new(Some(server.to_string())));
+    let homes = volumes.lines().filter(|l| !l.is_empty()).map(PathBuf::from).collect();
+    let go = match App::open_with(Path::new(data), homes, crate::KIND, Box::new(Given(kept.clone())), Box::new(|_| {}), true) {
+        Ok(go) => go,
+        Err(e) => return json!({ "summary": null, "error": format!("{e:#}"), "server": null }),
+    };
+    let summary = go.sync_saves_now();
+    let now = kept.lock().unwrap_or_else(|e| e.into_inner()).clone().filter(|s| s != server);
+    json!({ "summary": summary, "error": null, "server": now })
+}
+
+/// SavesNative.sync in SavesWorker.kt.
+#[no_mangle]
+pub extern "system" fn Java_io_github_drflgd_gamerepo_go_device_SavesNative_sync<'l>(mut env: JNIEnv<'l>, _: JClass<'l>, data: JString<'l>, volumes: JString<'l>, server: JString<'l>) -> jstring {
+    let mut text = |s: &JString| env.get_string(s).map(String::from).unwrap_or_default();
+    let (data, volumes, server) = (text(&data), text(&volumes), text(&server));
+    // (a panic mustn't cross into Java)
+    let said = std::panic::catch_unwind(|| sync_alone(&data, &volumes, &server)).unwrap_or_else(|_| json!({ "summary": null, "error": "the sync stopped short", "server": null }));
+    env.new_string(said.to_string()).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
 /// Where ES-DE is looked for: each storage volume that's there (internal storage, SD cards).
@@ -125,7 +197,12 @@ fn shown(app: &AppHandle, showing: bool) -> Option<Value> {
 pub fn start(app: AppHandle) {
     let p = plugin(&app);
     let (a, pp) = (app.clone(), p.clone());
-    std::thread::spawn(move || a.state::<Go>().app.set_homes(homes(&pp)));
+    std::thread::spawn(move || {
+        let go = a.state::<Go>().app.clone();
+        go.set_homes(homes(&pp));
+        // saves synced with Go closed too (D186): WorkManager's job set up, or taken away, as Settings say
+        go.set_background_by(By::Scheduler(Box::new(Jobs(pp))));
+    });
 
     let pm = p.clone();
     gamerepo_device::on_browse(Box::new(move |on| {

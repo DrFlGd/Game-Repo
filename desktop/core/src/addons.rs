@@ -37,7 +37,7 @@ pub fn is_addon_dat(name: &str) -> bool {
 /// itself). Switch's base games' IDs end in 000 (and an even digit before it), an update's
 /// in 800, a DLC's are the base's plus 1001 on; 3DS's and Wii U's share their last eight
 /// digits, the first eight saying what each is.
-fn title_id(name: &str) -> Option<(u64, Option<&'static str>)> {
+pub(crate) fn title_id(name: &str) -> Option<(u64, Option<&'static str>)> {
     groups(name).into_iter().find_map(|g| {
         if g.len() != 16 || !g.chars().all(|c| c.is_ascii_hexdigit()) {
             return None;

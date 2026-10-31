@@ -3,6 +3,8 @@
 //! last connected, and the changes waiting for it. Game Repo writes the queue; Game Repo
 //! Server writes what a Game Repo Go device sends and what became of each change; so the
 //! Devices page works from any computer the library's on, and from a server on a NAS.
+//! Folder devices (cards, drives and shares, D189) are read, changed and have their saves
+//! synced here.
 
 use crate::config::write_json;
 use crate::index::Index;
@@ -208,7 +210,8 @@ impl Records {
                 true
             }
         });
-        Ok(json!({ "info": info, "contents": contents, "changes": changes }))
+        let saves: Value = read(&self.at(id).join("saves.json"));
+        Ok(json!({ "info": info, "contents": contents, "changes": changes, "saves": saves }))
     }
 }
 
@@ -239,6 +242,95 @@ pub struct FolderDevice {
 
 fn marker_of(root: &Path) -> Option<Marker> {
     std::fs::read(root.join(MARKER)).ok().and_then(|b| serde_json::from_slice::<Marker>(&b).ok()).filter(|m| !m.id.is_empty())
+}
+
+/// Whether a folder device can be ejected (D189): it's a drive of its own (Windows' `E:\\`,
+/// a mount point elsewhere), not a share or a folder on another drive, nor the system's.
+pub fn can_eject(root: &Path) -> bool {
+    if cfg!(windows) {
+        let s = root.to_string_lossy().replace('/', "\\");
+        let system = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into()).to_ascii_uppercase();
+        let b = s.as_bytes();
+        return (s.len() == 3 && b[0].is_ascii_alphabetic() && &s[1..] == ":\\" || s.len() == 2 && b[0].is_ascii_alphabetic() && b[1] == b':') && !s.to_ascii_uppercase().starts_with(&system);
+    }
+    // (a removable drive's mount point, where `present` looks)
+    let at = root.to_string_lossy().trim_end_matches('/').to_string();
+    if !["/media/", "/run/media/", "/mnt/", "/Volumes/"].iter().any(|top| at.starts_with(top)) {
+        return false;
+    }
+    let Ok(mounts) = std::fs::read_to_string("/proc/self/mounts") else { return cfg!(target_os = "macos") };
+    mounts.lines().any(|l| l.split(' ').nth(1).is_some_and(|m| m.replace("\\040", " ") == at))
+}
+
+/// *Eject* (D189): a card or drive made safe to take out. On Windows its volume is locked
+/// (nothing may have a file open on it), dismounted and ejected; elsewhere `gio`, `udisksctl`
+/// or `diskutil` unmounts it.
+pub fn eject(root: &Path) -> Result<()> {
+    if !can_eject(root) {
+        bail!("It isn't a drive of its own, so there's nothing to eject: it can be taken away as it is.");
+    }
+    #[cfg(windows)]
+    {
+        eject_volume(root)
+    }
+    #[cfg(not(windows))]
+    {
+        let at = root.to_string_lossy().to_string();
+        let tries: [(&str, Vec<&str>); 3] = [("gio", vec!["mount", "--eject", &at]), ("udisksctl", vec!["unmount", "--no-user-interaction", "-p", &at]), ("diskutil", vec!["eject", &at])];
+        let mut said = String::new();
+        for (program, args) in tries {
+            match std::process::Command::new(program).args(&args).stdin(std::process::Stdio::null()).output() {
+                Ok(o) if o.status.success() => return Ok(()),
+                Ok(o) => said = String::from_utf8_lossy(&o.stderr).trim().to_string(),
+                Err(_) => {}
+            }
+        }
+        bail!("It couldn't be ejected{}", if said.is_empty() { ".".to_string() } else { format!(": {said}") })
+    }
+}
+
+#[cfg(windows)]
+fn eject_volume(root: &Path) -> Result<()> {
+    use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
+    use windows_sys::Win32::System::Ioctl::{FSCTL_DISMOUNT_VOLUME, FSCTL_LOCK_VOLUME, IOCTL_STORAGE_EJECT_MEDIA, IOCTL_STORAGE_MEDIA_REMOVAL};
+    use windows_sys::Win32::System::IO::DeviceIoControl;
+    let letter = root.to_string_lossy().chars().next().unwrap_or('?');
+    let name: Vec<u16> = format!("\\\\.\\{letter}:").encode_utf16().chain([0]).collect();
+    // SAFETY: a handle to the volume, closed below; each call's buffers live through it
+    unsafe {
+        let h = CreateFileW(name.as_ptr(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, std::ptr::null(), OPEN_EXISTING, 0, std::ptr::null_mut());
+        if h == INVALID_HANDLE_VALUE {
+            bail!("Windows didn't let Game Repo reach the drive: {}", std::io::Error::last_os_error());
+        }
+        let io = |code: u32, input: &[u8]| {
+            let mut got = 0u32;
+            DeviceIoControl(h, code, if input.is_empty() { std::ptr::null() } else { input.as_ptr().cast() }, input.len() as u32, std::ptr::null_mut(), 0, &mut got, std::ptr::null_mut()) != 0
+        };
+        // (a file just closed can keep it a moment)
+        let mut locked = false;
+        for _ in 0..10 {
+            if io(FSCTL_LOCK_VOLUME, &[]) {
+                locked = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+        if !locked {
+            CloseHandle(h);
+            bail!("Something still has a file open on it: close it (an Explorer window on it too) and try again.");
+        }
+        if !io(FSCTL_DISMOUNT_VOLUME, &[]) {
+            let e = std::io::Error::last_os_error();
+            CloseHandle(h);
+            bail!("Windows didn't let it go: {e}");
+        }
+        // (a card reader takes the eject; a drive that won't is safe to unplug once dismounted)
+        io(IOCTL_STORAGE_MEDIA_REMOVAL, &[0]);
+        io(IOCTL_STORAGE_EJECT_MEDIA, &[]);
+        CloseHandle(h);
+    }
+    Ok(())
 }
 
 fn free_on(p: &Path) -> u64 {
@@ -442,6 +534,118 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
     v
 }
 
+/// The library's own `Saves/` as the card's saves are synced with it, its versions made by
+/// the card (D189).
+struct OwnSaves<'a> {
+    lib: &'a Library,
+    store: crate::saves::Store,
+    id: String,
+    name: String,
+}
+
+impl OwnSaves<'_> {
+    fn states(&self) -> bool {
+        self.lib.meta().pointer("/saves/states").and_then(|v| v.as_bool()).unwrap_or(true)
+    }
+}
+
+impl gamerepo_device::saves::Library for OwnSaves<'_> {
+    fn ids(&self, _: &[String]) -> Result<Option<BTreeMap<String, String>>> {
+        // (a card's saves are RetroArch's, by the game's file)
+        Ok(None)
+    }
+
+    fn list(&self, keys: Vec<String>) -> Result<gamerepo_wire::saves::SavesList> {
+        Ok(gamerepo_wire::saves::SavesList { units: self.store.list(&keys), states: self.states() })
+    }
+
+    fn send(&self, l: &gamerepo_device::saves::Local, base: &str, emulator: &str) -> Result<gamerepo_wire::saves::Uploaded> {
+        if l.unit.is_state() && !self.states() {
+            bail!("Save states aren't synced: Settings › Saves has them turned off.");
+        }
+        let up = gamerepo_wire::saves::Upload { unit: l.unit.clone(), base: base.into(), files: l.files.clone(), emulator: emulator.into() };
+        self.store.add(&up, &self.id, &self.name, &|f| Some(l.dir.join(f.name.replace("{name}", &l.stem))).filter(|p| p.is_file()))
+    }
+
+    fn bytes(&self, unit: &gamerepo_wire::saves::Unit, version: &str, name: &str) -> Result<Vec<u8>> {
+        Ok(std::fs::read(self.store.file(unit, version, name)?)?)
+    }
+
+    fn loose(&self, saves: &[(gamerepo_wire::saves::Loose, PathBuf)]) -> Result<bool> {
+        for (l, path) in saves {
+            self.store.add_loose(l, &self.id, &self.name, path)?;
+        }
+        Ok(true)
+    }
+}
+
+/// A card's saves and states synced with the library (D189), as Game Repo Go syncs a
+/// device's (gamerepo-device's `saves::sync`, D184): RetroArch's, in the folders its layout
+/// names (`saves`), for the library's games on it, what it last had of each kept on the card
+/// in `.gamerepo/saves.json`. None: its layout doesn't say where its saves are, or it holds
+/// none of the library's games.
+pub fn sync_folder_saves(lib: &Library, id: &str, root: &Path, contents: &Contents) -> Option<gamerepo_device::saves::Summary> {
+    use gamerepo_device::saves::{At, Here, RetroArch};
+    let records = Records::of(lib.root());
+    let info = records.info(id).filter(|i| i.by == "folder")?;
+    let l = layout::get(Some(lib), &records.folder(id).layout).ok()?;
+    let out = l.saves.clone()?;
+    let profile = gamerepo_wire::saves::built_in().into_iter().find(|p| p.id == "retroarch")?;
+    let places = BTreeMap::from([(export::device_place(&l).ok()?, root.to_path_buf())]);
+    // a template's folder, and whether it's sorted by core; None: beside the game
+    let dir = |t: &str, vars: &layout::Vars| -> Option<(PathBuf, bool)> {
+        let t = t.trim().replace('\\', "/");
+        if t.is_empty() {
+            return None;
+        }
+        let (t, by_core) = match t.strip_suffix("/{core}") {
+            Some(t) => (t.to_string(), true),
+            None => (t, false),
+        };
+        Some((layout::expand(&t, &places, vars).ok()??, by_core))
+    };
+    // each system's games folder, the folder of the ROMs folder it is, and its RetroArch
+    let mut systems: BTreeMap<String, Option<(PathBuf, String, RetroArch)>> = BTreeMap::new();
+    let mut held = vec![];
+    for g in contents.games.iter().filter(|g| g.from == "library" && !g.key.is_empty()) {
+        let at = systems.entry(g.system.clone()).or_insert_with(|| {
+            let vars = layout::system_vars(&l, &g.system)?;
+            let games = layout::games_dir(&l, &g.system, &places).ok()??;
+            let folder = games.file_name()?.to_string_lossy().to_string();
+            let roms = games.parent()?.to_path_buf();
+            let (saves, states) = (dir(&out.files, &vars), dir(&out.states, &vars));
+            let ra = RetroArch {
+                config: None,
+                saves_by_core: saves.as_ref().is_some_and(|s| s.1),
+                states_by_core: states.as_ref().is_some_and(|s| s.1),
+                saves: saves.map(|s| s.0),
+                states: states.map(|s| s.0),
+                ..Default::default()
+            };
+            Some((roms, folder, ra))
+        });
+        let Some((roms, _, _)) = at else { continue };
+        let Ok(rom) = root.join(&g.id).strip_prefix(&*roms).map(|r| r.to_string_lossy().replace('\\', "/")) else { continue };
+        held.push(gamerepo_device::saves::Held { key: g.key.clone(), rom });
+    }
+    if held.is_empty() {
+        return None;
+    }
+    let heres: Vec<Here> = systems.values().flatten().map(|(roms, folder, ra)| Here {
+        profile: &profile,
+        at: At::RetroArch(ra.clone()),
+        roms: roms.clone(),
+        emulator: profile.name.clone(),
+        busy: Some(false),
+        only: Some(folder.clone()),
+    }).collect();
+    let own = OwnSaves { lib, store: crate::saves::Store::of(lib.root()), id: info.id.clone(), name: info.name.clone() };
+    let sum = gamerepo_device::saves::sync(&own, &root.join(".gamerepo"), &heres, &held);
+    // the last sync, for the device's page
+    let _ = write(&records.at(id).join("saves.json"), &sum);
+    Some(sum)
+}
+
 /// After a folder device's change ran: its export remembered, what became of each change,
 /// and what it holds now.
 pub fn folder_done(lib: &Library, id: &str, root: &Path, plan: Option<&Plan>, changes: &[String], result: &Value) -> Result<Contents> {
@@ -543,5 +747,71 @@ mod tests {
         organise::undo(&ix, &lib, &plan.id, &std::sync::atomic::AtomicBool::new(false), &mut |_| {}).unwrap();
         assert!(card.join("roms/gb/Mine.gb").is_file() && card.join("roms/gb/Alpha (Europe).gb").is_file());
         assert_eq!(read_folder(&lib, &info.id, &card).unwrap().games.len(), 2);
+    }
+
+    #[test]
+    fn a_cards_retroarch_saves_go_to_the_library_and_come_back_where_its_firmware_keeps_them() {
+        use gamerepo_wire::saves::{SaveFile, Unit, Upload};
+        use sha1::Digest;
+        let _turn = platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = crate::collection::tests::fixture("devices-card-saves");
+        let store = crate::saves::Store::of(lib.root());
+        let card_with = |name: &str, layout: &str, keys: &[&str]| {
+            let card = dir.join(name);
+            std::fs::create_dir_all(&card).unwrap();
+            let info = add_folder(&lib, &card, name, layout).unwrap();
+            let r = Records::of(lib.root());
+            r.add(&info.id, keys.iter().map(|k| Change { action: "add".into(), key: k.to_string(), ..Default::default() }).collect()).unwrap();
+            let (plan, ids) = plan_folder(&ix, &lib, &info.id, &card).unwrap();
+            let done = organise::run(&ix, &lib, &plan, &std::sync::atomic::AtomicBool::new(false), &mut |_| {}).unwrap();
+            let c = folder_done(&lib, &info.id, &card, Some(&plan), &ids, &done).unwrap();
+            (card, info, c)
+        };
+        let played = |p: &Path, text: &str| {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+            let f = std::fs::File::options().write(true).open(p).unwrap();
+            f.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(600)).unwrap();
+        };
+        // Delta's save from another device is in the library already
+        let from = dir.join("delta.srm");
+        played(&from, "delta from the deck");
+        let delta = Unit::save("gb/Delta (World)", "retroarch");
+        let file = SaveFile { name: "{name}.srm".into(), sha1: hex::encode(sha1::Sha1::digest(b"delta from the deck")), size: 19, modified: 1 };
+        store.add(&Upload { unit: delta.clone(), base: String::new(), files: vec![file], emulator: "RetroArch".into() }, "deck", "Steam Deck", &|_| Some(from.clone())).unwrap();
+
+        // Knulli: saves and states in saves/<system>/; the card's Alpha goes up, Delta comes down
+        let (card, info, c) = card_with("Knulli", "knulli", &["gb/Alpha (Europe)", "gb/Delta (World)"]);
+        played(&card.join("saves/gb/Alpha (Europe).srm"), "alpha on the card");
+        played(&card.join("saves/gb/Alpha (Europe).state1"), "a state");
+        let sum = sync_folder_saves(&lib, &info.id, &card, &c).expect("a sync");
+        assert_eq!((sum.sent, sum.brought, sum.error.as_str()), (2, 1, ""), "{sum:?}");
+        assert_eq!(std::fs::read_to_string(card.join("saves/gb/Delta (World).srm")).unwrap(), "delta from the deck");
+        let alpha = Unit::save("gb/Alpha (Europe)", "retroarch");
+        let st = store.state(&alpha).expect("Alpha's save in the library");
+        assert_eq!(st.current.device_name, "Knulli");
+        assert!(store.state(&Unit::state("gb/Alpha (Europe)", "retroarch:Gambatte", "1")).is_some(), "its state too, as the system's usual core's");
+        let again = sync_folder_saves(&lib, &info.id, &card, &c).unwrap();
+        assert_eq!((again.sent, again.brought), (0, 0), "{again:?}");
+        assert!(card.join(".gamerepo/saves.json").is_file());
+        assert_eq!(Records::of(lib.root()).view(&info.id).unwrap()["saves"]["sent"], 0);
+
+        // muOS: sorted by core in MUOS/save/file/; ROCKNIX: beside the game
+        let (mu, mu_info, c) = card_with("muOS", "muos", &["gb/Alpha (Europe)"]);
+        let sum = sync_folder_saves(&lib, &mu_info.id, &mu, &c).unwrap();
+        assert_eq!(sum.brought, 2, "{sum:?}");
+        assert_eq!(std::fs::read_to_string(mu.join("MUOS/save/file/Gambatte/Alpha (Europe).srm")).unwrap(), "alpha on the card");
+        assert!(mu.join("MUOS/save/state/Gambatte/Alpha (Europe).state1").is_file());
+        let (rx, rx_info, c) = card_with("ROCKNIX", "rocknix", &["gb/Delta (World)"]);
+        assert_eq!(sync_folder_saves(&lib, &rx_info.id, &rx, &c).unwrap().brought, 1);
+        assert_eq!(std::fs::read_to_string(rx.join("roms/gb/Delta (World).srm")).unwrap(), "delta from the deck");
+
+        // a folder isn't a drive to eject
+        assert!(!can_eject(&card) && !can_eject(Path::new("/")));
+        assert!(eject(&card).is_err());
+
+        // a layout that doesn't say where saves are: none synced
+        let (plain, plain_info, c) = card_with("Plain", "folder", &["gb/Alpha (Europe)"]);
+        assert!(sync_folder_saves(&lib, &plain_info.id, &plain, &c).is_none());
     }
 }

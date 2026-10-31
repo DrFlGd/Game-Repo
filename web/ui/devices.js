@@ -22,6 +22,14 @@ const err = (e) => e.message || String(e);
 const changed = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
 export const KIND = { android: "Android", windows: "Windows PC", linux: "Linux PC", steamdeck: "Steam Deck", card: "SD card", test: "Device" };
 const kindName = (k) => KIND[k] || k || "Device";
+/** A card's saves synced (D189), said in a few words; "" when nothing moved. */
+const savesSaid = (sv) => {
+  if (!sv) return "";
+  const parts = [sv.sent ? `${plural(sv.sent, "save", "saves")} sent to the library` : null, sv.brought ? `${plural(sv.brought, "save", "saves")} brought from it` : null,
+    sv.conflicts?.length ? `${plural(sv.conflicts.length, "save differs", "saves differ")} here and in the library` : null].filter(Boolean);
+  return [parts.length ? `${parts.join(", ")}.` : "", sv.error || ""].filter(Boolean).join(" ");
+};
+
 const seenText = (secs) => (secs ? new Date(secs * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "never");
 const STATE = { waiting: "Waiting for its next connect", taken: "In its downloads", done: "Done", failed: "Didn't work" };
 
@@ -134,9 +142,14 @@ export async function syncFolder(d, auto = false) {
     changed();
     if (done.error) throw new Error(done.error);
     const r = done.result || {};
-    if (r.nothing) { if (!auto) toast(`${d.name} read again: ${plural(r.games, "game", "games")}, ${size(r.free)} free.`, 6000); return; }
+    const saves = savesSaid(r.saves);
+    if (r.nothing) {
+      if (!auto) toast(`${d.name} read again: ${plural(r.games, "game", "games")}, ${size(r.free)} free.${saves ? ` ${saves}` : ""}`, 6000);
+      else if (saves) toast(`${d.name}: ${saves}`, 8000);
+      return;
+    }
     const failed = r.failed?.length ? ` ${plural(r.failed.length, "step", "steps")} failed: ${r.failed[0].error}` : "";
-    toast(`Changed the games on ${d.name}: ${plural(r.games, "game", "games")} on it now, ${size(r.free)} free.${failed}`, { ms: 12000, action: r.id ? { label: "Undo", run: async () => { await undoChange(r.id); changed(); } } : null });
+    toast(`Changed the games on ${d.name}: ${plural(r.games, "game", "games")} on it now, ${size(r.free)} free.${failed}${saves ? ` ${saves}` : ""}`, { ms: 12000, action: r.id ? { label: "Undo", run: async () => { await undoChange(r.id); changed(); } } : null });
   } catch (e) {
     toast(`Couldn't change the games on ${d.name}: ${err(e)}`, 10000);
   } finally {
@@ -144,8 +157,8 @@ export async function syncFolder(d, auto = false) {
   }
 }
 
-/** Every few seconds, the folder devices that are here; one that's just come with changes
- *  waiting gets them. */
+/** Every few seconds, the folder devices that are here; one that's just come gets its
+ *  waiting changes and its saves synced (D189). */
 export async function lookForDevices() {
   if (!ui.get().library || ui.get().library.read_only) return;
   let now;
@@ -157,7 +170,7 @@ export async function lookForDevices() {
   const all = await api("devices_list").catch(() => []);
   for (const p of now.filter((x) => !was.has(x.id))) {
     const d = all.find((x) => x.info.id === p.id);
-    if (d?.waiting) syncFolder(d.info, true);
+    if (d) syncFolder(d.info, true);
   }
 }
 
@@ -193,14 +206,23 @@ function DeviceView({ id, off }) {
   };
   const tick = (g) => setPicked((s) => { const n = new Set(s); n.has(g.id) ? n.delete(g.id) : n.add(g.id); return n; });
   const here = d.by === "folder" ? (here_ || []).find((p) => p.id === d.id) : null;
+  const eject = async () => {
+    try {
+      await api("devices_folder_eject", { id });
+      toast(`${d.name} can be taken out safely.`, 8000);
+      lookForDevices();
+    } catch (e) { toast(`${d.name} wasn't ejected: ${err(e)}`, 10000); }
+  };
   const read = async () => {
     try { setV(await api("devices_folder_read", { id })); changed(); toast(`${d.name} read again.`); } catch (e) { toast(err(e), 8000); }
   };
   return html`<div class="device-view" id="device-view" data-id=${d.id}>
     <p class="muted" id="device-line">${[kindName(d.kind), `last connected ${seenText(d.seen)}`, plural(d.games, "game", "games"), size(d.size), `${size(d.free)} free`].join(" · ")}</p>
     ${d.by === "folder" ? html`<p id="device-here" data-here=${here ? "yes" : "no"} class=${here ? null : "muted"}>${here ? html`Connected at <code>${here.at}</code>. <button type="button" class="ghost compact" id="device-sync" disabled=${off} onClick=${() => syncFolder(d)}>${waiting.length ? `Make the ${plural(waiting.length, "change", "changes")} now` : "Read it again"}</button>
-      ${waiting.length ? html` <button type="button" class="linkish" id="device-read" disabled=${off} onClick=${read}>Read it again</button>` : null}`
+      ${waiting.length ? html` <button type="button" class="linkish" id="device-read" disabled=${off} onClick=${read}>Read it again</button>` : null}
+      ${here.eject ? html` <button type="button" class="ghost compact" id="device-eject" onClick=${eject}>Eject</button>` : null}`
       : `Not connected. Put the card in, or plug the drive in, and Game Repo finds it${d.at ? ` (it was at ${d.at})` : ""}.`}</p>` : null}
+    ${d.by === "folder" && v.saves?.at ? html`<p class="muted" id="device-saves">Saves last synced ${seenText(v.saves.at)}${savesSaid(v.saves) ? `: ${savesSaid(v.saves)}` : ", with nothing to sync."}</p>` : null}
     <section class="ls-section" id="device-waiting"><h2>Waiting for its next connect</h2>
       ${v.changes.length ? html`<ul class="ls-list">${v.changes.map((c) => html`<li key=${c.change.id} data-change=${c.change.id} data-state=${c.state} data-action=${c.change.action}>
         <span class="op-paths"><span class="op-to">${c.change.action === "add" ? "Add" : "Remove"} ${c.change.key ? html`<a href=${gameHash(c.change.key)}>${c.change.title}</a>` : c.change.title}</span>

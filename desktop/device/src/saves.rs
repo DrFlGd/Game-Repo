@@ -7,13 +7,15 @@
 //! family, DuckStation, …), by the game's disc ID, its name or as a memory card every game
 //! shares: a profile's [`Spot`]s say where, and each emulator's folder can be set in
 //! Settings (D193). What the device last had of each save, and the IDs the library read
-//! for its games, are kept in `saves.json` in Go's data folder.
+//! for its games, are kept in `saves.json` in Go's data folder. The library is reached
+//! through a [`Library`]: Game Repo Server for Go, or the library's own folder when Game
+//! Repo syncs a card's saves itself (D189).
 
 use crate::client::{Refused, Server};
 use anyhow::{Context, Result};
-use gamerepo_wire::saves::{cards_key, same_files, Ids, IdsAsk, Profile, SaveFile, SavesAsk, SavesList, Spot, Unit, UnitState, Upload, Uploaded};
+use gamerepo_wire::saves::{cards_key, same_files, Ids, IdsAsk, Loose, LooseAsk, Profile, SaveFile, SavesAsk, SavesList, Spot, Unit, UnitState, Upload, Uploaded, MAX_FILE};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// A save is read once it's been still this long, so one being written isn't taken (D185).
@@ -77,6 +79,9 @@ pub struct Summary {
     pub conflicts: Vec<String>,
     /// Saves that waited because their emulator was running (D185)
     pub waiting: u32,
+    /// Saves found that no game here is named like, sent to the library's *Saves not
+    /// matched* (D195)
+    pub loose: u32,
     pub error: String,
 }
 
@@ -88,6 +93,10 @@ pub struct Kept {
     pub last: Summary,
     /// The games' disc IDs as the library read them ("" none), by key
     pub ids: BTreeMap<String, String>,
+    /// The saves not matched sent already, by their file's SHA-1 (D195)
+    pub loose: BTreeSet<String>,
+    /// A library too old for them isn't asked again before this (seconds since 1970)
+    pub loose_after: i64,
 }
 
 /// What a save's last sync is kept by: its unit's id, after its emulator's when that keeps
@@ -281,14 +290,15 @@ pub fn find_retroarch(p: &Profile, ra: &RetroArch, roms: &Path, held: &[Held]) -
             continue;
         }
         let content = roms.join(Path::new(&h.rom)).parent().map(Path::to_path_buf).unwrap_or_else(|| roms.to_path_buf());
-        let mut roots: Vec<(PathBuf, bool)> = vec![];
-        for (dir, states) in [(&ra.saves, false), (&ra.states, true)] {
+        // (saves and states in one folder, as Batocera's and Knulli's are, read once)
+        let mut roots: Vec<PathBuf> = vec![];
+        for dir in [&ra.saves, &ra.states] {
             let root = dir.clone().unwrap_or_else(|| content.clone());
-            if !roots.iter().any(|(r, s)| *r == root && *s == states) {
-                roots.push((root, states));
+            if !roots.contains(&root) {
+                roots.push(root);
             }
         }
-        for (root, _) in &roots {
+        for root in &roots {
             let files = cache.entry(root.clone()).or_insert_with(|| {
                 let mut v = vec![];
                 files_under(root, if root.starts_with(roms) { 0 } else { 2 }, &mut v);
@@ -315,6 +325,28 @@ pub fn find_retroarch(p: &Profile, ra: &RetroArch, roms: &Path, held: &[Held]) -
         }
     }
     best.into_values().collect()
+}
+
+/// RetroArch's saves in its saves folder that none of the games held is named like (D195):
+/// a game from elsewhere, or one the library has under another name. None looked for when
+/// saves are beside the games.
+pub fn loose_retroarch(p: &Profile, ra: &RetroArch, roms: &Path, held: &[Held]) -> Vec<(Loose, PathBuf)> {
+    let Some(root) = ra.saves.as_ref().filter(|r| !r.starts_with(roms)) else { return vec![] };
+    let stems: HashSet<String> = held.iter().map(|h| stem_of(&h.rom).0).collect();
+    let mut files = vec![];
+    files_under(root, 2, &mut files);
+    let mut out = vec![];
+    for (dir, name, m) in files {
+        let lower = name.to_ascii_lowercase();
+        let Some(suffix) = p.saves.iter().find(|s| lower.ends_with(&s.to_ascii_lowercase()) && name.len() > s.len()) else { continue };
+        let game = &name[..name.len() - suffix.len()];
+        if stems.contains(game) || m.len() == 0 || m.len() > MAX_FILE || name.starts_with('.') {
+            continue;
+        }
+        let file = SaveFile { name: name.clone(), sha1: String::new(), size: m.len(), modified: modified(&m) };
+        out.push((Loose { format: p.save_format.clone(), emulator: p.name.clone(), file, game: game.to_string(), suffix: name[game.len()..].to_string() }, dir.join(&name)));
+    }
+    out
 }
 
 /// Where a save the device hasn't got goes, as RetroArch would put it; None: a state whose
@@ -395,7 +427,7 @@ fn fill(pattern: &str, tokens: &[(&str, String)]) -> Option<String> {
     for (t, v) in tokens {
         s = s.replace(t, v);
     }
-    let rest = s.replace("{slot}", "");
+    let rest = s.replace("{slot}", "").replace("{user}", "");
     (!rest.contains('{')).then_some(s)
 }
 
@@ -513,13 +545,20 @@ pub fn find_folders(p: &Profile, root: &Path, roms: &Path, held: &[Held], ids: &
             let base = if s.beside { content.clone() } else { root.to_path_buf() };
             for pat in &s.files {
                 let Some(filled) = fill(pat, &toks) else { continue };
-                let parts: Vec<&str> = filled.split('/').collect();
-                let fixed = fixed_part(&filled);
-                for (rel, m) in list(&base, &fixed, if s.beside { 0 } else { 8 }).iter() {
-                    let Some(slot) = match_path(&parts, &rel.split('/').collect::<Vec<_>>()) else { continue };
-                    // a name that's the game's own file's is kept as `{name}`, for each device's own
-                    let name = if pat.contains("{name}") { rel.replace(stem.as_str(), "{name}") } else { rel.clone() };
-                    add(unit_for(s, &h.key, slot), &base, &stem, name, m);
+                // under an emulator's user's folder, the names are from there, so they're each device's own user's
+                let bases = match user_part(&filled) {
+                    Some((before, after)) => users_at(&base.join(before)).into_iter().map(|u| (u, after.clone())).collect(),
+                    None => vec![(base.clone(), filled)],
+                };
+                for (base, filled) in bases {
+                    let parts: Vec<&str> = filled.split('/').collect();
+                    let fixed = fixed_part(&filled);
+                    for (rel, m) in list(&base, &fixed, if s.beside { 0 } else { 8 }).iter() {
+                        let Some(slot) = match_path(&parts, &rel.split('/').collect::<Vec<_>>()) else { continue };
+                        // a name that's the game's own file's is kept as `{name}`, for each device's own
+                        let name = if pat.contains("{name}") { rel.replace(stem.as_str(), "{name}") } else { rel.clone() };
+                        add(unit_for(s, &h.key, slot), &base, &stem, name, m);
+                    }
                 }
             }
         }
@@ -566,13 +605,42 @@ pub fn place_folders(p: &Profile, root: &Path, roms: &Path, held: &[Held], unit:
     let h = held.iter().find(|h| h.key == unit.key)?;
     let (stem, _) = stem_of(&h.rom);
     let kind = if unit.is_state() { "state" } else { "save" };
-    let beside = p.spots.iter().any(|s| s.kind == kind && s.beside && spot_systems(p, s).iter().any(|x| x == system));
-    let dir = if beside { roms.join(Path::new(&h.rom)).parent()?.to_path_buf() } else { root.to_path_buf() };
+    let spots: Vec<&Spot> = p.spots.iter().filter(|s| s.kind == kind && spot_systems(p, s).iter().any(|x| x == system)).collect();
+    // in the emulator's user's folder: the one played last, and none till the emulator's made one
+    if let Some((before, _)) = spots.iter().flat_map(|s| &s.files).find_map(|f| user_part(f)) {
+        return Some((users_at(&root.join(before)).into_iter().next()?, stem));
+    }
+    let dir = if spots.iter().any(|s| s.beside) { roms.join(Path::new(&h.rom)).parent()?.to_path_buf() } else { root.to_path_buf() };
     Some((dir, stem))
 }
 
-/// Whether any of the profile's emulators is running here (D185). On Android Go syncs only
-/// while it's in front, so an emulator isn't.
+/// A pattern split at its `{user}` part (an emulator's user's own folder, as the Switch
+/// emulators keep each user's saves by a number of their own): the folders before it and
+/// the parts after.
+fn user_part(pattern: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = pattern.split('/').collect();
+    let i = parts.iter().position(|p| *p == "{user}")?;
+    Some((parts[..i].join("/"), parts[i + 1..].join("/")))
+}
+
+/// The users' folders in `dir`, the one last changed first.
+fn users_at(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<(i64, PathBuf)> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let m = e.metadata().ok()?;
+            m.is_dir().then(|| (modified(&m), e.path()))
+        })
+        .collect();
+    v.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    v.into_iter().map(|(_, p)| p).collect()
+}
+
+/// Whether any of the profile's emulators is running here (D185). Android doesn't say: Go
+/// syncs while it's in front, when an emulator isn't, and its job in the background writes
+/// nothing (`Here::busy`).
 pub fn running(p: &Profile) -> bool {
     let names: Vec<String> = p.processes.iter().map(|n| n.to_ascii_lowercase()).collect();
     if cfg!(target_os = "android") || names.is_empty() {
@@ -620,6 +688,77 @@ pub struct Here<'a> {
     pub at: At,
     pub roms: PathBuf,
     pub emulator: String,
+    /// Whether its emulator's running: None asks this computer ([`running`], D185); a card's
+    /// isn't, and on Android in the background it might be, so nothing's written then
+    pub busy: Option<bool>,
+    /// Only the games in this folder of the ROMs folder (a card's system, whose saves'
+    /// folders are its own)
+    pub only: Option<String>,
+}
+
+/// Where saves are synced with: the library, through Game Repo Server for Go, or its own
+/// folder in Game Repo for a card (D189).
+pub trait Library {
+    /// The disc IDs of these games (D192); None: the library can't say.
+    fn ids(&self, keys: &[String]) -> Result<Option<BTreeMap<String, String>>>;
+    /// The library's saves of these games, and whether states are synced.
+    fn list(&self, keys: Vec<String>) -> Result<SavesList>;
+    /// A save here kept as a version, its files read from where they are.
+    fn send(&self, l: &Local, base: &str, emulator: &str) -> Result<Uploaded>;
+    /// A file of one of the library's versions.
+    fn bytes(&self, unit: &Unit, version: &str, name: &str) -> Result<Vec<u8>>;
+    /// Saves not matched to a game kept apart (D195), each with where its file is; false:
+    /// the library can't keep them.
+    fn loose(&self, saves: &[(Loose, PathBuf)]) -> Result<bool>;
+}
+
+impl Library for Server {
+    fn ids(&self, keys: &[String]) -> Result<Option<BTreeMap<String, String>>> {
+        match self.call::<Ids>("POST", "/v1/ids", Some(&IdsAsk { keys: keys.to_vec() })) {
+            Ok(got) => Ok(Some(got.ids)),
+            // a library too old to read them says nothing
+            Err(e) if e.downcast_ref::<Refused>().is_some() => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn list(&self, keys: Vec<String>) -> Result<SavesList> {
+        self.call("POST", "/v1/saves", Some(&SavesAsk { keys }))
+    }
+
+    /// Its files sent (those the server hasn't got), then the save as a version.
+    fn send(&self, l: &Local, base: &str, emulator: &str) -> Result<Uploaded> {
+        for f in &l.files {
+            let at = format!("/v1/saves/blob/{}", f.sha1);
+            if !self.has(&at)? {
+                let bytes = std::fs::read(l.dir.join(f.name.replace("{name}", &l.stem)))?;
+                self.put_bytes(&at, &bytes)?;
+            }
+        }
+        let up = Upload { unit: l.unit.clone(), base: base.into(), files: l.files.clone(), emulator: emulator.into() };
+        self.call("POST", "/v1/saves/versions", Some(&up)).map_err(|e| match e.downcast::<Refused>() {
+            Ok(r) => anyhow::anyhow!("{}", r.message),
+            Err(e) => e,
+        })
+    }
+
+    fn bytes(&self, unit: &Unit, version: &str, name: &str) -> Result<Vec<u8>> {
+        Server::bytes(self, &format!("/v1/saves/file?unit={}&version={}&name={}", encode(&unit.id()), encode(version), encode(name)))
+    }
+
+    fn loose(&self, saves: &[(Loose, PathBuf)]) -> Result<bool> {
+        for (l, path) in saves {
+            let at = format!("/v1/saves/blob/{}", l.file.sha1);
+            if !self.has(&at)? {
+                self.put_bytes(&at, &std::fs::read(path)?)?;
+            }
+        }
+        match self.call::<serde_json::Value>("POST", "/v1/saves/loose", Some(&LooseAsk { saves: saves.iter().map(|(l, _)| l.clone()).collect() })) {
+            Ok(_) => Ok(true),
+            Err(e) if e.downcast_ref::<Refused>().is_some() => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 impl Here<'_> {
@@ -644,7 +783,7 @@ impl Here<'_> {
 /// One sync (D184): every save of the games held sent when only this device changed it,
 /// brought when only the library did, and a conflict when both did (the device's kept, and
 /// sent as a version of its own).
-pub fn sync(s: &Server, data: &Path, heres: &[Here], held: &[Held]) -> Summary {
+pub fn sync(s: &dyn Library, data: &Path, heres: &[Here], held: &[Held]) -> Summary {
     // one sync at a time, whichever program it's in: Go's window, or the one in the background (D186)
     let lock = std::fs::create_dir_all(data).and_then(|_| std::fs::File::options().create(true).truncate(false).write(true).open(data.join("saves.lock")));
     let _held = match lock {
@@ -674,7 +813,7 @@ pub fn sync(s: &Server, data: &Path, heres: &[Here], held: &[Held]) -> Summary {
 
 /// The disc IDs of the games here the emulators found need, those not asked for before
 /// (D192). A library too old to read them says nothing.
-fn ask_ids(s: &Server, kept: &mut Kept, heres: &[Here], held: &[Held]) -> Result<()> {
+fn ask_ids(s: &dyn Library, kept: &mut Kept, heres: &[Here], held: &[Held]) -> Result<()> {
     let wants = |key: &str| {
         let system = key.split('/').next().unwrap_or("");
         heres.iter().any(|h| h.profile.spots.iter().any(|sp| sp.files.iter().any(|f| f.contains("{id") || f.contains("{region}") || f.contains("{tid_low}")) && spot_systems(h.profile, sp).iter().any(|x| x == system)))
@@ -683,17 +822,18 @@ fn ask_ids(s: &Server, kept: &mut Kept, heres: &[Here], held: &[Held]) -> Result
     keys.sort();
     keys.dedup();
     for chunk in keys.chunks(200) {
-        match s.call::<Ids>("POST", "/v1/ids", Some(&IdsAsk { keys: chunk.to_vec() })) {
-            Ok(got) => kept.ids.extend(got.ids),
-            Err(e) if e.downcast_ref::<Refused>().is_some() => return Ok(()),
-            Err(e) => return Err(e),
+        match s.ids(chunk)? {
+            Some(got) => kept.ids.extend(got),
+            None => return Ok(()),
         }
     }
     Ok(())
 }
 
-fn sync_with(s: &Server, kept: &mut Kept, sum: &mut Summary, here: &Here, held: &[Held]) -> Result<()> {
+fn sync_with(s: &dyn Library, kept: &mut Kept, sum: &mut Summary, here: &Here, held: &[Held]) -> Result<()> {
     let p = here.profile;
+    let held: Vec<Held> = held.iter().filter(|h| here.only.as_ref().is_none_or(|f| stem_of(&h.rom).1 == *f)).cloned().collect();
+    let held = held.as_slice();
     let mut found = here.find(held, &kept.ids);
     for l in found.iter_mut() {
         for f in l.files.iter_mut() {
@@ -714,10 +854,10 @@ fn sync_with(s: &Server, kept: &mut Kept, sum: &mut Summary, here: &Here, held: 
         k.dedup();
         k
     };
-    let list: SavesList = s.call("POST", "/v1/saves", Some(&SavesAsk { keys }))?;
+    let list = s.list(keys)?;
     let library: HashMap<String, UnitState> = list.units.into_iter().map(|u| (u.unit.id(), u)).collect();
     let local: HashMap<String, &Local> = found.iter().map(|l| (l.unit.id(), l)).collect();
-    let busy = running(p);
+    let busy = here.busy.unwrap_or_else(|| running(p));
     let mut ids: Vec<String> = library.keys().chain(local.keys()).cloned().collect();
     ids.sort();
     ids.dedup();
@@ -769,7 +909,7 @@ fn sync_with(s: &Server, kept: &mut Kept, sum: &mut Summary, here: &Here, held: 
                     continue;
                 }
                 let base = had.map(|h| h.version).unwrap_or_default();
-                let r = send(s, l, &base, &here.emulator)?;
+                let r = s.send(l, &base, &here.emulator)?;
                 kept.had.insert(hk.clone(), had_of(&r.version.id, &l.files));
                 sum.sent += 1;
                 if r.state.conflict {
@@ -793,6 +933,28 @@ fn sync_with(s: &Server, kept: &mut Kept, sum: &mut Summary, here: &Here, held: 
             (None, None) => {}
         }
     }
+    // saves no game here is named like, to the library's *Saves not matched* once each (D195)
+    if let (At::RetroArch(ra), true) = (&here.at, kept.loose_after <= now()) {
+        let mut loose = vec![];
+        for (mut l, path) in loose_retroarch(p, ra, &here.roms, held) {
+            if now() - l.file.modified < STILL {
+                continue;
+            }
+            l.file.sha1 = crate::sha1_file(&path)?;
+            if !kept.loose.contains(&l.file.sha1) && !loose.iter().any(|(x, _): &(Loose, PathBuf)| x.file.sha1 == l.file.sha1) {
+                loose.push((l, path));
+            }
+        }
+        for chunk in loose.chunks(50) {
+            if !s.loose(chunk)? {
+                // (a library too old for them: asked again tomorrow)
+                kept.loose_after = now() + 24 * 3600;
+                break;
+            }
+            kept.loose.extend(chunk.iter().map(|(l, _)| l.file.sha1.clone()));
+            sum.loose += chunk.len() as u32;
+        }
+    }
     Ok(())
 }
 
@@ -808,30 +970,13 @@ fn had_of(version: &str, files: &[SaveFile]) -> Had {
     Had { version: version.into(), files: files.iter().map(|f| (f.name.clone(), f.sha1.clone())).collect(), at: now() }
 }
 
-/// A save's files sent (those the server hasn't got), then the save as a version.
-fn send(s: &Server, l: &Local, base: &str, emulator: &str) -> Result<Uploaded> {
-    for f in &l.files {
-        let at = format!("/v1/saves/blob/{}", f.sha1);
-        if !s.has(&at)? {
-            let bytes = std::fs::read(l.dir.join(f.name.replace("{name}", &l.stem)))?;
-            s.put_bytes(&at, &bytes)?;
-        }
-    }
-    let up = Upload { unit: l.unit.clone(), base: base.into(), files: l.files.clone(), emulator: emulator.into() };
-    s.call("POST", "/v1/saves/versions", Some(&up)).map_err(|e| match e.downcast::<Refused>() {
-        Ok(r) => anyhow::anyhow!("{}", r.message),
-        Err(e) => e,
-    })
-}
-
 /// The library's newest version written into `dir` under the device's name for the game,
 /// each file checked, written beside and then put in place.
-fn bring(s: &Server, kept: &mut Kept, hk: &str, dir: &Path, stem: &str, u: &UnitState) -> Result<()> {
+fn bring(s: &dyn Library, kept: &mut Kept, hk: &str, dir: &Path, stem: &str, u: &UnitState) -> Result<()> {
     std::fs::create_dir_all(dir).with_context(|| format!("couldn't make {}", dir.display()))?;
     let mut done = vec![];
     for f in &u.current.files {
-        let path = format!("/v1/saves/file?unit={}&version={}&name={}", encode(&u.unit.id()), encode(&u.current.id), encode(&f.name));
-        let bytes = s.bytes(&path)?;
+        let bytes = s.bytes(&u.unit, &u.current.id, &f.name)?;
         let sha1 = hex::encode(<sha1::Sha1 as sha1::Digest>::digest(&bytes));
         if sha1 != f.sha1 {
             anyhow::bail!("{} came with the wrong SHA-1.", f.name);
@@ -989,6 +1134,65 @@ mod tests {
         assert_eq!(names, [("gba/The Legend of Zelda (USA)|mgba:mGBA|2".to_string(), "{name}.ss2".to_string()), ("gba/The Legend of Zelda (USA)|mgba|".into(), "{name}.sav".into())]);
         assert_eq!(f[0].dir, roms.join("gba"));
         assert_eq!(place_folders(&p, &dir, &roms, &held, &Unit::save("gba/The Legend of Zelda (USA)", "mgba")), Some((roms.join("gba"), "Zelda (USA)".into())));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn switch_wii_u_and_ps3_saves_are_found_by_title_id_and_a_switch_save_goes_to_this_devices_user() {
+        let dir = std::env::temp_dir().join(format!("gamerepo-test-emus3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let roms = dir.join("ROMs");
+        let w = |p: &Path| {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "save").unwrap();
+        };
+        // Eden: each user's saves by a number of its own, kept as the save's names without it
+        let eden = dir.join("eden");
+        let user = "nand/user/save/0000000000000000/97A1DAE861CD445AB9645267B3AB99BE";
+        w(&eden.join(user).join("0100F2C0115B6000/progress.bin"));
+        w(&eden.join(user).join("0100F2C0115B6000/sub/slot1.bin"));
+        w(&eden.join(user).join("01007EF00011E000/other.bin"));
+        let p = built("eden");
+        assert_eq!(folder_of(&p, &[dir.clone()], Some(&eden)), Some(eden.clone()));
+        let held = vec![Held { key: "switch/Zelda (World)".into(), rom: "switch/Zelda (World).nsp".into() }];
+        let ids: BTreeMap<String, String> = [("switch/Zelda (World)".to_string(), "0100F2C0115B6000".to_string())].into();
+        let found = find_folders(&p, &eden, &roms, &held, &ids);
+        assert_eq!(found.len(), 1, "{found:?}");
+        let mut names: Vec<String> = found[0].files.iter().map(|f| f.name.clone()).collect();
+        names.sort();
+        assert_eq!(names, ["0100F2C0115B6000/progress.bin", "0100F2C0115B6000/sub/slot1.bin"]);
+        assert_eq!((found[0].unit.id(), found[0].dir.clone()), ("switch/Zelda (World)|yuzu|".to_string(), eden.join(user)));
+        // on another device the save goes to its own user, and nowhere till it has one
+        let other = dir.join("eden2");
+        std::fs::create_dir_all(other.join("nand/user/save")).unwrap();
+        assert_eq!(place_folders(&p, &other, &roms, &held, &Unit::save("switch/Zelda (World)", "yuzu")), None);
+        let theirs = other.join("nand/user/save/0000000000000000/0123456789ABCDEF0123456789ABCDEF");
+        std::fs::create_dir_all(&theirs).unwrap();
+        assert_eq!(place_folders(&p, &other, &roms, &held, &Unit::save("switch/Zelda (World)", "yuzu")), Some((theirs, "Zelda (World)".into())));
+
+        // Cemu: by the title ID's last eight letters, every user's in the one save
+        let cemu = dir.join("Cemu");
+        w(&cemu.join("mlc01/usr/save/00050000/101c9500/user/80000001/game.dat"));
+        w(&cemu.join("mlc01/usr/save/00050000/101c9500/meta/saveinfo.xml"));
+        let p = built("cemu");
+        let held = vec![Held { key: "wiiu/Zelda BotW (USA)".into(), rom: "wiiu/Zelda BotW (USA).wua".into() }];
+        let ids: BTreeMap<String, String> = [("wiiu/Zelda BotW (USA)".to_string(), "00050000101C9500".to_string())].into();
+        let found = find_folders(&p, &cemu, &roms, &held, &ids);
+        assert_eq!((found.len(), found[0].files.len()), (1, 2), "{found:?}");
+        assert_eq!(place_folders(&p, &cemu, &roms, &held, &Unit::save("wiiu/Zelda BotW (USA)", "cemu")), Some((cemu.clone(), "Zelda BotW (USA)".into())));
+
+        // RPCS3: each of the folders starting with the game's ID
+        let rpcs3 = dir.join("rpcs3");
+        w(&rpcs3.join("dev_hdd0/home/00000001/savedata/BLUS30443-AUTOSAVE/USR-DATA"));
+        w(&rpcs3.join("dev_hdd0/home/00000001/savedata/BLUS30443-PROFILE/PARAM.SFO"));
+        w(&rpcs3.join("dev_hdd0/home/00000001/savedata/BLES00932-SAVE/USR-DATA"));
+        let p = built("rpcs3");
+        let held = vec![Held { key: "ps3/Demon's Souls (USA)".into(), rom: "ps3/Demon's Souls (USA).iso".into() }];
+        let ids: BTreeMap<String, String> = [("ps3/Demon's Souls (USA)".to_string(), "BLUS-30443".to_string())].into();
+        let found = find_folders(&p, &rpcs3, &roms, &held, &ids);
+        let mut names: Vec<String> = found[0].files.iter().map(|f| f.name.clone()).collect();
+        names.sort();
+        assert_eq!(names, ["dev_hdd0/home/00000001/savedata/BLUS30443-AUTOSAVE/USR-DATA", "dev_hdd0/home/00000001/savedata/BLUS30443-PROFILE/PARAM.SFO"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

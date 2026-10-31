@@ -1424,6 +1424,27 @@ async def saves(pg, base, home, library):
     line = " ".join((await pg.inner_text(cards)).split())
     check("Settings › Saves lists the memory cards every game of a system shares, with their versions (D192)",
           "PlayStation 2" in line and "Save (PCSX2)" in line and "Phone" in line, line)
+    # a save no game was named like, waiting in the library: given Alpha, it's Alpha's newest (D195)
+    found = b"found on the phone"
+    sha1 = hashlib.sha1(found).hexdigest()
+    loose = library / "Saves" / ".not matched" / sha1
+    loose.mkdir(parents=True)
+    (loose / "Alpha (E) [!].srm").write_bytes(found)
+    (loose / "found.json").write_text(json.dumps({"save": {"format": "retroarch", "emulator": "RetroArch", "game": "Alpha (E) [!]", "suffix": ".srm",
+        "file": {"name": "Alpha (E) [!].srm", "sha1": sha1, "size": len(found), "modified": 1761400400}}, "device": "phone", "device_name": "Phone", "found": 1761400410}))
+    await pg.goto(base + "#/library")
+    await pg.goto(base + "#/settings")
+    row = f'#saves-loose li[data-loose="{sha1}"]'
+    await pg.wait_for_selector(row, timeout=15000)
+    line = " ".join((await pg.inner_text(row)).split())
+    await pg.click(f'{row} [data-action="give"]')
+    await pg.wait_for_selector('#saves-give-list li[data-key="gb/Alpha (USA)"]', timeout=15000)
+    await pg.check('#saves-give-list li[data-key="gb/Alpha (USA)"] input')
+    await pg.click("#saves-give-dialog button[type=submit]")
+    said = await toast_text(pg, "save now")
+    await pg.wait_for_function("() => !document.querySelector('#saves-loose')", timeout=15000)
+    check("Settings › Saves lists a save not matched, and Give it a game… makes it that game's newest save (D195)",
+          "Alpha (E) [!].srm" in line and "Phone" in line and (udir / "Alpha (USA).srm").read_bytes() == found and not loose.exists(), (line, said))
 
 
 async def devices_page(pg, base, home, library):
@@ -1569,6 +1590,21 @@ async def card_device(pg, base, home, library):
     aside = list((card / ".gamerepo-set-aside").rglob("Mine.gb"))
     check("a change made while it was away is made as soon as it's back, the game set aside on it for Undo (D189)",
           not (card / "roms/gb/Mine.gb").exists() and len(aside) == 1, aside)
+    # its RetroArch saves, where Knulli keeps them, synced with the library each time (D189);
+    # a folder that isn't a drive of its own has no Eject
+    srm = card / "saves" / "gb" / "Beta (USA).srm"
+    srm.parent.mkdir(parents=True)
+    srm.write_bytes(b"beta on the handheld")
+    old = time.time() - 600
+    os.utime(srm, (old, old))
+    await pg.click("#device-sync")
+    said = await toast_text(pg, "Handheld read again", timeout=30000)
+    in_lib = Path(library) / "Saves" / "gb" / "Beta (USA)" / "Save (retroarch)" / "Beta (USA).srm"
+    await pg.wait_for_selector("#device-saves", timeout=15000)
+    line = await pg.inner_text("#device-saves")
+    check("a Knulli card's RetroArch save goes to the library when it's synced, and its page says so; a plain folder has no Eject (D189)",
+          "1 save sent to the library" in said and in_lib.is_file() and in_lib.read_bytes() == b"beta on the handheld" and "Saves last synced" in line
+          and not await pg.query_selector("#device-eject"), (said, in_lib.is_file(), line))
 
 
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),

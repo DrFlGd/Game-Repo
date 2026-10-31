@@ -1,11 +1,14 @@
 // Saves (docs/PLAN.md, "Save sync and the Devices page", D180–D191): a game's saves and
 // states as Game Repo Go devices sent them, each with its versions, *Use this one* when two
 // differ and *Put this version back* (each a new version, so nothing's lost); and Settings ›
-// Saves, whether states are synced, where saves are kept, the save profiles built in and
-// the memory cards every game of a system shares.
+// Saves, whether states are synced, where saves are kept, the save profiles built in, the
+// memory cards every game of a system shares, and the saves not matched to a game (D195),
+// each given one by hand or thrown away.
 import { html, useState, useEffect } from "../lib/html.js";
+import { ui } from "./state.js";
 import { api, toast, isDesktop, size, plural } from "./library.js";
 import { reveal } from "./games.js";
+import { Dialog, close, confirmDialog } from "./dialogs.js";
 
 const err = (e) => e.message || String(e);
 const when = (ms) => new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -70,6 +73,67 @@ function CardSaves({ card, off }) {
     <ul class="ls-list">${r.units.map((u) => html`<${Unit} key=${u.id} u=${u} off=${off} onChange=${read} />`)}</ul></span></li>`;
 }
 
+/** *Give it a game…* for a save not matched (D195): one game of the library chosen. */
+function GiveDialog({ save, onDone }) {
+  // (its name as far as its tags: "Alpha" from "Alpha (E) [!]")
+  const [q, setQ] = useState(() => save.save.game.replace(/\s*[([].*$/, "").trim() || save.save.game);
+  const [found, setFound] = useState(null);
+  const [picked, setPicked] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (q.trim().length < 2) { setFound(null); return; }
+    let gone = false;
+    const t = setTimeout(() => api("browse").then(() => api("browse_query", { query: { search: q, one_per_title: false, limit: 40 } }))
+      .then((r) => { if (!gone) setFound((r.items || []).filter((g) => !g.key.startsWith("pc/"))); }).catch((e) => { if (!gone) setFound({ error: err(e) }); }), 200);
+    return () => { gone = true; clearTimeout(t); };
+  }, [q]);
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await api("saves_loose_give", { sha1: save.save.file.sha1, key: picked });
+      close();
+      toast(`${save.save.file.name} is ${(Array.isArray(found) ? found.find((g) => g.key === picked)?.title : null) || picked}'s save now: it goes to your devices with the game.`, 8000);
+      onDone?.(r);
+    } catch (e) {
+      setError(err(e));
+      setBusy(false);
+    }
+  };
+  const list = Array.isArray(found) ? found : [];
+  return html`<${Dialog} title=${`Give ${save.save.file.name} a game`} id="saves-give-dialog" wide=${true} onSubmit=${submit} busy=${busy || !picked} error=${error} submitLabel="Give it this game">
+    <p class="muted">It becomes the game's newest save (one the library has already is kept as a version), and goes to each device with the game at its next sync.</p>
+    <div class="pick-row"><input type="search" id="saves-give-search" class="compact" placeholder="Search the Library by title" aria-label="Search the Library by title" value=${q} onInput=${(e) => setQ(e.target.value)} /></div>
+    ${found?.error ? html`<p class="warn-note" role="alert">${found.error}</p>` : null}
+    <ul class="ls-list organise-list" id="saves-give-list">${list.map((g) => html`<li key=${g.key} data-key=${g.key}>
+      <label class="check-row"><input type="radio" name="saves-give" checked=${picked === g.key} onChange=${() => setPicked(g.key)} /> ${g.title}</label>
+      <span class="muted">${[g.platform_name, g.year].filter(Boolean).join(" · ")}</span></li>`)}</ul>
+    ${Array.isArray(found) && !found.length ? html`<p class="muted">No game matches.</p>` : null}
+  <//>`;
+}
+
+export function SavesDialogs({ dialog }) {
+  if (dialog.type === "saves-give") return html`<${GiveDialog} ...${dialog} />`;
+  return null;
+}
+
+/** The saves not matched to a game (D195), in Settings › Saves. */
+function LooseSaves({ loose, off, onChange }) {
+  const drop = (s) => confirmDialog({
+    title: `Throw away ${s.save.file.name}?`, button: "Throw it away",
+    text: `It's deleted from the library. ${s.device_name || "The device"} keeps its own, and it's sent here again if its file changes.`,
+    run: async () => onChange(await api("saves_loose_drop", { sha1: s.save.file.sha1 })),
+  });
+  return html`<h3>Saves not matched</h3>
+    <p class="muted">Saves a device has that none of its games is named like (a game from elsewhere, or one the library has under another name). Give one a game and it's that game's save from then on.</p>
+    <ul class="ls-list" id="saves-loose">${loose.map((s) => html`<li key=${s.save.file.sha1} data-loose=${s.save.file.sha1}>
+      <span class="op-paths"><span class="op-to">${s.save.file.name}</span>
+        <span class="muted">${[s.save.emulator, s.device_name ? `from ${s.device_name}` : null, s.save.file.modified ? `played ${playedOn(s.save.file.modified)}` : null, size(s.save.file.size)].filter(Boolean).join(" · ")}</span></span>
+      <button type="button" class="ghost compact" data-action="give" disabled=${off} onClick=${() => ui.set({ dialog: { type: "saves-give", save: s, onDone: onChange } })}>Give it a game…</button>
+      <button type="button" class="linkish" data-action="drop" disabled=${off} onClick=${() => drop(s)}>Throw away</button></li>`)}</ul>`;
+}
+
 /** Settings › Saves (D180, D182). */
 export function SavesSettings({ lib }) {
   const [r, setR] = useState(null);
@@ -92,6 +156,7 @@ export function SavesSettings({ lib }) {
       ${r.cards?.length ? html`<h3>Memory cards</h3>
         <p class="muted">Some emulators keep every game's saves on one memory card (PCSX2's, Dolphin's, DuckStation's shared card, Flycast's VMUs): each is kept here as one save, with its versions.</p>
         <ul class="ls-list" id="saves-cards">${r.cards.map((c) => html`<${CardSaves} key=${c.key} card=${c} off=${!!lib.read_only} />`)}</ul>` : null}
+      ${r.loose?.length ? html`<${LooseSaves} loose=${r.loose} off=${!!lib.read_only} onChange=${setR} />` : null}
       ${isDesktop() && r.folder ? html`<div class="home-actions"><button type="button" class="ghost compact" id="saves-show" onClick=${() => reveal(r.folder)}>Show the saves folder</button></div>` : null}` : null}
   </section>`;
 }

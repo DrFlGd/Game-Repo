@@ -9,6 +9,7 @@ mod common;
 
 use common::*;
 use gamerepo_device::app::{App, FileSecrets};
+use gamerepo_device::background::{By, Scheduler};
 use gamerepo_device::removing;
 use gamerepo_serve::Server;
 use gamerepo_wire::api::Page;
@@ -796,9 +797,61 @@ fn saves_and_states_go_between_devices_with_versions_and_a_conflict_keeps_both()
     drop(alone);
     let alone = App::open_with(&data, vec![db.home.clone()], "test", Box::new(FileSecrets(data.join("secrets.json"))), Box::new(|_| {}), true).unwrap();
     assert!(alone.sync_saves_now().is_none(), "turned off, it doesn't sync");
+
+    // on Android it's WorkManager's job (a Scheduler): on while paired with saves synced, off once they aren't
+    struct Jobs(Arc<std::sync::Mutex<Vec<bool>>>);
+    impl Scheduler for Jobs {
+        fn set(&self, on: bool, _: &Path) -> anyhow::Result<()> {
+            self.0.lock().unwrap().push(on);
+            Ok(())
+        }
+        fn every(&self) -> u32 {
+            15
+        }
+    }
+    let jobs = Arc::new(std::sync::Mutex::new(vec![]));
+    a.set_background_by(By::Scheduler(Box::new(Jobs(jobs.clone()))));
+    let bg = call(&a, "saves", json!({}))["background"].clone();
+    assert_eq!((&bg["how"], &bg["set"], &bg["every"]), (&json!("android"), &json!(true), &json!(15)), "{bg}");
+    call(&a, "set_settings", json!({ "saves": false }));
+    call(&a, "set_settings", json!({ "saves": true }));
+    call(&a, "unpair", json!({}));
+    assert_eq!(*jobs.lock().unwrap(), [true, false, true, false]);
+    assert_eq!(call(&a, "saves", json!({}))["background"]["set"], false);
     for app in [a, b] {
         app.queue.quit();
     }
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_save_no_game_is_named_like_waits_in_the_library_until_its_given_one() {
+    use gamerepo_core::saves::Store;
+    let dir = temp("go-loose");
+    let lib = library(&dir);
+    let s = start(&lib, &dir.join("server"));
+    let d = a_device(&dir.join("a"));
+    let a = open_app(&dir.join("a"), &d.home);
+    pair(&a, &s);
+    call(&a, "add", json!({ "keys": [ALPHA] }));
+    queue_done(&a);
+    let (saves, _) = retroarch_on(&a, &d.home);
+    // a save for a game from elsewhere (or Alpha under another name)
+    played(&saves.join("Alpha (E) [!].srm"), "found", 100);
+    let last = sync_saves(&a);
+    assert_eq!((last["loose"].as_u64(), last["sent"].as_u64()), (Some(1), Some(0)), "{last}");
+    let store = Store::of(&lib);
+    let loose = store.loose();
+    assert_eq!(loose.len(), 1);
+    assert_eq!((loose[0].save.game.as_str(), loose[0].save.suffix.as_str(), loose[0].save.format.as_str()), ("Alpha (E) [!]", ".srm", "retroarch"));
+    assert_eq!(sync_saves(&a)["loose"], 0, "sent once");
+    // given Alpha in Game Repo: Alpha's save, brought to the device under its own file's name
+    store.give(&loose[0].save.file.sha1, ALPHA).unwrap();
+    assert!(store.loose().is_empty());
+    assert_eq!(sync_saves(&a)["brought"], 1);
+    assert_eq!(std::fs::read_to_string(saves.join("Alpha (Europe).srm")).unwrap(), "found");
+    a.queue.quit();
     s.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
