@@ -1,0 +1,166 @@
+[workspace]
+members = ["crates/core", "crates/encode", "crates/decode"]
+exclude = ["fuzz", "bench", "jsr", "npm"]
+
+[package]
+name = "zrip"
+version = "0.8.14"
+edition = "2024"
+rust-version = "1.89"
+description = "Fast, memory-safe Rust implementation of Zstandard compression (levels -7..4)"
+license = "MIT"
+repository = "https://github.com/paddor/zrip"
+categories = ["compression"]
+keywords = ["zstd", "zstandard", "compression", "decompression"]
+include = ["src/**/*", "README.md", "LICENSE", "CHANGELOG.md", "DESIGN.md", "SAFETY.md", "SECURITY.md", "!jsr/**"]
+
+[features]
+default = ["std", "frame", "ldm", "simd"]
+std = ["alloc", "zrip-core/std", "zrip-encode/std", "zrip-decode/std"]
+simd = ["zrip-decode/simd", "zrip-encode/simd"]
+alloc = ["zrip-core/alloc", "zrip-encode/alloc", "zrip-decode/alloc"]
+frame = ["std", "zrip-encode/frame", "zrip-decode/frame"]
+ldm = ["std", "zrip-encode/ldm"]
+dict_builder = ["std", "zrip-core/dict_builder"]
+nightly = ["zrip-core/nightly", "zrip-encode/nightly", "zrip-decode/nightly"]
+# No effect today: every build is safe Rust. Kept so existing feature lists
+# build, and to keep any future `unsafe` out of builds that enable it.
+paranoid = ["zrip-core/paranoid", "zrip-encode/paranoid", "zrip-decode/paranoid"]
+
+[dependencies]
+zrip-core = { version = "0.11.1", path = "crates/core", default-features = false }
+zrip-encode = { version = "0.9.3", path = "crates/encode", default-features = false }
+zrip-decode = { version = "0.8.12", path = "crates/decode", default-features = false }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+zstd = "0.13"
+zstd-safe = "7"
+proptest = "1"
+libc = "0.2"
+
+[[example]]
+name = "quickstart"
+required-features = ["std"]
+
+[[example]]
+name = "zrip_decode_compare"
+path = "examples/decode_compare.rs"
+required-features = ["std"]
+
+[[example]]
+name = "zrip_mem_profile"
+path = "examples/mem_profile.rs"
+required-features = ["std"]
+
+[[example]]
+name = "zrip_profile_decode"
+path = "examples/profile_decode.rs"
+required-features = ["std"]
+
+[[example]]
+name = "zrip_profile_decode_corpus"
+path = "examples/profile_decode_corpus.rs"
+required-features = ["std"]
+
+[[example]]
+name = "zrip_profile_encode"
+path = "examples/profile_encode.rs"
+required-features = ["std"]
+
+[[example]]
+name = "zrip_profile_czstd"
+path = "examples/profile_czstd.rs"
+required-features = ["std"]
+
+[[example]]
+name = "zrip_profile_czstd_decode"
+path = "examples/profile_czstd_decode.rs"
+required-features = ["std"]
+
+[[example]]
+name = "zrip_profile_xray"
+path = "examples/profile_xray.rs"
+required-features = ["std"]
+
+[[test]]
+name = "zrip_adversarial"
+path = "tests/adversarial.rs"
+
+[[test]]
+name = "zrip_compress_into_alloc"
+path = "tests/compress_into_alloc.rs"
+
+[[test]]
+name = "zrip_decompress_capacity"
+path = "tests/decompress_capacity.rs"
+
+[[test]]
+name = "zrip_dict"
+path = "tests/dict.rs"
+
+[[test]]
+name = "zrip_interop"
+path = "tests/interop.rs"
+
+[[test]]
+name = "zrip_proptest_tests"
+path = "tests/proptest_tests.rs"
+
+[[test]]
+name = "zrip_roundtrip"
+path = "tests/roundtrip.rs"
+
+[[test]]
+name = "zrip_spec_conformance"
+path = "tests/spec_conformance.rs"
+
+[[test]]
+name = "zrip_streaming"
+path = "tests/streaming.rs"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Casts are pervasive and intentional in a codec operating on fixed-width fields.
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+cast_precision_loss = "allow"
+# Hot-path primitives need guaranteed inlining.
+inline_always = "allow"
+# Codec functions are inherently long.
+too_many_lines = "allow"
+# Internal crate: doc and must_use noise not worth it.
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+doc_markdown = "allow"
+# Acceptable in codec code.
+similar_names = "allow"
+items_after_statements = "allow"
+wildcard_imports = "allow"
+# Bitwise bool is intentional for branchless hot paths.
+needless_bitwise_bool = "allow"
+# match on tuple with catch-all is clearer than if-let for FSE table dispatch.
+single_match_else = "allow"
+# manual_ilog2 suggestion changes behavior on zero.
+manual_ilog2 = "allow"
+bool_to_int_with_if = "allow"
+if_not_else = "allow"
+# Iterating with .iter() is explicit about intent.
+explicit_iter_loop = "allow"
+# let-else doesn't help when the else is a complex expression.
+option_if_let_else = "allow"
+match_same_arms = "allow"
+redundant_closure_for_method_calls = "allow"
+# u128 -> f64 is fine for display purposes.
+enum_glob_use = "allow"
+module_name_repetitions = "allow"
+needless_pass_by_value = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

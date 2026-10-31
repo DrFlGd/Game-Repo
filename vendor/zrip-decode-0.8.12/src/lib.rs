@@ -1,0 +1,756 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(feature = "nightly", feature(optimize_attribute))]
+#![forbid(unsafe_code)]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+pub(crate) mod block_decoder;
+#[cfg(feature = "alloc")]
+pub mod context;
+pub(crate) mod exec;
+pub(crate) mod fast_vec;
+pub(crate) mod literals;
+pub(crate) mod ring_buffer;
+pub(crate) mod seq_table;
+pub(crate) mod sequences;
+#[cfg(feature = "std")]
+pub mod streaming;
+
+#[cfg(feature = "alloc")]
+use alloc::boxed::Box;
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
+use crate::exec::{SequenceOutputScope, decode_execute_sequences, decode_execute_single_sequence};
+use crate::fast_vec::{Literals, WILDCOPY_OVERLENGTH};
+use crate::literals::decode_literals_ws;
+use crate::sequences::{SequenceDecodeTables, parse_sequence_count, parse_sequence_tables_ws};
+use zrip_core::block::{BlockType, parse_block_header};
+use zrip_core::error::DecompressError;
+use zrip_core::frame::MAX_WINDOW_SIZE;
+#[cfg(feature = "alloc")]
+use zrip_core::frame::header::parse_frame_header_after_magic;
+use zrip_core::frame::header::{FrameHeader, parse_frame_header};
+use zrip_core::huffman::HuffmanDecodeEntry;
+use zrip_core::xxhash::Xxh64State;
+
+#[allow(clippy::struct_excessive_bools)]
+pub(crate) struct BlockDecodeWorkspace {
+    pub literal_buf: Vec<u8>,
+    pub huf_table: Vec<HuffmanDecodeEntry>,
+    pub huf_table_log: u8,
+    /// Two-symbol rows for `huf_table`, built on first use.
+    pub huf_pairs: Vec<u32>,
+    /// Whether `huf_pairs` describes the current `huf_table`.
+    pub huf_pairs_valid: bool,
+    pub huf_valid: bool,
+    pub huf_all_weights: Vec<u8>,
+    pub huf_weights: Vec<u8>,
+    pub huf_last_weights: Vec<u8>,
+    pub huf_last_weights_valid: bool,
+    pub huf_last_header: Vec<u8>,
+    pub huf_last_header_valid: bool,
+    pub fse_dist: Vec<i16>,
+    pub fse_symbol_next: Vec<u16>,
+    pub fse_build_buf: Vec<zrip_core::fse::FseDecodeEntry>,
+    pub seq_tables: Option<Box<SequenceDecodeTables>>,
+    pub seq_table_header: Vec<u8>,
+    pub seq_table_cache: Option<Box<SequenceDecodeTables>>,
+    pub seq_table_cache_tables_current: bool,
+    pub cached_dict_tables: Option<Box<SequenceDecodeTables>>,
+    pub cached_dict_rep: [u32; 3],
+    pub cached_dict_huf: Option<(Vec<HuffmanDecodeEntry>, u8)>,
+}
+
+impl BlockDecodeWorkspace {
+    pub(crate) fn new() -> Self {
+        Self {
+            literal_buf: Vec::new(),
+            huf_table: Vec::new(),
+            huf_table_log: 0,
+            huf_pairs: Vec::new(),
+            huf_pairs_valid: false,
+            huf_valid: false,
+            huf_all_weights: Vec::new(),
+            huf_weights: Vec::new(),
+            huf_last_weights: Vec::new(),
+            huf_last_weights_valid: false,
+            huf_last_header: Vec::new(),
+            huf_last_header_valid: false,
+            fse_dist: Vec::new(),
+            fse_symbol_next: Vec::new(),
+            fse_build_buf: Vec::new(),
+            seq_tables: Some(Box::new(SequenceDecodeTables::new_default())),
+            seq_table_header: Vec::new(),
+            seq_table_cache: None,
+            seq_table_cache_tables_current: false,
+            cached_dict_tables: None,
+            cached_dict_rep: [1, 4, 8],
+            cached_dict_huf: None,
+        }
+    }
+
+    pub(crate) fn reset_huffman_state(&mut self) {
+        self.huf_valid = false;
+    }
+
+    /// Records that `huf_table` was replaced, so the cached Huffman header and
+    /// weights no longer describe it.
+    pub(crate) fn huffman_table_replaced(&mut self) {
+        self.huf_pairs_valid = false;
+        self.huf_last_weights_valid = false;
+        self.huf_last_header_valid = false;
+    }
+
+    /// Records that the live sequence tables were replaced and no longer
+    /// match `seq_table_cache`, so the next cache hit copies the cached
+    /// tables instead of only their repeat flags.
+    pub(crate) fn seq_tables_replaced(&mut self) {
+        self.seq_table_cache_tables_current = false;
+    }
+
+    #[cfg(feature = "alloc")]
+    pub(crate) fn cache_dict(&mut self, dict: &zrip_core::dict::Dictionary) {
+        let mut st = SequenceDecodeTables::new_default();
+        st.load_dict(dict);
+        self.cached_dict_tables = Some(Box::new(st));
+        self.cached_dict_rep = *dict.rep_offsets();
+        if let Some((t, l)) = dict.huf_table() {
+            self.cached_dict_huf = Some((t.to_vec(), l));
+        }
+    }
+}
+
+pub(crate) fn skip_skippable_frame(data: &[u8]) -> Option<usize> {
+    if data.len() < 8 {
+        return None;
+    }
+    let magic = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    if (magic & 0xFFFF_FFF0) != 0x184D_2A50 {
+        return None;
+    }
+    let frame_size = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
+    let total = 8 + frame_size;
+    if total > data.len() {
+        return None;
+    }
+    Some(total)
+}
+
+pub(crate) fn remaining_output_limit(
+    output_len: usize,
+    output_start: usize,
+    max_output: usize,
+) -> Result<usize, DecompressError> {
+    let written = output_len
+        .checked_sub(output_start)
+        .expect("output length should not shrink during decompression");
+    max_output
+        .checked_sub(written)
+        .ok_or(DecompressError::OutputTooSmall)
+}
+
+pub fn decompress(input: &[u8]) -> Result<Vec<u8>, DecompressError> {
+    decompress_with_dict_and_limit(input, None, zrip_core::DEFAULT_DECOMPRESS_LIMIT)
+}
+
+/// Decompress with an explicit output size limit.
+///
+/// Returns [`DecompressError::OutputTooSmall`] if the decompressed output would
+/// exceed `max_output_size` bytes. Use [`SAFE_DECOMPRESS_LIMIT`](zrip_core::SAFE_DECOMPRESS_LIMIT)
+/// when processing untrusted input to prevent memory exhaustion attacks.
+pub fn decompress_with_limit(
+    input: &[u8],
+    max_output_size: usize,
+) -> Result<Vec<u8>, DecompressError> {
+    decompress_with_dict_and_limit(input, None, max_output_size)
+}
+
+pub fn decompress_into(input: &[u8], output: &mut Vec<u8>) -> Result<usize, DecompressError> {
+    let max_output = zrip_core::DEFAULT_DECOMPRESS_LIMIT;
+    let mut ws = Box::new(BlockDecodeWorkspace::new());
+    let start = output.len();
+    let mut offset = 0;
+    while offset < input.len() {
+        let remaining = &input[offset..];
+        if let Some(skip_len) = skip_skippable_frame(remaining) {
+            offset += skip_len;
+            continue;
+        }
+        let frame_limit = remaining_output_limit(output.len(), start, max_output)?;
+        let consumed = decompress_frame(remaining, output, frame_limit, None, &mut ws)?;
+        offset += consumed;
+    }
+    Ok(output.len() - start)
+}
+
+pub fn decompress_with_dict(
+    input: &[u8],
+    dict: Option<&zrip_core::dict::Dictionary>,
+) -> Result<Vec<u8>, DecompressError> {
+    decompress_with_dict_and_limit(input, dict, zrip_core::DEFAULT_DECOMPRESS_LIMIT)
+}
+
+pub fn decompress_with_dict_and_limit(
+    input: &[u8],
+    dict: Option<&zrip_core::dict::Dictionary>,
+    max_output_size: usize,
+) -> Result<Vec<u8>, DecompressError> {
+    let mut output = Vec::new();
+    let mut ws = Box::new(BlockDecodeWorkspace::new());
+    let mut offset = 0;
+
+    while offset < input.len() {
+        let remaining = &input[offset..];
+        if let Some(skip_len) = skip_skippable_frame(remaining) {
+            offset += skip_len;
+            continue;
+        }
+        let frame_limit = remaining_output_limit(output.len(), 0, max_output_size)?;
+        let consumed = decompress_frame(remaining, &mut output, frame_limit, dict, &mut ws)?;
+        offset += consumed;
+    }
+
+    Ok(output)
+}
+
+pub(crate) fn decompress_frame(
+    input: &[u8],
+    output: &mut Vec<u8>,
+    max_output: usize,
+    dict: Option<&zrip_core::dict::Dictionary>,
+    ws: &mut BlockDecodeWorkspace,
+) -> Result<usize, DecompressError> {
+    let header = parse_frame_header(input)?;
+    decompress_frame_with_header(input, output, max_output, dict, ws, header)
+}
+
+#[cfg(feature = "alloc")]
+pub(crate) fn decompress_frame_after_magic(
+    input: &[u8],
+    output: &mut Vec<u8>,
+    max_output: usize,
+    dict: Option<&zrip_core::dict::Dictionary>,
+    ws: &mut BlockDecodeWorkspace,
+) -> Result<usize, DecompressError> {
+    let header = parse_frame_header_after_magic(input, 0)?;
+    decompress_frame_with_header(input, output, max_output, dict, ws, header)
+}
+
+fn decompress_frame_with_header(
+    input: &[u8],
+    output: &mut Vec<u8>,
+    max_output: usize,
+    dict: Option<&zrip_core::dict::Dictionary>,
+    ws: &mut BlockDecodeWorkspace,
+    header: FrameHeader,
+) -> Result<usize, DecompressError> {
+    if header.window_size > MAX_WINDOW_SIZE && !header.single_segment {
+        return Err(DecompressError::WindowTooLarge {
+            requested: header.window_size,
+            max: MAX_WINDOW_SIZE,
+        });
+    }
+
+    if let Some(frame_dict_id) = header.dict_id {
+        match dict {
+            Some(d) if d.id() == frame_dict_id => {}
+            Some(d) => {
+                return Err(DecompressError::DictMismatch {
+                    expected: frame_dict_id,
+                    got: d.id(),
+                });
+            }
+            None => return Err(DecompressError::DictRequired),
+        }
+    }
+
+    // A frame may not write more than it declares, so its declared size is
+    // its output limit. Each block then reserves at most the bytes still to
+    // come, and the reservation up front covers the whole frame.
+    let (max_output, overrun) = match header.frame_content_size {
+        Some(fcs) => {
+            let fcs = usize::try_from(fcs)
+                .ok()
+                .filter(|&fcs| fcs <= max_output)
+                .ok_or(DecompressError::OutputTooSmall)?;
+            let hint = fcs.min(MAX_WINDOW_SIZE as usize);
+            output.reserve(hint + WILDCOPY_OVERLENGTH);
+            (fcs, DecompressError::FrameSizeMismatch)
+        }
+        None => (max_output, DecompressError::OutputTooSmall),
+    };
+
+    let mut offset = header.header_size;
+    let output_start = output.len();
+
+    let dict_history: &[u8] = if let Some(d) = dict { d.content() } else { &[] };
+
+    let mut seq_tables = None;
+    let mut rep_offsets = [1u32, 4, 8];
+    ws.reset_huffman_state();
+    if let Some((ref t, l)) = ws.cached_dict_huf {
+        ws.huf_table.clear();
+        ws.huf_table.extend_from_slice(t);
+        ws.huf_table_log = l;
+        ws.huf_valid = true;
+        ws.huffman_table_replaced();
+    } else if let Some(d) = dict
+        && let Some((t, l)) = d.huf_table()
+    {
+        ws.huf_table.clear();
+        ws.huf_table.extend_from_slice(t);
+        ws.huf_table_log = l;
+        ws.huf_valid = true;
+        ws.huffman_table_replaced();
+    }
+
+    let mut hasher = if header.content_checksum {
+        Some(Xxh64State::new(0))
+    } else {
+        None
+    };
+
+    loop {
+        if offset + 3 > input.len() {
+            return Err(DecompressError::InputExhausted);
+        }
+        let block_header = parse_block_header(&input[offset..])?;
+        offset += 3;
+
+        let block_size = block_header.block_size as usize;
+
+        if block_size > zrip_core::frame::MAX_BLOCK_SIZE {
+            match block_header.block_type {
+                BlockType::Raw | BlockType::Rle => {
+                    return Err(DecompressError::BlockTooLarge);
+                }
+                BlockType::Compressed => {}
+            }
+        }
+
+        let block_output_start = output.len();
+        match block_header.block_type {
+            BlockType::Raw => {
+                if offset + block_size > input.len() {
+                    return Err(DecompressError::InputExhausted);
+                }
+                if output.len() - output_start + block_size > max_output {
+                    return Err(overrun);
+                }
+                output.extend_from_slice(&input[offset..offset + block_size]);
+                offset += block_size;
+            }
+            BlockType::Rle => {
+                if offset >= input.len() {
+                    return Err(DecompressError::InputExhausted);
+                }
+                if output.len() - output_start + block_size > max_output {
+                    return Err(overrun);
+                }
+                let byte = input[offset];
+                output.resize(output.len() + block_size, byte);
+                offset += 1;
+            }
+            BlockType::Compressed => {
+                if offset + block_size > input.len() {
+                    return Err(DecompressError::InputExhausted);
+                }
+                if seq_tables.is_none() {
+                    // A frame that failed after taking the tables dropped
+                    // them; fresh tables do not match the table cache.
+                    let mut initial_tables = ws.seq_tables.take().unwrap_or_else(|| {
+                        ws.seq_tables_replaced();
+                        Box::new(SequenceDecodeTables::new_default())
+                    });
+                    let initial_rep_offsets =
+                        initial_sequence_state(initial_tables.as_mut(), ws, dict);
+                    seq_tables = Some(initial_tables);
+                    rep_offsets = initial_rep_offsets;
+                }
+                let block_data = &input[offset..offset + block_size];
+                decode_compressed_block(
+                    block_data,
+                    output,
+                    output_start,
+                    max_output,
+                    seq_tables
+                        .as_deref_mut()
+                        .expect("sequence tables are initialized before compressed blocks"),
+                    &mut rep_offsets,
+                    ws,
+                    dict_history,
+                )
+                .map_err(|err| {
+                    if err == DecompressError::OutputTooSmall {
+                        overrun.clone()
+                    } else {
+                        err
+                    }
+                })?;
+                offset += block_size;
+            }
+        }
+        if let Some(ref mut hasher) = hasher {
+            hasher.update(&output[block_output_start..]);
+        }
+
+        if block_header.last_block {
+            break;
+        }
+    }
+
+    if let Some(tables) = seq_tables.take() {
+        ws.seq_tables = Some(tables);
+    }
+
+    if let Some(ref mut hasher) = hasher {
+        let hash = hasher.finish();
+        let expected_checksum = (hash & 0xFFFF_FFFF) as u32;
+
+        if offset + 4 > input.len() {
+            return Err(DecompressError::InputExhausted);
+        }
+        let stored_checksum = u32::from_le_bytes([
+            input[offset],
+            input[offset + 1],
+            input[offset + 2],
+            input[offset + 3],
+        ]);
+        offset += 4;
+
+        if expected_checksum != stored_checksum {
+            return Err(DecompressError::ChecksumMismatch {
+                expected: stored_checksum,
+                got: expected_checksum,
+            });
+        }
+    }
+
+    if let Some(fcs) = header.frame_content_size
+        && (output.len() - output_start) as u64 != fcs
+    {
+        return Err(DecompressError::FrameSizeMismatch);
+    }
+
+    Ok(offset)
+}
+
+fn initial_sequence_state(
+    tables: &mut SequenceDecodeTables,
+    ws: &mut BlockDecodeWorkspace,
+    dict: Option<&zrip_core::dict::Dictionary>,
+) -> [u32; 3] {
+    if let Some(ref cached) = ws.cached_dict_tables {
+        tables.clone_from(cached);
+        ws.seq_tables_replaced();
+        ws.cached_dict_rep
+    } else if let Some(d) = dict {
+        tables.reset_default();
+        ws.seq_tables_replaced();
+        tables.load_dict(d);
+        *d.rep_offsets()
+    } else {
+        tables.clear_repeat_flags();
+        [1u32, 4, 8]
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn decode_compressed_block(
+    data: &[u8],
+    output: &mut Vec<u8>,
+    output_start: usize,
+    max_output: usize,
+    seq_tables: &mut SequenceDecodeTables,
+    rep_offsets: &mut [u32; 3],
+    ws: &mut BlockDecodeWorkspace,
+    dict_history: &[u8],
+) -> Result<(), DecompressError> {
+    let (lit_consumed, lits_at) = decode_literals_ws(data, ws)?;
+
+    let remaining = &data[lit_consumed..];
+
+    if remaining.is_empty() {
+        let lits = lits_at.resolve(data, &ws.literal_buf).as_slice();
+        if output.len() - output_start + lits.len() > max_output {
+            return Err(DecompressError::OutputTooSmall);
+        }
+        output.extend_from_slice(lits);
+        return Ok(());
+    }
+
+    let (num_sequences, seq_count_size) = parse_sequence_count(remaining)?;
+
+    if num_sequences == 0 {
+        let lits = lits_at.resolve(data, &ws.literal_buf).as_slice();
+        if output.len() - output_start + lits.len() > max_output {
+            return Err(DecompressError::OutputTooSmall);
+        }
+        output.extend_from_slice(lits);
+        return Ok(());
+    }
+
+    let table_data = &remaining[seq_count_size..];
+    let tables_consumed = parse_sequence_tables_ws(table_data, seq_tables, ws)?;
+
+    let seq_data = &table_data[tables_consumed..];
+
+    let before = output.len();
+    let max_block_output = remaining_output_limit(output.len(), output_start, max_output)?
+        .min(zrip_core::frame::MAX_BLOCK_SIZE);
+    let scope = SequenceOutputScope {
+        output_base: output_start,
+        max_block_output,
+        history: dict_history,
+    };
+
+    let result = decode_sequences_dispatch(
+        seq_data,
+        num_sequences,
+        seq_tables,
+        rep_offsets,
+        lits_at.resolve(data, &ws.literal_buf),
+        output,
+        scope,
+    );
+    result?;
+    if output.len() - before > zrip_core::frame::MAX_BLOCK_SIZE {
+        return Err(DecompressError::BlockTooLarge);
+    }
+    if output.len() - output_start > max_output {
+        return Err(DecompressError::OutputTooSmall);
+    }
+
+    Ok(())
+}
+
+#[inline(always)]
+pub(crate) fn decode_sequences_dispatch(
+    seq_data: &[u8],
+    num_sequences: u32,
+    seq_tables: &mut SequenceDecodeTables,
+    rep_offsets: &mut [u32; 3],
+    literals: Literals<'_>,
+    output: &mut Vec<u8>,
+    scope: SequenceOutputScope<'_>,
+) -> Result<(), DecompressError> {
+    if num_sequences == 1 {
+        let literals = literals.as_slice();
+        if scope.history.is_empty() {
+            return decode_execute_single_sequence::<false>(
+                seq_data,
+                seq_tables,
+                rep_offsets,
+                literals,
+                output,
+                scope,
+            );
+        }
+        return decode_execute_single_sequence::<true>(
+            seq_data,
+            seq_tables,
+            rep_offsets,
+            literals,
+            output,
+            scope,
+        );
+    }
+
+    #[cfg(all(feature = "std", feature = "simd"))]
+    {
+        let level = fearless_simd::Level::new();
+        return fearless_simd::dispatch!(level, _simd => {
+            if scope.history.is_empty() {
+                decode_execute_sequences::<false>(
+                    seq_data,
+                    num_sequences,
+                    seq_tables,
+                    rep_offsets,
+                    literals,
+                    output,
+                    scope,
+                )
+            } else {
+                decode_execute_sequences::<true>(
+                    seq_data,
+                    num_sequences,
+                    seq_tables,
+                    rep_offsets,
+                    literals,
+                    output,
+                    scope,
+                )
+            }
+        });
+    }
+
+    #[allow(unreachable_code)]
+    if scope.history.is_empty() {
+        decode_execute_sequences::<false>(
+            seq_data,
+            num_sequences,
+            seq_tables,
+            rep_offsets,
+            literals,
+            output,
+            scope,
+        )
+    } else {
+        decode_execute_sequences::<true>(
+            seq_data,
+            num_sequences,
+            seq_tables,
+            rep_offsets,
+            literals,
+            output,
+            scope,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    fn push_block_header(out: &mut Vec<u8>, last: bool, block_type: u32, block_size: usize) {
+        let raw = ((block_size as u32) << 3) | (block_type << 1) | u32::from(last);
+        out.push(raw as u8);
+        out.push((raw >> 8) as u8);
+        out.push((raw >> 16) as u8);
+    }
+
+    #[test]
+    fn decompresses_frame_after_magic() {
+        let mut frame = Vec::new();
+        frame.push(0x20);
+        frame.push(5);
+        push_block_header(&mut frame, true, 0, 5);
+        frame.extend_from_slice(b"hello");
+
+        let mut output = Vec::new();
+        let mut ws = BlockDecodeWorkspace::new();
+        let consumed =
+            decompress_frame_after_magic(&frame, &mut output, usize::MAX, None, &mut ws).unwrap();
+        assert_eq!(consumed, frame.len());
+        assert_eq!(output, b"hello");
+    }
+
+    #[test]
+    fn frame_reset_keeps_explicit_huffman_cache() {
+        let mut ws = BlockDecodeWorkspace::new();
+        ws.huf_valid = true;
+        ws.huf_last_weights_valid = true;
+        ws.huf_last_weights.extend_from_slice(&[1, 2, 3]);
+
+        ws.reset_huffman_state();
+
+        assert!(!ws.huf_valid);
+        assert!(ws.huf_last_weights_valid);
+        assert_eq!(ws.huf_last_weights, [1, 2, 3]);
+    }
+}
+
+#[cfg(test)]
+mod safety_tests {
+    use super::*;
+    use alloc::vec::Vec;
+    use zrip_core::bitstream::writer::BitWriter;
+    use zrip_core::frame::{MAX_BLOCK_SIZE, ZSTD_MAGIC};
+
+    fn push_block_header(out: &mut Vec<u8>, last: bool, block_type: u32, block_size: usize) {
+        let raw = ((block_size as u32) << 3) | (block_type << 1) | u32::from(last);
+        out.push(raw as u8);
+        out.push((raw >> 8) as u8);
+        out.push((raw >> 16) as u8);
+    }
+
+    fn frame_with_oversized_compressed_block_output() -> Vec<u8> {
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&ZSTD_MAGIC.to_le_bytes());
+        frame.push(0x00);
+        frame.push(0x00);
+
+        push_block_header(&mut frame, false, 0, 1);
+        frame.push(b'A');
+
+        let mut block = Vec::new();
+        let trailing_literals = 65usize;
+        block.push(0x04 | (((trailing_literals & 0x0f) as u8) << 4));
+        block.push((trailing_literals >> 4) as u8);
+        block.extend(core::iter::repeat_n(b'B', trailing_literals));
+
+        block.push(1);
+        block.push(0x54);
+        block.extend_from_slice(&[0, 2, 52]);
+
+        let mut seq_bits = BitWriter::new();
+        let ml_extra = MAX_BLOCK_SIZE as u32 - 65_539;
+        seq_bits.write_bits(ml_extra, 16);
+        seq_bits.write_bits(0, 2);
+        seq_bits.close_reverse_stream();
+        block.extend_from_slice(&seq_bits.into_bytes());
+
+        push_block_header(&mut frame, true, 2, block.len());
+        frame.extend_from_slice(&block);
+        frame
+    }
+
+    #[test]
+    fn compressed_block_rejects_trailing_literals_over_block_limit() {
+        let frame = frame_with_oversized_compressed_block_output();
+        assert!(decompress(&frame).is_err());
+    }
+
+    /// A frame of a raw block and a compressed block whose `count` sequences
+    /// each copy three bytes from offset 3, with a sequence bitstream that
+    /// holds the offset bits of only the first `with_bits` of them.
+    fn frame_with_short_sequence_stream(count: u8, with_bits: u8) -> Vec<u8> {
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&ZSTD_MAGIC.to_le_bytes());
+        frame.push(0x00);
+        frame.push(0x00);
+
+        push_block_header(&mut frame, false, 0, 8);
+        frame.extend_from_slice(b"ABCDEFGH");
+
+        let mut block = Vec::new();
+        // Raw literals "xy", then RLE tables: literal length code 0, offset
+        // code 2 (two extra bits) and match length code 0.
+        block.push(2 << 3);
+        block.extend_from_slice(b"xy");
+        block.push(count);
+        block.push(0x54);
+        block.extend_from_slice(&[0, 2, 0]);
+        let mut seq_bits = BitWriter::new();
+        // Offset value 4 + 2: offset 3.
+        for _ in 0..with_bits {
+            seq_bits.write_bits(2, 2);
+        }
+        seq_bits.close_reverse_stream();
+        block.extend_from_slice(&seq_bits.into_bytes());
+
+        push_block_header(&mut frame, true, 2, block.len());
+        frame.extend_from_slice(&block);
+        frame
+    }
+
+    #[test]
+    fn sequence_streams_that_read_past_their_start_are_rejected() {
+        assert_eq!(
+            decompress(&frame_with_short_sequence_stream(1, 1)).unwrap(),
+            b"ABCDEFGHFGHxy"
+        );
+        assert_eq!(
+            decompress(&frame_with_short_sequence_stream(2, 1)),
+            Err(DecompressError::CorruptSequences)
+        );
+        // A block with one sequence takes its own path.
+        assert_eq!(
+            decompress(&frame_with_short_sequence_stream(1, 0)),
+            Err(DecompressError::CorruptSequences)
+        );
+    }
+}
