@@ -65,9 +65,9 @@ const DONE = [
   ["Your lists, October 2026", "Updates in the app for all three, signed; the Library's memory of where you were; videos, magazines and documents as shelves of their own, with magazines' text read; the backlog; updates and DLC with their game; Add a system, Redump's own DATs and every system's DATs updated; games on several discs as one"],
   ["Review, October 2026", "A review of the whole app's pages: the fixes it asked for, games converted to their system's format as they're imported, and the tools Game Repo uses downloaded from Settings"],
   ["Tailscale on the Steam Deck", "Game Repo Go sets up Tailscale on the Deck from its Settings, the first part of reaching your library away from home"],
+  ["Save sync and Devices", "Saves and save states synced between your devices with every version kept (RetroArch, PPSSPP, Dolphin, the PCSX2 family, DuckStation, Azahar, Eden, Cemu, RPCS3 and more), in the background with Game Repo Go closed and from handhelds' SD cards, and a Devices page for Game Repo Go devices, SD cards, drives and shares whose changes wait for the next connect"],
 ];
 export const NEXT = [
-  ["Save sync and Devices", "Saves and save states synced between your devices with every version kept (RetroArch, PPSSPP, Dolphin, the PCSX2 family with ARMSX2, DuckStation, Eden, Cemu, RPCS3 and more), in the background with Game Repo Go closed, from handhelds' SD cards, then a Devices page for Game Repo Go devices, SD cards, drives and shares whose changes wait for the next connect (handhelds with no app among them)", true],
   ["Phase 9d", "The Server on Unraid and reached away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only"],
   ["Android games", "APKs kept in the library and installed on Android devices through Game Repo Go"],
   ["GOG installers", "A PC game that has only its GOG installer unpacked, so Game Repo Go can install it too"],
