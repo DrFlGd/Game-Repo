@@ -549,8 +549,23 @@ try:
     # run now, syncs Beta's RetroArch save to the library through the Rust library; turned off
     # in Settings, the job goes
     def saves_job():
-        m = re.search(r"JOB #\S+?/(\d+): \S+ " + re.escape(PKG) + r"/androidx\.work\.impl\.background\.systemjob\.SystemJobService", sh("dumpsys jobscheduler", ok=False))
-        return m.group(1) if m else None
+        # (`JOB #u0a190/7: 1a2b3c io.github…/androidx.work…SystemJobService`; Android 14 may put a
+        # namespace before the number)
+        for line in sh(f"dumpsys jobscheduler {PKG}", ok=False).splitlines():
+            m = re.search(r"JOB #[^/\s]+/(?:@[^\s]*@/)?(-?\d+):", line)
+            if m and "SystemJobService" in line:
+                return m.group(1)
+        return None
+
+    def why_not():
+        # what WorkManager and JobScheduler said, for a failure's report
+        sh(f"am broadcast -a androidx.work.diagnostics.REQUEST_DIAGNOSTICS -p {PKG}", ok=False)
+        time.sleep(3)
+        jobs = sh(f"dumpsys jobscheduler {PKG}", ok=False)
+        log = adb("logcat", "-d", "-s", "WM-WorkerWrapper", "WM-DiagnosticsWrkr", "WM-SystemJobScheduler", "WM-Schedulers", "WM-WorkManagerImpl", "GameRepoGoSaves", "AndroidRuntime", ok=False, timeout=60)
+        (out / "jobscheduler.txt").write_text(jobs, encoding="utf-8")
+        (out / "workmanager-log.txt").write_text(log, encoding="utf-8")
+        return [l.strip() for l in jobs.splitlines() if "JOB #" in l or "Required constraints" in l or "Unsatisfied" in l][:8] + log.splitlines()[-25:]
     srm = f"{SD}/RetroArch/saves/Beta (Europe).srm"
     sh(f"mkdir -p {SD}/RetroArch/saves && echo beta-save > '{srm}'")
     job = None
@@ -567,7 +582,7 @@ try:
         said = adb("logcat", "-d", "-s", "GameRepoGoSaves", ok=False, timeout=60).splitlines()[said_before:]
     check("saves are synced in the background by WorkManager's job, through the Rust library",
           job and in_lib.is_file() and in_lib.read_text().strip() == "beta-save" and any("synced: {" in l for l in said),
-          (job, in_lib.is_file(), said[-5:], pg.api("saves").get("background")))
+          (job, in_lib.is_file(), said[-5:], pg.api("saves").get("background"), None if job and in_lib.is_file() else why_not()))
     pg.api("set_settings", {"background_saves": False})
     end = time.time() + 30
     while time.time() < end and saves_job():
