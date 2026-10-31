@@ -783,6 +783,19 @@ fn saves_and_states_go_between_devices_with_versions_and_a_conflict_keeps_both()
     assert_eq!(sync_saves(&b)["brought"], 1);
     assert_eq!(std::fs::read_to_string(sb.join(srm)).unwrap(), "a3");
     assert_eq!(store.versions(&unit).len(), 5, "every version kept");
+
+    // the sync in the background (D186): its own program on the phone's data, with no window, syncs and ends
+    played(&sb.join(srm), "b6", 60);
+    let data = dir.join("b").join("go");
+    let alone = App::open_with(&data, vec![db.home.clone()], "test", Box::new(FileSecrets(data.join("secrets.json"))), Box::new(|_| {}), true).unwrap();
+    let sum = alone.sync_saves_now().expect("a sync");
+    assert_eq!((sum.sent, sum.error.as_str()), (1, ""), "{sum:?}");
+    assert_eq!(std::fs::read_to_string(&in_lib).unwrap(), "b6");
+    assert!(!alone.queue.busy(), "no downloads in the background");
+    call(&b, "set_settings", json!({ "background_saves": false }));
+    drop(alone);
+    let alone = App::open_with(&data, vec![db.home.clone()], "test", Box::new(FileSecrets(data.join("secrets.json"))), Box::new(|_| {}), true).unwrap();
+    assert!(alone.sync_saves_now().is_none(), "turned off, it doesn't sync");
     for app in [a, b] {
         app.queue.quit();
     }

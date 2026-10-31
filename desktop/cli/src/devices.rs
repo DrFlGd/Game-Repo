@@ -417,6 +417,8 @@ pub fn client_ui(mut a: Args) -> Result<()> {
     let secrets = Box::new(device::app::FileSecrets(data.join("secrets.json")));
     let app = device::app::App::open(&data, vec![home.clone()], &kind, secrets, events)?;
     app.set_own(own(&data));
+    // the sync in the background (D186) as the app sets it up, its timer only written, in --home
+    app.set_background(&std::env::current_exe().unwrap_or_default(), false);
     if let Some(root) = root {
         app.set_root(root);
     }

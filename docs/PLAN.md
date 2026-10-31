@@ -6263,6 +6263,31 @@ and *Use this one*.
   (`serve/tests/client.rs`; the test library's PlayStation disc now has a SYSTEM.CNF), Go's
   Settings › Saves (`client_page.py`) and the memory cards in Game Repo's (`desktop_page.py`).
 
+### Save sync notes, part 5: in the background on Windows and the Steam Deck (built 2026-10-31)
+
+Jerred (2026-10-31): "Go ahead and start" on what's left, background sync first. D186 as
+planned, with one change on Windows: rather than Go starting with Windows and staying by the
+clock, Task Scheduler starts it every five minutes to sync and end, so nothing stays open
+(the same as the Steam Deck's timer).
+- `gamerepo-device`'s `background.rs`: the command (`<program> --sync-saves <data folder>`),
+  a Task Scheduler task for the user (`schtasks /SC MINUTE /MO 5`, *Game Repo Go saves*) on
+  Windows, and a systemd user timer and service (`game-repo-go-saves`, every five minutes,
+  two after boot) in `~/.config/systemd/user` on Linux and the Steam Deck, the AppImage's own
+  path in it. Set up each time Go starts, and again when pairing, unpairing or Settings ›
+  Saves change it (`App::set_background`); taken away when saves aren't synced, it's turned
+  off or Go isn't paired.
+- `App::open_with(…, alone)` opens the backend with no downloads and nothing on a timer, and
+  `sync_saves_now` syncs once; the program's `main` runs that for `--sync-saves` with no
+  window. One sync at a time across both programs: `saves.lock` in the data folder.
+- Settings › Saves: *Sync them in the background too, with Game Repo Go closed* (on by
+  default), with how often and how, or what went wrong setting it up.
+- Not yet: Android (WorkManager, next); in the background Go doesn't take the Devices page's
+  waiting changes yet (they need its downloads).
+- Tests: the timer's units written and taken away (device), the backend opened alone syncing a
+  save and not syncing once turned off (`serve/tests/client.rs`), Settings › Saves turning it
+  off and on with its timer (`client_page.py`, the stand-in writes the units only). Task
+  Scheduler and systemctl themselves are only asked on a real install.
+
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
   blocked in many cloud sessions, so `vendor.yml` pushes the dependencies of every crate
@@ -6503,7 +6528,7 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     between devices with versions (RetroArch and the emulators of their own: PPSSPP, Dolphin,
     the PCSX2 family with ARMSX2, DuckStation, Azahar, Flycast, melonDS, mGBA, DraStic), and a
     Devices page for Game Repo Go devices, cards, drives and shares, with changes that wait
-    for the next connect; in progress (left: a card's saves, Eject, background sync). It takes in the handhelds with no app (muOS and the like).
+    for the next connect; in progress (left: background sync on Android, a card's saves, Eject, saves not matched, Switch/Wii U/PS3 emulators). It takes in the handhelds with no app (muOS and the like).
 28. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices
