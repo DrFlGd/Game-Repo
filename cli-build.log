@@ -1,0 +1,22 @@
+    Updating crates.io index
+   Compiling gamerepo-steam v0.5.64 (/home/runner/work/Game-Repo/Game-Repo/desktop/steam)
+   Compiling gamerepo-wire v0.5.64 (/home/runner/work/Game-Repo/Game-Repo/desktop/wire)
+   Compiling gamerepo-device v0.5.64 (/home/runner/work/Game-Repo/Game-Repo/desktop/device)
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+   --> device/src/client.rs:207:23
+    |
+207 |             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |                       ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+help: replace the use of the deprecated method
+    |
+207 -             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+207 +             let _ = g.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |
+
+   Compiling gamerepo-core v0.5.64 (/home/runner/work/Game-Repo/Game-Repo/desktop/core)
+warning: `gamerepo-device` (lib) generated 1 warning (run `cargo fix --lib -p gamerepo-device` to apply 1 suggestion)
+   Compiling gamerepo-serve v0.5.64 (/home/runner/work/Game-Repo/Game-Repo/desktop/serve)
+   Compiling gamerepo-cli v0.5.64 (/home/runner/work/Game-Repo/Game-Repo/desktop/cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 56.64s

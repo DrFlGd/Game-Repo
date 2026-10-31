@@ -1,0 +1,5 @@
+PASS the release APK starts on the pairing page
+PASS its plugin answers after minifying (the access note needs it)
+PASS it doesn't crash
+PASS its saves' job is set up through WorkManager after minifying
+4 of 4 checks passed

@@ -1,0 +1,1 @@
+dist/Game Repo Go_0.5.64_arm64.apk: signed with this key ({'timestamp': '1793463413', 'file': 'Game Repo Go_0.5.64_arm64.apk', 'version': '0.5.64'})

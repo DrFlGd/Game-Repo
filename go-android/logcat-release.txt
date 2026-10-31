@@ -1,0 +1,847 @@
+--------- beginning of main
+10-31 16:16:55.773  1029  1029 D CarrierSvcBindHelper: onPackageModified: io.github.drflgd.gamerepo.go
+--------- beginning of system
+10-31 16:16:55.775   519   596 D CompatibilityChangeReporter: Compat change id reported: 218533173; UID 10193; state: ENABLED
+10-31 16:16:55.775   519   596 D CompatibilityChangeReporter: Compat change id reported: 262645982; UID 10193; state: ENABLED
+10-31 16:16:55.776  1029  1029 D CarrierSvcBindHelper: No carrier app for: 0
+10-31 16:16:55.776   519   615 I InputReader: Reconfiguring input devices, changes=KEYBOARD_LAYOUTS
+10-31 16:16:55.777  1633  2265 I AiAiEcho: EchoSearch: WidgetFetcherImpl is initialized with [28] widgets [reason=package added for userId: 0]
+10-31 16:16:55.780   519   545 W WindowMagnificationMgr: requestConnection duplicated request: connect=false, mConnectionState=DISCONNECTED
+10-31 16:16:55.782   817  4741 I PermissionControllerServiceImpl: Updating user sensitive for uid 10193
+10-31 16:16:55.806   815   877 D StylusManager: Stylus InputDevice changed: 9 virtio_input_multi_touch_6
+10-31 16:16:55.809  1633  1633 I AiAiEcho: AppFetcherImpl onPackageChanged io.github.drflgd.gamerepo.go.
+10-31 16:16:55.809  1633  6007 I AiAiEcho: AppIndexer Package:[io.github.drflgd.gamerepo.go] UserProfile:[0] Enabled:[true].
+10-31 16:16:55.810  1633  6007 I AiAiEcho: AppFetcherImplV2 updateApps package:[io.github.drflgd.gamerepo.go], userId:[0], reason:[package is updated.].
+10-31 16:16:55.814   815   877 D StylusManager: Stylus InputDevice changed: 14 virtio_input_multi_touch_11
+10-31 16:16:55.837   815   877 D StylusManager: Stylus InputDevice changed: 13 virtio_input_multi_touch_10
+10-31 16:16:55.841   815   877 D StylusManager: Stylus InputDevice changed: 8 virtio_input_multi_touch_5
+10-31 16:16:55.841  1029  1283 D ImsResolver: maybeAddedImsService, packageName: io.github.drflgd.gamerepo.go
+10-31 16:16:55.850   519   528 I system_server: Background concurrent copying GC freed 336472(14MB) AllocSpace objects, 17(332KB) LOS objects, 47% free, 26MB/50MB, paused 329us,39us total 158.970ms
+10-31 16:16:55.852   815   877 D StylusManager: Stylus InputDevice changed: 10 virtio_input_multi_touch_7
+10-31 16:16:55.852   815   877 D StylusManager: Stylus InputDevice changed: 6 virtio_input_multi_touch_3
+10-31 16:16:55.853   815   877 D StylusManager: Stylus InputDevice changed: 4 virtio_input_multi_touch_1
+10-31 16:16:55.853   815   877 D StylusManager: Stylus InputDevice changed: 12 virtio_input_multi_touch_9
+10-31 16:16:55.853   815   877 D StylusManager: Stylus InputDevice changed: 7 virtio_input_multi_touch_4
+10-31 16:16:55.853   815   877 D StylusManager: Stylus InputDevice changed: 11 virtio_input_multi_touch_8
+10-31 16:16:55.853   815   877 D StylusManager: Stylus InputDevice changed: 5 virtio_input_multi_touch_2
+10-31 16:16:55.902  6853  6853 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+10-31 16:16:55.906  6853  6853 I AndroidRuntime: Using default boot image
+10-31 16:16:55.907  6853  6853 I AndroidRuntime: Leaving lock profiling enabled
+10-31 16:16:55.909  6853  6853 I app_process: Core platform API reporting enabled, enforcing=false
+10-31 16:16:55.909  6853  6853 I app_process: Using CollectorTypeCC GC.
+10-31 16:16:55.964  6853  6853 D nativeloader: InitDefaultPublicLibraries for_preload=1: libandroid.so:libaaudio.so:libamidi.so:libbinder_ndk.so:libc.so:libcamera2ndk.so:libdl.so:libEGL.so:libGLESv1_CM.so:libGLESv2.so:libGLESv3.so:libicu.so:libicui18n.so:libicuuc.so:libjnigraphics.so:liblog.so:libmediandk.so:libm.so:libnativehelper.so:libnativewindow.so:libOpenMAXAL.so:libOpenSLES.so:libRS.so:libstdc++.so:libsync.so:libvulkan.so:libwebviewchromium_plat_support.so:libz.so
+10-31 16:16:55.969  6853  6853 D app_process: Time zone APEX ICU file found: /apex/com.android.tzdata/etc/icu/icu_tzdata.dat
+10-31 16:16:55.970  6853  6853 D app_process: I18n APEX ICU file found: /apex/com.android.i18n/etc/icu/icudt72l.dat
+10-31 16:16:55.973  6853  6853 W app_process: Unexpected CPU variant for x86: x86_64.
+10-31 16:16:55.973  6853  6853 W app_process: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, tremont, kabylake, default
+10-31 16:16:55.982  6853  6853 W libc    : Access denied finding property "ro.product.name_for_attestation"
+10-31 16:16:55.982  6853  6853 W libc    : Access denied finding property "ro.product.brand_for_attestation"
+10-31 16:16:55.982  6853  6853 W libc    : Access denied finding property "ro.product.model_for_attestation"
+10-31 16:16:55.982  6853  6853 D AndroidRuntime: Calling main entry com.android.commands.monkey.Monkey
+10-31 16:16:55.983  6853  6853 W Monkey  : args: [-p, io.github.drflgd.gamerepo.go, -c, android.intent.category.LAUNCHER, 1]
+10-31 16:16:55.983  6853  6853 W Monkey  :  arg: "-p"
+10-31 16:16:55.983  6853  6853 W Monkey  :  arg: "io.github.drflgd.gamerepo.go"
+10-31 16:16:55.984  6853  6853 W Monkey  :  arg: "-c"
+10-31 16:16:55.984  6853  6853 W Monkey  :  arg: "android.intent.category.LAUNCHER"
+10-31 16:16:55.984  6853  6853 W Monkey  :  arg: "1"
+10-31 16:16:55.984  6853  6853 W Monkey  : data="io.github.drflgd.gamerepo.go"
+10-31 16:16:55.984  6853  6853 W Monkey  : data="android.intent.category.LAUNCHER"
+10-31 16:16:55.988   519  1363 W ActivityManager: registerReceiverWithFeature: no app for null
+10-31 16:16:55.989  6853  6853 W System  : No Compatibility callbacks set! Querying change 263076149
+10-31 16:16:55.989  6853  6853 W System  : No Compatibility callbacks set! Querying change 263076149
+10-31 16:16:55.989  6853  6853 W System  : No Compatibility callbacks set! Querying change 263076149
+10-31 16:16:55.990   519  1363 D CompatibilityChangeReporter: Compat change id reported: 161252188; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 W ActivityTaskManager: callingPackage for (uid=2000, pid=6853) has no WPC
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 265464455; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 265452344; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 266124927; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 265451093; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 265456536; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 255940284; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 236283604; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 263959004; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 264304459; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 264301586; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 254631730; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 273509367; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 263259275; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 174042980; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 174042936; UID 10193; state: DISABLED
+10-31 16:16:55.991   519  1363 D CompatibilityChangeReporter: Compat change id reported: 181136395; UID 10193; state: DISABLED
+10-31 16:16:55.992   519  1363 I incfs-mounts: [incfs] Loaded incremental-fs mount info: 1 instances, 2 mount points
+10-31 16:16:55.993   519  1363 D CompatibilityChangeReporter: Compat change id reported: 194480991; UID 10193; state: ENABLED
+10-31 16:16:55.995   519  1363 D CompatibilityChangeReporter: Compat change id reported: 184838306; UID 10193; state: DISABLED
+10-31 16:16:55.995   519  1363 D CompatibilityChangeReporter: Compat change id reported: 185004937; UID 10193; state: DISABLED
+10-31 16:16:55.996   519  1363 D CompatibilityChangeReporter: Compat change id reported: 197654537; UID 10193; state: ENABLED
+10-31 16:16:55.996   519  1363 D CompatibilityChangeReporter: Compat change id reported: 205907456; UID 10193; state: ENABLED
+10-31 16:16:55.997   815   850 V WindowManagerShell: Transition requested: android.os.BinderProxy@428debb TransitionRequestInfo { type = OPEN, triggerTask = TaskInfo{userId=0 taskId=10 displayId=0 isRunning=true baseIntent=Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 cmp=io.github.drflgd.gamerepo.go/.MainActivity } baseActivity=ComponentInfo{io.github.drflgd.gamerepo.go/io.github.drflgd.gamerepo.go.MainActivity} topActivity=ComponentInfo{io.github.drflgd.gamerepo.go/io.github.drflgd.gamerepo.go.MainActivity} origActivity=null realActivity=ComponentInfo{io.github.drflgd.gamerepo.go/io.github.drflgd.gamerepo.go.MainActivity} numActivities=1 lastActiveTime=302672 supportsMultiWindow=true resizeMode=1 isResizeable=true minWidth=-1 minHeight=-1 defaultMinSize=220 token=WCT{android.window.IWindowContainerToken$Stub$Proxy@8e5ffd8} topActivityType=1 pictureInPictureParams=null shouldDockBigOverlays=false launchIntoPipHostTaskId=-1 lastParentTaskIdBeforePip=-1 displayCutoutSafeInsets=Rect(0, 136 - 0, 0) topActivityInfo=ActivityInfo{6f1ef31 io.github.drflgd.gamerepo.go.MainActivity} launchCookies=[] positionInParent=Point(0, 0) parentTaskId=-1 isFocused=false isVisible=false isVisibleRequested=false isSleeping=false topActivityInSizeCompat=false topActivityEligibleForLetterboxEducation= false topActivityLetterboxed= false isFromDoubleTap= false topActivityLetterboxVerticalPosition= -1 topActivityLetterboxHorizontalPosition= -1 topActivityLetterboxWidth=-1 topActivityLetterboxHeight=-1 locusId=null displayAreaFeatureId=1 cameraCompatControlState=hidden}, remoteTransition = null, displayChange = null }
+10-31 16:16:55.997   519  1363 D CompatibilityChangeReporter: Compat change id reported: 194833441; UID 10193; state: ENABLED
+10-31 16:16:55.997   519  1363 I ActivityTaskManager: START u0 {act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 cmp=io.github.drflgd.gamerepo.go/.MainActivity} with LAUNCH_SINGLE_TASK from uid 2000 (BAL_ALLOW_PERMISSION) result code=0
+10-31 16:16:55.997   815   867 I incfs   : Initial API level of the device: 34
+10-31 16:16:55.997   815   867 W libc    : Access denied finding property "ro.incremental.enable"
+10-31 16:16:55.997   815   867 I incfs   : ro.incremental.enable: on
+10-31 16:16:55.997   815   867 I incfs   : IncFs_Features: v2
+10-31 16:16:55.998   519   539 D CompatibilityChangeReporter: Compat change id reported: 135634846; UID 10193; state: DISABLED
+10-31 16:16:55.998   519   539 D CompatibilityChangeReporter: Compat change id reported: 177438394; UID 10193; state: DISABLED
+10-31 16:16:55.998   519   539 D CompatibilityChangeReporter: Compat change id reported: 135772972; UID 10193; state: DISABLED
+10-31 16:16:55.998   519   539 D CompatibilityChangeReporter: Compat change id reported: 135754954; UID 10193; state: ENABLED
+10-31 16:16:55.998  6853  6853 I Monkey  : Events injected: 1
+10-31 16:16:55.998   519   547 D CompatibilityChangeReporter: Compat change id reported: 143937733; UID 10193; state: ENABLED
+10-31 16:16:55.999   815   867 I incfs-mounts: [incfs] Loaded incremental-fs mount info: 1 instances, 2 mount points
+10-31 16:16:56.006   815   869 D SplashScreenView: Build android.window.SplashScreenView{7a14b5f V.E...... ......ID 0,0-0,0}
+10-31 16:16:56.006   815   869 D SplashScreenView: Icon: view: android.widget.ImageView{f1e39ac V.ED..... ......I. 0,0-0,0 #10204f0 android:id/splashscreen_icon_view} drawable: com.android.wm.shell.startingsurface.SplashscreenIconDrawableFactory$ImmobileIconDrawable@c792675 size: 528
+10-31 16:16:56.006   815   869 D SplashScreenView: Branding: view: android.view.View{ccb360a G.ED..... ......I. 0,0-0,0 #10204ef android:id/splashscreen_branding_view} drawable: null size w: 0 h: 0
+10-31 16:16:56.006  1633  1668 I AiAiEcho: Settings changed for uri: content://settings/secure/device_state_rotation_lock
+10-31 16:16:56.007  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:16:56.008   337   337 D Zygote  : Forked child process 6866
+10-31 16:16:56.008  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:16:56.008  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:16:56.008  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:16:56.008  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:16:56.009  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:16:56.009  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:16:56.010  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:16:56.011  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0 (types=[])
+10-31 16:16:56.012  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0 (types=[])
+10-31 16:16:56.012   815   815 W PageIndicator: Total number of pages invalid: 0. Assuming 1 page.
+10-31 16:16:56.016   401   401 I BpBinder: onLastStrongRef automatically unlinking death recipients: 
+10-31 16:16:56.017   519   547 I ActivityManager: Start proc 6866:io.github.drflgd.gamerepo.go/u0a193 for next-top-activity {io.github.drflgd.gamerepo.go/io.github.drflgd.gamerepo.go.MainActivity}
+10-31 16:16:56.019   519  2040 D CoreBackPreview: Window{6f0a1ef u0 Splash Screen io.github.drflgd.gamerepo.go}: Setting back callback OnBackInvokedCallbackInfo{mCallback=android.window.IOnBackInvokedCallback$Stub$Proxy@edb64e8, mPriority=0, mIsAnimationCallback=false}
+10-31 16:16:56.024   519   596 D CompatibilityChangeReporter: Compat change id reported: 265195908; UID 10193; state: ENABLED
+10-31 16:16:56.024  6853  6853 I Monkey  : ## Network stats: elapsed time=23ms (0ms mobile, 0ms wifi, 23ms not connected)
+10-31 16:16:56.026  6853  6853 I app_process: System.exit called, status: 0
+10-31 16:16:56.026  6853  6853 I AndroidRuntime: VM exiting with result code 0.
+10-31 16:16:56.027  1633  1668 I AiAiEcho: Settings changed for uri: content://settings/secure/device_state_rotation_lock
+10-31 16:16:56.048  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:16:56.048  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:16:56.048  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:16:56.048  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:16:56.048  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:16:56.048  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:16:56.048  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:16:56.048  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:16:56.048  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0 (types=[])
+10-31 16:16:56.048  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0 (types=[])
+10-31 16:16:56.050   815   850 V WindowManagerShell: onTransitionReady android.os.BinderProxy@428debb: {id=14 t=OPEN f=0x0 trk=0 r=[0@Point(0, 0)] c=[{WCT{android.window.IWindowContainerToken$Stub$Proxy@5621129} m=OPEN f=NONE leash=Surface(name=Task=10)/@0x4047c62 sb=Rect(0, 0 - 1080, 2340) eb=Rect(0, 0 - 1080, 2340) d=0},{WCT{android.window.IWindowContainerToken$Stub$Proxy@ab1fcae} m=TO_BACK f=SHOW_WALLPAPER leash=Surface(name=Task=1)/@0x99b01f3 sb=Rect(0, 0 - 1080, 2340) eb=Rect(0, 0 - 1080, 2340) d=0}]}
+10-31 16:16:56.050   815   850 V WindowManagerShell: Playing animation for (#14)android.os.BinderProxy@428debb@0
+10-31 16:16:56.050   815   850 V WindowManagerShell:  try handler com.android.wm.shell.transition.DefaultMixedHandler@62de270
+10-31 16:16:56.050   815   850 V WindowManagerShell:  try handler com.android.wm.shell.keyguard.KeyguardTransitionHandler@f27b9e9
+10-31 16:16:56.050   815   850 V WindowManagerShell:  try handler com.android.wm.shell.activityembedding.ActivityEmbeddingController@1c5566e
+10-31 16:16:56.050   815   850 V WindowManagerShell:  try handler com.android.wm.shell.recents.RecentsTransitionHandler@86f810f
+10-31 16:16:56.050   815   850 V ShellRecents: RecentsTransitionHandler.startAnimation: no controller found
+10-31 16:16:56.050   815   850 V WindowManagerShell:  try handler com.android.wm.shell.pip.PipTransition@166b59c
+10-31 16:16:56.050   815   850 V WindowManagerShell:  try handler com.android.wm.shell.splitscreen.StageCoordinator@6b90ba5
+10-31 16:16:56.050   815   850 V WindowManagerShell:  try handler com.android.wm.shell.transition.RemoteTransitionHandler@4f46b7a
+10-31 16:16:56.050   815   850 V WindowManagerShell: Transition doesn't have explicit remote, search filters for match for {id=14 t=OPEN f=0x0 trk=0 r=[0@Point(0, 0)] c=[{WCT{android.window.IWindowContainerToken$Stub$Proxy@5621129} m=OPEN f=NONE leash=Surface(name=Task=10)/@0x4047c62 sb=Rect(0, 0 - 1080, 2340) eb=Rect(0, 0 - 1080, 2340) d=0},{WCT{android.window.IWindowContainerToken$Stub$Proxy@ab1fcae} m=TO_BACK f=SHOW_WALLPAPER leash=Surface(name=Task=1)/@0x99b01f3 sb=Rect(0, 0 - 1080, 2340) eb=Rect(0, 0 - 1080, 2340) d=0}]}
+10-31 16:16:56.050   815   850 V WindowManagerShell:  Checking filter Pair{{types=[] flags=0x0] notFlags=0x0 checks=[{atype=dream independent=true modes=[OPEN,TO_FRONT] flags=NONE mustBeTask=false order=ANY topActivity=null},{atype=home independent=true modes=[CLOSE,TO_BACK] flags=NONE mustBeTask=false order=ANY topActivity=null}]} RemoteTransition { remoteTransition = android.window.IRemoteTransition$Stub$Proxy@1ce7f21, appThread = android.app.IApplicationThread$Stub$Proxy@42e5f46, debugName = LauncherToDream }}
+10-31 16:16:56.050   815   850 V WindowManagerShell:  Checking filter Pair{{types=[] flags=0x0] notFlags=0x100 checks=[{atype=home independent=true modes=[OPEN,TO_FRONT] flags=NONE mustBeTask=false order=TOP topActivity=ComponentInfo{com.google.android.apps.nexuslauncher/com.google.android.apps.nexuslauncher.NexusLauncherActivity}},{atype=standard independent=true modes=[CLOSE,TO_BACK] flags=NONE mustBeTask=false order=ANY topActivity=null}]} RemoteTransition { remoteTransition = android.window.IRemoteTransition$Stub$Proxy@eea1507, appThread = android.app.IApplicationThread$Stub$Proxy@67d4634, debugName = QuickstepLaunchHome }}
+10-31 16:16:56.050   815   850 V WindowManagerShell:  Delegate animation for #14 to null
+10-31 16:16:56.050   815   850 V WindowManagerShell:  try handler com.android.wm.shell.transition.DefaultTransitionHandler@fdc8307
+10-31 16:16:56.050   815   850 V WindowManagerShell: start default transition animation, info = {id=14 t=OPEN f=0x0 trk=0 r=[0@Point(0, 0)] c=[{WCT{android.window.IWindowContainerToken$Stub$Proxy@5621129} m=OPEN f=NONE leash=Surface(name=Task=10)/@0x4047c62 sb=Rect(0, 0 - 1080, 2340) eb=Rect(0, 0 - 1080, 2340) d=0},{WCT{android.window.IWindowContainerToken$Stub$Proxy@ab1fcae} m=TO_BACK f=SHOW_WALLPAPER leash=Surface(name=Task=1)/@0x99b01f3 sb=Rect(0, 0 - 1080, 2340) eb=Rect(0, 0 - 1080, 2340) d=0}]}
+10-31 16:16:56.052   815   815 W PageIndicator: Total number of pages invalid: 0. Assuming 1 page.
+10-31 16:16:56.054  6866  6866 I lgd.gamerepo.go: Using CollectorTypeCC GC.
+10-31 16:16:56.054  6866  6866 W lgd.gamerepo.go: Unexpected CPU variant for x86: x86_64.
+10-31 16:16:56.054  6866  6866 W lgd.gamerepo.go: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, tremont, kabylake, default
+10-31 16:16:56.060   519   536 V WindowManager: Sent Transition #14 createdAt=10-31 16:16:55.993 via request=TransitionRequestInfo { type = OPEN, triggerTask = TaskInfo{userId=0 taskId=10 displayId=0 isRunning=true baseIntent=Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 cmp=io.github.drflgd.gamerepo.go/.MainActivity } baseActivity=ComponentInfo{io.github.drflgd.gamerepo.go/io.github.drflgd.gamerepo.go.MainActivity} topActivity=ComponentInfo{io.github.drflgd.gamerepo.go/io.github.drflgd.gamerepo.go.MainActivity} origActivity=null realActivity=ComponentInfo{io.github.drflgd.gamerepo.go/io.github.drflgd.gamerepo.go.MainActivity} numActivities=1 lastActiveTime=302672 supportsMultiWindow=true resizeMode=1 isResizeable=true minWidth=-1 minHeight=-1 defaultMinSize=220 token=WCT{RemoteToken{4b0a77e Task{45ef046 #10 type=standard A=10193:io.github.drflgd.gamerepo.go}}} topActivityType=1 pictureInPictureParams=null shouldDockBigOverlays=false launchIntoPipHostTaskId=-1 lastParentTaskIdBeforePip=-1 displayCutoutSafeInsets=Rect(0, 136 - 0, 0) topActivityInfo=ActivityInfo{bb3e4df io.github.drflgd.gamerepo.go.MainActivity} launchCookies=[] positionInParent=Point(0, 0) parentTaskId=-1 isFocused=false isVisible=false isVisibleRequested=false isSleeping=false topActivityInSizeCompat=false topActivityEligibleForLetterboxEducation= false topActivityLetterboxed= false isFromDoubleTap= false topActivityLetterboxVerticalPosition= -1 topActivityLetterboxHorizontalPosition= -1 topActivityLetterboxWidth=-1 topActivityLetterboxHeight=-1 locusId=null displayAreaFeatureId=1 cameraCompatControlState=hidden}, remoteTransition = null, displayChange = null }
+10-31 16:16:56.060   519   536 V WindowManager:     startWCT=WindowContainerTransaction { changes = {} hops = [] errorCallbackToken=null taskFragmentOrganizer=null }
+10-31 16:16:56.060   519   536 V WindowManager:     info={id=14 t=OPEN f=0x0 trk=0 r=[0@Point(0, 0)] c=[{WCT{RemoteToken{4b0a77e Task{45ef046 #10 type=standard A=10193:io.github.drflgd.gamerepo.go}}} m=OPEN f=NONE leash=Surface(name=Task=10)/@0x893e900 sb=Rect(0, 0 - 1080, 2340) eb=Rect(0, 0 - 1080, 2340) d=0},{WCT{RemoteToken{e162561 Task{b26b198 #1 type=home}}} m=TO_BACK f=SHOW_WALLPAPER leash=Surface(name=Task=1)/@0x96764fa sb=Rect(0, 0 - 1080, 2340) eb=Rect(0, 0 - 1080, 2340) d=0}]}
+10-31 16:16:56.060   815   850 V WindowManagerShell: loadAnimation: anim=android.view.animation.AnimationSet@af965dc animAttr=0x13 type=OPEN isEntrance=false
+10-31 16:16:56.060   815   850 V WindowManagerShell: loadAnimation: anim=android.view.animation.AnimationSet@5a503c8 animAttr=0x12 type=OPEN isEntrance=true
+10-31 16:16:56.095   815   850 V WindowManagerShell:  animated by com.android.wm.shell.transition.DefaultTransitionHandler@fdc8307
+10-31 16:16:56.095   815   850 W Looper  : Slow dispatch took 45ms wmshell.main h=android.os.Handler c=com.android.wm.shell.transition.Transitions$TransitionPlayerImpl$$ExternalSyntheticLambda0@bc8c212 m=0
+10-31 16:16:56.095   815   850 W Looper  : Slow delivery took 31ms wmshell.main h=android.os.Handler c=com.android.wm.shell.bubbles.BubbleController$BubblesImpl$$ExternalSyntheticLambda5@b884de3 m=0
+10-31 16:16:56.125   815   850 W Looper  : Drained
+10-31 16:16:56.125   815   850 V WindowManagerShell: Transition animation finished (aborted=false), notifying core (#14)android.os.BinderProxy@428debb@0
+10-31 16:16:56.131   519   536 V WindowManager: Finish Transition #14: created at 10-31 16:16:55.993 collect-started=0.028ms request-sent=3.45ms started=21.77ms ready=45.166ms sent=46.33ms finished=135.361ms
+10-31 16:16:56.135   815   850 V WindowManagerShell: Track 0 became idle
+10-31 16:16:56.135   815   850 V WindowManagerShell: All active transition animations finished
+10-31 16:16:56.144   815   878 D EGL_emulation: app_time_stats: avg=3299.19ms min=10.62ms max=6587.75ms count=2
+10-31 16:16:56.166   519   604 I RoleService: Granting default roles...
+10-31 16:16:56.184   817  6817 E RoleControllerServiceImpl: Default/fallback role holder package doesn't qualify for the role, package: com.google.android.gms.supervision, role: android.app.role.SYSTEM_SUPERVISION
+10-31 16:16:56.196   817  6817 I Role    : com.google.android.gms not qualified for android.app.role.SYSTEM_CALL_STREAMING due to missing RequiredComponent{mIntentFilterData=IntentFilterData{mAction='android.telecom.CallStreamingService', mCategories='[]', mDataScheme='null', mDataType='null'}, mMinTargetSdkVersion=1, mFlags='0', mPermission='android.permission.BIND_CALL_STREAMING_SERVICE', mQueryFlags=0, mMetaData=[]}
+10-31 16:16:56.196   817  6817 E RoleControllerServiceImpl: Default/fallback role holder package doesn't qualify for the role, package: com.google.android.gms, role: android.app.role.SYSTEM_CALL_STREAMING
+10-31 16:16:56.197   817  6817 W Role    : Default holder doesn't have required signing certificate: com.google.android.apps.work.clouddpc:23962F4B43B9857638EA66F4D419518EAE282491ACDA4B94707BD59003C45E58
+10-31 16:16:56.239  6866  6866 I ndk_translation: Initialized NDK translation (aarch64), version 0.2.3
+10-31 16:16:56.264   815   850 W Looper  : Slow delivery took 45ms wmshell.main h=android.os.Handler c=com.android.wm.shell.pip.phone.PipController$$ExternalSyntheticLambda1@f6ced5e m=0
+10-31 16:16:56.281   519   559 I incfs-dataloaderconnector: Reported status back to IncrementalService. DataLoaderId=1, status=0
+10-31 16:16:56.301  1623  1623 I GsaVoiceInteractionSrv: O received Intent { act=android.intent.action.PACKAGE_ADDED dat=package: flg=0x4000010 (has extras) }
+10-31 16:16:56.301   815   850 W Looper  : Drained
+10-31 16:16:56.328   815   878 D EGL_emulation: app_time_stats: avg=6460.94ms min=6460.94ms max=6460.94ms count=1
+10-31 16:16:56.337   815   815 D ControlsListingControllerImpl: ServiceConfig reloaded, count: 0
+10-31 16:16:56.371   815   815 D ControlsListingControllerImpl: ServiceConfig reloaded, count: 0
+10-31 16:16:56.416  5121  6821 I Fitness : OnPackageChangedOperation got intent: Intent { act=android.intent.action.PACKAGE_CHANGED dat=package: flg=0x5000010 pkg=com.google.android.gms cmp=com.google.android.gms/.chimera.PersistentIntentOperationService (has extras) } [CONTEXT service_id=17 ]
+10-31 16:16:56.454  6871  6871 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+10-31 16:16:56.459  6871  6871 I AndroidRuntime: Using default boot image
+10-31 16:16:56.459  6871  6871 I AndroidRuntime: Leaving lock profiling enabled
+10-31 16:16:56.460  5210  6831 I Auth    : [SupervisedAccountIntentOperation] onHandleIntent(): android.intent.action.PACKAGE_ADDED
+10-31 16:16:56.461  6871  6871 I app_process: Core platform API reporting enabled, enforcing=false
+10-31 16:16:56.462  6871  6871 I app_process: Using CollectorTypeCC GC.
+10-31 16:16:56.462  5210  6831 I Dck     : doesDeviceHaveSupportedWirelessCapabilities: wccSysProp:0, wccMendel:3, deviceWccOverride:false [CONTEXT service_id=289 ]
+10-31 16:16:56.462  5210  6831 I Dck     : isDckModuleEligible: isAtLeastR:true, hasWccSupport:false, downloadAllowed:false [CONTEXT service_id=289 ]
+10-31 16:16:56.462  5210  6831 W Dck     : Dck module not eligible for asynchronous downloading [CONTEXT service_id=289 ]
+10-31 16:16:56.466  5210  6826 I BlockstoreStorage: Clearing Blockstore Data for package io.github.drflgd.gamerepo.go [CONTEXT service_id=258 ]
+10-31 16:16:56.467  5210  6826 I BlockstoreStorage: Keyless data not found or its IsLastInstallationData = false. [CONTEXT service_id=258 ]
+10-31 16:16:56.471  6866  6866 E lgd.gamerepo.go: Not starting debugger since process cannot load the jdwp agent.
+10-31 16:16:56.479  5210  5210 D BoundBrokerSvc: onBind: Intent { act=com.google.android.gms.common.BIND_SHARED_PREFS pkg=com.google.android.gms }
+10-31 16:16:56.480  5210  5210 D BoundBrokerSvc: Loading bound service for intent: Intent { act=com.google.android.gms.common.BIND_SHARED_PREFS pkg=com.google.android.gms }
+10-31 16:16:56.482  5121  6820 I Fitness : FitCleanupIntentOperation received Intent android.intent.action.PACKAGE_CHANGED [CONTEXT service_id=17 ]
+10-31 16:16:56.482  5210  5210 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.common.BIND_SHARED_PREFS pkg=com.google.android.gms }
+10-31 16:16:56.491  5121  5223 W ChimeraUtils: Module com.google.android.gms.nearby_en missing resource null(0)
+10-31 16:16:56.492   519  1363 D CompatibilityChangeReporter: Compat change id reported: 161252188; UID 10193; state: DISABLED
+10-31 16:16:56.493  5210  6873 I incfs   : Initial API level of the device: 34
+10-31 16:16:56.499  5121  6811 I ProximityAuth: [RecentAppsMediator] Package added: (user=UserHandle{0}) io.github.drflgd.gamerepo.go
+10-31 16:16:56.499  5121  6742 W GCM     : Unexpected forwarded intent: Intent { act=android.intent.action.PACKAGE_ADDED dat=package: flg=0x4000010 pkg=com.google.android.gms cmp=com.google.android.gms/.chimera.PersistentIntentOperationService (has extras) }
+10-31 16:16:56.499  5121  6821 I FontLog : Package io.github.drflgd.gamerepo.go has no metadata [CONTEXT service_id=132 ]
+10-31 16:16:56.499  5121  6821 W GCM     : Unexpected forwarded intent: Intent { act=android.intent.action.PACKAGE_ADDED dat=package: flg=0x4000010 pkg=com.google.android.gms cmp=com.google.android.gms/.chimera.PersistentIntentOperationService (has extras) }
+10-31 16:16:56.500  5121  6811 I incfs   : Initial API level of the device: 34
+10-31 16:16:56.499  5121  5121 W n.PACKAGE_ADDED: type=1400 audit(0.0:75): avc:  denied  { read } for  name="u:object_r:incremental_prop:s0" dev="tmpfs" ino=204 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:incremental_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+10-31 16:16:56.504  5121  6811 W libc    : Access denied finding property "ro.incremental.enable"
+10-31 16:16:56.504  5121  6811 I incfs   : ro.incremental.enable: on
+10-31 16:16:56.504  6871  6871 D nativeloader: InitDefaultPublicLibraries for_preload=1: libandroid.so:libaaudio.so:libamidi.so:libbinder_ndk.so:libc.so:libcamera2ndk.so:libdl.so:libEGL.so:libGLESv1_CM.so:libGLESv2.so:libGLESv3.so:libicu.so:libicui18n.so:libicuuc.so:libjnigraphics.so:liblog.so:libmediandk.so:libm.so:libnativehelper.so:libnativewindow.so:libOpenMAXAL.so:libOpenSLES.so:libRS.so:libstdc++.so:libsync.so:libvulkan.so:libwebviewchromium_plat_support.so:libz.so
+10-31 16:16:56.508  5121  6811 I incfs   : IncFs_Features: v2
+10-31 16:16:56.508  5121  6811 I incfs-mounts: [incfs] Loaded incremental-fs mount info: 1 instances, 2 mount points
+10-31 16:16:56.510  6871  6871 D app_process: Time zone APEX ICU file found: /apex/com.android.tzdata/etc/icu/icu_tzdata.dat
+10-31 16:16:56.510  5121  6811 I Fitness : OnPackageChangedOperation got intent: Intent { act=android.intent.action.PACKAGE_CHANGED dat=package: flg=0x5000010 pkg=com.google.android.gms cmp=com.google.android.gms/.chimera.PersistentIntentOperationService (has extras) } [CONTEXT service_id=17 ]
+10-31 16:16:56.510  6871  6871 D app_process: I18n APEX ICU file found: /apex/com.android.i18n/etc/icu/icudt72l.dat
+10-31 16:16:56.503  5121  5121 W n.PACKAGE_ADDED: type=1400 audit(0.0:76): avc:  denied  { read } for  name="filesystems" dev="proc" ino=4026532076 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:proc_filesystems:s0 tclass=file permissive=0 app=com.google.android.gms
+10-31 16:16:56.511  5121  6811 I Fitness : FitCleanupIntentOperation received Intent android.intent.action.PACKAGE_CHANGED [CONTEXT service_id=17 ]
+10-31 16:16:56.513  6871  6871 W app_process: Unexpected CPU variant for x86: x86_64.
+10-31 16:16:56.513  6871  6871 W app_process: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, tremont, kabylake, default
+10-31 16:16:56.514  6871  6871 W app_process: ClassLoaderContext shared library size mismatch. Expected=2, found=0 (PCL[]{PCL[/system/framework/android.test.base.jar*836642756]#PCL[/system/framework/android.test.mock.jar*3186112116]} | PCL[])
+10-31 16:16:56.514  6871  6871 W app_process: ClassLoaderContext classpath size mismatch. expected=0, found=1 (PCL[]{PCL[/system/framework/android.test.runner.jar*4168958247]{PCL[/system/framework/android.test.base.jar*836642756]#PCL[/system/framework/android.test.mock.jar*3186112116]}#PCL[/system/framework/android.test.base.jar*836642756]} | PCL[/system/framework/android.test.runner.jar*4168958247])
+10-31 16:16:56.522  5210  6873 W libc    : Access denied finding property "ro.incremental.enable"
+10-31 16:16:56.522  5210  6873 I incfs   : ro.incremental.enable: on
+10-31 16:16:56.522  5210  6873 I incfs   : IncFs_Features: v2
+10-31 16:16:56.522  5210  6873 I incfs-mounts: [incfs] Loaded incremental-fs mount info: 1 instances, 2 mount points
+10-31 16:16:56.519  5210  5210 W lowpool[6]: type=1400 audit(0.0:77): avc:  denied  { read } for  name="u:object_r:incremental_prop:s0" dev="tmpfs" ino=204 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:incremental_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+10-31 16:16:56.526  6866  6866 D CompatibilityChangeReporter: Compat change id reported: 171979766; UID 10193; state: ENABLED
+10-31 16:16:56.526  6866  6866 D CompatibilityChangeReporter: Compat change id reported: 242716250; UID 10193; state: ENABLED
+10-31 16:16:56.527  5121  5223 W ChimeraUtils: Module com.google.android.gms.nearby_en missing resource null(0)
+10-31 16:16:56.519  5210  5210 W lowpool[6]: type=1400 audit(0.0:78): avc:  denied  { read } for  name="filesystems" dev="proc" ino=4026532076 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:proc_filesystems:s0 tclass=file permissive=0 app=com.google.android.gms
+10-31 16:16:56.531   519  1100 D CompatibilityChangeReporter: Compat change id reported: 170503758; UID 10193; state: ENABLED
+10-31 16:16:56.539  6866  6866 W ziparchive: Unable to open '/data/app/~~MrnbACssgeVPLi0hZ3vkSw==/io.github.drflgd.gamerepo.go--Op0MPNBRY7ng_t43GfRHQ==/base.dm': No such file or directory
+10-31 16:16:56.539  6866  6866 W ziparchive: Unable to open '/data/app/~~MrnbACssgeVPLi0hZ3vkSw==/io.github.drflgd.gamerepo.go--Op0MPNBRY7ng_t43GfRHQ==/base.dm': No such file or directory
+10-31 16:16:56.543  6871  6871 W libc    : Access denied finding property "ro.product.name_for_attestation"
+10-31 16:16:56.543  6871  6871 W libc    : Access denied finding property "ro.product.brand_for_attestation"
+10-31 16:16:56.543  6871  6871 W libc    : Access denied finding property "ro.product.model_for_attestation"
+10-31 16:16:56.543  6871  6871 D AndroidRuntime: Calling main entry com.android.commands.uiautomator.Launcher
+10-31 16:16:56.535  6871  6871 W main    : type=1400 audit(0.0:79): avc:  denied  { read } for  name="u:object_r:build_attestation_prop:s0" dev="tmpfs" ino=86 scontext=u:r:shell:s0 tcontext=u:object_r:build_attestation_prop:s0 tclass=file permissive=0
+10-31 16:16:56.553  6871  6871 D UiAutomationConnection: Created on user UserHandle{0}
+10-31 16:16:56.553  6871  6871 I UiAutomation: Initialized for user 0 on display 0
+10-31 16:16:56.553  6871  6871 W UiAutomation: Created with deprecatead constructor, assumes DEFAULT_DISPLAY
+10-31 16:16:56.556   519  1100 D AccessibilityManagerService: changeCurrentUserForTestAutomationIfNeededLocked(0): ignoring because device doesn't support visible background users
+10-31 16:16:56.556   519  1100 I UiAutomationManager: Registering UiTestAutomationService (id=com.android.server.accessibility/UiAutomation) when called by user 0
+10-31 16:16:56.557   519  1100 W WindowMagnificationMgr: requestConnection duplicated request: connect=false, mConnectionState=DISCONNECTED
+10-31 16:16:56.558  6871  6902 V UiAutomation: Init UiAutomation@ab0164f[id=2, displayId=0, flags=0]
+10-31 16:16:56.558   519   519 D BatterySaverPolicy: accessibility changed to true, updating policy.
+10-31 16:16:56.559  1633  1668 I AiAiEcho: Settings changed for uri: content://settings/secure/accessibility_enabled
+10-31 16:16:56.559  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:16:56.559  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:16:56.559  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:16:56.559  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:16:56.559  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:16:56.559  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:16:56.559  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:16:56.559  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:16:56.560  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0 (types=[])
+10-31 16:16:56.560  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0 (types=[])
+10-31 16:16:56.562  6866  6866 D nativeloader: Configuring clns-6 for other apk /data/app/~~MrnbACssgeVPLi0hZ3vkSw==/io.github.drflgd.gamerepo.go--Op0MPNBRY7ng_t43GfRHQ==/base.apk. target_sdk_version=37, uses_libraries=, library_path=/data/app/~~MrnbACssgeVPLi0hZ3vkSw==/io.github.drflgd.gamerepo.go--Op0MPNBRY7ng_t43GfRHQ==/lib/arm64:/data/app/~~MrnbACssgeVPLi0hZ3vkSw==/io.github.drflgd.gamerepo.go--Op0MPNBRY7ng_t43GfRHQ==/base.apk!/lib/arm64-v8a, permitted_path=/data:/mnt/expand:/data/user/0/io.github.drflgd.gamerepo.go
+10-31 16:16:56.563   519  2294 W WindowMagnificationMgr: requestConnection duplicated request: connect=false, mConnectionState=DISCONNECTED
+10-31 16:16:56.563  1633  1668 I AiAiEcho: Settings changed for uri: content://settings/secure/accessibility_enabled
+10-31 16:16:56.564  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:16:56.564  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:16:56.564  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:16:56.564  1762  2147 I A       : NGA disabled since it's running Panthera and at least one a11y feature is on.
+10-31 16:16:56.564  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:16:56.564  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:16:56.564  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:16:56.564  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:16:56.564  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:16:56.564  1762  2147 I A       : Nga state changed to NgaStateDetails{state=DISABLED, isSpecialExperience=false}
+10-31 16:16:56.564  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0 (types=[])
+10-31 16:16:56.564  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0 (types=[])
+10-31 16:16:56.584   519  2031 D SafetySourceDataValidator: No cert check requested for package com.google.android.permissioncontroller
+10-31 16:16:56.590   815   815 W PageIndicator: Total number of pages invalid: 0. Assuming 1 page.
+10-31 16:16:56.590   815   815 W PageIndicator: Total number of pages invalid: 0. Assuming 1 page.
+10-31 16:16:56.593  1623  4922 I A       : APA or Classic session decision: SessionDecision(sessionVariance=CLASSIC, platformVariance=CLASSIC, justification=CURRENT_PLATFORM_VARIANCE).
+10-31 16:16:56.595  6866  6866 V GraphicsEnvironment: Currently set values for:
+10-31 16:16:56.595  6866  6866 V GraphicsEnvironment:   angle_gl_driver_selection_pkgs=[]
+10-31 16:16:56.595  6866  6866 V GraphicsEnvironment:   angle_gl_driver_selection_values=[]
+10-31 16:16:56.595  1623  4922 I A       : [Memory] eligibility: StashEligibility{4}
+10-31 16:16:56.595  6866  6866 V GraphicsEnvironment: ANGLE GameManagerService for io.github.drflgd.gamerepo.go: false
+10-31 16:16:56.595  6866  6866 V GraphicsEnvironment: io.github.drflgd.gamerepo.go is not listed in per-application setting
+10-31 16:16:56.595  6866  6866 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+10-31 16:16:56.596  1623  2507 I A       : Unsubscribed to apa or classic variant change.
+10-31 16:16:56.609  6866  6866 D WM-WrkMgrInitializer: Initializing WorkManager with default configuration.
+10-31 16:16:56.616  5121  5751 W ChimeraUtils: Module com.google.android.gms.nearby_en missing resource null(0)
+10-31 16:16:56.616  5121  5751 W ChimeraUtils: Module com.google.android.gms.nearby_en missing resource null(0)
+10-31 16:16:56.622   519  2035 D PackageManager: Instant App installer not found with android.intent.action.INSTALL_INSTANT_APP_PACKAGE
+10-31 16:16:56.622   519  2035 D PackageManager: Clear ephemeral installer activity
+10-31 16:16:56.623  6866  6866 D WM-PackageManagerHelper: androidx.work.impl.background.systemjob.SystemJobService enabled
+10-31 16:16:56.623  6866  6866 D WM-Schedulers: Created SystemJobScheduler and enabled SystemJobService
+10-31 16:16:56.626  6866  6907 D WM-ForceStopRunnable: The default process name was not specified.
+10-31 16:16:56.627  6866  6907 D WM-ForceStopRunnable: Performing cleanup operations.
+10-31 16:16:56.628   519  1100 I ActivityManager: Background started FGS: Allowed [callingPackage: com.google.android.apps.wellbeing; callingUid: 10119; uidState: BTOP; uidBFSL: [BFSL]; intent: Intent { cmp=com.google.android.apps.wellbeing/com.google.apps.tiktok.concurrent.InternalForegroundService (has extras) }; code:BACKGROUND_ACTIVITY_PERMISSION; tempAllowListReason:<null>; targetSdkVersion:33; callerTargetSdkVersion:33; startForegroundCount:0; bindFromPackage:null: isBindService:false]
+10-31 16:16:56.633   519   896 I ActivityManager: Flag disabled. Ignoring finishAttachApplication from uid: 10193. pid: 6866
+10-31 16:16:56.635  5121  5701 W ChimeraUtils: Module com.google.android.gms.nearby_en missing resource null(0)
+10-31 16:16:56.635  5121  5701 W ChimeraUtils: Module com.google.android.gms.nearby_en missing resource null(0)
+10-31 16:16:56.644  6866  6866 D AppCompatDelegate: Checking for metadata for AppLocalesMetadataHolderService : Service not found
+10-31 16:16:56.647  1560  1612 I incfs   : Initial API level of the device: 34
+10-31 16:16:56.647  1560  1612 I incfs   : ro.incremental.enable: yes
+10-31 16:16:56.647  1560  1612 I incfs   : IncFs_Features: v2
+10-31 16:16:56.648  1560  1612 I incfs-mounts: [incfs] Loaded incremental-fs mount info: 1 instances, 2 mount points
+10-31 16:16:56.649  5210  6873 I Icing   : Indexing com.google.android.gms-apps from com.google.android.gms
+10-31 16:16:56.654  5210  6873 I Icing   : Indexing done com.google.android.gms-apps
+10-31 16:16:56.654  5210  6873 I Icing   : Indexing com.google.android.gms-apps from com.google.android.gms
+10-31 16:16:56.654  5210  6873 I Icing   : Indexing done com.google.android.gms-apps
+10-31 16:16:56.661  6866  6910 D libEGL  : loaded /vendor/lib64/egl/libEGL_emulation.so
+10-31 16:16:56.663  6866  6907 D CompatibilityChangeReporter: Compat change id reported: 160794467; UID 10193; state: ENABLED
+10-31 16:16:56.664  6866  6910 D libEGL  : loaded /vendor/lib64/egl/libGLESv1_CM_emulation.so
+10-31 16:16:56.665  6866  6910 D libEGL  : loaded /vendor/lib64/egl/libGLESv2_emulation.so
+10-31 16:16:56.704  6866  6907 D WM-PackageManagerHelper: Skipping component enablement for androidx.work.impl.background.systemalarm.RescheduleReceiver
+10-31 16:16:56.725  6866  6866 D CompatibilityChangeReporter: Compat change id reported: 237531167; UID 10193; state: DISABLED
+10-31 16:16:56.726  6866  6866 W OpenGLRenderer: Unknown dataspace 0
+10-31 16:16:56.729   519  2035 D CoreBackPreview: Window{cc1d8a7 u0 io.github.drflgd.gamerepo.go/io.github.drflgd.gamerepo.go.MainActivity}: Setting back callback OnBackInvokedCallbackInfo{mCallback=android.window.IOnBackInvokedCallback$Stub$Proxy@b7f9f2, mPriority=0, mIsAnimationCallback=false}
+10-31 16:16:56.730   401   612 W ServiceManagerCppClient: Permission failure: android.permission.ROTATE_SURFACE_FLINGER from uid=10193 pid=0
+10-31 16:16:56.730   401   612 D PermissionCache: checking android.permission.ROTATE_SURFACE_FLINGER for uid=10193 => denied (80 us)
+10-31 16:16:56.731   401   416 W ServiceManagerCppClient: Permission failure: android.permission.INTERNAL_SYSTEM_WINDOW from uid=10193 pid=6866
+10-31 16:16:56.731   401   416 D PermissionCache: checking android.permission.INTERNAL_SYSTEM_WINDOW for uid=10193 => denied (34 us)
+10-31 16:16:56.731   401   416 W ServiceManagerCppClient: Permission failure: android.permission.ACCESS_SURFACE_FLINGER from uid=10193 pid=6866
+10-31 16:16:56.731   401   416 D PermissionCache: checking android.permission.ACCESS_SURFACE_FLINGER for uid=10193 => denied (88 us)
+10-31 16:16:56.731   401   612 W ServiceManagerCppClient: Permission failure: android.permission.INTERNAL_SYSTEM_WINDOW from uid=10193 pid=0
+10-31 16:16:56.731   401   612 D PermissionCache: checking android.permission.INTERNAL_SYSTEM_WINDOW for uid=10193 => denied (469 us)
+10-31 16:16:56.753  6866  6908 W OpenGLRenderer: Failed to initialize 101010-2 format, error = EGL_SUCCESS
+10-31 16:16:56.777   136   136 I hwservicemanager: getTransport: Cannot find entry android.hardware.graphics.mapper@4.0::IMapper/default in either framework or device VINTF manifest.
+10-31 16:16:56.778  6866  6908 I Gralloc4: mapper 4.x is not supported
+--------- beginning of kernel
+10-31 16:16:56.962     0     0 I servicemanager: Could not find android.hardware.graphics.allocator.IAllocator/default in the VINTF manifest.
+10-31 16:16:56.839   519   896 W ServiceManagerCppClient: Permission failure: android.permission.ROTATE_SURFACE_FLINGER from uid=10193 pid=0
+10-31 16:16:56.839   519   896 D PermissionCache: checking android.permission.ROTATE_SURFACE_FLINGER for uid=10193 => denied (265 us)
+10-31 16:16:56.840   519   896 W ServiceManagerCppClient: Permission failure: android.permission.INTERNAL_SYSTEM_WINDOW from uid=10193 pid=0
+10-31 16:16:56.840   519   896 D PermissionCache: checking android.permission.INTERNAL_SYSTEM_WINDOW for uid=10193 => denied (18 us)
+10-31 16:16:56.840   519   896 W ServiceManagerCppClient: Permission failure: android.permission.ACCESS_SURFACE_FLINGER from uid=10193 pid=0
+10-31 16:16:56.840   519   896 D PermissionCache: checking android.permission.ACCESS_SURFACE_FLINGER for uid=10193 => denied (12 us)
+10-31 16:16:56.843   519   519 I NotificationService: Cannot find enqueued record for key: 0|com.google.android.apps.wellbeing|174344743|null|10119
+10-31 16:16:56.845   519   536 W system_server: Failed to determine oat file name for dex location /data/app/~~MrnbACssgeVPLi0hZ3vkSw==/io.github.drflgd.gamerepo.go--Op0MPNBRY7ng_t43GfRHQ==/base.apk: Dalvik cache directory does not exist
+10-31 16:16:56.845   519   536 W ziparchive: Unable to open '/data/app/~~MrnbACssgeVPLi0hZ3vkSw==/io.github.drflgd.gamerepo.go--Op0MPNBRY7ng_t43GfRHQ==/base.dm': No such file or directory
+10-31 16:16:56.846   519   536 I ActivityTaskManager: Displayed io.github.drflgd.gamerepo.go/.MainActivity for user 0: +853ms
+10-31 16:16:56.863   815   867 W WindowOnBackDispatcher: sendCancelIfRunning: isInProgress=falsecallback=android.view.ViewRootImpl$$ExternalSyntheticLambda17@142b4f1
+10-31 16:16:56.863   519   896 D CoreBackPreview: Window{6f0a1ef u0 Splash Screen io.github.drflgd.gamerepo.go EXITING}: Setting back callback null
+10-31 16:16:56.864   519   896 W InputManager-JNI: Input channel object '6f0a1ef Splash Screen io.github.drflgd.gamerepo.go (client)' was disposed without first being removed with the input manager!
+10-31 16:16:56.881  1070  2100 D OneSearchSuggestProvider: Shut down the binder channel
+10-31 16:16:56.889  1070  1386 I IPCThreadState: oneway function results for code 2 on binder at 0x76b3728da660 will be dropped but finished with status UNKNOWN_TRANSACTION
+10-31 16:16:56.889   519   896 D OomAdjuster: Not killing cached processes
+10-31 16:16:56.919  1070  1121 I ImeTracker: com.google.android.apps.nexuslauncher:781ea680: onRequestHide at ORIGIN_CLIENT_HIDE_SOFT_INPUT reason HIDE_SOFT_INPUT
+10-31 16:16:56.920   519  2031 I ImeTracker: com.google.android.apps.nexuslauncher:781ea680: onCancelled at PHASE_SERVER_SHOULD_HIDE
+10-31 16:16:56.921  1005  1305 D BtGatt.ScanManager: uid 10131 isForeground true scanMode -1
+10-31 16:16:56.921  1005  1305 D BtGatt.ScanManager: uid 10131 isForeground true scanMode -1
+10-31 16:16:56.921  1005  1305 D BtGatt.ScanManager: uid 10131 isForeground true scanMode 1
+10-31 16:16:56.923  6866  6866 W WindowOnBackDispatcher: OnBackInvokedCallback is not enabled for the application.
+10-31 16:16:56.923  6866  6866 W WindowOnBackDispatcher: Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+10-31 16:16:56.932   519   896 D CompatibilityChangeReporter: Compat change id reported: 214016041; UID 10193; state: ENABLED
+10-31 16:16:56.932   519   896 I ImeTracker: io.github.drflgd.gamerepo.go:5b4bf374: onRequestHide at ORIGIN_SERVER_HIDE_INPUT reason HIDE_UNSPECIFIED_WINDOW
+10-31 16:16:56.932   519   896 I ImeTracker: io.github.drflgd.gamerepo.go:5b4bf374: onCancelled at PHASE_SERVER_SHOULD_HIDE
+10-31 16:16:56.941  1762  3052 I PBSessionCacheImpl: Deleted sessionId[7751151415720075] from persistence.
+10-31 16:16:56.941  1532  1532 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():3227 
+10-31 16:16:56.942  1532  1532 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2087 repeatCheckTimes = 0, unlocked = true
+10-31 16:16:56.942  1532  1532 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1877 onStartInput(EditorInfo{inputType=0x0(NULL) imeOptions=0x0 privateImeOptions=null actionName=UNSPECIFIED actionLabel=null actionId=0 initialSelStart=-1 initialSelEnd=-1 initialCapsMode=0x0 hintText=null label=null packageName=io.github.drflgd.gamerepo.go fieldId=0 fieldName=null extras=null}, false)
+10-31 16:16:56.942  1532  1532 I GoogleInputMethodService: GoogleInputMethodService.shouldHideHeaderOnInitialState():4008 ShouldHideHeaderOnInitialState = false
+10-31 16:16:56.942  1532  1532 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2087 repeatCheckTimes = 2, unlocked = true
+10-31 16:16:56.947   519  1100 W ActivityTaskManager: Request to remove task ignored for non-existent task 9
+10-31 16:16:56.970  6866  6866 I WebViewFactory: Loading com.google.android.webview version 113.0.5672.136 (code 567263637)
+10-31 16:16:56.974  1762  2855 I A       : Using proto config with mendel
+10-31 16:16:56.975  1762  2855 I A       : Using proto config with mendel
+10-31 16:16:56.975  1762  2855 W SearchServiceCore: Abort, client detached.
+10-31 16:16:56.980  6866  6866 W ziparchive: Unable to open '/data/app/~~tmkYO6U7PmyJm3asnA5svw==/com.google.android.trichromelibrary_567263637-mv1Ktu_0V1UApl88U-z3qQ==/TrichromeLibrary.dm': No such file or directory
+10-31 16:16:56.980  6866  6866 W ziparchive: Unable to open '/data/app/~~tmkYO6U7PmyJm3asnA5svw==/com.google.android.trichromelibrary_567263637-mv1Ktu_0V1UApl88U-z3qQ==/TrichromeLibrary.dm': No such file or directory
+10-31 16:16:56.980  6866  6866 W lgd.gamerepo.go: Entry not found
+10-31 16:16:56.989  6866  6866 D nativeloader: Configuring clns-7 for other apk /data/app/~~tmkYO6U7PmyJm3asnA5svw==/com.google.android.trichromelibrary_567263637-mv1Ktu_0V1UApl88U-z3qQ==/TrichromeLibrary.apk. target_sdk_version=34, uses_libraries=ALL, library_path=/data/app/~~L80wC2R1t4pHmhOkWOYr0w==/com.google.android.webview-w3GCklgIuM5mbDYnKF8p5Q==/lib/x86_64:/data/app/~~L80wC2R1t4pHmhOkWOYr0w==/com.google.android.webview-w3GCklgIuM5mbDYnKF8p5Q==/WebViewGoogle.apk!/lib/x86_64:/data/app/~~tmkYO6U7PmyJm3asnA5svw==/com.google.android.trichromelibrary_567263637-mv1Ktu_0V1UApl88U-z3qQ==/TrichromeLibrary.apk!/lib/x86_64, permitted_path=/data:/mnt/expand
+10-31 16:16:56.991  6866  6866 D nativeloader: Configuring clns-8 for other apk /data/app/~~L80wC2R1t4pHmhOkWOYr0w==/com.google.android.webview-w3GCklgIuM5mbDYnKF8p5Q==/WebViewGoogle.apk. target_sdk_version=34, uses_libraries=, library_path=/data/app/~~L80wC2R1t4pHmhOkWOYr0w==/com.google.android.webview-w3GCklgIuM5mbDYnKF8p5Q==/lib/x86_64:/data/app/~~L80wC2R1t4pHmhOkWOYr0w==/com.google.android.webview-w3GCklgIuM5mbDYnKF8p5Q==/WebViewGoogle.apk!/lib/x86_64:/data/app/~~tmkYO6U7PmyJm3asnA5svw==/com.google.android.trichromelibrary_567263637-mv1Ktu_0V1UApl88U-z3qQ==/TrichromeLibrary.apk!/lib/x86_64, permitted_path=/data:/mnt/expand
+10-31 16:16:57.005  6866  6866 I cr_WVCFactoryProvider: Loaded version=113.0.5672.136 minSdkVersion=29 isBundle=false multiprocess=true packageId=2
+10-31 16:16:57.018  6866  6866 I cr_LibraryLoader: Successfully loaded native library
+10-31 16:16:57.018  6866  6866 I cr_CachingUmaRecorder: Flushed 8 samples from 8 histograms.
+10-31 16:16:57.020  6866  6925 I cr_VariationsUtils: Failed reading seed file "/data/user/0/io.github.drflgd.gamerepo.go/app_webview/variations_seed_new"
+10-31 16:16:57.020  6866  6925 I cr_VariationsUtils: Failed reading seed file "/data/user/0/io.github.drflgd.gamerepo.go/app_webview/variations_seed"
+10-31 16:16:57.021  6866  6925 I cr_VariationsUtils: Requesting new seed from IVariationsSeedServer
+10-31 16:16:57.022   519  1100 D CompatibilityChangeReporter: Compat change id reported: 261072174; UID 10134; state: ENABLED
+10-31 16:16:57.023   519   596 D CompatibilityChangeReporter: Compat change id reported: 265195908; UID 10134; state: ENABLED
+10-31 16:16:57.039   519  1100 D ActivityManager: sync unfroze 2848 com.google.android.webview:webview_service for 6
+10-31 16:16:57.039   519  1100 D CompatibilityChangeReporter: Compat change id reported: 261072174; UID 10193; state: ENABLED
+10-31 16:16:57.039   519  2294 D CompatibilityChangeReporter: Compat change id reported: 161145287; UID 10193; state: ENABLED
+10-31 16:16:57.040   519  2031 D CompatibilityChangeReporter: Compat change id reported: 135634846; UID 99001; state: DISABLED
+10-31 16:16:57.041   519   547 D CompatibilityChangeReporter: Compat change id reported: 143937733; UID 10193; state: ENABLED
+10-31 16:16:57.055   983   983 D Zygote  : Forked child process 6929
+10-31 16:16:57.056   519   547 I ActivityManager: Start proc 6929:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0/u0i1 for  {io.github.drflgd.gamerepo.go/org.chromium.content.app.SandboxedProcessService0:0}
+10-31 16:16:57.057  6929  6929 I ocessService0:0: Using CollectorTypeCC GC.
+10-31 16:16:57.058  6929  6929 W ocessService0:0: Unexpected CPU variant for x86: x86_64.
+10-31 16:16:57.058  6929  6929 W ocessService0:0: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, tremont, kabylake, default
+10-31 16:16:57.059  6929  6929 E ocessService0:0: Not starting debugger since process cannot load the jdwp agent.
+10-31 16:16:57.072  6866  6866 D CompatibilityChangeReporter: Compat change id reported: 183155436; UID 10193; state: ENABLED
+10-31 16:16:57.073  1005  1305 D BtGatt.ScanManager: uid 10131 isForeground true scanMode -1
+10-31 16:16:57.073  1005  1305 D BtGatt.ScanManager: uid 10131 isForeground true scanMode -1
+10-31 16:16:57.073  1005  1305 D BtGatt.ScanManager: uid 10131 isForeground true scanMode 1
+10-31 16:16:57.074  5210  5210 D BoundBrokerSvc: onBind: Intent { act=com.google.android.gms.safetynet.service.START pkg=com.google.android.gms }
+10-31 16:16:57.074  5210  5210 D BoundBrokerSvc: Loading bound service for intent: Intent { act=com.google.android.gms.safetynet.service.START pkg=com.google.android.gms }
+10-31 16:16:57.081  6929  6929 D CompatibilityChangeReporter: Compat change id reported: 171979766; UID 99001; state: ENABLED
+10-31 16:16:57.081  6929  6929 D CompatibilityChangeReporter: Compat change id reported: 242716250; UID 99001; state: ENABLED
+10-31 16:16:57.087  6929  6929 I LoadedApk: No resource references to update in package com.google.android.trichromelibrary
+10-31 16:16:57.088  6929  6929 I cr_WebViewApkApp: Launched version=113.0.5672.136 minSdkVersion=29 isBundle=false processName=com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0
+10-31 16:16:57.092   519  1676 I ActivityManager: Flag disabled. Ignoring finishAttachApplication from uid: 99001. pid: 6929
+10-31 16:16:57.093  6866  6866 D CompatibilityChangeReporter: Compat change id reported: 214741472; UID 10193; state: ENABLED
+10-31 16:16:57.094  6929  6929 W SystemServiceRegistry: No service published for: virtualdevice
+10-31 16:16:57.094  6929  6929 I cr_ChildProcessService: Creating new ChildProcessService pid=6929
+10-31 16:16:57.094  6866  6866 D CompatibilityChangeReporter: Compat change id reported: 171228096; UID 10193; state: ENABLED
+10-31 16:16:57.096   519   896 D ConnectivityService: requestNetwork for uid/pid:10193/6866 activeRequest: null callbackRequest: 165 [NetworkRequest [ REQUEST id=166, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10193 RequestorUid: 10193 RequestorPkg: io.github.drflgd.gamerepo.go UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647
+10-31 16:16:57.097   519   747 D ConnectivityService: NetReassign [166 : null → 100] [c 1] [a 0] [i 0]
+10-31 16:16:57.097   519   740 D WifiNetworkFactory: got request NetworkRequest [ REQUEST id=166, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10193 RequestorUid: 10193 RequestorPkg: io.github.drflgd.gamerepo.go UnderlyingNetworks: Null] ]
+10-31 16:16:57.097   519   740 D UntrustedWifiNetworkFactory: got request NetworkRequest [ REQUEST id=166, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10193 RequestorUid: 10193 RequestorPkg: io.github.drflgd.gamerepo.go UnderlyingNetworks: Null] ]
+10-31 16:16:57.097   519   740 D OemPaidWifiNetworkFactory: got request NetworkRequest [ REQUEST id=166, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10193 RequestorUid: 10193 RequestorPkg: io.github.drflgd.gamerepo.go UnderlyingNetworks: Null] ]
+10-31 16:16:57.097   519   740 D MultiInternetWifiNetworkFactory: got request NetworkRequest [ REQUEST id=166, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10193 RequestorUid: 10193 RequestorPkg: io.github.drflgd.gamerepo.go UnderlyingNetworks: Null] ]
+10-31 16:16:57.098   519   747 D ConnectivityService: NetReassign [no changes] [c 0] [a 0] [i 0]
+10-31 16:16:57.103  6866  6866 D AutofillManager: Fill dialog is enabled:false, hints=[password, passwordAuto, creditCardNumber, creditCardSecurityCode, creditCardExpirationDate]
+10-31 16:16:57.112  6866  6866 D CompatibilityChangeReporter: Compat change id reported: 193247900; UID 10193; state: ENABLED
+10-31 16:16:57.122  2848  3056 I cr_VariationsUtils: Throttling seed download job
+10-31 16:16:57.122  2848  3056 I cr_VariationsUtils: Writing new seed to app's data directory
+10-31 16:16:57.158  6866  6948 W cr_media: BLUETOOTH_CONNECT permission is missing.
+10-31 16:16:57.158  6866  6948 W cr_media: registerBluetoothIntentsIfNeeded: Requires BLUETOOTH permission
+10-31 16:16:57.166  6929  6963 I cr_LibraryLoader: Successfully loaded native library
+10-31 16:16:57.166  6929  6963 I cr_CachingUmaRecorder: Flushed 2 samples from 2 histograms.
+10-31 16:16:57.168  6929  6963 I incfs   : Initial API level of the device: 34
+10-31 16:16:57.357     0     0 W audit   : audit_lost=12 audit_rate_limit=5 audit_backlog_limit=64
+10-31 16:16:57.359     0     0 E audit   : rate limit exceeded
+10-31 16:16:57.171  6929  6963 W libc    : Access denied finding property "ro.incremental.enable"
+10-31 16:16:57.171  6929  6963 I incfs   : ro.incremental.enable: on
+10-31 16:16:57.171  6929  6963 I incfs   : IncFs_Features: v2
+10-31 16:16:57.172  6929  6963 I incfs-mounts: [incfs] Loaded incremental-fs mount info: 1 instances, 2 mount points
+10-31 16:16:57.173  6929  6963 W SystemServiceRegistry: No service published for: uimode
+10-31 16:16:57.184   519   896 D CompatibilityChangeReporter: Compat change id reported: 214016041; UID 10193; state: ENABLED
+10-31 16:16:57.185  1532  1532 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():3227 
+10-31 16:16:57.185  1532  1532 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2087 repeatCheckTimes = 0, unlocked = true
+10-31 16:16:57.185  5121  5425 I FontLog : Received query name=Google Sans&weight=700&besteffort=false, URI content://com.google.android.gms.fonts [CONTEXT service_id=132 ]
+10-31 16:16:57.186  5121  5425 I FontLog : Query [name=Google Sans&weight=700&besteffort=false] resolved to {Google Sans, wdth 100.0, wght 700, ital 0.0, bestEffort false} [CONTEXT service_id=132 ]
+10-31 16:16:57.186  5121  5425 I FontLog : Fetch {Google Sans, wdth 100.0, wght 700, ital 0.0, bestEffort false} end status Status{statusCode=SUCCESS, resolution=null} [CONTEXT service_id=132 ]
+10-31 16:16:57.189  1532  1532 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1877 onStartInput(EditorInfo{inputType=0x0(NULL) imeOptions=0x12000000 privateImeOptions=null actionName=UNSPECIFIED actionLabel=null actionId=0 initialSelStart=-1 initialSelEnd=-1 initialCapsMode=0x0 hintText=null label=null packageName=io.github.drflgd.gamerepo.go fieldId=0 fieldName=null extras=null}, false)
+10-31 16:16:57.189  1532  1532 I GoogleInputMethodService: GoogleInputMethodService.shouldHideHeaderOnInitialState():4008 ShouldHideHeaderOnInitialState = false
+10-31 16:16:57.189  1532  1532 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2087 repeatCheckTimes = 2, unlocked = true
+10-31 16:16:57.213  5121  5425 I FontLog : Pulling font file for id = 12, cache size = 12 [CONTEXT service_id=132 ]
+10-31 16:16:57.224  5121  5425 I FontLog : Received query name=Noto Color Emoji Compat&weight=400&besteffort=false, URI content://com.google.android.gms.fonts [CONTEXT service_id=132 ]
+10-31 16:16:57.224  5121  5425 I FontLog : Query [name=Noto Color Emoji Compat&weight=400&besteffort=false] resolved to {Noto Color Emoji Compat, wdth 100.0, wght 400, ital 0.0, bestEffort false} [CONTEXT service_id=132 ]
+10-31 16:16:57.225  5121  5425 I FontLog : Fetch {Noto Color Emoji Compat, wdth 100.0, wght 400, ital 0.0, bestEffort false} end status Status{statusCode=SUCCESS, resolution=null} [CONTEXT service_id=132 ]
+10-31 16:16:57.232  5121  5425 I FontLog : Pulling font file for id = 13, cache size = 13 [CONTEXT service_id=132 ]
+10-31 16:16:57.241  5121  5425 I FontLog : Received query name=Google Sans&weight=400&besteffort=false, URI content://com.google.android.gms.fonts [CONTEXT service_id=132 ]
+10-31 16:16:57.241  5121  5425 I FontLog : Query [name=Google Sans&weight=400&besteffort=false] resolved to {Google Sans, wdth 100.0, wght 400, ital 0.0, bestEffort false} [CONTEXT service_id=132 ]
+10-31 16:16:57.241  5121  5425 I FontLog : Font PFD returned from cache for {Google Sans, wdth 100.0, wght 400, ital 0.0, bestEffort false} [CONTEXT service_id=132 ]
+10-31 16:16:57.241  5121  5425 I FontLog : Fetch {Google Sans, wdth 100.0, wght 400, ital 0.0, bestEffort false} end status Status{statusCode=SUCCESS, resolution=null} [CONTEXT service_id=132 ]
+10-31 16:16:57.248  5121  5425 I FontLog : Pulling font file for id = 14, cache size = 14 [CONTEXT service_id=132 ]
+10-31 16:16:57.251  5121  5425 I FontLog : Received query name=Google Sans&weight=500&besteffort=false, URI content://com.google.android.gms.fonts [CONTEXT service_id=132 ]
+10-31 16:16:57.251  5121  5425 I FontLog : Query [name=Google Sans&weight=500&besteffort=false] resolved to {Google Sans, wdth 100.0, wght 500, ital 0.0, bestEffort false} [CONTEXT service_id=132 ]
+10-31 16:16:57.251  5121  5425 I FontLog : Font PFD returned from cache for {Google Sans, wdth 100.0, wght 500, ital 0.0, bestEffort false} [CONTEXT service_id=132 ]
+10-31 16:16:57.251  5121  5425 I FontLog : Fetch {Google Sans, wdth 100.0, wght 500, ital 0.0, bestEffort false} end status Status{statusCode=SUCCESS, resolution=null} [CONTEXT service_id=132 ]
+10-31 16:16:57.253  5121  5425 I FontLog : Pulling font file for id = 15, cache size = 15 [CONTEXT service_id=132 ]
+10-31 16:16:57.274  5121  5425 I FontLog : Received query Noto Color Emoji Compat, URI content://com.google.android.gms.fonts [CONTEXT service_id=132 ]
+10-31 16:16:57.274  5121  5425 I FontLog : Query [emojicompat-emoji-font] resolved to {Noto Color Emoji Compat, wdth 100.0, wght 400, ital 0.0, bestEffort false} [CONTEXT service_id=132 ]
+10-31 16:16:57.275  5121  5425 I FontLog : Fetch {Noto Color Emoji Compat, wdth 100.0, wght 400, ital 0.0, bestEffort false} end status Status{statusCode=SUCCESS, resolution=null} [CONTEXT service_id=132 ]
+10-31 16:16:57.277  5121  5425 I FontLog : Pulling font file for id = 16, cache size = 16 [CONTEXT service_id=132 ]
+10-31 16:16:57.278  5121  5425 I FontLog : Pulling font file for id = 16, cache size = 16 [CONTEXT service_id=132 ]
+10-31 16:16:57.423  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name inPosition
+10-31 16:16:57.424  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name inColor
+10-31 16:16:57.424  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 2 name inTextureCoords
+10-31 16:16:57.461   519   896 D CompatibilityChangeReporter: Compat change id reported: 149924527; UID 10193; state: ENABLED
+10-31 16:16:57.461   519   896 D CompatibilityChangeReporter: Compat change id reported: 132649864; UID 10193; state: DISABLED
+10-31 16:16:57.463  1628  6465 E MediaProvider: Permission to access file: /storage/emulated/0/ES-DE/settings/es_settings.xml is denied
+10-31 16:16:57.464  1628  6463 E MediaProvider: Permission to access file: /storage/emulated/0/ES-DE/settings/es_settings.xml is denied
+10-31 16:16:57.467  1628  6464 E MediaProvider: Permission to access file: /storage/emulated/0/ES-DE/settings/es_settings.xml is denied
+10-31 16:16:57.470  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name position
+10-31 16:16:57.470  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name localCoord
+10-31 16:16:57.524  1628  2480 E MediaProvider: Permission to access file: /storage/emulated/0/ES-DE/settings/es_settings.xml is denied
+10-31 16:16:57.537  1628  2033 E MediaProvider: Permission to access file: /storage/emulated/0/ES-DE/settings/es_settings.xml is denied
+10-31 16:16:57.563   815   878 D EGL_emulation: app_time_stats: avg=1234.65ms min=1234.65ms max=1234.65ms count=1
+10-31 16:16:57.576   519   896 I WifiService: acquireMulticastLock uid=10193
+10-31 16:16:57.578   964  1152 D IpClient.wlan0: set max DTIM multiplier to 1
+10-31 16:16:57.578   519   740 E WifiStaIfaceAidlImpl: installApfPacketFilter failed with service-specific exception: android.os.ServiceSpecificException:  (code 4)
+10-31 16:16:57.578   519   740 E WifiStaIfaceAidlImpl: setDtimMultiplier failed with service-specific exception: android.os.ServiceSpecificException:  (code 4)
+10-31 16:16:57.587  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name inPosition
+10-31 16:16:57.587  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name inColor
+10-31 16:16:57.587  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 2 name inCircleEdge
+10-31 16:16:57.625  1029  1029 D CarrierSvcBindHelper: onPackageModified: io.github.drflgd.gamerepo.go
+10-31 16:16:57.625  1005  1005 V MediaPlayerList: mPackageChangedBroadcastReceiver: action: android.intent.action.PACKAGE_CHANGED
+10-31 16:16:57.625  1005  1005 V MediaPlayerList: mPackageChangedBroadcastReceiver: action: android.intent.action.PACKAGE_CHANGED
+10-31 16:16:57.628   815   815 D ControlsListingControllerImpl: ServiceConfig reloaded, count: 0
+10-31 16:16:57.632   817  4363 I PermissionControllerServiceImpl: Updating user sensitive for uid 10193
+10-31 16:16:57.633  1029  1029 D CarrierSvcBindHelper: No carrier app for: 0
+10-31 16:16:57.636   519   615 I InputReader: Reconfiguring input devices, changes=KEYBOARD_LAYOUTS
+10-31 16:16:57.637   519   604 I RoleService: Granting default roles...
+10-31 16:16:57.639   815   877 D StylusManager: Stylus InputDevice changed: 9 virtio_input_multi_touch_6
+10-31 16:16:57.644   815   877 D StylusManager: Stylus InputDevice changed: 14 virtio_input_multi_touch_11
+10-31 16:16:57.646  1029  1283 D ImsResolver: maybeAddedImsService, packageName: io.github.drflgd.gamerepo.go
+10-31 16:16:57.647  1633  1633 I AiAiEcho: AppFetcherImpl onPackageChanged io.github.drflgd.gamerepo.go.
+10-31 16:16:57.647  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name position
+10-31 16:16:57.647  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name color
+10-31 16:16:57.649   815   877 D StylusManager: Stylus InputDevice changed: 13 virtio_input_multi_touch_10
+10-31 16:16:57.650   815   877 D StylusManager: Stylus InputDevice changed: 8 virtio_input_multi_touch_5
+10-31 16:16:57.650  1633  6006 I AiAiEcho: AppIndexer Package:[io.github.drflgd.gamerepo.go] UserProfile:[0] Enabled:[true].
+10-31 16:16:57.650  1633  6006 I AiAiEcho: AppFetcherImplV2 updateApps package:[io.github.drflgd.gamerepo.go], userId:[0], reason:[package is updated.].
+10-31 16:16:57.654   817  6817 E RoleControllerServiceImpl: Default/fallback role holder package doesn't qualify for the role, package: com.google.android.gms.supervision, role: android.app.role.SYSTEM_SUPERVISION
+10-31 16:16:57.654   815   877 D StylusManager: Stylus InputDevice changed: 10 virtio_input_multi_touch_7
+10-31 16:16:57.655   815   877 D StylusManager: Stylus InputDevice changed: 6 virtio_input_multi_touch_3
+10-31 16:16:57.655   815   877 D StylusManager: Stylus InputDevice changed: 4 virtio_input_multi_touch_1
+10-31 16:16:57.655   815   877 D StylusManager: Stylus InputDevice changed: 12 virtio_input_multi_touch_9
+10-31 16:16:57.656   817  6817 I Role    : com.google.android.gms not qualified for android.app.role.SYSTEM_CALL_STREAMING due to missing RequiredComponent{mIntentFilterData=IntentFilterData{mAction='android.telecom.CallStreamingService', mCategories='[]', mDataScheme='null', mDataType='null'}, mMinTargetSdkVersion=1, mFlags='0', mPermission='android.permission.BIND_CALL_STREAMING_SERVICE', mQueryFlags=0, mMetaData=[]}
+10-31 16:16:57.656   817  6817 E RoleControllerServiceImpl: Default/fallback role holder package doesn't qualify for the role, package: com.google.android.gms, role: android.app.role.SYSTEM_CALL_STREAMING
+10-31 16:16:57.656   817  6817 W Role    : Default holder doesn't have required signing certificate: com.google.android.apps.work.clouddpc:23962F4B43B9857638EA66F4D419518EAE282491ACDA4B94707BD59003C45E58
+10-31 16:16:57.657   815   877 D StylusManager: Stylus InputDevice changed: 7 virtio_input_multi_touch_4
+10-31 16:16:57.657   815   877 D StylusManager: Stylus InputDevice changed: 11 virtio_input_multi_touch_8
+10-31 16:16:57.657   815   877 D StylusManager: Stylus InputDevice changed: 5 virtio_input_multi_touch_2
+10-31 16:16:57.693  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name inPosition
+10-31 16:16:57.693  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name inColor
+10-31 16:16:57.693  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 2 name inQuadEdge
+10-31 16:16:57.795  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name pts01Attr
+10-31 16:16:57.795  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name pts23Attr
+10-31 16:16:57.795  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 2 name argsAttr
+10-31 16:16:57.853   336  7003 I resolv  : GetAddrInfoHandler::run: {100 100 100 983140 10193 0}
+10-31 16:16:57.854   336  7005 I resolv  : res_nmkquery: (QUERY, IN, A)
+10-31 16:16:57.854   336  7005 I resolv  : resolv_cache_lookup: FOUND IN CACHE entry=0x7bab7d939170
+10-31 16:16:57.854   336  7005 I resolv  : doQuery: rcode=0, ancount=8, return value=177
+10-31 16:16:57.854   336  7004 I resolv  : res_nmkquery: (QUERY, IN, AAAA)
+10-31 16:16:57.854   336  7004 I resolv  : resolv_cache_lookup: FOUND IN CACHE entry=0x7bab4d93d650
+10-31 16:16:57.854   336  7004 I resolv  : doQuery: rcode=0, ancount=8, return value=273
+10-31 16:16:58.094  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name inPosition
+10-31 16:16:58.094  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name inColor
+10-31 16:16:58.094  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 2 name inCircleEdge
+10-31 16:16:58.124  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name position
+10-31 16:16:58.125  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name color
+10-31 16:16:58.135   519   873 D CompatibilityChangeReporter: Compat change id reported: 161252188; UID 10193; state: DISABLED
+10-31 16:16:58.137  5121  6746 I Fitness : OnPackageChangedOperation got intent: Intent { act=android.intent.action.PACKAGE_CHANGED dat=package: flg=0x45000010 pkg=com.google.android.gms cmp=com.google.android.gms/.chimera.PersistentIntentOperationService (has extras) } [CONTEXT service_id=17 ]
+10-31 16:16:58.146  5121  5751 W ChimeraUtils: Module com.google.android.gms.nearby_en missing resource null(0)
+10-31 16:16:58.149  5121  5751 W ChimeraUtils: Module com.google.android.gms.nearby_en missing resource null(0)
+10-31 16:16:58.155  5121  6746 I Fitness : FitCleanupIntentOperation received Intent android.intent.action.PACKAGE_CHANGED [CONTEXT service_id=17 ]
+10-31 16:16:58.169  6866  6908 D EGL_emulation: app_time_stats: avg=218.15ms min=8.00ms max=636.15ms count=6
+10-31 16:16:58.170  5210  6874 I Icing   : Indexing com.google.android.gms-apps from com.google.android.gms
+10-31 16:16:58.176  5210  6874 I Icing   : Indexing done com.google.android.gms-apps
+10-31 16:16:58.195  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name inPosition
+10-31 16:16:58.195  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name inColor
+10-31 16:16:58.195  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 2 name inCircleEdge
+10-31 16:16:58.213  6871  6871 W AccessibilityNodeInfoDumper: Fetch time: 20ms
+10-31 16:16:58.215  1633  1668 I AiAiEcho: Settings changed for uri: content://settings/secure/accessibility_enabled
+10-31 16:16:58.215   519   532 W WindowMagnificationMgr: requestConnection duplicated request: connect=false, mConnectionState=DISCONNECTED
+10-31 16:16:58.215   519   532 D AccessibilityManagerService: restoreCurrentUserForTestAutomationIfNeededLocked(): ignoring because device doesn't support visible background users
+10-31 16:16:58.215  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:16:58.215  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:16:58.215  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:16:58.215  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:16:58.215  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:16:58.215  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:16:58.215  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:16:58.215  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:16:58.216  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0 (types=[])
+10-31 16:16:58.216  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0 (types=[])
+10-31 16:16:58.216  6871  6871 D AndroidRuntime: Shutting down VM
+10-31 16:16:58.216  6871  6902 E IPCThreadState: Failed to get extended error: Bad file descriptor
+--------- beginning of crash
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: FATAL EXCEPTION: UiAutomation
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: PID: 6871
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: java.lang.RuntimeException: Bad file descriptor
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.os.BinderProxy.transactNative(Native Method)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.os.BinderProxy.transact(BinderProxy.java:584)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.accessibilityservice.IAccessibilityServiceConnection$Stub$Proxy.findAccessibilityNodeInfoByAccessibilityId(IAccessibilityServiceConnection.java:1161)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.view.accessibility.AccessibilityInteractionClient.findAccessibilityNodeInfoByAccessibilityId(AccessibilityInteractionClient.java:665)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.view.accessibility.AccessibilityNodeInfo.refresh(AccessibilityNodeInfo.java:1120)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.view.accessibility.AccessibilityCache$AccessibilityNodeRefresher.refreshNode(AccessibilityCache.java:888)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.view.accessibility.AccessibilityCache.onAccessibilityEvent(AccessibilityCache.java:294)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.view.accessibility.AccessibilityInteractionClient.onAccessibilityEvent(AccessibilityInteractionClient.java:1158)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.accessibilityservice.AccessibilityService$IAccessibilityServiceClientWrapper.lambda$onAccessibilityEvent$2(AccessibilityService.java:2925)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.accessibilityservice.AccessibilityService$IAccessibilityServiceClientWrapper.$r8$lambda$09cnCCQeC7txVafv5NeCrjYkmcY(Unknown Source:0)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.accessibilityservice.AccessibilityService$IAccessibilityServiceClientWrapper$$ExternalSyntheticLambda8.run(Unknown Source:6)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.os.Handler.handleCallback(Handler.java:958)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.os.Looper.loopOnce(Looper.java:205)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.os.Looper.loop(Looper.java:294)
+10-31 16:16:58.217  6871  6902 E AndroidRuntime: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+10-31 16:16:58.217  6871  6902 E IPCThreadState: Failed to get extended error: Bad file descriptor
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: Error reporting crash
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: java.lang.RuntimeException: Bad file descriptor
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at android.os.BinderProxy.transactNative(Native Method)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at android.os.BinderProxy.transact(BinderProxy.java:584)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at android.os.IServiceManager$Stub$Proxy.checkService(IServiceManager.java:443)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at android.os.ServiceManagerProxy.getService(ServiceManagerNative.java:63)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at android.os.ServiceManager.rawGetService(ServiceManager.java:378)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at android.os.ServiceManager.getService(ServiceManager.java:147)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at android.app.ActivityManager$3.create(ActivityManager.java:5214)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at android.app.ActivityManager$3.create(ActivityManager.java:5211)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at android.util.Singleton.get(Singleton.java:43)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at android.app.ActivityManager.getService(ActivityManager.java:5202)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at com.android.internal.os.RuntimeInit$KillApplicationHandler.uncaughtException(RuntimeInit.java:160)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at java.lang.ThreadGroup.uncaughtException(ThreadGroup.java:1071)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at java.lang.ThreadGroup.uncaughtException(ThreadGroup.java:1066)
+10-31 16:16:58.218  6871  6902 E AndroidRuntime: 	at java.lang.Thread.dispatchUncaughtException(Thread.java:2306)
+10-31 16:16:58.218  6871  6902 I Process : Sending signal. PID: 6871 SIG: 9
+10-31 16:16:58.226   815   815 W PageIndicator: Total number of pages invalid: 0. Assuming 1 page.
+10-31 16:16:58.413     0     0 I binder  : release 6871:6902 transaction 774140 out, still active
+10-31 16:16:58.421     0     0 I binder  : 1363:519 reply target not found
+10-31 16:16:58.443     0     0 I binder  : 519:1363 transaction reply to 0:0 failed 774186/29189/0, size 72-0 line 3140
+10-31 16:16:58.238  1762  2147 I A       : NGA enabled in interactor.
+10-31 16:16:58.238  1762  2147 I A       : Nga state changed to NgaStateDetails{state=ENABLED, isSpecialExperience=false}
+10-31 16:16:58.247  1623  4922 I A       : Initializing all components
+10-31 16:16:58.247  1623  4922 I A       : APA or Classic session decision: SessionDecision(sessionVariance=CLASSIC, platformVariance=CLASSIC, justification=CURRENT_PLATFORM_VARIANCE).
+10-31 16:16:58.247  1623  4922 I A       : [Memory] eligibility: StashEligibility{6}
+10-31 16:16:58.248   519   519 D BatterySaverPolicy: accessibility changed to false, updating policy.
+10-31 16:16:58.258  1623  2507 I A       : onIsEnabledChanged, isEnabled: false
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 I A       : onOpaVisibilityChanged: false
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.258  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 I A       : Setting session to type: NO_SESSION
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 I A       : setNavBarVisible: GestureNavBarVisible{navbarVisible=true}
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.262  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.263  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.263  1623  2507 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:16:58.263  1623  2507 I A       : onDisabled. Registered: false
+10-31 16:16:58.263  1623  2443 I A       : on opa visibility changed false
+10-31 16:16:58.264  1623  2443 I A       : on opa visibility changed false
+10-31 16:16:58.264  1623  2507 I A       : State changed: IDLE => IDLE by NGA_STATE_CHANGED and N/A with Optional.empty
+10-31 16:16:58.264  1623  2507 I A       : Recognizer choice: (recognizer_type: 1, recognizer_mode: 1, choice_reason: 4)
+10-31 16:16:58.265  1623  2507 I A       : onActiveStateChangeEvent: IDLE => IDLE
+10-31 16:16:58.268  1623  2507 I A       : #onActiveStateChangeEvent, newState: IDLE, previousState: IDLE.
+10-31 16:16:58.456     0     0 I binder  : 6866:6866 cannot find target node
+10-31 16:16:58.458     0     0 I binder  : send failed reply for transaction 774140, target dead
+10-31 16:16:58.458     0     0 I binder  : 6866:6866 transaction async to 0:0 failed 774304/29189/-22, size 316-0 line 3210
+10-31 16:16:58.287  6866  6866 E IPCThreadState: Binder transaction failure: 774304/29189/-22
+10-31 16:16:58.288  1623  2443 I A       : Initialize
+10-31 16:16:58.288  1623  2443 I NgaEntryPointEventSendr: setupConnection
+10-31 16:16:58.290  1623  2507 I A       : stopListening(NGA_PAUSED_UNKNOWN_REASON, NGA_CREATE), idleOverride=NOT_LISTENING
+10-31 16:16:58.294  1762  1762 I A       : Creating pss binder().
+10-31 16:16:58.298  1623  2443 I NgaEntryPointEventSendr: State changed: Disconnected => Connecting
+10-31 16:16:58.299  1623  2443 I NgaEntryPointEventSendr: onServiceConnected
+10-31 16:16:58.305  1762  1779 I A       : Calling beginBinderSession().
+10-31 16:16:58.307  1623  2507 I A       : Successfully initialized all components
+10-31 16:16:58.309  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name a_vertex
+10-31 16:16:58.310  1762  1779 I A       : beginBinderSession(): calling binder
+10-31 16:16:58.310  1623  2443 I NgaEntryPointEventSendr: State changed: Connecting => Ready
+10-31 16:16:58.315   519  2035 W ActivityManager: Unable to start service Intent { cmp=com.google.android.apps.tachyon/.clientapi.ClientApiService } U=0: not found
+10-31 16:16:58.323  1623  2443 I NgaEntryPointEventSendr: State changed: Ready => Disconnected (onOpaDisconnected)
+10-31 16:16:58.324  1762  2855 W A       : UiCallbackStub-onGenericEvent[ServiceEvent = 60] task was not run. Callback from Service received after client was disposed.
+10-31 16:16:58.326  1762  2855 W SearchServiceCore: Abort, client detached.
+10-31 16:16:58.326  1762  3052 I PBSessionCacheImpl: Deleted sessionId[7751151415720083] from persistence.
+10-31 16:16:58.338  1762  1767 I earchbox:search: JIT allocated 62KB for compiled code of java.lang.Object com.google.android.apps.gsa.binaries.velvet.app.ael.b()
+10-31 16:16:58.364  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name position
+10-31 16:16:58.364  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name localCoord
+10-31 16:16:58.415  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name position
+10-31 16:16:58.416  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name localCoord
+10-31 16:16:58.462  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name position
+10-31 16:16:58.462  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name localCoord
+10-31 16:16:58.506  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name position
+10-31 16:16:58.506  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name localCoord
+10-31 16:16:58.535  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name position
+10-31 16:16:58.535  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name color
+10-31 16:16:58.535  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 2 name localCoord
+10-31 16:16:58.571  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 0 name inPosition
+10-31 16:16:58.571  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 1 name inColor
+10-31 16:16:58.571  6866  6912 I RustStdoutStderr: s_glBindAttribLocation: bind attrib 2 name inCircleEdge
+10-31 16:16:58.736  6758  6760 I AidlLazyServiceRegistrar: Process has 0 (of 1 available) client(s) in use after notification artd has clients: 0
+10-31 16:16:58.736  6758  6760 I AidlLazyServiceRegistrar: Trying to shut down the service. No clients in use for any service in process.
+10-31 16:16:58.922     0     0 I servicemanager: Notifying artd they don't (previously: do) have clients when we now have no record of a client
+10-31 16:16:58.925     0     0 I servicemanager: Unregistering artd
+10-31 16:16:58.926     0     0 I BpBinder: onLastStrongRef automatically unlinking death recipients:
+10-31 16:16:58.739  6758  6760 I AidlLazyServiceRegistrar: Unregistered all clients and exiting
+10-31 16:16:58.931     0     0 I init    : Service 'artd' (pid 6758) exited with status 0 oneshot service took 3.779000 seconds in background
+10-31 16:16:58.936     0     0 I init    : Sending signal 9 to service 'artd' (pid 6758) process group...
+10-31 16:16:58.941     0     0 I libprocessgroup: Successfully killed process cgroup uid 1082 pid 6758 in 0ms
+10-31 16:16:59.079   519  3159 E TaskPersister: File error accessing recents directory (directory doesn't exist?).
+10-31 16:17:00.002  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:17:00.002  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:17:00.002  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:17:00.002  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:17:00.002  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0 (types=[])
+10-31 16:17:00.019   815   815 W PageIndicator: Total number of pages invalid: 0. Assuming 1 page.
+10-31 16:17:00.020   815   878 D EGL_emulation: app_time_stats: avg=769.48ms min=2.46ms max=3052.54ms count=5
+10-31 16:17:00.284  7009  7009 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+10-31 16:17:00.287  7009  7009 I AndroidRuntime: Using default boot image
+10-31 16:17:00.287  7009  7009 I AndroidRuntime: Leaving lock profiling enabled
+10-31 16:17:00.289  7009  7009 I app_process: Core platform API reporting enabled, enforcing=false
+10-31 16:17:00.289  7009  7009 I app_process: Using CollectorTypeCC GC.
+10-31 16:17:00.298   336  7011 I resolv  : GetAddrInfoHandler::run: {100 100 100 983140 10193 0}
+10-31 16:17:00.299   336  7013 I resolv  : res_nmkquery: (QUERY, IN, A)
+10-31 16:17:00.299   336  7012 I resolv  : res_nmkquery: (QUERY, IN, AAAA)
+10-31 16:17:00.321   336  7013 I resolv  : res_nsend: used send_dg 44 terrno: 0
+10-31 16:17:00.321   336  7013 I resolv  : doQuery: rcode=0, ancount=1, return value=44
+10-31 16:17:00.321   336  7012 I resolv  : res_nsend: used send_dg 112 terrno: 0
+10-31 16:17:00.321   336  7012 I resolv  : doQuery: rcode=0, ancount=0, return value=112
+10-31 16:17:00.322  6866  7010 D TrafficStats: tagSocket(181) with statsTag=0xffffffff, statsUid=-1
+10-31 16:17:00.329  7009  7009 D nativeloader: InitDefaultPublicLibraries for_preload=1: libandroid.so:libaaudio.so:libamidi.so:libbinder_ndk.so:libc.so:libcamera2ndk.so:libdl.so:libEGL.so:libGLESv1_CM.so:libGLESv2.so:libGLESv3.so:libicu.so:libicui18n.so:libicuuc.so:libjnigraphics.so:liblog.so:libmediandk.so:libm.so:libnativehelper.so:libnativewindow.so:libOpenMAXAL.so:libOpenSLES.so:libRS.so:libstdc++.so:libsync.so:libvulkan.so:libwebviewchromium_plat_support.so:libz.so
+10-31 16:17:00.334  7009  7009 D app_process: Time zone APEX ICU file found: /apex/com.android.tzdata/etc/icu/icu_tzdata.dat
+10-31 16:17:00.335  7009  7009 D app_process: I18n APEX ICU file found: /apex/com.android.i18n/etc/icu/icudt72l.dat
+10-31 16:17:00.338  7009  7009 W app_process: Unexpected CPU variant for x86: x86_64.
+10-31 16:17:00.338  7009  7009 W app_process: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, tremont, kabylake, default
+10-31 16:17:00.339  7009  7009 W app_process: ClassLoaderContext shared library size mismatch. Expected=2, found=0 (PCL[]{PCL[/system/framework/android.test.base.jar*836642756]#PCL[/system/framework/android.test.mock.jar*3186112116]} | PCL[])
+10-31 16:17:00.339  7009  7009 W app_process: ClassLoaderContext classpath size mismatch. expected=0, found=1 (PCL[]{PCL[/system/framework/android.test.runner.jar*4168958247]{PCL[/system/framework/android.test.base.jar*836642756]#PCL[/system/framework/android.test.mock.jar*3186112116]}#PCL[/system/framework/android.test.base.jar*836642756]} | PCL[/system/framework/android.test.runner.jar*4168958247])
+10-31 16:17:00.348  7009  7009 W libc    : Access denied finding property "ro.product.name_for_attestation"
+10-31 16:17:00.348  7009  7009 W libc    : Access denied finding property "ro.product.brand_for_attestation"
+10-31 16:17:00.348  7009  7009 W libc    : Access denied finding property "ro.product.model_for_attestation"
+10-31 16:17:00.349  7009  7009 D AndroidRuntime: Calling main entry com.android.commands.uiautomator.Launcher
+10-31 16:17:00.347  7009  7009 W main    : type=1400 audit(0.0:86): avc:  denied  { read } for  name="u:object_r:build_attestation_prop:s0" dev="tmpfs" ino=86 scontext=u:r:shell:s0 tcontext=u:object_r:build_attestation_prop:s0 tclass=file permissive=0
+10-31 16:17:00.350  7009  7009 D UiAutomationConnection: Created on user UserHandle{0}
+10-31 16:17:00.350  7009  7009 I UiAutomation: Initialized for user 0 on display 0
+10-31 16:17:00.350  7009  7009 W UiAutomation: Created with deprecatead constructor, assumes DEFAULT_DISPLAY
+10-31 16:17:00.351   519  2035 D AccessibilityManagerService: changeCurrentUserForTestAutomationIfNeededLocked(0): ignoring because device doesn't support visible background users
+10-31 16:17:00.351   519  2035 I UiAutomationManager: Registering UiTestAutomationService (id=com.android.server.accessibility/UiAutomation) when called by user 0
+10-31 16:17:00.352   519  2035 W WindowMagnificationMgr: requestConnection duplicated request: connect=false, mConnectionState=DISCONNECTED
+10-31 16:17:00.352   519   519 D BatterySaverPolicy: accessibility changed to true, updating policy.
+10-31 16:17:00.347  7009  7009 W main    : type=1400 audit(0.0:87): avc:  denied  { read } for  name="u:object_r:build_attestation_prop:s0" dev="tmpfs" ino=86 scontext=u:r:shell:s0 tcontext=u:object_r:build_attestation_prop:s0 tclass=file permissive=0
+10-31 16:17:00.353  1633  2673 I AiAiEcho: Settings changed for uri: content://settings/secure/accessibility_enabled
+10-31 16:17:00.354  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:17:00.354  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:17:00.354  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:17:00.354  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:17:00.354  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:17:00.354  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:17:00.354  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:17:00.354  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:17:00.354  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0 (types=[])
+10-31 16:17:00.354  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0 (types=[])
+10-31 16:17:00.355   815   815 W PageIndicator: Total number of pages invalid: 0. Assuming 1 page.
+10-31 16:17:00.355  7009  7027 V UiAutomation: Init UiAutomation@53a7ff3[id=3, displayId=0, flags=0]
+10-31 16:17:00.355   519  2031 W WindowMagnificationMgr: requestConnection duplicated request: connect=false, mConnectionState=DISCONNECTED
+10-31 16:17:00.357   519  1676 D SafetySourceDataValidator: No cert check requested for package com.google.android.permissioncontroller
+10-31 16:17:00.357  1633  2673 I AiAiEcho: Settings changed for uri: content://settings/secure/accessibility_enabled
+10-31 16:17:00.359  1762  2199 I A       : NGA disabled since it's running Panthera and at least one a11y feature is on.
+10-31 16:17:00.359  1762  2199 I A       : Nga state changed to NgaStateDetails{state=DISABLED, isSpecialExperience=false}
+10-31 16:17:00.347  7009  7009 W main    : type=1400 audit(0.0:88): avc:  denied  { read } for  name="u:object_r:build_attestation_prop:s0" dev="tmpfs" ino=86 scontext=u:r:shell:s0 tcontext=u:object_r:build_attestation_prop:s0 tclass=file permissive=0
+10-31 16:17:00.360  1623  2692 I A       : APA or Classic session decision: SessionDecision(sessionVariance=CLASSIC, platformVariance=CLASSIC, justification=CURRENT_PLATFORM_VARIANCE).
+10-31 16:17:00.360  1623  2692 I A       : [Memory] eligibility: StashEligibility{4}
+10-31 16:17:00.361  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:17:00.361  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:17:00.361  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:17:00.361  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:17:00.361  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:17:00.361  1623  2443 I A       : Unsubscribed to apa or classic variant change.
+10-31 16:17:00.361  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:17:00.361  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:17:00.361  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:17:00.361  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0 (types=[])
+10-31 16:17:00.361  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0 (types=[])
+10-31 16:17:00.362   815   815 W PageIndicator: Total number of pages invalid: 0. Assuming 1 page.
+10-31 16:17:00.591   519  2035 I WifiService: releaseMulticastLock uid=10193
+10-31 16:17:00.595   964  1152 D IpClient.wlan0: set max DTIM multiplier to 2
+10-31 16:17:00.596   519   740 E WifiStaIfaceAidlImpl: installApfPacketFilter failed with service-specific exception: android.os.ServiceSpecificException:  (code 4)
+10-31 16:17:00.596   519   740 E WifiStaIfaceAidlImpl: setDtimMultiplier failed with service-specific exception: android.os.ServiceSpecificException:  (code 4)
+10-31 16:17:00.625  6866  6908 D EGL_emulation: app_time_stats: avg=160.71ms min=14.95ms max=1541.74ms count=15
+10-31 16:17:01.089   336  7031 I resolv  : GetAddrInfoHandler::run: {100 100 100 983140 10193 0}
+10-31 16:17:01.089   336  7033 I resolv  : res_nmkquery: (QUERY, IN, A)
+10-31 16:17:01.089   336  7032 I resolv  : res_nmkquery: (QUERY, IN, AAAA)
+10-31 16:17:01.095   336  7032 I resolv  : res_nsend: used send_dg 119 terrno: 0
+10-31 16:17:01.095   336  7032 I resolv  : doQuery: rcode=0, ancount=0, return value=119
+10-31 16:17:01.100   336  7033 I resolv  : res_nsend: used send_dg 118 terrno: 0
+10-31 16:17:01.100   336  7033 I resolv  : doQuery: rcode=0, ancount=4, return value=118
+10-31 16:17:01.100  6866  7010 D TrafficStats: tagSocket(182) with statsTag=0xffffffff, statsUid=-1
+10-31 16:17:01.660   815   815 D StatusBarIconController: ignoring old pipeline callbacks, because the new mobile icons are enabled
+10-31 16:17:01.758  7009  7009 W AccessibilityNodeInfoDumper: Fetch time: 4ms
+10-31 16:17:01.759  1633  2673 I AiAiEcho: Settings changed for uri: content://settings/secure/accessibility_enabled
+10-31 16:17:01.759   519  2035 W WindowMagnificationMgr: requestConnection duplicated request: connect=false, mConnectionState=DISCONNECTED
+10-31 16:17:01.760   519  2035 D AccessibilityManagerService: restoreCurrentUserForTestAutomationIfNeededLocked(): ignoring because device doesn't support visible background users
+10-31 16:17:01.760   519   519 D BatterySaverPolicy: accessibility changed to false, updating policy.
+10-31 16:17:01.760  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:17:01.760  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:17:01.760  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:17:01.760  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:17:01.760  1633  2088 I AiAiEcho: Predicting[0]: 
+10-31 16:17:01.760  1633  2088 I AiAiEcho: EchoTargets: 
+10-31 16:17:01.760  1633  2088 I AiAiEcho: Filtered by AiAi flag check: 
+10-31 16:17:01.760  1633  2088 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata: 
+10-31 16:17:01.760  1762  2147 I A       : NGA enabled in interactor.
+10-31 16:17:01.760  1762  2147 I A       : Nga state changed to NgaStateDetails{state=ENABLED, isSpecialExperience=false}
+10-31 16:17:01.761  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0 (types=[])
+10-31 16:17:01.761  1633  2088 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0 (types=[])
+10-31 16:17:01.762  1623  2692 I A       : Initializing all components
+10-31 16:17:01.762  1623  2692 I A       : APA or Classic session decision: SessionDecision(sessionVariance=CLASSIC, platformVariance=CLASSIC, justification=CURRENT_PLATFORM_VARIANCE).
+10-31 16:17:01.762  1623  2692 I A       : [Memory] eligibility: StashEligibility{6}
+10-31 16:17:01.762  1623  2443 I A       : onIsEnabledChanged, isEnabled: false
+10-31 16:17:01.762  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.762  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.762  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.762  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.762  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.762  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.762  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.762  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.762  1623  2507 I A       : State changed: IDLE => IDLE by NGA_STATE_CHANGED and N/A with Optional.empty
+10-31 16:17:01.763  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.763  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.763  1623  2443 I A       : onOpaVisibilityChanged: false
+10-31 16:17:01.763  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.763  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 I A       : Setting session to type: NO_SESSION
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 I A       : setNavBarVisible: GestureNavBarVisible{navbarVisible=true}
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 W A       : Disposing empty manager. Did you forgot to subscribe observables?
+10-31 16:17:01.764  1623  2443 I A       : onDisabled. Registered: false
+10-31 16:17:01.765  1623  2507 I A       : Recognizer choice: (recognizer_type: 1, recognizer_mode: 1, choice_reason: 4)
+10-31 16:17:01.765  1623  2507 I A       : onActiveStateChangeEvent: IDLE => IDLE
+10-31 16:17:01.765   815   815 W PageIndicator: Total number of pages invalid: 0. Assuming 1 page.
+10-31 16:17:01.766  1623  2507 I A       : #onActiveStateChangeEvent, newState: IDLE, previousState: IDLE.
+10-31 16:17:01.771  1623  2507 I A       : on opa visibility changed false
+10-31 16:17:01.772  1623  2507 I A       : stopListening(NGA_PAUSED_UNKNOWN_REASON, NGA_CREATE), idleOverride=NOT_LISTENING
+10-31 16:17:01.772  1623  2507 I NgaEntryPointEventSendr: setupConnection
+10-31 16:17:01.783   519  1676 W ProcessStats: Tracking association SourceState{9990d72 com.google.android.googlequicksearchbox:interactor/10132 BFgs #13983} whose proc state 4 is better than process ProcessState{340d5ec com.google.android.googlequicksearchbox:search/10132 pkg=com.google.android.googlequicksearchbox} proc state 14 (921 skipped)
+10-31 16:17:01.784  1623  2443 I A       : Initialize
+10-31 16:17:01.785  1623  2443 I A       : on opa visibility changed false
+10-31 16:17:01.787  1623  2507 I NgaEntryPointEventSendr: State changed: Disconnected => Connecting
+10-31 16:17:01.795  7009  7009 D AndroidRuntime: Shutting down VM
+10-31 16:17:01.796  1762  1762 I A       : Creating pss binder().
+10-31 16:17:01.802  1623  2443 I A       : Successfully initialized all components
+10-31 16:17:01.803  1623  2507 I NgaEntryPointEventSendr: onServiceConnected
+10-31 16:17:01.804  1762  2702 I A       : Calling beginBinderSession().
+10-31 16:17:01.804  1762  2702 I A       : beginBinderSession(): calling binder
+10-31 16:17:01.804  1623  2507 I NgaEntryPointEventSendr: State changed: Connecting => Ready
+10-31 16:17:01.806   519  2035 W ActivityManager: Unable to start service Intent { cmp=com.google.android.apps.tachyon/.clientapi.ClientApiService } U=0: not found
+10-31 16:17:01.814  1762  2855 W SearchServiceCore: Abort, client detached.
+10-31 16:17:01.814  1762  3052 I PBSessionCacheImpl: Deleted sessionId[7751151415720086] from persistence.
+10-31 16:17:01.815  1623  2507 I NgaEntryPointEventSendr: State changed: Ready => Disconnected (onOpaDisconnected)
+10-31 16:17:01.835  1623  1623 V ClearcutMetricXmitter: Transmission is done.
+10-31 16:17:02.330     0     0 W healthd : battery l=100 v=5000 t=25.0 h=2 st=2 c=900000 fc=3000000 cc=10 chg=a
+10-31 16:17:02.347  6866  7034 D ProfileInstaller: Installing profile for io.github.drflgd.gamerepo.go
+10-31 16:17:02.640   519   545 D OomAdjuster: Not killing cached processes
+10-31 16:17:02.664  7038  7038 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+10-31 16:17:02.664  7038  7038 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+10-31 16:17:02.684   136   136 I hwservicemanager: getTransport: Cannot find entry android.hardware.graphics.mapper@4.0::IMapper/default in either framework or device VINTF manifest.
+10-31 16:17:02.686  7038  7039 I Gralloc4: mapper 4.x is not supported
+10-31 16:17:02.870     0     0 I servicemanager: Could not find android.hardware.graphics.allocator.IAllocator/default in the VINTF manifest.

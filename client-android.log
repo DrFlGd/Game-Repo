@@ -1,0 +1,22 @@
+PASS Game Repo Go opens asking to be paired, and says games wait for All files access
+PASS Allow access opens Android's screen for it, and once allowed ES-DE's folder is found
+PASS the code from Game Repo pairs it by address, and the library's games are shown, on shelves in the big-screen view
+PASS a box front comes through the app's picture protocol
+PASS the pairing is kept encrypted with a Keystore key, with no token in the app's files
+PASS a controller's D-pad moves to the nearest game, X adds it to the queue, A opens it and B comes back to it
+PASS R1 and L1 change the page, Start opens Options and B closes it, Y goes to the search
+PASS a game added is downloaded into ES-DE's folder and gamelist, with its box front
+PASS a game queued while the library's away shows the downloads' notification, from a foreground service
+PASS the notification's Pause pauses the queue
+PASS once the library's back the game comes, and the notification goes
+PASS a game removed goes from the device
+PASS turned off in Settings, the job goes
+PASS saves are synced in the background by WorkManager's job, through the Rust library
+PASS it checked for updates as it started
+PASS Settings › Check for updates finds Game Repo Go 9.9.9, to download and install
+PASS an APK changed after it was signed is refused
+PASS the update downloaded and checked brings Android's installer to the front
+PASS backed out of Android's installer, the page says the update wasn't installed
+PASS Back on the Library sends the app to the background
+PASS no page errors
+21 of 21 checks passed
