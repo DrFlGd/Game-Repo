@@ -1,0 +1,105 @@
+   Compiling windows-sys v0.61.2
+warning: function `home_dir` is never used
+   --> steam\src\lib.rs:239:4
+    |
+239 | fn home_dir() -> PathBuf {
+    |    ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `gamerepo-steam` (lib) generated 1 warning
+   Compiling socket2 v0.6.5
+   Compiling winapi-util v0.1.11
+   Compiling if-addrs v0.15.0
+   Compiling same-file v1.0.6
+   Compiling socket-pktinfo v0.4.1
+   Compiling mio v1.2.4
+   Compiling walkdir v2.5.0
+   Compiling mdns-sd v0.21.4
+   Compiling fs4 v1.1.0
+   Compiling notify v8.2.0
+   Compiling gamerepo-device v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\device)
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+   --> device\src\client.rs:207:23
+    |
+207 |             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |                       ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+help: replace the use of the deprecated method
+    |
+207 -             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+207 +             let _ = g.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |
+
+   Compiling gamerepo-core v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\core)
+warning: `gamerepo-device` (lib) generated 1 warning (run `cargo fix --lib -p gamerepo-device` to apply 1 suggestion)
+   Compiling gamerepo-serve v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\serve)
+    Finished `release` profile [optimized] target(s) in 5m 35s
+     Running unittests src\lib.rs (target\release\deps\gamerepo_core-e9cb6a382de89e99.exe)
+
+running 5 tests
+test audit::tests::timing_import_and_audit_of_a_50k_rom_dat ... import of 50,000 ROMs 777.0033ms; audit 643.6561ms
+ok
+test audit::tests::timing_rescan_of_100k_unchanged_files ... first scan 9.5s ({"listing":0.14,"comparing":0.68,"hashing":4.39,"opening":4.11,"reading":7.66,"recording":4.31,"matching":4.3}); rescan of 100,000 unchanged files 370.4406ms
+ok
+test browse::tests::timing_the_library_of_200k_games ...   page at 120,000 by year: 11.4185ms
+  page at 120,000 by year (descending): 10.9764ms
+  page at 120,000 by rating: 12.4172ms
+  page at 120,000 by size: 13.1002ms
+  page at 120,000 by date: 12.6176ms
+  page at 120,000 by title (descending): 11.2971ms
+  page at 120,000 by system: 11.5414ms
+200,000 games written in 39.695632s; first page 7.1697ms, deepest page 13.1002ms, a system's 2.4282ms, searched 2.5876ms, filtered and searched 880.2µs, searched for everything 249.2858ms; counts 222.6015ms, filtered counts 177.1245ms
+ok
+test export::tests::timing_export_of_8k_games_with_pictures_and_its_update ... export of 8,000 games with pictures planned in 3.0426602s; its Update in 4.535323s
+ok
+test organise::tests::timing_plan_of_50k_files_and_renaming_10k ... plan of 50,000 files 1.4474468s; renaming 10,000 9.9855379s
+ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 212 filtered out; finished in 200.70s
+
+     Running unittests src\lib.rs (target\release\deps\gamerepo_serve-16b831ba75e2c523.exe)
+
+running 1 test
+test catalogue::tests::timing_a_page_of_a_catalogue_of_100k_games_and_its_changes ...   a page at 90,000 by title (descending): 36.5527ms
+  a page at 90,000 by size: 62.3684ms
+  a page at 90,000 by size (descending): 61.1017ms
+  a page at 90,000 by year: 31.2281ms
+  a page at 90,000 by year (descending): 39.1319ms
+  a system's page at 9,000 by size (descending): 1.74ms
+  a system's page at 9,000 by year: 1.6622ms
+  a system's page at 9,000 by year (descending): 1.6027ms
+100,000 games: catalogue made in 3.7561145s, made again after 1,500 changes in 8.5530817s; first page 9.1602ms, the slowest deep page 62.3684ms, a system's page 1.2909ms, searched 1.6012ms; changes 614.3µs
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 17.19s
+
+     Running tests\client.rs (target\release\deps\client-262b5ab5d7ad7e71.exe)
+
+running 1 test
+test timing_game_repo_go_reading_100k_games ... Game Repo Go read 100006 games in 7.1668951s; a page at 90,000 30.6908ms, a system's by size 5.828ms, a search 4.2121ms
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 14.69s
+
+     Running tests\devices.rs (target\release\deps\devices-51c3065f28584e94.exe)
+
+running 1 test
+test timing_a_download_on_this_computer ... 512 MiB sent over HTTPS in 284.7008ms: 1886 MB/s; fetched and written to disk: 144 MB/s
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 10.42s
+
+   Doc-tests gamerepo_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests gamerepo_serve
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

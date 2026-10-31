@@ -1,0 +1,142 @@
+        Info Looking up installed tauri packages to check mismatched versions...
+ Downloading crates ...
+  Downloaded hyper-rustls v0.27.10
+  Downloaded rustls-platform-verifier v0.7.1
+  Downloaded tauri-plugin-updater v2.14.0
+  Downloaded tokio-rustls v0.26.6
+  Downloaded windows-registry v0.6.1
+   Compiling windows-sys v0.61.2
+   Compiling smallvec v1.16.3
+   Compiling anyhow v1.0.104
+   Compiling futures-core v0.3.34
+   Compiling httparse v1.10.1
+   Compiling icu_normalizer v2.3.0
+   Compiling tauri-utils v2.10.2
+   Compiling parking_lot_core v0.9.12
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling windows v0.62.2
+   Compiling tracing-core v0.1.36
+   Compiling tracing v0.1.44
+   Compiling parking_lot v0.12.5
+   Compiling tauri-build v2.7.3
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling tokio v1.53.3
+   Compiling winapi-util v0.1.11
+   Compiling same-file v1.0.6
+   Compiling walkdir v2.5.0
+   Compiling tauri-plugin v2.7.2
+   Compiling futures-sink v0.3.34
+   Compiling urlpattern v0.6.0
+   Compiling http-body v1.1.0
+   Compiling semver v1.0.28
+   Compiling futures-macro v0.3.34
+   Compiling tauri v2.12.4
+   Compiling futures-task v0.3.34
+   Compiling slab v0.4.12
+   Compiling futures-util v0.3.34
+   Compiling try-lock v0.2.5
+   Compiling tower-service v0.3.3
+   Compiling tray-icon v0.25.1
+   Compiling dirs-sys v0.5.0
+   Compiling want v0.3.2
+   Compiling muda v0.20.0
+   Compiling tauri-codegen v2.7.3
+   Compiling softbuffer v0.4.8
+   Compiling atomic-waker v1.1.2
+   Compiling hyper v1.12.0
+   Compiling tauri-macros v2.7.3
+   Compiling dirs v7.0.0
+   Compiling tauri-plugin-fs v2.7.1
+   Compiling window-vibrancy v0.8.1
+   Compiling futures-channel v0.3.34
+   Compiling sync_wrapper v1.0.2
+   Compiling windows-registry v0.6.1
+   Compiling tower-layer v0.3.3
+   Compiling ipnet v2.12.2
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.21
+   Compiling flume v0.12.0
+   Compiling tokio-rustls v0.26.6
+   Compiling socket-pktinfo v0.4.1
+   Compiling if-addrs v0.15.0
+   Compiling gamerepo-wire v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\wire)
+   Compiling rusqlite v0.40.2
+   Compiling webview2-com-sys v0.39.1
+   Compiling webview2-com v0.39.1
+   Compiling tao v0.37.1
+   Compiling png v0.18.1
+   Compiling wry v0.57.0
+   Compiling tauri-runtime v2.12.2
+   Compiling tauri-runtime-wry v2.12.2
+   Compiling mdns-sd v0.21.4
+   Compiling hyper-rustls v0.27.10
+   Compiling tower-http v0.6.11
+   Compiling tauri-plugin-updater v2.14.0
+   Compiling tauri-plugin-dialog v2.8.3
+   Compiling http-body-util v0.1.5
+   Compiling tokio-util v0.7.20
+   Compiling ureq-proto v0.6.4
+   Compiling rtoolbox v0.0.6
+   Compiling rustls-platform-verifier v0.7.1
+   Compiling fs4 v1.1.0
+   Compiling gamerepo-steam v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\steam)
+warning: function `home_dir` is never used
+   --> steam\src\lib.rs:239:4
+    |
+239 | fn home_dir() -> PathBuf {
+    |    ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `gamerepo-steam` (lib) generated 1 warning
+   Compiling chd v0.4.0
+   Compiling lopdf v0.38.0
+   Compiling gamerepo-device v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\device)
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+   --> device\src\client.rs:207:23
+    |
+207 |             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |                       ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+help: replace the use of the deprecated method
+    |
+207 -             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+207 +             let _ = g.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |
+
+   Compiling image v0.25.10
+   Compiling ureq v3.4.2
+   Compiling notify v8.2.0
+   Compiling reqwest v0.13.5
+   Compiling rpassword v7.5.4
+   Compiling tempfile v3.27.0
+   Compiling yasna v0.6.0
+   Compiling pem v4.0.0
+   Compiling minisign v0.9.1
+   Compiling rcgen v0.14.10
+   Compiling gamerepo-core v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\core)
+   Compiling gamerepo-server v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\server)
+   Compiling gamerepo-update v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\update)
+warning: `gamerepo-device` (lib) generated 1 warning (run `cargo fix --lib -p gamerepo-device` to apply 1 suggestion)
+   Compiling gamerepo-serve v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\serve)
+    Finished `release` profile [optimized] target(s) in 6m 35s
+       Built application at: D:\a\Game-Repo\Game-Repo\desktop\target\release\gamerepo-server.exe
+        Info Patching D:\a\Game-Repo\Game-Repo\desktop\target\release\gamerepo-server.exe with bundle type information: nsis
+        Info Verifying NSIS package
+ Downloading https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.13/nsis-3.13.zip
+        Info validating hash
+        Info extracting NSIS
+ Downloading https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll
+        Info validating hash
+        Info Target: x64
+     Running makensis to produce D:\a\Game-Repo\Game-Repo\desktop\target\release\bundle\nsis\Game Repo Server_0.5.64_x64-setup.exe
+    Finished 1 bundle at:
+        D:\a\Game-Repo\Game-Repo\desktop\target\release\bundle\nsis\Game Repo Server_0.5.64_x64-setup.exe (7.83 MiB)
+
+    Finished 1 updater signature at:
+        D:\a\Game-Repo\Game-Repo\desktop\target\release\bundle\nsis\Game Repo Server_0.5.64_x64-setup.exe.sig
+

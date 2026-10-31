@@ -1,0 +1,48 @@
+  helper: Game Repo Go: the key that signs its Android app
+  helper: ================================================
+  helper: Made a new key: D:\a\_temp\android-key\dotnet\game-repo-go.p12
+  helper: Keep that folder safe, with a backup copy (README.txt in it says why).
+  helper: Its certificate's SHA-256: 4B:01:D4:BA:99:98:0F:A6:16:5D:26:D2:FA:FD:1A:69:7E:5A:50:20:B2:DE:BC:04:F4:18:24:1A:06:B5:77:21
+  helper: (each release says which certificate signed its APK, so you can check it is this one)
+PASS .NET's way: the helper makes the key, its password and the README
+PASS .NET's way: it made it that way, with no fallback
+PASS .NET's way: a password of 32 letters and digits
+PASS .NET's way: Java reads it with its password
+PASS .NET's way: one key in it
+PASS .NET's way: an RSA 2048 key, SHA-256 signed
+PASS .NET's way: its certificate is good for 50 years
+PASS .NET's way: the SHA-256 the helper prints is the certificate's
+PASS .NET's way: it signs, and the signature verifies
+  helper: Game Repo Go: the key that signs its Android app
+  helper: ================================================
+  helper: Using the key made before: D:\a\_temp\android-key\dotnet\game-repo-go.p12
+  helper: Its certificate's SHA-256: 4B:01:D4:BA:99:98:0F:A6:16:5D:26:D2:FA:FD:1A:69:7E:5A:50:20:B2:DE:BC:04:F4:18:24:1A:06:B5:77:21
+  helper: (each release says which certificate signed its APK, so you can check it is this one)
+PASS .NET's way: run again, it keeps the key it made
+  helper: Game Repo Go: the key that signs its Android app
+  helper: ================================================
+  helper: Made a new key: D:\a\_temp\android-key\store\game-repo-go.p12
+  helper: Keep that folder safe, with a backup copy (README.txt in it says why).
+  helper: Its certificate's SHA-256: F5:AD:17:D3:9D:9F:C4:F2:49:BD:DA:D5:A5:A3:21:79:BC:31:70:0F:68:DD:A0:4D:3D:18:F5:46:2B:45:B8:DF
+  helper: (each release says which certificate signed its APK, so you can check it is this one)
+PASS Windows' own way: the helper makes the key, its password and the README
+PASS Windows' own way: it made it that way, with no fallback
+PASS Windows' own way: a password of 32 letters and digits
+PASS Windows' own way: Java reads it with its password
+PASS Windows' own way: one key in it
+PASS Windows' own way: an RSA 2048 key, SHA-256 signed
+PASS Windows' own way: its certificate is good for 50 years
+PASS Windows' own way: the SHA-256 the helper prints is the certificate's
+PASS Windows' own way: it signs, and the signature verifies
+  helper: Game Repo Go: the key that signs its Android app
+  helper: ================================================
+  helper: Using the key made before: D:\a\_temp\android-key\store\game-repo-go.p12
+  helper: Its certificate's SHA-256: F5:AD:17:D3:9D:9F:C4:F2:49:BD:DA:D5:A5:A3:21:79:BC:31:70:0F:68:DD:A0:4D:3D:18:F5:46:2B:45:B8:DF
+  helper: (each release says which certificate signed its APK, so you can check it is this one)
+PASS Windows' own way: run again, it keeps the key it made
+  helper: Game Repo Go: the key that signs its Android app
+  helper: ================================================
+  helper: 
+  helper: That didn't work: D:\a\_temp\android-key\lost\game-repo-go.p12 is there but its password.txt isn't. Put password.txt back beside it, or move the folder away to make a new key (an APK signed with a new key can't update one signed with the old).
+PASS a key without its password.txt is refused, not replaced
+all passed

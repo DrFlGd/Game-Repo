@@ -1,0 +1,563 @@
+{
+  "server said": [
+    "Game Repo Server 0.5.64 serving Library (D:\\a\\_temp\\serve-devices\\Library)",
+    "at 10.1.0.13:61415, announced on the network",
+    "certificate 65c8158e4b0ba1793c04a97220697996e1eeb31a7ff31c0f2fd362b3ba98944f",
+    "ready: paired devices can browse the library",
+    "stopped"
+  ],
+  "answers": {
+    "serve-devices status": {
+      "server": "2b903eb354689785",
+      "library": "D:\\a\\_temp\\serve-devices\\Library",
+      "library_name": "Library",
+      "version": "0.5.64",
+      "port": 61415,
+      "address": "10.1.0.13:61415",
+      "fingerprint": "65c8158e4b0ba1793c04a97220697996e1eeb31a7ff31c0f2fd362b3ba98944f",
+      "ready": true,
+      "doing": "",
+      "error": null,
+      "devices": 0,
+      "pairing": null,
+      "announced": true,
+      "kept": false,
+      "pid": 3732
+    },
+    "device find": [
+      {
+        "address": "192.168.16.1:61415",
+        "server": "2b903eb354689785",
+        "library": "Library",
+        "version": "0.5.64",
+        "api": 1
+      }
+    ],
+    "serve-devices pair": {
+      "code": "438742",
+      "seconds": 600
+    },
+    "serve-devices devices": [
+      {
+        "id": "f707e1c1682f31ec",
+        "name": "Stand-in phone",
+        "kind": "stand-in",
+        "paired": 1793464565,
+        "seen": 1793464565,
+        "address": "127.0.0.1",
+        "holding": {
+          "games": 2,
+          "size": 49168,
+          "free": 154656325632
+        }
+      }
+    ],
+    "device systems": [
+      {
+        "id": "gb",
+        "name": "Game Boy",
+        "folder": "gb",
+        "games": 3,
+        "size": 131222
+      },
+      {
+        "id": "nes",
+        "name": "Nintendo Entertainment System",
+        "folder": "nes",
+        "games": 1,
+        "size": 16400
+      }
+    ],
+    "device games": {
+      "items": [
+        {
+          "key": "nes/Echo (USA)",
+          "system": "nes",
+          "title": "Echo",
+          "size": 16400,
+          "media": []
+        }
+      ],
+      "total": 1,
+      "offset": 0,
+      "rev": 1793464556
+    },
+    "device add": {
+      "games": 1,
+      "files": 0,
+      "bytes": 0,
+      "there": 1,
+      "left": [],
+      "notes": []
+    },
+    "device holdings": {
+      "games": [
+        {
+          "key": "gb/Beta (Europe)",
+          "title": "Beta",
+          "system": "gb",
+          "added": 1793464565,
+          "files": [
+            {
+              "place": "roms",
+              "path": "gb/Beta (Europe).gb",
+              "size": 32768,
+              "sha1": "781de8edf0e06d9963d646a46740ce7b6102e7d1",
+              "role": "game"
+            }
+          ],
+          "entries": [
+            [
+              "esde",
+              "gamelists/gb/gamelist.xml",
+              "Beta (Europe).gb"
+            ],
+            [
+              "esde",
+              "collections/custom-Stand-in.cfg",
+              "line:%ROMPATH%/gb/Beta (Europe).gb"
+            ]
+          ]
+        },
+        {
+          "key": "nes/Echo (USA)",
+          "title": "Echo",
+          "system": "nes",
+          "added": 1793464565,
+          "files": [
+            {
+              "place": "roms",
+              "path": "nes/Echo (USA).nes",
+              "size": 16400,
+              "sha1": "0e9502d23a1a057b38debba385014b51b2cbd987",
+              "role": "game"
+            }
+          ],
+          "entries": [
+            [
+              "esde",
+              "gamelists/nes/gamelist.xml",
+              "Echo (USA).nes"
+            ],
+            [
+              "esde",
+              "collections/custom-Stand-in.cfg",
+              "line:%ROMPATH%/nes/Echo (USA).nes"
+            ]
+          ]
+        }
+      ],
+      "holding": {
+        "games": 2,
+        "size": 49168,
+        "free": 154656321536
+      }
+    },
+    "app pair": {
+      "answer": {
+        "library": "Library",
+        "server": "2b903eb354689785"
+      },
+      "queue": {
+        "items": [],
+        "offline": false,
+        "added": 0,
+        "left": 0,
+        "size": 0,
+        "done": 0,
+        "speed": 0,
+        "queued": 0
+      },
+      "status": {
+        "version": "0.5.64",
+        "kind": "stand-in",
+        "paired": true,
+        "library": {
+          "name": "Library",
+          "address": "127.0.0.1:61415",
+          "server": "2b903eb354689785"
+        },
+        "device": {
+          "esde": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE",
+          "roms": "D:\\a\\_temp\\serve-devices\\go-phone\\ROMs",
+          "media": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE\\downloaded_media",
+          "free": 154655813632,
+          "by": "ES-DE",
+          "installs": [
+            {
+              "by": "ES-DE",
+              "esde": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE",
+              "roms": "D:\\a\\_temp\\serve-devices\\go-phone\\ROMs",
+              "media": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE\\downloaded_media"
+            }
+          ]
+        },
+        "removal": null,
+        "queue": {
+          "left": 0,
+          "queued": 0,
+          "offline": false,
+          "added": 0,
+          "size": 0,
+          "done": 0,
+          "speed": 0
+        },
+        "sync": {
+          "running": false,
+          "done": 4,
+          "of": 4,
+          "error": "",
+          "at": 1793464566,
+          "synced": {
+            "whole": true,
+            "changed": 4,
+            "games": 4
+          }
+        },
+        "checking": {
+          "running": false,
+          "done": 0,
+          "of": 0,
+          "error": "",
+          "at": 0
+        },
+        "catalogue": {
+          "games": 4,
+          "synced": 1793464565
+        },
+        "pictures": {
+          "kept": 0,
+          "size": 0
+        },
+        "pc": {
+          "folder": "C:\\Games",
+          "default": true
+        }
+      }
+    },
+    "app games": {
+      "items": [
+        {
+          "key": "nes/Echo (USA)",
+          "system": "nes",
+          "title": "Echo",
+          "size": 16400,
+          "media": [],
+          "on_device": false
+        }
+      ],
+      "total": 1,
+      "offset": 0,
+      "rev": 1793464556
+    },
+    "app add": {
+      "answer": [
+        1
+      ],
+      "queue": {
+        "items": [
+          {
+            "id": 1,
+            "key": "gb/Delta (World)",
+            "title": "Delta",
+            "system": "gb",
+            "media": [
+              "cover",
+              "screenshot",
+              "marquee"
+            ],
+            "manuals": false,
+            "media_only": false,
+            "adopt": [],
+            "collection": "",
+            "state": "done",
+            "error": "",
+            "size": 65686,
+            "done": 65686,
+            "speed": 0,
+            "added": 1793464566
+          }
+        ],
+        "offline": false,
+        "added": 1,
+        "left": 0,
+        "size": 0,
+        "done": 0,
+        "speed": 0,
+        "queued": 0
+      },
+      "status": {
+        "version": "0.5.64",
+        "kind": "stand-in",
+        "paired": true,
+        "library": {
+          "name": "Library",
+          "address": "127.0.0.1:61415",
+          "server": "2b903eb354689785"
+        },
+        "device": {
+          "esde": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE",
+          "roms": "D:\\a\\_temp\\serve-devices\\go-phone\\ROMs",
+          "media": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE\\downloaded_media",
+          "free": 154656083968,
+          "by": "ES-DE",
+          "installs": [
+            {
+              "by": "ES-DE",
+              "esde": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE",
+              "roms": "D:\\a\\_temp\\serve-devices\\go-phone\\ROMs",
+              "media": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE\\downloaded_media"
+            }
+          ]
+        },
+        "removal": null,
+        "queue": {
+          "left": 0,
+          "queued": 0,
+          "offline": false,
+          "added": 1,
+          "size": 0,
+          "done": 0,
+          "speed": 0
+        },
+        "sync": {
+          "running": false,
+          "done": 0,
+          "of": 0,
+          "error": "",
+          "at": 0
+        },
+        "checking": {
+          "running": false,
+          "done": 0,
+          "of": 0,
+          "error": "",
+          "at": 0
+        },
+        "catalogue": {
+          "games": 4,
+          "synced": 1793464565
+        },
+        "pictures": {
+          "kept": 0,
+          "size": 0
+        },
+        "pc": {
+          "folder": "C:\\Games",
+          "default": true
+        }
+      }
+    },
+    "app on_device": {
+      "games": [
+        {
+          "id": "gb/Delta (World).zip",
+          "key": "gb/Delta (World)",
+          "from": "library",
+          "name": "Delta",
+          "system": "gb",
+          "size": 65686,
+          "last_played": "",
+          "play_count": 0,
+          "added": 1793464566,
+          "media": [],
+          "files": 1
+        },
+        {
+          "id": "gb/My Alpha.gb",
+          "key": "gb/Alpha (USA)",
+          "from": "known",
+          "name": "My Alpha",
+          "system": "gb",
+          "size": 32768,
+          "last_played": "",
+          "play_count": 0,
+          "added": 1793464565,
+          "media": [],
+          "files": 1
+        }
+      ],
+      "free": 154656083968,
+      "size": 98454,
+      "checking": {
+        "running": false,
+        "done": 0,
+        "of": 0,
+        "error": "",
+        "at": 0
+      },
+      "removal": null
+    },
+    "app remove": {
+      "id": "1793464566573",
+      "games": [
+        "Delta"
+      ],
+      "media_of": [],
+      "keys": [
+        "gb/Delta (World)"
+      ],
+      "files": [
+        {
+          "place": "roms",
+          "path": "gb/Delta (World).zip",
+          "size": 65686,
+          "game": "Delta",
+          "kind": "rom"
+        }
+      ],
+      "kept": [],
+      "gone": [],
+      "entries": [
+        [
+          "esde",
+          "gamelists/gb/gamelist.xml",
+          "Delta (World).zip"
+        ]
+      ],
+      "lines": [],
+      "frees": 65686,
+      "blocks": [
+        [
+          "esde",
+          "gamelists/gb/gamelist.xml",
+          "<game>\n\t\t<path>./Delta (World).zip</path>\n\t\t<name>Delta (World)</name>\n\t</game>"
+        ]
+      ],
+      "held": [
+        {
+          "key": "gb/Delta (World)",
+          "title": "Delta",
+          "system": "gb",
+          "added": 1793464566,
+          "files": [
+            {
+              "place": "roms",
+              "path": "gb/Delta (World).zip",
+              "size": 65686,
+              "sha1": "827e27b2dbfaa5a574a068ae38dc30fca7cee3ed",
+              "role": "game"
+            }
+          ],
+          "entries": [
+            [
+              "esde",
+              "gamelists/gb/gamelist.xml",
+              "Delta (World).zip"
+            ]
+          ]
+        }
+      ],
+      "step": "deleting",
+      "kept_made": []
+    },
+    "app sync": {
+      "answer": {
+        "running": true,
+        "done": 0,
+        "of": 0,
+        "error": "",
+        "at": 0
+      },
+      "queue": {
+        "items": [
+          {
+            "id": 1,
+            "key": "gb/Delta (World)",
+            "title": "Delta",
+            "system": "gb",
+            "media": [
+              "cover",
+              "screenshot",
+              "marquee"
+            ],
+            "manuals": false,
+            "media_only": false,
+            "adopt": [],
+            "collection": "",
+            "state": "done",
+            "error": "",
+            "size": 65686,
+            "done": 65686,
+            "speed": 0,
+            "added": 1793464566
+          }
+        ],
+        "offline": false,
+        "added": 0,
+        "left": 0,
+        "size": 0,
+        "done": 0,
+        "speed": 0,
+        "queued": 0
+      },
+      "status": {
+        "version": "0.5.64",
+        "kind": "stand-in",
+        "paired": true,
+        "library": {
+          "name": "Library",
+          "address": "192.168.16.1:61415",
+          "server": "2b903eb354689785"
+        },
+        "device": {
+          "esde": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE",
+          "roms": "D:\\a\\_temp\\serve-devices\\go-phone\\ROMs",
+          "media": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE\\downloaded_media",
+          "free": 154656120832,
+          "by": "ES-DE",
+          "installs": [
+            {
+              "by": "ES-DE",
+              "esde": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE",
+              "roms": "D:\\a\\_temp\\serve-devices\\go-phone\\ROMs",
+              "media": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE\\downloaded_media"
+            }
+          ]
+        },
+        "removal": null,
+        "queue": {
+          "left": 0,
+          "queued": 0,
+          "offline": false,
+          "added": 0,
+          "size": 0,
+          "done": 0,
+          "speed": 0
+        },
+        "sync": {
+          "running": false,
+          "done": 0,
+          "of": 0,
+          "error": "",
+          "at": 1793464572,
+          "synced": {
+            "whole": false,
+            "changed": 0,
+            "games": 4
+          }
+        },
+        "checking": {
+          "running": false,
+          "done": 0,
+          "of": 0,
+          "error": "",
+          "at": 0
+        },
+        "catalogue": {
+          "games": 4,
+          "synced": 1793464572
+        },
+        "pictures": {
+          "kept": 0,
+          "size": 0
+        },
+        "pc": {
+          "folder": "C:\\Games",
+          "default": true
+        }
+      }
+    }
+  },
+  "failed": []
+}

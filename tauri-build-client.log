@@ -1,0 +1,124 @@
+        Info Looking up installed tauri packages to check mismatched versions...
+ Downloading crates ...
+  Downloaded tauri-plugin-single-instance v2.5.2
+   Compiling syn v2.0.119
+   Compiling windows-sys v0.61.2
+   Compiling urlpattern v0.6.0
+   Compiling digest v0.10.7
+   Compiling inout v0.1.4
+   Compiling cipher v0.4.4
+   Compiling sha2 v0.10.9
+   Compiling hmac v0.12.1
+   Compiling salsa20 v0.10.2
+   Compiling serde_derive_internals v0.29.1
+   Compiling pbkdf2 v0.12.2
+   Compiling scrypt v0.11.0
+   Compiling gamerepo-wire v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\wire)
+   Compiling gamerepo-steam v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\steam)
+warning: function `home_dir` is never used
+   --> steam\src\lib.rs:239:4
+    |
+239 | fn home_dir() -> PathBuf {
+    |    ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling phf_macros v0.13.1
+   Compiling phf v0.13.1
+   Compiling web_atoms v0.2.6
+   Compiling derive_more-impl v2.1.1
+   Compiling derive_more v2.1.1
+   Compiling markup5ever v0.39.0
+warning: `gamerepo-steam` (lib) generated 1 warning
+   Compiling cssparser v0.37.0
+   Compiling html5ever v0.39.0
+   Compiling selectors v0.38.0
+   Compiling schemars_derive v0.8.22
+   Compiling socket2 v0.6.5
+   Compiling dom_query v0.28.0
+   Compiling mio v1.2.4
+   Compiling schemars v0.8.22
+   Compiling tauri-utils v2.10.2
+   Compiling windows-interface v0.59.3
+   Compiling windows-implement v0.60.2
+   Compiling tokio v1.53.3
+   Compiling tracing-attributes v0.1.31
+   Compiling windows-core v0.62.2
+   Compiling windows-numerics v0.3.1
+   Compiling windows-collections v0.3.2
+   Compiling windows-future v0.3.2
+   Compiling tracing v0.1.44
+   Compiling windows v0.62.2
+   Compiling winapi-util v0.1.11
+   Compiling same-file v1.0.6
+   Compiling webview2-com-macros v0.8.1
+   Compiling walkdir v2.5.0
+   Compiling tauri-build v2.7.3
+   Compiling tauri-plugin v2.7.2
+   Compiling tauri-codegen v2.7.3
+   Compiling softbuffer v0.4.8
+   Compiling tauri v2.12.4
+   Compiling dirs-sys v0.5.0
+   Compiling muda v0.20.0
+   Compiling serialize-to-javascript-impl v0.1.2
+   Compiling serialize-to-javascript v0.1.2
+   Compiling tray-icon v0.25.1
+   Compiling dirs v7.0.0
+   Compiling tauri-macros v2.7.3
+   Compiling window-vibrancy v0.8.1
+   Compiling tauri-plugin-fs v2.7.1
+   Compiling hyper v1.12.0
+   Compiling hyper-util v0.1.21
+   Compiling tower v0.5.3
+   Compiling tokio-rustls v0.26.6
+   Compiling hyper-rustls v0.27.10
+   Compiling tower-http v0.6.11
+   Compiling tauri-plugin-updater v2.14.0
+   Compiling tauri-plugin-dialog v2.8.3
+   Compiling tokio-util v0.7.20
+   Compiling rustls-platform-verifier v0.7.1
+   Compiling rtoolbox v0.0.6
+   Compiling reqwest v0.13.5
+   Compiling rpassword v7.5.4
+   Compiling socket-pktinfo v0.4.1
+   Compiling tempfile v3.27.0
+   Compiling if-addrs v0.15.0
+   Compiling mdns-sd v0.21.4
+   Compiling webview2-com-sys v0.39.1
+   Compiling webview2-com v0.39.1
+   Compiling tao v0.37.1
+   Compiling tauri-runtime v2.12.2
+   Compiling wry v0.57.0
+   Compiling tauri-runtime-wry v2.12.2
+   Compiling minisign v0.9.1
+   Compiling gamerepo-client v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\client)
+   Compiling fs4 v1.1.0
+   Compiling sha1 v0.10.7
+   Compiling gamerepo-device v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\device)
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+   --> device\src\client.rs:207:23
+    |
+207 |             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |                       ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+help: replace the use of the deprecated method
+    |
+207 -             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+207 +             let _ = g.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |
+
+   Compiling gamerepo-update v0.5.64 (D:\a\Game-Repo\Game-Repo\desktop\update)
+   Compiling tauri-plugin-single-instance v2.5.2
+warning: `gamerepo-device` (lib) generated 1 warning (run `cargo fix --lib -p gamerepo-device` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 3m 50s
+       Built application at: D:\a\Game-Repo\Game-Repo\desktop\target\release\gamerepo-client.exe
+        Info Patching D:\a\Game-Repo\Game-Repo\desktop\target\release\gamerepo-client.exe with bundle type information: nsis
+        Info Target: x64
+     Running makensis to produce D:\a\Game-Repo\Game-Repo\desktop\target\release\bundle\nsis\Game Repo Go_0.5.64_x64-setup.exe
+    Finished 1 bundle at:
+        D:\a\Game-Repo\Game-Repo\desktop\target\release\bundle\nsis\Game Repo Go_0.5.64_x64-setup.exe (6.06 MiB)
+
+    Finished 1 updater signature at:
+        D:\a\Game-Repo\Game-Repo\desktop\target\release\bundle\nsis\Game Repo Go_0.5.64_x64-setup.exe.sig
+

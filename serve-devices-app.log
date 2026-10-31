@@ -1,0 +1,32 @@
+  server: Game Repo Server 0.5.64 serving Library (D:\a\_temp\serve-devices-app\Library)
+  server: at 10.1.0.13:62453
+  server: ready: paired devices can browse the library
+PASS the server's first index is a copy of Game Repo's
+PASS the server is ready and announced
+PASS the device finds the server on the network (DNS-SD)
+PASS a wrong code is refused
+PASS the server lists the device by its name
+PASS the systems with games
+PASS a system's games
+PASS a search
+PASS two games added
+PASS the Game Boy game is in ES-DE's folder, named by its DAT
+PASS the NES game is in ES-DE's folder
+PASS the gamelist keeps the device's own entry and has the game's
+PASS the record lists both games
+PASS gb/Beta (Europe).gb is on the device as the record says
+PASS nes/Echo (USA).nes is on the device as the record says
+PASS the server hears what the device holds
+PASS a game added again fetches nothing
+PASS a game removed with its file and entry
+PASS the other game stays
+PASS Game Repo Go reads the library onto the device
+PASS Game Repo Go searches its own copy
+PASS Game Repo Go's queue adds a game
+PASS On this device: the game added and one from elsewhere the library knows
+PASS Game Repo Go removes a game
+PASS Game Repo Go finds the library again at another address, still paired
+PASS a removed device is refused
+PASS the library and its folders with games are as they were
+PASS the server stopped and said so
+all passed
