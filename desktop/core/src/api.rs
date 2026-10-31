@@ -647,6 +647,9 @@ impl App {
         if ["systems_", "collection", "export"].iter().any(|p| cmd.starts_with(p)) {
             return self.collection_call(cmd, args).await;
         }
+        if cmd.starts_with("cheats_") {
+            return self.cheat_call(cmd, args).await;
+        }
         if ["layout", "bios", "magazine", "video", "backlog", "saves_", "devices_"].iter().any(|p| cmd.starts_with(p)) {
             return self.device_call(cmd, args).await;
         }
@@ -1288,6 +1291,7 @@ impl App {
                     "docs" => "Importing documents",
                     "magazines" => "Importing magazines",
                     "videos" => "Importing videos",
+                    "cheats" => "Bringing in cheats",
                     "video_remove" => "Removing videos",
                     "magazine_move" => "Moving magazine issues",
                     "bios" => "Importing BIOS files",
@@ -2038,6 +2042,114 @@ impl App {
     }
 
     /// Export layouts and their editor, and BIOS files (docs/PLAN.md, "Phase 5b design").
+    /// The Cheats page (D197–D199, cheats.rs).
+    async fn cheat_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
+        use crate::cheats;
+        let j = |v: Value| Ok(Reply::Json(v));
+        let data_dir = self.paths.data_dir.clone();
+        let s = |k: &str| args[k].as_str().unwrap_or("").to_string();
+        let strings = |k: &str| -> Vec<String> { args[k].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect() };
+        let lib = self.library()?;
+        match cmd {
+            "cheats_list" => {
+                let show = args["show"].as_str().unwrap_or("with").to_string();
+                j(self
+                    .with_index(move |ix| {
+                        let mut v = cheats::list(ix, &lib, &show)?;
+                        v["pack"] = cheats::pack_info(Some(&data_dir));
+                        Ok(v)
+                    })
+                    .await?)
+            }
+            "cheats_game" => {
+                let key = s("key");
+                j(self
+                    .with_index(move |ix| {
+                        cheats::sync(ix, &lib)?;
+                        let mut v = cheats::game(ix, &lib, &data_dir, &key)?;
+                        v["removed"] = json!(cheats::removed(ix, &lib, &key)?);
+                        Ok(v)
+                    })
+                    .await?)
+            }
+            "cheats_save" => {
+                let (key, name) = (s("key"), s("name"));
+                let cht: Option<cheats::Cht> = if args["cht"].is_object() { Some(serde_json::from_value(args["cht"].clone()).map_err(|e| e.to_string())?) } else { None };
+                let text = args["text"].as_str().map(String::from);
+                j(self.with_index(move |ix| cheats::save(ix, &lib, &data_dir, &key, &name, cht.as_ref(), text.as_deref())).await?)
+            }
+            "cheats_new" => {
+                let (key, format) = (s("key"), s("format"));
+                let name = args["name"].as_str().map(String::from);
+                j(self.with_index(move |ix| cheats::create(ix, &lib, &data_dir, &key, &format, name.as_deref())).await?)
+            }
+            "cheats_remove" => {
+                let (key, name) = (s("key"), s("name"));
+                j(self.with_index(move |ix| cheats::remove(ix, &lib, &data_dir, &key, &name)).await?)
+            }
+            "cheats_versions" => {
+                let (key, name) = (s("key"), s("name"));
+                j(self.with_index(move |ix| cheats::versions(ix, &lib, &key, &name)).await?)
+            }
+            "cheats_restore" => {
+                let (key, name, when) = (s("key"), s("name"), s("when"));
+                j(self.with_index(move |ix| cheats::restore(ix, &lib, &data_dir, &key, &name, &when)).await?)
+            }
+            "cheats_newer" => {
+                let (key, name) = (s("key"), s("name"));
+                j(self.with_index(move |ix| cheats::take_newer(ix, &lib, &data_dir, &key, &name)).await?)
+            }
+            "cheats_get" => {
+                // libretro's pack fetched (or the one kept), matched to the games you have (a job)
+                let (platforms, keys) = (strings("platforms"), strings("keys"));
+                let again = args["again"].as_bool().unwrap_or(false);
+                let src = match self.config().cheats_source {
+                    Some(base) => {
+                        let b = base.trim_end_matches('/').to_string();
+                        cheats::Sources { zip: format!("{b}/cheats.zip"), api: format!("{b}/api"), raw: format!("{b}/raw/") }
+                    }
+                    None => cheats::Sources::default(),
+                };
+                let label = "Getting cheats";
+                self.not_running(label)?;
+                j(self.spawn_job(label, move |app, jid, cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    let wanted = cheats::wanted(&ix, &lib, &platforms, &keys)?;
+                    let pack = cheats::get_pack(&data_dir, &src, again, &wanted, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                    app.job_progress(&jid, json!({ "text": "Matching them to your games" }));
+                    cheats::find(&ix, &lib, &pack, &platforms, &keys)
+                }))
+            }
+            "cheats_files" => {
+                // cheat files picked (or a folder's), paired with games by their names (a job)
+                let paths: Vec<PathBuf> = strings("paths").into_iter().map(PathBuf::from).collect();
+                if paths.is_empty() {
+                    return Err("Choose the cheat files or a folder of them.".into());
+                }
+                let key = args["key"].as_str().filter(|k| !k.is_empty()).map(String::from);
+                let platform = args["platform"].as_str().filter(|p| !p.is_empty()).map(String::from);
+                let label = "Reading the cheat files";
+                self.not_running(label)?;
+                j(self.spawn_job(label, move |_app, _jid, _cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    Ok(json!({ "found": cheats::read_files(&ix, &lib, &paths, key.as_deref(), platform.as_deref())? }))
+                }))
+            }
+            "cheats_plan" => {
+                let found: Vec<cheats::Found> = serde_json::from_value(args["found"].clone()).map_err(|e| e.to_string())?;
+                j(self
+                    .with_index(move |ix| {
+                        let pack = if found.iter().any(|f| f.include && f.stem.is_some()) { Some(cheats::Pack::open_cached(&data_dir)?) } else { None };
+                        let plan = cheats::plan(ix, &lib, pack.as_ref(), &found)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            _ => Err(format!("unknown command {cmd}")),
+        }
+    }
+
     async fn device_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
         let j = |v: Value| Ok(Reply::Json(v));
         let data_dir = self.paths.data_dir.clone();

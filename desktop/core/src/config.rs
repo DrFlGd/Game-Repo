@@ -54,6 +54,10 @@ pub struct AppConfig {
     /// Where starter DATs are downloaded from, when not libretro's copy (crate::starter::SOURCE).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dat_source: Option<String>,
+    /// Where libretro's cheat pack is downloaded from, when not its buildbot
+    /// (crate::cheats::PACK_URL); with it, GitHub's stand-ins: `<base>/api` and `<base>/raw/`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cheats_source: Option<String>,
     /// Where Redump's own DATs are downloaded from, when not redump.org (crate::redump::SOURCE)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub redump_source: Option<String>,

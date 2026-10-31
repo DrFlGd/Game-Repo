@@ -249,6 +249,17 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "ALTER TABLE library ADD COLUMN discs INTEGER NOT NULL DEFAULT 0;
          DELETE FROM index_meta WHERE key LIKE 'library:%';",
     ),
+    (
+        "cheats",
+        // D197: each game folder's cheat files (cheats.rs), read again when the folder's
+        // files or its cheats.json change (cheat_folders.sig)
+        "CREATE TABLE cheats (
+            path TEXT PRIMARY KEY, folder TEXT NOT NULL, platform TEXT NOT NULL, name TEXT NOT NULL, format TEXT NOT NULL,
+            count INTEGER NOT NULL, names TEXT NOT NULL, source TEXT, edited INTEGER NOT NULL DEFAULT 0, size INTEGER NOT NULL, mtime INTEGER NOT NULL
+         ) STRICT;
+         CREATE INDEX cheats_folder ON cheats (folder);
+         CREATE TABLE cheat_folders (folder TEXT PRIMARY KEY, sig TEXT NOT NULL) STRICT;",
+    ),
 ];
 
 /// How many schema steps this build knows.

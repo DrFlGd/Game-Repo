@@ -43,6 +43,7 @@ pub mod archive;
 pub mod audit;
 pub mod backlog;
 pub mod bios;
+pub mod cheats;
 pub mod browse;
 pub mod collection;
 pub mod config;
