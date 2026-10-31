@@ -1869,6 +1869,11 @@ fn perform(op: &Op, cancel: &AtomicBool) -> Result<(Option<Written>, bool)> {
             make_parent(to)?;
             Ok((Some(crate::convert::perform(op, cancel)?), true))
         }
+        "patch" => {
+            // a game's file with ROM patches applied, as a new file beside it (D201)
+            make_parent(to)?;
+            Ok((Some(crate::patches::perform(op, cancel)?), true))
+        }
         "text" => {
             // a file the change writes whole (an export's gamelist or custom collection)
             make_parent(to)?;
@@ -1973,7 +1978,7 @@ fn update_index(conn: &Connection, roots: &[Root], op: &Op, written: Option<&Wri
                 )?;
             }
         }
-        "zip" | "extract" | "cue" | "convert" | "sheet" => {
+        "zip" | "extract" | "cue" | "convert" | "sheet" | "patch" => {
             if let (Some((root, rel)), Some(w)) = (&placed, written) {
                 let platform: Option<String> = conn
                     .query_row("SELECT platform FROM files WHERE id = ?1", [op.from[0].file_id], |r| r.get(0))
@@ -2151,6 +2156,9 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
         crate::pcgames::after_remove(ix, lib, plan, false)?;
     }
     audit::match_files(conn)?;
+    if plan.kind == "patch" && !stopped && failed.is_empty() {
+        crate::patches::after(ix, lib, plan, false)?;
+    }
     audit::changed(conn)?;
     if !warnings.is_empty() {
         // the files are where the change put them; a rescan of those folders brings the index up to date
@@ -2354,6 +2362,9 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
     }
     if plan.kind == "pc_remove" {
         crate::pcgames::after_remove(ix, lib, &plan, true)?;
+    }
+    if plan.kind == "patch" {
+        crate::patches::after(ix, lib, &plan, true)?;
     }
     audit::match_files(conn)?;
     audit::changed(conn)?;

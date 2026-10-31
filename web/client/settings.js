@@ -193,6 +193,9 @@ function SavesSettings({ settings, set, paired }) {
     ${sv ? html`<p id="set-saves-retroarch" class=${ra ? null : "warn-note"}>${ra ? `RetroArch's saves are in ${ra.saves || "the games' own folders"}${ra.states && ra.states !== ra.saves ? `, its states in ${ra.states}` : ""}${ra.config ? ` (as ${ra.config} says)` : ""}.` : "RetroArch isn't found on this device: set where its retroarch.cfg is below."}</p>` : null}
     ${last?.at ? html`<p class="muted" id="set-saves-last">Last synced ${ago(last.at)}: ${count(last.sent)} sent, ${count(last.brought)} brought${last.waiting ? `, ${count(last.waiting)} waiting for an emulator to close` : ""}${last.loose ? `, ${count(last.loose)} no game here is named like sent to the library to be given one` : ""}.${last.error ? ` ${last.error}` : ""}</p>` : null}
     ${last?.conflicts?.length ? html`<p class="warn-note" id="set-saves-conflicts">${last.conflicts.length === 1 ? "A save differs" : `${count(last.conflicts.length)} saves differ`} here and in the library: this device keeps its own until you choose one on the game's page in Game Repo.</p>` : null}
+    <label class="check-row"><input type="checkbox" id="set-cheats" checked=${settings.cheats !== false} onChange=${() => set({ cheats: settings.cheats === false })} />
+      <span>Put each game's RetroArch cheats here with it</span></label>
+    <p class="muted" id="set-cheats-note">Into RetroArch's cheats folder, in its core's folder, as RetroArch looks for them when the game starts (its <i>Auto-Apply Cheats During Game Load</i> turns on those marked to be). A cheat file you saved in RetroArch is never written over.</p>
     <label class="field-block"><span>RetroArch's settings file</span>
       <input id="set-retroarch" value=${settings.retroarch} placeholder="Found by itself (retroarch.cfg)" onChange=${(e) => set({ retroarch: e.currentTarget.value.trim() })} /></label>
     ${sv?.emulators?.length ? html`<h3>Emulators of their own</h3>

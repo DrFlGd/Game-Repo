@@ -42,6 +42,7 @@ fn carry(ask: &PlanAsk, media: Vec<String>, manuals: bool) -> Carry {
         manuals,
         image_size: ask.size,
         bios: ask.bios,
+        cheats: ask.cheats,
         ..Default::default()
     }
 }

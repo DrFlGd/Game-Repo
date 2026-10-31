@@ -6604,6 +6604,66 @@ D197–D199 in `desktop/core/src/cheats.rs` and `web/ui/cheats.js`:
   from a stand-in, matched, brought in, edited, kept and taken back, files paired and
   undone); `desktop_page.py`'s `cheats` part (`--only cheats` runs it alone).
 
+### Cheats notes, part 2: on devices and exports (built 2026-10-31)
+
+D200 for RetroArch:
+- A layout's new `cheats` entry (`layout.rs`; tokens: the game's and `{core}`, which is
+  the RetroArch profile's `cores` name for the system, `cheats::core_of`) says where a
+  game's `.cht` goes. ES-DE's (version 3) has an optional place *RetroArch's cheats
+  folder* (`{cheats}/{core}/{stem}.cht`), RetroArch's (version 2)
+  `{retroarch}/cheats/{core}/{stem}.cht`, the plain folder's (version 2) beside the game
+  (`{out}/{dat_name}/{stem}/{stem}.cht`, no core needed). `cheats::retroarch_file` picks
+  the file: an edited one, then libretro's, then any `.cht`.
+- *What it carries* has *Cheats* (`Carry.cheats`, `#carry-cheats`); collections carry it.
+- Game Repo Go: `PlanAsk.cheats`; Settings › Saves has *Cheats* (`#set-cheats`, on by
+  default), and the place `cheats` is RetroArch's `cheat_database_path` from
+  `retroarch.cfg`, else `cheats/` beside it (`saves::RetroArch.cheats`). `keep_theirs`
+  leaves a cheat file Go didn't put there alone and says so in the plan's notes.
+- Not in this part: the emulators of their own (PCSX2, PPSSPP, Azahar, Eden, DuckStation,
+  Dolphin; they need D197's code lists turned into their formats) and the cards (Knulli,
+  muOS, ROCKNIX: where their RetroArch keeps cheats isn't checked yet, so their layouts
+  have no `cheats` entry).
+- Tests: `export.rs` (a game's cheats go in its core's folder, named after its file);
+  `device` (a cheat file Go didn't put there is kept); `saves.rs` (the cheats folder read
+  from `retroarch.cfg`).
+
+### Patches notes, part 3: ROM patches (built 2026-10-31)
+
+D201–D203 for ROM patches, in `desktop/core/src/rompatch.rs`, `patches.rs` and `web/ui/patches.js`:
+- `rompatch`: IPS (an `EOF` that's really an offset is read as one; the size to cut to),
+  IPS32, UPS (both ways), BPS, PPF 1–3 (the block check, undo data skipped, `FILE_ID.DIZ`
+  kept as its words) and VCDIFF with RFC 3284's default code table and address cache, the
+  windows' Adler-32 (xdelta3's) checked. `info` gives the sizes and CRC32s a patch says
+  it's for; `apply` refuses another file. A patch made for a ROM without its copier header
+  is applied after the header (`patches::apply_all`), which is put back.
+- `patches`: the index's `patches` and `patch_folders` (a schema step), synced with
+  `meta::sync` as cheats are. `read_files` takes files, folders and ZIPs (taken out into
+  `<data dir>/patch-import/`), pairs each by its source CRC32 (or headerless CRC32) with a
+  file you have (*sure*), else by the patch's or the ZIP's name (*likely*), and guesses the
+  kind, language, version and author (`guess`). `plan` (kind `patches`) copies them and
+  their readmes (`<patch>.txt`) into the game's `patches/` with `patches.json`.
+- *Apply* (`apply_plan`, kind `patch`): the patches applied in memory first, then an
+  Organise op `patch` (the source, read from its ZIP when it's in one; `names[0]` the
+  member when the copy is zipped, the rest the patches in order) writes the copy beside the
+  game; `patches::after` adds it to the custom DAT with `variants::add` (`cloneof` the
+  game) and writes `patched` (original, its SHA-1, the patches) in its `game.json`; Undo
+  removes the copy and takes it out of the custom DAT. The original's `patches.json` lists
+  the copy under `applied`. `variant_name` composes the name: the game's, then
+  *English Translated* / *<Language> Translated* / *Hack* / *Bug Fix* / *Restoration*, then
+  the patch's title and version.
+- The page: tabs *ROM patches*, *Texture packs*, *PC mods* (the last two say they're to
+  come); the shelf lists patches (filter by system, game, kind, language, applied), the
+  panel and `#/patches/<key>` show the game's patches with *Apply…* (several in an
+  order, the copy's name), *Edit details…*, *Remove* (kept in `patches/.removed/`). The
+  game page has a *Patches* section.
+- Not in this part: a disc game's patches (a track of a CHD: they say so), xdelta patches
+  with secondary compression (kept, not applied: no `xdelta3` step yet), *Apply again*
+  for a patch's new version, dropping patches on a game's page.
+- Tests: `rompatch.rs` (each format, both CRCs, another file refused, the code table, a
+  VCDIFF of every instruction and cache mode), `patches.rs` (guessing, naming, a header,
+  and a patch paired, brought in, applied as a variant and undone); `desktop_page.py`'s
+  `patches` part.
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -6855,7 +6915,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     devices, cards and exports; ROM patches (translations, hacks, fixes) kept with their
     game and applied to a copy kept as a variant; texture packs installed where each
     emulator loads them; PC mods applied as Game Repo Go installs the game. In progress:
-    part 1 (cheats kept, gathered and edited) built.
+    part 1 (cheats kept, gathered and edited), part 2 (RetroArch's cheats on devices
+    and exports) and part 3 (ROM patches kept, brought in and applied as variants) built.
 29. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices

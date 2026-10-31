@@ -189,6 +189,10 @@ pub struct PlanAsk {
     /// PC games' pictures for Steam's grid too (a device that puts them in Steam, D112)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub steam_art: bool,
+    /// Each game's RetroArch cheats, for a device that knows RetroArch's cheats folder (its
+    /// place `cheats`, D200)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub cheats: bool,
 }
 
 /// A media kind's size for the games asked for, asked for or not (C13, D88), so a device

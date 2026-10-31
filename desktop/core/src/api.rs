@@ -650,6 +650,9 @@ impl App {
         if cmd.starts_with("cheats_") {
             return self.cheat_call(cmd, args).await;
         }
+        if cmd.starts_with("patches_") {
+            return self.patch_call(cmd, args).await;
+        }
         if ["layout", "bios", "magazine", "video", "backlog", "saves_", "devices_"].iter().any(|p| cmd.starts_with(p)) {
             return self.device_call(cmd, args).await;
         }
@@ -1292,6 +1295,8 @@ impl App {
                     "magazines" => "Importing magazines",
                     "videos" => "Importing videos",
                     "cheats" => "Bringing in cheats",
+                    "patches" => "Bringing in patches",
+                    "patch" => "Applying patches",
                     "video_remove" => "Removing videos",
                     "magazine_move" => "Moving magazine issues",
                     "bios" => "Importing BIOS files",
@@ -2143,6 +2148,94 @@ impl App {
                         let plan = cheats::plan(ix, &lib, pack.as_ref(), &found)?;
                         organise::save_pending(&data_dir, &plan)?;
                         Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            _ => Err(format!("unknown command {cmd}")),
+        }
+    }
+
+    /// The Patches page's ROM patches (D201–D203, patches.rs and rompatch.rs).
+    async fn patch_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
+        use crate::patches;
+        let j = |v: Value| Ok(Reply::Json(v));
+        let data_dir = self.paths.data_dir.clone();
+        let s = |k: &str| args[k].as_str().unwrap_or("").to_string();
+        let strings = |k: &str| -> Vec<String> { args[k].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect() };
+        let lib = self.library()?;
+        match cmd {
+            "patches_list" => j(self.with_index(move |ix| patches::list(ix, &lib)).await?),
+            "patches_game" => {
+                let key = s("key");
+                j(self
+                    .with_index(move |ix| {
+                        patches::sync(ix, &lib)?;
+                        patches::game(ix, &lib, &key)
+                    })
+                    .await?)
+            }
+            "patches_edit" => {
+                let (key, name) = (s("key"), s("name"));
+                let d: patches::Details = serde_json::from_value(args["details"].clone()).map_err(|e| e.to_string())?;
+                j(self.with_index(move |ix| patches::edit(ix, &lib, &key, &name, &d)).await?)
+            }
+            "patches_remove" => {
+                let (key, name) = (s("key"), s("name"));
+                j(self.with_index(move |ix| patches::remove(ix, &lib, &key, &name)).await?)
+            }
+            "patches_files" => {
+                // patch files picked (or a folder's, or ZIPs of them), paired with games (a job)
+                let paths: Vec<PathBuf> = strings("paths").into_iter().map(PathBuf::from).collect();
+                if paths.is_empty() {
+                    return Err("Choose the patch files, ZIPs of them or a folder.".into());
+                }
+                let key = args["key"].as_str().filter(|k| !k.is_empty()).map(String::from);
+                let platform = args["platform"].as_str().filter(|p| !p.is_empty()).map(String::from);
+                let label = "Reading the patches";
+                self.not_running(label)?;
+                j(self.spawn_job(label, move |_app, _jid, _cancel| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    Ok(json!({ "found": patches::read_files(&ix, &lib, &data_dir, &paths, key.as_deref(), platform.as_deref())? }))
+                }))
+            }
+            "patches_test" => {
+                let (key, path) = (s("key"), s("path"));
+                j(self.with_index(move |ix| patches::test(ix, &lib, &key, Path::new(&path))).await?)
+            }
+            "patches_plan" => {
+                let found: Vec<patches::Found> = serde_json::from_value(args["found"].clone()).map_err(|e| e.to_string())?;
+                j(self
+                    .with_index(move |ix| {
+                        let plan = patches::plan(ix, &lib, &found)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        Ok(plan.summary())
+                    })
+                    .await?)
+            }
+            "patches_apply" => {
+                // the patched copy planned (it's made when the change runs)
+                let (key, names) = (s("key"), strings("names"));
+                let name = args["name"].as_str().map(String::from);
+                j(self
+                    .with_index(move |ix| {
+                        let plan = patches::apply_plan(ix, &lib, &key, &names, name.as_deref())?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        let mut v = plan.summary();
+                        v["variant"] = plan.dat["variant"].clone();
+                        Ok(v)
+                    })
+                    .await?)
+            }
+            "patches_name" => {
+                // the name *Apply* would give the copy, for the dialog
+                let (key, names) = (s("key"), strings("names"));
+                j(self
+                    .with_index(move |ix| {
+                        let g = crate::cheats::game_of(ix.conn(), &key)?;
+                        let dir = patches::game_dir(ix.conn(), &lib, &g)?.map(|d| d.join(patches::FOLDER));
+                        let m = dir.map(|d| crate::config::read_json_object(&d.join(patches::MANIFEST))).unwrap_or(json!({}));
+                        let ds: Vec<patches::Details> = names.iter().map(|n| patches::Details::of(&m["files"][n], n)).collect();
+                        Ok(json!({ "name": patches::variant_name(&g.name, &ds) }))
                     })
                     .await?)
             }

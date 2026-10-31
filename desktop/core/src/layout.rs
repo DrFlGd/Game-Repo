@@ -61,6 +61,9 @@ pub struct Layout {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub documents: Option<Out>,
     pub bios: Option<Out>,
+    /// Where each game's RetroArch cheats go (D200: `{cheats}/{core}/{stem}.cht`); none: they don't
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cheats: Option<Out>,
     pub pictures: Pictures,
     /// `esde-cfg`: the collection as an ES-DE custom collection (one for each of its groups);
     /// `es-cfg`: as EmulationStation's on a device (Batocera's, Knulli's), in `collections`
@@ -316,6 +319,9 @@ impl Layout {
         if let Some(b) = &self.bios {
             v.push(("bios".into(), b.path.as_str()));
         }
+        if let Some(c) = &self.cheats {
+            v.push(("cheats".into(), c.path.as_str()));
+        }
         if let Some(e) = &self.es_de {
             v.push(("es_de".into(), e.as_str()));
         }
@@ -349,6 +355,7 @@ impl Layout {
             "manuals": self.media.contains_key("manual"),
             "docs": self.documents.is_some(),
             "bios": self.bios.is_some(),
+            "cheats": self.cheats.is_some(),
         })
     }
 
@@ -623,7 +630,7 @@ pub fn check(l: &Layout) -> Vec<Problem> {
     for p in &l.places {
         if p.id.is_empty() || !p.id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
             say(&format!("places.{}", p.id), format!("A place's id ({}) is lower-case letters, digits and _.", p.id));
-        } else if SYSTEM_TOKENS.contains(&p.id.as_str()) || GAME_TOKENS.contains(&p.id.as_str()) || ["ext", "kind", "doc_file", "bios_file"].contains(&p.id.as_str()) {
+        } else if SYSTEM_TOKENS.contains(&p.id.as_str()) || GAME_TOKENS.contains(&p.id.as_str()) || ["ext", "kind", "doc_file", "bios_file", "core"].contains(&p.id.as_str()) {
             say(&format!("places.{}", p.id), format!("{{{}}} is a token, so it can't be a place's id.", p.id));
         } else if !ids.insert(p.id.clone()) {
             say(&format!("places.{}", p.id), format!("Two places are called {}.", p.id));
@@ -680,6 +687,8 @@ pub fn check(l: &Layout) -> Vec<Problem> {
             "bios" => allowed.push("bios_file"),
             "saves" => {}
             "documents" => allowed.extend(GAME_TOKENS.iter().chain(&["doc_file"])),
+            // RetroArch's folder for the core that runs the system (D200)
+            "cheats" => allowed.extend(GAME_TOKENS.iter().chain(&["core"])),
             _ => {
                 allowed.extend(GAME_TOKENS);
                 allowed.extend(["ext", "kind"]);
@@ -731,7 +740,7 @@ pub fn check(l: &Layout) -> Vec<Problem> {
             }
             "bios" if !has("bios_file") => say(&at, "It needs {bios_file}.".into()),
             "documents" if !has("doc_file") => say(&at, "It needs {doc_file}, the document's own name.".into()),
-            "media" | "text" | "documents" if !(has("stem") || has("file") || has("title") || has("label")) => {
+            "media" | "text" | "documents" | "cheats" if !(has("stem") || has("file") || has("title") || has("label")) => {
                 say(&at, "It needs {stem}, {file}, {title} or {label}, so each game's is its own.".into());
             }
             _ => {}

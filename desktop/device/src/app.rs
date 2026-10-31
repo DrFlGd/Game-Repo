@@ -113,6 +113,8 @@ pub struct Settings {
     /// Saves synced with Game Repo Go closed too (D186): Windows' Task Scheduler, a systemd
     /// user timer on Linux and the Steam Deck
     pub background_saves: bool,
+    /// Each game's RetroArch cheats put on the device with it (D200)
+    pub cheats: bool,
 }
 
 impl Default for Settings {
@@ -137,6 +139,7 @@ impl Default for Settings {
             pc_games: String::new(),
             full_screen: "usual".into(),
             saves: true,
+            cheats: true,
             retroarch: String::new(),
             save_folders: BTreeMap::new(),
             background_saves: true,
@@ -368,6 +371,13 @@ impl App {
                 d.places.insert("startmenu".into(), m);
             }
         }
+        // RetroArch's cheats folder (D200), from its settings file
+        if s.cheats {
+            let p = gamerepo_wire::saves::built_in().into_iter().find(|p| p.kind == "retroarch");
+            if let Some(dir) = p.and_then(|p| saves::retroarch(&p, &homes, (!s.retroarch.is_empty()).then(|| Path::new(&s.retroarch)))).and_then(|ra| ra.cheats) {
+                d.places.insert("cheats".into(), dir);
+            }
+        }
         d.data = Some(self.data.clone());
         Ok(d)
     }
@@ -392,7 +402,10 @@ impl App {
 
     fn ctx(&self) -> Result<Ctx> {
         let server = self.server().ok_or_else(|| anyhow!("This device isn't paired with a library: pair it in Settings."))?;
-        Ok(Ctx { server, device: self.device()?, options: self.options() })
+        let device = self.device()?;
+        let mut options = self.options();
+        options.cheats = device.places.contains_key("cheats");
+        Ok(Ctx { server, device, options })
     }
 
     fn changed(&self, what: &str) {

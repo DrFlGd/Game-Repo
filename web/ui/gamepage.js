@@ -379,6 +379,9 @@ export function GamePage() {
     ${dat || pc ? html`<section class="ls-section" id="game-cheats"><h2>Cheats</h2>
       <p class="muted">${g.cheats ? html`${plural(g.cheats, "cheat", "cheats")}. <a href=${argHash("cheats", g.key)}>Edit them on the Cheats page</a>.` : html`None yet. <a href=${argHash("cheats", g.key)}>Get or make them on the Cheats page</a>.`}</p>
     </section>` : null}
+    ${dat ? html`<section class="ls-section" id="game-patches"><h2>Patches</h2>
+      <p class="muted">${g.patches ? html`${plural(g.patches, "patch", "patches")}. <a href=${argHash("patches", g.key)}>Apply or edit them on the Patches page</a>.` : html`None yet. <a href=${argHash("patches", g.key)}>Add a translation, hack or fix on the Patches page</a>.`}</p>
+    </section>` : null}
     ${g.magazines?.length ? html`<section class="ls-section" id="game-magazines"><h2>In magazines</h2>
       <ul class="ls-list">${g.magazines.map((x) => html`<li key=${x.path} data-path=${x.path}><span>${x.title}</span>
         <span class="mag-game-pages">${x.pages.length ? x.pages.map((p) => html`<button type="button" class="linkish" key=${p} data-page=${p} disabled=${!x.doc} title=${`Read page ${p}`} onClick=${() => viewDoc(x.doc, { page: p, find: g.title })}>p. ${p}</button>`)

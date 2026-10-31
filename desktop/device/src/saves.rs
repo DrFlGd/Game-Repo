@@ -40,6 +40,8 @@ pub struct RetroArch {
     pub saves_by_core: bool,
     pub states_by_content: bool,
     pub states_by_core: bool,
+    /// Its folder of cheats (`cheat_database_path`, else `cheats` beside its settings, D200)
+    pub cheats: Option<PathBuf>,
 }
 
 /// A save found on the device: its files (by `{name}`), where they are and the newest's time.
@@ -205,6 +207,7 @@ pub fn retroarch(p: &Profile, homes: &[PathBuf], set: Option<&Path>) -> Option<R
             saves_by_core: on("sort_savefiles_enable"),
             states_by_content: on("sort_savestates_by_content_enable"),
             states_by_core: on("sort_savestates_enable"),
+            cheats: cfg_dir(cfg.get("cheat_database_path"), &dir, &home).or_else(|| Some(dir.join("cheats"))),
             config: Some(c),
         });
     }
@@ -1034,6 +1037,8 @@ mod tests {
         assert_eq!(ra.saves, Some(dir.join("saves")));
         assert_eq!(ra.states, Some(dir.join(".config/retroarch/states")));
         assert!(ra.saves_by_content && !ra.saves_by_core && ra.states_by_core);
+        // no cheat_database_path: RetroArch's own cheats folder beside its settings (D200)
+        assert_eq!(ra.cheats, Some(dir.join(".config/retroarch/cheats")));
 
         // the saves and states of a held game found, a state's core from its folder
         let roms = dir.join("ROMs");

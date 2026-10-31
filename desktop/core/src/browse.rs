@@ -1226,6 +1226,7 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
     v["backlog"] = json!(crate::backlog::of_game(lib, key));
     // how many cheats it has (D199)
     v["cheats"] = json!(crate::cheats::count_of(conn, folder.as_deref()));
+    v["patches"] = json!(crate::patches::count_of(conn, folder.as_deref()));
     Ok(v)
 }
 

@@ -1,7 +1,7 @@
 {
   "format": 1,
   "id": "esde",
-  "version": 2,
+  "version": 3,
   "name": "ES-DE",
   "about": "ES-DE on this computer: each system's games in its folder in ES-DE's ROMs folder, its gamelist and media in ES-DE's own folder, and the collection (each of its groups) as an ES-DE custom collection.",
   "places": [
@@ -22,6 +22,13 @@
       "label": "ES-DE's media folder",
       "from": "{esde}/downloaded_media",
       "es_setting": "MediaDirectory"
+    },
+    {
+      "id": "cheats",
+      "label": "RetroArch's cheats folder",
+      "example": "C:\\RetroArch-Win64\\cheats",
+      "optional": true,
+      "note": "With it, each game's RetroArch cheats go there, in its core's folder, named after the game's file, as RetroArch looks for them when the game starts."
     }
   ],
   "systems": {},
@@ -84,5 +91,8 @@
   "groups": {
     "system": "{folder}-{group}"
   },
-  "bios": null
+  "bios": null,
+  "cheats": {
+    "path": "{cheats}/{core}/{stem}.cht"
+  }
 }
