@@ -545,21 +545,18 @@ try:
     pg.api("remove", {"asks": [{"id": alpha}]})
     check("a game removed goes from the device", alpha and not there(rom) and there(beta), rows)
 
-    # 9. saves synced with Game Repo Go closed (D186): WorkManager's job, set up once it's paired,
-    # run now, syncs Beta's RetroArch save to the library through the Rust library; turned off
-    # in Settings, the job goes
-    def saves_job(logged=True):
-        # JobScheduler's number for it: from its line in dumpsys (`… u0a190/7: 1a2b3c
-        # io.github…/androidx.work…SystemJobService`, its shape changing between Androids),
-        # else the last WorkManager said it scheduled
+    # 9. saves synced with Game Repo Go closed (D186): WorkManager's job, set up once it's paired;
+    # turned off in Settings, the job goes, and turned on again it runs at once (a periodic
+    # job's first run waits for nothing, and WorkManager puts off one forced early) and syncs
+    # Beta's RetroArch save to the library through the Rust library
+    def saves_job():
+        # its line in dumpsys (`JOB #u0a190/7: …` before Android 14, `JOB
+        # androidx.work.systemjobscheduler:u0a192/1: …` with its namespace since)
         for line in sh(f"dumpsys jobscheduler {PKG}", ok=False).splitlines():
-            m = re.search(r"/(?:@\S*@/)?(-?\d+): ", line)
+            m = re.search(r"JOB \S*?/(-?\d+): ", line)
             if m and "SystemJobService" in line and PKG in line:
                 return m.group(1)
-        if not logged:
-            return None
-        ids = re.findall(r"Scheduling work ID \S+?Job ID (\d+)", adb("logcat", "-d", "-s", "WM-SystemJobScheduler", ok=False, timeout=60))
-        return ids[-1] if ids else None
+        return None
 
     def why_not():
         # what WorkManager and JobScheduler said, for a failure's report
@@ -572,27 +569,26 @@ try:
         return [l.strip() for l in jobs.splitlines() if "SystemJobService" in l or "Unsatisfied" in l][:8] + log.splitlines()[-25:]
     srm = f"{SD}/RetroArch/saves/Beta (Europe).srm"
     sh(f"mkdir -p {SD}/RetroArch/saves && echo beta-save > '{srm}'")
-    job = None
     end = time.time() + 30
-    while time.time() < end and not (job := saves_job()):
+    while time.time() < end and not saves_job():
         time.sleep(1)
+    was = saves_job()
+    pg.api("set_settings", {"background_saves": False})
+    end = time.time() + 30
+    while time.time() < end and saves_job():
+        time.sleep(1)
+    check("turned off in Settings, the job goes", was and not saves_job() and pg.api("saves")["background"]["set"] is False, (was, pg.api("saves").get("background")))
     said_before = len(adb("logcat", "-d", "-s", "GameRepoGoSaves", ok=False, timeout=60).splitlines())
-    if job:
-        sh(f"cmd jobscheduler run -f {PKG} {job}", ok=False)
+    pg.api("set_settings", {"background_saves": True})
     in_lib = lib / "Saves" / "gb" / "Beta (Europe)" / "Save (retroarch)" / "Beta (Europe).srm"
     end, said = time.time() + 90, []
     while time.time() < end and not (in_lib.is_file() and any("synced:" in l for l in said)):
         time.sleep(1)
         said = adb("logcat", "-d", "-s", "GameRepoGoSaves", ok=False, timeout=60).splitlines()[said_before:]
+    job = saves_job()
     check("saves are synced in the background by WorkManager's job, through the Rust library",
           job and in_lib.is_file() and in_lib.read_text().strip() == "beta-save" and any("synced: {" in l for l in said),
-          (job, in_lib.is_file(), said[-5:], pg.api("saves").get("background"), None if job and in_lib.is_file() else why_not()))
-    pg.api("set_settings", {"background_saves": False})
-    end = time.time() + 30
-    while time.time() < end and saves_job(logged=False):
-        time.sleep(1)
-    check("turned off in Settings, the job goes", not saves_job(logged=False) and pg.api("saves")["background"]["set"] is False, pg.api("saves").get("background"))
-    pg.api("set_settings", {"background_saves": True})
+          (job, in_lib.is_file(), said[-5:], pg.api("saves").get("background"), None if job and in_lib.is_file() and said else why_not()))
 
     # 10. updates (D139): Settings › Check for updates finds 9.9.9; an APK changed after it
     # was signed is refused before Android sees it; the right one brings Android's installer
