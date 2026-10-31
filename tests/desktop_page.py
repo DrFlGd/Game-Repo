@@ -1781,7 +1781,7 @@ async def main():
                 active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
                 lead = await pg.inner_text("#audit-empty")
                 check("the menu's places open, with the pages still to come saying what they'll do",
-                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Backlog", "Devices", "Export layouts", "History", "Settings", "Help", "About"]
+                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Cheats", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Backlog", "Devices", "Export layouts", "History", "Settings", "Help", "About"]
                       and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
                 await pg.screenshot(path=str(out / "01-coming.png"))
 
