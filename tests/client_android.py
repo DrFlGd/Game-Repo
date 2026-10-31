@@ -137,7 +137,7 @@ if a.smoke:
     (out / "logcat-release.txt").write_text(log, encoding="utf-8")
     check("the release APK starts on the pairing page", "Pair with your library" in screen, screen[-1500:])
     check("its plugin answers after minifying (the access note needs it)", "access to all files" in screen, screen[-1500:])
-    crashed = re.search(rf"FATAL EXCEPTION[^\n]*\n[^\n]*Process: {re.escape(PKG)}(?:\n[^\n]*AndroidRuntime[^\n]*){{0,40}}", log)
+    crashed = re.search(rf"FATAL EXCEPTION[^\n]*\n[^\n]*Process: {re.escape(PKG)}[^\n]*(?:\n[^\n]*AndroidRuntime[^\n]*){{0,40}}", log)
     check("it doesn't crash", sh(f"pidof {PKG}", ok=False).strip() and not crashed, crashed.group(0) if crashed else "not running")
     # the saves' job (D186) set up or taken away as it starts, through WorkManager
     jobs = [l for l in log.splitlines() if "GameRepoGoSaves" in l or ("WM-" in l and " E " in l)]
