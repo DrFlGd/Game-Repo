@@ -28,5 +28,7 @@ kotlin {
 
 dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
+    // the saves' job in the background (SavesWorker.kt, D186)
+    implementation("androidx.work:work-runtime:2.10.1")
     implementation(project(":tauri-android"))
 }

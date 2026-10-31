@@ -1526,6 +1526,7 @@ dependencies = [
  "anyhow",
  "gamerepo-device",
  "gamerepo-update",
+ "jni 0.21.1",
  "serde_json",
  "tauri",
  "tauri-build",

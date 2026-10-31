@@ -5,6 +5,7 @@
 //! device (D100), removing safely (D101) and media on their own (D102), and the client's
 //! settings, kept in its own data folder; the pairing token is kept by [`Secrets`].
 
+use crate::background;
 use crate::catalogue::{self, Catalogue};
 use crate::installs;
 use crate::pcgames;
@@ -213,9 +214,16 @@ pub struct App {
     root: Mutex<PathBuf>,
     /// A sync of saves going on (D186)
     saving: Mutex<bool>,
-    /// The program the sync in the background starts, whether it's really set up (not the
-    /// stand-in's), and what went wrong setting it up last (D186)
-    background: Mutex<Option<(PathBuf, bool, String)>>,
+    /// The sync in the background (D186)
+    background: Mutex<Option<Background>>,
+}
+
+/// Who sets the sync in the background up, what went wrong setting it up last, and whether
+/// it was set up on.
+struct Background {
+    by: background::By,
+    error: String,
+    on: bool,
 }
 
 /// While Go is open, saves are synced this often (D186).
@@ -925,26 +933,34 @@ impl App {
     /// it's paired and saves are synced, else taken away; again each time they change.
     /// `real` false only writes systemd's units, in the first home (the stand-in).
     pub fn set_background(&self, program: &Path, real: bool) {
-        *self.background.lock().unwrap_or_else(|e| e.into_inner()) = Some((program.to_path_buf(), real, String::new()));
+        self.set_background_by(background::By::Program(program.to_path_buf(), real));
+    }
+
+    /// The same, set up by `by` (Android's WorkManager: [`background::By::Scheduler`]).
+    pub fn set_background_by(&self, by: background::By) {
+        *self.background.lock().unwrap_or_else(|e| e.into_inner()) = Some(Background { by, error: String::new(), on: false });
         self.background_again();
     }
 
     fn background_again(&self) {
         let mut b = self.background.lock().unwrap_or_else(|e| e.into_inner());
-        let Some((program, real, error)) = b.as_mut() else { return };
+        let Some(b) = b.as_mut() else { return };
         let s = self.settings();
         let on = s.saves && s.background_saves && self.server().is_some();
-        let dir = self.units_dir(*real);
-        *error = match crate::background::set(on, &crate::background::command(program, &self.data), &dir, *real) {
-            Ok(()) => String::new(),
-            Err(e) => format!("{e:#}"),
+        let done = match &b.by {
+            background::By::Program(program, real) => background::set(on, &background::command(program, &self.data), &self.units_dir(*real), *real),
+            background::By::Scheduler(by) => by.set(on, &self.data),
+        };
+        (b.on, b.error) = match done {
+            Ok(()) => (on, String::new()),
+            Err(e) => (false, format!("{e:#}")),
         };
     }
 
     fn units_dir(&self, real: bool) -> PathBuf {
         let home = self.homes.lock().unwrap_or_else(|e| e.into_inner()).first().cloned().unwrap_or_default();
         if real {
-            crate::background::units_dir(&home)
+            background::units_dir(&home)
         } else {
             home.join(".config").join("systemd").join("user")
         }
@@ -990,11 +1006,18 @@ impl App {
     }
 
     /// The sync in the background (D186): whether this program can set one up (Windows,
-    /// Linux), whether it's set up, and what went wrong.
+    /// Linux, Android), how, whether it's set up, and what went wrong.
     fn background_status(&self) -> Value {
-        let b = self.background.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        match b {
-            Some((_, real, error)) => json!({ "can": true, "set": crate::background::is_set(&self.units_dir(real), real), "error": error, "every": crate::background::EVERY_MINUTES }),
+        let b = self.background.lock().unwrap_or_else(|e| e.into_inner());
+        match b.as_ref() {
+            Some(Background { by: background::By::Program(_, real), error, .. }) => json!({
+                "can": true,
+                "how": if cfg!(windows) && *real { "schtasks" } else { "systemd" },
+                "set": background::is_set(&self.units_dir(*real), *real),
+                "error": error,
+                "every": background::EVERY_MINUTES,
+            }),
+            Some(Background { by: background::By::Scheduler(by), error, on }) => json!({ "can": true, "how": "android", "set": on, "error": error, "every": by.every() }),
             None => json!({ "can": false }),
         }
     }

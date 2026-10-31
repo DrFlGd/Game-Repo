@@ -34,3 +34,5 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 [target.'cfg(target_os = "android")'.dependencies]
 # All files access, the storage volumes, the Keystore, multicast, the downloads' service
 tauri-plugin-gamerepo-device = { path = "plugin" }
+# the saves' job in the background calls into the library (D186); the version Tauri's own crates use
+jni = "0.21"

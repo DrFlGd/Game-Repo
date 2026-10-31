@@ -6281,12 +6281,36 @@ clock, Task Scheduler starts it every five minutes to sync and end, so nothing s
   window. One sync at a time across both programs: `saves.lock` in the data folder.
 - Settings › Saves: *Sync them in the background too, with Game Repo Go closed* (on by
   default), with how often and how, or what went wrong setting it up.
-- Not yet: Android (WorkManager, next); in the background Go doesn't take the Devices page's
-  waiting changes yet (they need its downloads).
+- Not yet: Android (WorkManager, part 6); in the background Go doesn't take the Devices
+  page's waiting changes yet (they need its downloads).
 - Tests: the timer's units written and taken away (device), the backend opened alone syncing a
   save and not syncing once turned off (`serve/tests/client.rs`), Settings › Saves turning it
   off and on with its timer (`client_page.py`, the stand-in writes the units only). Task
   Scheduler and systemctl themselves are only asked on a real install.
+
+### Save sync notes, part 6: in the background on Android (built 2026-10-31)
+
+D186's Android side: a job of WorkManager's rather than a service of Go's own, so nothing
+stays running and Android chooses when (it puts background work off in Doze and for apps it
+thinks rarely used; periodic jobs are fifteen minutes apart at the most often).
+- The Kotlin plugin's `SavesWorker.kt`: unique periodic work *Game Repo Go saves*, every
+  fifteen minutes with a network and the battery not low, Go's data folder in its input. Set
+  up (`ExistingPeriodicWorkPolicy.UPDATE`, so Go starting again keeps its next time) or
+  cancelled through the plugin's `savesBackground`, which the Rust shell asks for through a
+  `background::Scheduler` (`App::set_background_by`), the same moments as on Windows and
+  Linux.
+- The job unseals the pairing itself (`Secrets.kt`), lists the storage volumes (`Volumes.kt`,
+  shared with the plugin's `volumes`), loads Go's Rust library (`libgamerepo_client_lib.so`,
+  already there when the app's open) and calls `SavesNative.sync` (JNI, the `jni` crate Tauri
+  uses), which is `android.rs`'s `sync_alone`: `App::open_with(…, alone)` with the pairing
+  given, `sync_saves_now`, and the pairing back when the library was found at another
+  address, which the job keeps. `saves.lock` keeps it from syncing beside the app's own.
+- Settings › Saves on Android says it runs about every fifteen minutes when Android lets it,
+  so open Go before playing to be sure of the newest save.
+- Tests: the scheduler set on and off with saves, background saves and pairing
+  (`serve/tests/client.rs`); on the emulator, the job set up once paired, run with
+  `cmd jobscheduler run -f`, syncing a RetroArch save to the library, and gone once turned
+  off in Settings (`client_android.py`).
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -6528,7 +6552,7 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     between devices with versions (RetroArch and the emulators of their own: PPSSPP, Dolphin,
     the PCSX2 family with ARMSX2, DuckStation, Azahar, Flycast, melonDS, mGBA, DraStic), and a
     Devices page for Game Repo Go devices, cards, drives and shares, with changes that wait
-    for the next connect; in progress (left: background sync on Android, a card's saves, Eject, saves not matched, Switch/Wii U/PS3 emulators). It takes in the handhelds with no app (muOS and the like).
+    for the next connect; in progress (left: a card's saves, Eject, saves not matched, Switch/Wii U/PS3 emulators). It takes in the handhelds with no app (muOS and the like).
 28. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices

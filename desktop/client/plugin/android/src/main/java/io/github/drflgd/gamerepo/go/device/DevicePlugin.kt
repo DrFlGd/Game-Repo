@@ -3,8 +3,8 @@
 // never by the page. All files access (D87), the device's storage volumes (C3, C9), a folder
 // chosen with Android's own picker, the pairing token in the Android Keystore, the multicast
 // lock while the library is looked for, the downloads' foreground service and its
-// notification (C10), controllers turned into keys (Controllers.kt), and Game Repo Go's
-// updates (Updates.kt, D139).
+// notification (C10), controllers turned into keys (Controllers.kt), Game Repo Go's updates
+// (Updates.kt, D139), and the saves' job in the background (SavesWorker.kt, D186).
 package io.github.drflgd.gamerepo.go.device
 
 import android.Manifest
@@ -17,7 +17,6 @@ import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
-import android.os.storage.StorageManager
 import android.provider.DocumentsContract
 import android.provider.Settings
 import android.webkit.WebView
@@ -55,6 +54,13 @@ class DownloadsArgs {
     // 0 to 100, or -1 while there's nothing to measure yet
     var percent: Int = -1
     var paused: Boolean = false
+}
+
+@InvokeArg
+class SavesArgs {
+    var on: Boolean = false
+    var data: String = ""
+    var minutes: Int = 15
 }
 
 @InvokeArg
@@ -114,29 +120,13 @@ class DevicePlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun volumes(invoke: Invoke) {
         val list = JSArray()
-        val seen = HashSet<String>()
-        fun add(path: String, primary: Boolean, removable: Boolean, label: String) {
-            if (!seen.add(path)) return
+        for (v in Volumes.list(activity)) {
             list.put(JSObject().apply {
-                put("path", path)
-                put("primary", primary)
-                put("removable", removable)
-                put("label", label)
+                put("path", v.path)
+                put("primary", v.primary)
+                put("removable", v.removable)
+                put("label", v.label)
             })
-        }
-        if (Build.VERSION.SDK_INT >= 30) {
-            val sm = activity.getSystemService(Context.STORAGE_SERVICE) as StorageManager
-            for (v in sm.storageVolumes) {
-                val dir = v.directory ?: continue
-                if (v.state != Environment.MEDIA_MOUNTED) continue
-                add(dir.absolutePath, v.isPrimary, v.isRemovable, v.getDescription(activity))
-            }
-        } else {
-            // Android 10: each volume's app folder, <volume>/Android/data/<id>/files
-            for ((i, f) in activity.getExternalFilesDirs(null).withIndex()) {
-                if (f == null) continue
-                add(f.absolutePath.substringBefore("/Android/"), i == 0, i > 0, if (i == 0) "Internal storage" else "SD card")
-            }
         }
         invoke.resolve(JSObject().apply { put("volumes", list) })
     }
@@ -242,6 +232,15 @@ class DevicePlugin(private val activity: Activity) : Plugin(activity) {
             // goes on while it's open, and the service starts when it's next in front
             invoke.reject("The downloads' notification can't be shown: ${e.message}")
         }
+    }
+
+    /** Saves synced with Game Repo Go closed (D186): WorkManager's job for Go's data folder
+     *  set up, or taken away. */
+    @Command
+    fun savesBackground(invoke: Invoke) {
+        val a = invoke.parseArgs(SavesArgs::class.java)
+        SavesWorker.set(activity.applicationContext, a.on, a.data, a.minutes.toLong())
+        invoke.resolve()
     }
 
     /** Waits for Pause, Resume or Cancel tapped on the notification (one at a time; the Rust

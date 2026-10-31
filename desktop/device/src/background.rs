@@ -2,8 +2,11 @@
 //! program started on its own every few minutes with `--sync-saves <data folder>`, which
 //! syncs and ends. On Windows that's a task of Task Scheduler's for the user (each five
 //! minutes while they're signed in); on Linux and the Steam Deck a systemd user timer, which
-//! runs in Game Mode too. Turned on and off by Settings › Saves › *Sync saves in the
-//! background*; set up again each time Go starts, so it follows the program if it moves.
+//! runs in Game Mode too. On Android it's a job of WorkManager's instead, a [`Scheduler`]
+//! the Kotlin plugin keeps (every fifteen minutes or so, when Android lets it), which calls
+//! back into the Rust library (desktop/client/src/android.rs). Turned on and off by Settings ›
+//! Saves › *Sync saves in the background*; set up again each time Go starts, so it follows
+//! the program if it moves.
 
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
@@ -14,6 +17,22 @@ pub const EVERY_MINUTES: u32 = 5;
 /// The task's and the units' name.
 pub const NAME: &str = "Game Repo Go saves";
 const UNIT: &str = "game-repo-go-saves";
+
+/// What else sets the sync in the background up: Android's WorkManager (D186), through Go's
+/// Kotlin plugin.
+pub trait Scheduler: Send + Sync {
+    /// On, syncing the saves of the Go whose data is in `data`, or off.
+    fn set(&self, on: bool, data: &Path) -> Result<()>;
+    /// About how often it runs, in minutes.
+    fn every(&self) -> u32;
+}
+
+/// Who sets it up: Task Scheduler or systemd, starting this program (with whether that's
+/// really so, not the stand-in's units only), or a [`Scheduler`].
+pub enum By {
+    Program(PathBuf, bool),
+    Scheduler(Box<dyn Scheduler>),
+}
 
 /// The command line the background sync runs: the program, `--sync-saves`, the data folder.
 pub fn command(program: &Path, data: &Path) -> Vec<String> {

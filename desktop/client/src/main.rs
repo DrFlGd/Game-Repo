@@ -4,10 +4,13 @@
 
 fn main() {
     // its saves synced in the background (D186), by Task Scheduler or a systemd timer: no window
-    let args: Vec<String> = std::env::args().collect();
-    if let Some(i) = args.iter().position(|a| a == "--sync-saves") {
-        let data = std::path::PathBuf::from(args.get(i + 1).cloned().unwrap_or_default());
-        std::process::exit(if gamerepo_client_lib::sync_saves_alone(&data) { 0 } else { 1 });
+    #[cfg(desktop)]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if let Some(i) = args.iter().position(|a| a == "--sync-saves") {
+            let data = std::path::PathBuf::from(args.get(i + 1).cloned().unwrap_or_default());
+            std::process::exit(if gamerepo_client_lib::sync_saves_alone(&data) { 0 } else { 1 });
+        }
     }
     #[cfg(target_os = "linux")]
     {

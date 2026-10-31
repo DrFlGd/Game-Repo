@@ -185,7 +185,9 @@ function SavesSettings({ settings, set, paired }) {
     ${sv?.background?.can ? html`<label class="check-row"><input type="checkbox" id="set-saves-background" checked=${settings.background_saves} disabled=${!settings.saves} onChange=${() => set({ background_saves: !settings.background_saves })} />
       <span>Sync them in the background too, with Game Repo Go closed</span></label>
       <p class="muted" id="set-saves-background-note">${sv.background.error ? html`<span class="warn-note">${sv.background.error}</span>` : settings.saves && settings.background_saves && paired
-        ? `Every ${sv.background.every} minutes while you're signed in (${navigator.userAgent.includes("Windows") ? "a task in Windows' Task Scheduler" : "a systemd timer, in Game Mode too"}).`
+        ? sv.background.how === "android"
+          ? `About every ${sv.background.every} minutes while there's a network, when Android lets it: it puts background work off to save the battery, so open Game Repo Go before you play to be sure of the newest save.`
+          : `Every ${sv.background.every} minutes while you're signed in (${sv.background.how === "schtasks" ? "a task in Windows' Task Scheduler" : "a systemd timer, in Game Mode too"}).`
         : "Saves are synced only while Game Repo Go is open."}</p>` : null}
     <p class="muted">Each game's saves go to the library, every version kept, and saves played on your other devices come here when Game Repo Go is open. A save is never written while its emulator is running, and one played both here and elsewhere is kept as it is here until you choose one in Game Repo.</p>
     ${sv ? html`<p id="set-saves-retroarch" class=${ra ? null : "warn-note"}>${ra ? `RetroArch's saves are in ${ra.saves || "the games' own folders"}${ra.states && ra.states !== ra.saves ? `, its states in ${ra.states}` : ""}${ra.config ? ` (as ${ra.config} says)` : ""}.` : "RetroArch isn't found on this device: set where its retroarch.cfg is below."}</p>` : null}
