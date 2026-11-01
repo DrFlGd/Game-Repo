@@ -817,6 +817,11 @@ fn game_details(ix: &Index, lib: &Library, key: &str) -> Result<Response> {
         "files": files,
         "media": media,
         "addons": v["addons"]["items"].as_array().into_iter().flatten().map(|a| a["name"].clone()).collect::<Vec<_>>(),
+        // a PC game's mods, in order, for a device to pick its own (D209)
+        "mods": key.strip_prefix("pcgames/").map(|id| gamerepo_core::mods::all_mods(lib, id).into_iter().map(|(src, d)| json!({
+            "name": src.file_name().unwrap_or_default().to_string_lossy(), "title": d.title, "author": d.author, "version": d.version, "url": d.url, "notes": d.notes,
+            "how": d.how, "on": d.on, "goes_in": gamerepo_core::mods::goes_in_itself(&d),
+        })).collect::<Vec<_>>()).unwrap_or_default(),
     })))
 }
 

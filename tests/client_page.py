@@ -273,6 +273,11 @@ def add_pc_game():
     size = (game / "install" / "Zeta.zip").stat().st_size
     (game / "game.json").write_text(json.dumps({"id": "zeta", "title": "Zeta", "year": 1999, "source": "other",
                                                 "files": [{"path": "install/Zeta.zip", "kind": "install", "size": size, "crc32": "", "added": ""}]}), encoding="utf-8")
+    # a mod for it, not ticked in the library: the device picks it (D209)
+    mods = lib / "_library" / "games" / "pc" / "zeta" / "patches"
+    (mods / "mods" / "Big Level" / "data").mkdir(parents=True)
+    (mods / "mods" / "Big Level" / "data" / "level1.dat").write_bytes(b"big level")
+    (mods / "patches.json").write_text(json.dumps({"mods": {"Big Level": {"title": "Big Level", "how": "game", "on": False, "order": 1}}}), encoding="utf-8")
     run("serve-devices", "changed", "--data", data)
 
 
@@ -987,7 +992,8 @@ async def main():
                       "Restart Steam" in note and (steam_bin / "started").exists(), note)
                 shell(kind="windows")
             folder = pc_games / "Zeta (1999)"
-            files = sorted(str(x.relative_to(folder)).replace("\\", "/") for x in folder.rglob("*") if x.is_file()) if folder.is_dir() else []
+            # (Game Repo Go's own .gamerepo-mods/ notes what mods it has, D209)
+            files = sorted(str(x.relative_to(folder)).replace("\\", "/") for x in folder.rglob("*") if x.is_file() and ".gamerepo-mods" not in x.parts) if folder.is_dir() else []
             if sys.platform == "win32":
                 shortcut = (home / "appdata" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Game Repo Go" / "Zeta.lnk").is_file()
             else:
@@ -995,7 +1001,32 @@ async def main():
             # (zipped as its folder, Zeta: that folder isn't made again inside the game's, D124)
             check("a PC game is unpacked into its own folder of the PC games folder, with a shortcut, and no ES-DE restart asked for",
                   files == ["data/level1.dat", "zeta.exe"] and shortcut and restart is None, (files, shortcut, restart is None))
+            # D207–D208: its files checked on its page, a change put back, a save left as it is
+            await pg.goto(B + "#library")
+            await pg.wait_for_selector("#go-place-pick option[value='s:pcgames']", state="attached", timeout=20000)
+            await pg.select_option("#go-place-pick", "s:pcgames")
+            await pg.click('.go-card[data-key="pcgames/zeta"] .go-card-open')
+            await pg.click("#go-pc-check")
+            await pg.wait_for_selector('#go-pc-state[data-state="as_installed"]', timeout=20000)
+            (folder / "zeta.exe").write_bytes(b"MZ cracked")
             (folder / "save1.sav").write_bytes(b"a save")
+            await pg.click("#go-pc-check")
+            await pg.wait_for_selector('#go-pc-state[data-state="changed"]', timeout=20000)
+            said = await pg.inner_text("#go-pc-files")
+            check("an installed PC game's page checks its files: one changed by hand and one added are listed (D207)",
+                  "zeta.exe" in said and "save1.sav" in said, said[:400])
+            await pg.uncheck('#go-pc-files [data-file="save1.sav"]')
+            await shot(pg, "18b-pc-files")
+            await pg.click("#go-pc-put-back")
+            await pg.wait_for_selector('#go-pc-state[data-state="as_installed"]', timeout=30000)
+            check("Put it back fetches the changed file from the library and leaves the unticked save as it is (D208)",
+                  (folder / "zeta.exe").read_bytes() == b"MZ zeta" and (folder / "save1.sav").read_bytes() == b"a save", await pg.inner_text("#go-pc-files"))
+            await pg.check('#go-pc-mods [data-mod="Big Level"] input')
+            await pg.click("#go-pc-apply")
+            await pg.wait_for_function("() => document.querySelector('#go-pc-mods-now')?.textContent.includes('Big Level')", timeout=30000)
+            check("its mods, ticked on the device, are applied to it as it's installed (D209)",
+                  (folder / "data" / "level1.dat").read_bytes() == b"big level" and (folder / "zeta.exe").read_bytes() == b"MZ zeta", await pg.inner_text("#go-pc-files"))
+            await shot(pg, "18c-pc-mods")
             await pg.click("#go-nav-device")
             await pg.click('#device-list [data-system="pcgames"] .go-sys-open')
             await pg.wait_for_selector('[data-id="pc:Zeta (1999)"]')

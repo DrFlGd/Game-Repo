@@ -158,6 +158,15 @@ pub fn left_in(d: &Device, folders: &[String]) -> Vec<(String, usize)> {
         if !dir.is_dir() {
             continue;
         }
+        // what a check of its files learnt (D207) goes with the game; what a put back put
+        // aside stays, as the user's
+        let ours = dir.join(gamerepo_wire::gamefiles::DIR);
+        let _ = std::fs::remove_file(ours.join(gamerepo_wire::gamefiles::STATE));
+        let _ = std::fs::remove_dir(&ours);
+        if std::fs::read_dir(&dir).is_ok_and(|mut e| e.next().is_none()) {
+            let _ = std::fs::remove_dir(&dir);
+            continue;
+        }
         let mut n = 0;
         let mut stack = vec![dir];
         while let Some(x) = stack.pop() {

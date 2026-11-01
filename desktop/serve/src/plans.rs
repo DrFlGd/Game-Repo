@@ -243,33 +243,39 @@ fn pc_games(ix: &Index, lib: &Library, unpacker: &Unpacker, hashes: &Hashes, ask
                 None => p.to_string(),
             }
         };
-        // its ticked mods over it, in their order: a mod's file in place of the game's (D205)
-        let mut placed: Vec<Got> = got.into_iter().map(|(rel, size, sha1, url)| (inside(&rel), size, sha1, url)).collect();
+        // its ticked mods over it, in their order: a mod's file in place of the game's (D205);
+        // the device's own picks when it gives them (D209)
+        let mut placed: Vec<(Got, String)> = got.into_iter().map(|(rel, size, sha1, url)| ((inside(&rel), size, sha1, url), String::new())).collect();
         let mut waits = false;
-        if ask.mods {
-            let roots = roots::list(lib);
-            for (src, d) in gamerepo_core::mods::device_mods(lib, id) {
-                let mod_name = src.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                match source_files(ix, lib, &roots, unpacker, &mut hash, &src) {
-                    Ok(Some(files)) => {
-                        for (rel, size, sha1, url) in files {
-                            let Some(at) = gamerepo_core::mods::device_path(&d, &rel) else { continue };
-                            placed.retain(|f| !f.0.eq_ignore_ascii_case(&at));
-                            placed.push((at, size, sha1, url));
-                        }
-                        plan.notes.push(format!("{} gets its mod {}.", g.title, d.title));
+        let picks = ask.mod_picks.iter().find(|(k, _)| k == key).map(|(_, names)| names);
+        let chosen: Vec<(PathBuf, gamerepo_core::mods::Details)> = match picks {
+            Some(names) => gamerepo_core::mods::all_mods(lib, id).into_iter().filter(|(src, d)| gamerepo_core::mods::goes_in_itself(d) && src.file_name().is_some_and(|n| names.iter().any(|x| x.as_str() == n.to_string_lossy()))).collect(),
+            None if ask.mods => gamerepo_core::mods::device_mods(lib, id),
+            None => vec![],
+        };
+        for (src, d) in chosen {
+            let mod_name = src.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            match source_files(ix, lib, &roots, unpacker, &mut hash, &src) {
+                Ok(Some(files)) => {
+                    for (rel, size, sha1, url) in files {
+                        let Some(at) = gamerepo_core::mods::device_path(&d, &rel) else { continue };
+                        placed.retain(|f| !f.0 .0.eq_ignore_ascii_case(&at));
+                        placed.push(((at, size, sha1, url), mod_name.clone()));
                     }
-                    Ok(None) => waits = true,
-                    Err(why) => plan.left.push(Left { what: format!("{} › {mod_name}", g.title), why }),
+                    plan.notes.push(format!("{} gets its mod {}.", g.title, d.title));
                 }
+                Ok(None) => waits = true,
+                Err(why) => plan.left.push(Left { what: format!("{} › {mod_name}", g.title), why }),
             }
         }
         if waits {
             plan.waiting.push(key.clone());
             continue;
         }
-        for (rel, size, sha1, url) in placed {
-            plan.files.push(file(&rel, size, sha1, url));
+        for ((rel, size, sha1, url), from) in placed {
+            let mut f = file(&rel, size, sha1, url);
+            f.from = from;
+            plan.files.push(f);
         }
         let (path, dir) = (inside(&path), inside(&dir));
         if path.is_empty() {
