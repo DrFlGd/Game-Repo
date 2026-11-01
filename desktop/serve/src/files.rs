@@ -30,9 +30,10 @@ fn library_allows(rel: &Path) -> bool {
     }
     let mut parts = rel.components().map(|c| c.as_os_str().to_string_lossy().to_lowercase());
     match parts.next().as_deref() {
-        // a game's pictures and documents, not its details or what sources answered
+        // a game's pictures, documents, texture packs and mods (D204, D205), not its details
+        // or what sources answered
         Some("_library") => match parts.next().as_deref() {
-            Some("games") => parts.any(|p| p == "media" || p == "docs"),
+            Some("games") => parts.any(|p| p == "media" || p == "docs" || p == "patches"),
             Some("docs") => parts.next().is_some(),
             _ => false,
         },

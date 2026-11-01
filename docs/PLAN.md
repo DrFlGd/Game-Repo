@@ -6720,6 +6720,33 @@ D205 on this computer, in `desktop/core/src/mods.rs` and `web/ui/mods.js`:
   the game and undone, then into a folder of the game's, removed); `desktop_page.py`'s
   `mods` part.
 
+### Patches notes, part 6: on devices (built 2026-11-01)
+
+D204 and D205 on Game Repo Go, in `desktop/serve/src/plans.rs`, `desktop/device/src/app.rs`
+and `desktop/core/src/{textures,mods}.rs`:
+- `PlanAsk` has `textures` (the emulators whose folders the device knows) and `mods`.
+  Go's Settings has *Put each game's texture packs here with it* (`textures`, off: they're
+  big) and, for PC games, *Install PC games with their ticked mods* (`mods`, on). With
+  `textures` on, each built-in profile with `textures` gives the device a place
+  `textures-<id>`: its folder from Settings › Saves (`save_folders`), else where it
+  usually is (`saves::folder_of`), RetroArch's beside its settings file.
+- The server (`plans::textures`) adds each game's packs (`textures::device_packs`) for the
+  emulator its details name, else the first the device has: a folder's files as they
+  are, an archive unpacked by the `Unpacker` as PC games' are (its lone top folder left
+  out, `strip_lone_top`; the game waits while it's unpacked), at the profile's path
+  (`textures::device_path`, the game's file name on the device for `{stem}`, its ID from
+  `gameid`). Role `texture`, with the game's key, so they go when the game is removed.
+- A PC game's ticked mods that go in by themselves (`mods::device_mods`, in order) are
+  laid over its files in the plan: a mod's file takes the place of the game's at the same
+  path (`mods::device_path`: `inside` left out, `folder` in front). So the device writes
+  the modded game once; a mod is taken off by installing the game again with it unticked
+  (`.gamerepo-mods/` backups weren't needed for this).
+- The server now serves a game folder's `patches/` (`files::library_allows`).
+- Not in this part: texture packs on cards and drives (an export layout's own `textures`
+  place, with the archive unpacked by the export), mods on a game already installed.
+- Tests: `serve/tests/client.rs`
+  `texture_packs_go_into_an_emulators_folder_and_pc_games_get_their_ticked_mods`.
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -6974,9 +7001,9 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     part 1 (cheats kept, gathered and edited), part 2 (RetroArch's cheats on devices
     and exports), part 3 (ROM patches kept, brought in and applied as variants) and
     part 4 (texture packs kept and installed into an emulator on this computer) and
-    part 5 (PC mods kept, ordered and installed where the game is on this computer)
-    built; next, part 6: texture packs on devices and cards, and Game Repo Go applying
-    a game's mods as it installs it.
+    part 5 (PC mods kept, ordered and installed where the game is on this computer) and
+    part 6 (texture packs on Game Repo Go devices, Go installing a PC game with its
+    ticked mods) built: done, but for texture packs on cards and drives.
 29. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices

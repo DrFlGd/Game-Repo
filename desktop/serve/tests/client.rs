@@ -629,6 +629,62 @@ fn pc_games_are_unpacked_by_the_library_written_whole_given_a_shortcut_and_remov
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// D204, D205: a game's texture pack goes into the folder of an emulator on the device that
+/// loads packs for its system (DuckStation's `textures/<serial>/`), with Settings' tick on;
+/// a PC game is installed with its ticked mod's file in place of its own.
+#[test]
+fn texture_packs_go_into_an_emulators_folder_and_pc_games_get_their_ticked_mods() {
+    use gamerepo_core::{index::Index, library::Library, meta, pcmeta};
+    let dir = temp("go-patches");
+    let lib = library(&dir);
+    pc_games(&lib);
+    {
+        let l = Library::open(&lib).unwrap();
+        let ix = Index::open(&dir.join("game-repo-index.sqlite"), &l.id().unwrap()).unwrap();
+        let g = meta::dat_game_named(ix.conn(), &l, "psx", "Quest (USA) (Disc 1)").unwrap().unwrap();
+        let gdir = meta::ensure_folder(&ix, &l, &g).unwrap();
+        let pack = gdir.join("patches/textures/Quest HD");
+        std::fs::create_dir_all(pack.join("ui")).unwrap();
+        std::fs::write(pack.join("ui/title.png"), b"PNG title").unwrap();
+        let mods = pcmeta::dir(&l, "zeta").join("patches");
+        std::fs::create_dir_all(mods.join("mods/HD Data/data")).unwrap();
+        std::fs::write(mods.join("mods/HD Data/data/level1.dat"), b"modded level").unwrap();
+        std::fs::create_dir_all(mods.join("mods/Off")).unwrap();
+        std::fs::write(mods.join("mods/Off/zeta.exe"), b"not ticked").unwrap();
+        std::fs::write(mods.join("patches.json"), serde_json::to_vec(&json!({ "mods": {
+            "HD Data": { "title": "HD Data", "how": "game", "on": true, "order": 1 },
+            "Off": { "title": "Off", "how": "game", "on": false, "order": 2 },
+        } })).unwrap()).unwrap();
+    }
+    let s = start(&lib, &dir.join("server"));
+    let d = a_device(&dir);
+    let app = open_app(&dir, &d.home);
+    let games = dir.join("Games");
+    let duck = dir.join("DuckStation");
+    std::fs::create_dir_all(&duck).unwrap();
+    call(&app, "set_settings", json!({ "pc_games": games, "media": [], "textures": true, "save_folders": { "duckstation": duck } }));
+    pair(&app, &s);
+    call(&app, "add", json!({ "keys": [QUEST, ZETA] }));
+    queue_done(&app);
+    let q = call(&app, "queue", json!({}));
+    for k in [QUEST, ZETA] {
+        assert_eq!(item(&q, k)["state"], "done", "{q}");
+    }
+    // the pack where DuckStation looks for the game's (its disc's serial)
+    let packs = files_under(&duck);
+    assert_eq!(packs.len(), 1, "{packs:?}");
+    assert!(packs[0].starts_with("textures/SLUS") && packs[0].ends_with("/ui/title.png"), "{packs:?}");
+    // the mod's file in place of the game's own; the mod not ticked left out
+    assert_eq!(std::fs::read(games.join("Zeta (1999)/data/level1.dat")).unwrap(), b"modded level");
+    assert_eq!(std::fs::read(games.join("Zeta (1999)/zeta.exe")).unwrap(), b"MZ zeta");
+    // removed with its game
+    call(&app, "remove", json!({ "asks": [{ "key": QUEST }] }));
+    assert!(files_under(&duck).is_empty(), "{:?}", files_under(&duck));
+    app.queue.quit();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // The targets of docs/PLAN.md ("Phase 9b design"): the whole catalogue of 100,000 games
 // read over loopback in under 20 s; a page and a search of the device's copy under 50 ms.
 // Run with `cargo test --release -- --ignored timing` (CI does, on Windows).

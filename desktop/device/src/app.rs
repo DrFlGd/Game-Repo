@@ -115,6 +115,11 @@ pub struct Settings {
     pub background_saves: bool,
     /// Each game's RetroArch cheats put on the device with it (D200)
     pub cheats: bool,
+    /// Each game's texture packs put in its emulator's folder with it (D204): off, as
+    /// they're big
+    pub textures: bool,
+    /// PC games installed with their ticked mods over them (D205)
+    pub mods: bool,
 }
 
 impl Default for Settings {
@@ -140,6 +145,8 @@ impl Default for Settings {
             full_screen: "usual".into(),
             saves: true,
             cheats: true,
+            textures: false,
+            mods: true,
             retroarch: String::new(),
             save_folders: BTreeMap::new(),
             background_saves: true,
@@ -378,6 +385,21 @@ impl App {
                 d.places.insert("cheats".into(), dir);
             }
         }
+        // each emulator's folder that loads texture packs (D204): its folder in Settings ›
+        // Saves, else where it usually is; RetroArch's beside its settings file
+        if s.textures {
+            for p in gamerepo_wire::saves::built_in().into_iter().filter(|p| !p.textures.is_empty()) {
+                let set = s.save_folders.get(&p.id).filter(|f| !f.is_empty()).map(PathBuf::from);
+                let dir = if p.kind == "retroarch" {
+                    saves::retroarch(&p, &homes, (!s.retroarch.is_empty()).then(|| Path::new(&s.retroarch))).and_then(|ra| ra.config).and_then(|c| c.parent().map(Path::to_path_buf))
+                } else {
+                    saves::folder_of(&p, &homes, set.as_deref())
+                };
+                if let Some(dir) = dir {
+                    d.places.insert(format!("textures-{}", p.id), dir);
+                }
+            }
+        }
         d.data = Some(self.data.clone());
         Ok(d)
     }
@@ -405,6 +427,8 @@ impl App {
         let device = self.device()?;
         let mut options = self.options();
         options.cheats = device.places.contains_key("cheats");
+        options.textures = device.places.keys().filter_map(|k| k.strip_prefix("textures-")).map(String::from).collect();
+        options.mods = self.settings().mods;
         Ok(Ctx { server, device, options })
     }
 

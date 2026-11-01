@@ -1851,15 +1851,12 @@ async def mods_page(pg, base, home, library):
     await pg.wait_for_selector("#mods-install-dialog .op-paths", timeout=15000)
     await pg.screenshot(path=str(out / "96-mods-install.png"))
     await pg.click("#mods-install-dialog button[type=submit]")
-    for _ in range(100):
-        if (installed / "Data" / "extra.pak").is_file():
-            break
-        await asyncio.sleep(0.1)
+    # the change done: its panel says so (its steps go in path order, so a file isn't a sign)
+    await pg.wait_for_selector('#mods-panel [data-installed="yes"]', timeout=15000)
     held = list(installed.glob(".gamerepo-set-aside/*/Data/textures.pak"))
     check("Install the ticked mods… puts its files where the game is installed, the game's file it replaces set aside",
           (installed / "Data" / "textures.pak").read_text() == "NEW" and (installed / "Data" / "extra.pak").is_file() and len(held) == 1 and held[0].read_text() == "OLD",
           sorted(str(p.relative_to(installed)) for p in installed.rglob("*")))
-    await pg.wait_for_selector('#mods-panel [data-installed="yes"]', timeout=15000)
     await pg.screenshot(path=str(out / "97-mods-panel.png"))
 
 
