@@ -67,9 +67,9 @@ const DONE = [
   ["Tailscale on the Steam Deck", "Game Repo Go sets up Tailscale on the Deck from its Settings, the first part of reaching your library away from home"],
   ["Save sync and Devices", "Saves and save states synced between your devices with every version kept (RetroArch, PPSSPP, Dolphin, the PCSX2 family, DuckStation, Azahar, Eden, Cemu, RPCS3 and more), in the background with Game Repo Go closed and from handhelds' SD cards, and a Devices page for Game Repo Go devices, SD cards, drives and shares whose changes wait for the next connect"],
   ["Cheats and patches", "Each game's cheats kept in its folder, gathered from RetroArch's cheat database, edited on a Cheats page and taken to your devices; translations, hacks and fixes applied to a copy kept as a variant; texture packs installed where each emulator loads them, here and on your devices; and PC games' mods, in an order, installed with the game"],
+  ["Mods on installed games", "Mods added to or taken off a PC game already installed, the game checked and put back as it was from the library, mods put in by hand recorded so they can be taken off again, and FOMOD installers with their options chosen once"],
 ];
 export const NEXT = [
-  ["Mods on installed games", "Mods added to or taken off a PC game already installed, the game checked and put back as it was from the library (after mods by hand too), FOMOD installers and Nexus Mods", true],
   ["Phase 9d", "The Server on Unraid and reached away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only"],
   ["Android games", "APKs kept in the library and installed on Android devices through Game Repo Go"],
   ["GOG installers", "A PC game that has only its GOG installer unpacked, so Game Repo Go can install it too"],
