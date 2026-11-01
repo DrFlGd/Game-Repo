@@ -200,6 +200,10 @@ pub struct PlanAsk {
     /// PC games installed with their ticked mods over them (D205)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub mods: bool,
+    /// The mods a device picked for a PC game (its key, and the mods' names), in place of
+    /// the library's ticks (D209); with `mods` or not
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mod_picks: Vec<(String, Vec<String>)>,
 }
 
 /// A media kind's size for the games asked for, asked for or not (C13, D88), so a device

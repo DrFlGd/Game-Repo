@@ -525,6 +525,12 @@ pub fn add_planned(s: &Server, d: &Device, plan: &Plan, keys: &[String], o: &Add
     }
     rec.format = RECORD;
     d.save_record(&rec)?;
+    // a PC game's mods as they went in (D209)
+    for key in keys.iter().filter(|k| pcgames::is_pc(k) && !o.media_only) {
+        if let Err(e) = pcfiles::note_mods(d, key, plan) {
+            out.notes.push(format!("What mods {key} has couldn't be noted: {e:#}"));
+        }
+    }
     let _ = s.call::<serde_json::Value>("PUT", "/v1/device", Some(&d.holding()));
     Ok(out)
 }

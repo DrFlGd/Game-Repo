@@ -573,6 +573,18 @@ impl App {
                 self.changed("device");
                 json!(r)
             }
+            "pc_mods_in" => json!({ "mods": crate::pcfiles::mods_in(&self.device()?, &arg::<String>(args, "key")?)? }),
+            "pc_apply_mods" => {
+                let key: String = arg(args, "key")?;
+                let ask: crate::pcfiles::Apply = serde_json::from_value(args.clone()).unwrap_or_default();
+                let c = self.ctx()?;
+                let r = crate::pcfiles::apply_mods(&c.server, &c.device, &key, &c.options, &ask, &mut |_| {})?;
+                if r.ask.is_empty() {
+                    self.tell_holding(&c.device);
+                    self.changed("device");
+                }
+                json!(r)
+            }
             "pc_empty_aside" => json!({ "files": crate::pcfiles::empty_aside(&self.device()?, &arg::<String>(args, "key")?, &arg_or::<String>(args, "when"))? }),
             "add_media" => self.add_media(&arg_or::<String>(args, "id"), &arg_or::<String>(args, "key"), &arg::<Vec<String>>(args, "kinds")?)?,
             "steam" => steam::status(&self.data),

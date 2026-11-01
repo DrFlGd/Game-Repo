@@ -258,16 +258,128 @@ fn plan_of(kind: &str, label: String, title: String, lib: &Library, ops: Vec<Op>
     p
 }
 
+/// A mod's files where the game is installed: (where each goes, the file it comes from, an
+/// archive's unpacked into `staging`). None: it doesn't go in by itself.
+fn mod_files(dir: &Path, n: &str, d: &Details, target: &Path, staging: &Path) -> Result<Option<Vec<(PathBuf, PathBuf)>>> {
+    let src = dir.join(n);
+    let base = match d.how.as_str() {
+        "game" => target.to_path_buf(),
+        "folder" if !d.folder.trim().is_empty() => d.folder.split(['/', '\\']).filter(|x| !x.is_empty() && *x != "." && *x != "..").fold(target.to_path_buf(), |p, x| p.join(x)),
+        _ => return Ok(None),
+    };
+    let list: Vec<(PathBuf, PathBuf)> = if src.is_dir() {
+        crate::cheats::walk(&src).into_iter().map(|f| (f.clone(), f.strip_prefix(&src).unwrap_or(&f).to_path_buf())).collect()
+    } else if is_archive(n) {
+        let at = staging.join(organise::new_id());
+        unpack(&src, &at)?;
+        let root = if d.inside.is_empty() { at.clone() } else { d.inside.split(['/', '\\']).filter(|x| !x.is_empty() && *x != "..").fold(at.clone(), |p, x| p.join(x)) };
+        crate::cheats::walk(&root).into_iter().map(|f| (f.clone(), f.strip_prefix(&root).unwrap_or(&f).to_path_buf())).collect()
+    } else {
+        vec![(src.clone(), PathBuf::from(n))]
+    };
+    if list.is_empty() {
+        bail!("The mod {n} has no files in it.");
+    }
+    Ok(Some(list.into_iter().map(|(f, rel)| (base.join(rel), f)).collect()))
+}
+
+/// *Take it off…* (D209 on this computer): an installed mod's files taken off where the game
+/// is installed, as a change with Undo: each is set aside, and the file it had replaced
+/// put back, from another mod installed that gives the same file, else the library's
+/// unpacked copy, else the game's own file the install set aside; a file only it gave is
+/// only set aside.
+pub fn uninstall_plan(ix: &Index, lib: &Library, data_dir: &Path, key: &str, name: &str) -> Result<Plan> {
+    crate::cheats::fresh(ix, lib)?;
+    let g = game_of(ix.conn(), key)?;
+    let dir = dir_of(lib, &g)?;
+    let target = installed_at(lib, &g).ok_or_else(|| anyhow!("Say where {} is installed on this computer first.", g.title))?;
+    let mut m = read_json_object(&manifest_of(&dir));
+    if m["mods"][name]["installed"]["to"].as_str().is_none() {
+        bail!("{name} isn't installed where {} is.", g.title);
+    }
+    let staging = data_dir.join("mods-staging");
+    let d = Details::of(&m["mods"][name], name);
+    let Some(mine) = mod_files(&dir, name, &d, &target, &staging)? else { bail!("{name} doesn't go in by itself, so Game Repo didn't install it.") };
+    // what each place would have without it: the library's copy, then the other installed mods in order
+    let mut under: BTreeMap<String, PathBuf> = BTreeMap::new();
+    if let Ok((t, base)) = copies(lib, &g) {
+        if t == target {
+            for (rel, _) in gamefiles::files_in(&base) {
+                under.insert(rel.to_lowercase(), rel.split('/').fold(base.clone(), |p, x| p.join(x)));
+            }
+        }
+    }
+    let rel_of = |p: &Path| p.strip_prefix(&target).ok().map(|r| r.to_string_lossy().replace('\\', "/").to_lowercase());
+    // a file a mod after it in the order gives too is that mod's now, and stays
+    let mut later: HashSet<String> = HashSet::new();
+    let mut after = false;
+    for n in names_in(&dir, &m) {
+        if n == name {
+            after = true;
+            continue;
+        }
+        if !m["mods"][&n]["installed"]["to"].is_string() {
+            continue;
+        }
+        let od = Details::of(&m["mods"][&n], &n);
+        if let Some(list) = mod_files(&dir, &n, &od, &target, &staging)? {
+            for (to, f) in list {
+                if let Some(r) = rel_of(&to) {
+                    if after {
+                        later.insert(r);
+                    } else {
+                        under.insert(r, f);
+                    }
+                }
+            }
+        }
+    }
+    let mut ops = vec![];
+    for (to, _) in &mine {
+        if !to.is_file() || rel_of(to).is_some_and(|r| later.contains(&r)) {
+            continue;
+        }
+        let s = crate::export::outside(&target, to);
+        ops.push(Op { op: "aside".into(), game: g.title.clone(), to: to.display().to_string(), size: s.size, from: vec![s], names: vec![], aside: vec![], note: Some(format!("{name} taken off")) });
+        // else the game's own file the install set aside, the first kept
+        let first_aside = || -> Option<PathBuf> {
+            let rel = to.strip_prefix(&target).ok()?;
+            let mut v: Vec<PathBuf> = std::fs::read_dir(target.join(".gamerepo-set-aside")).ok()?.flatten().map(|e| e.path().join(rel)).filter(|p| p.is_file()).collect();
+            v.sort();
+            v.into_iter().next()
+        };
+        if let Some(from) = rel_of(to).and_then(|r| under.get(&r).cloned()).or_else(first_aside) {
+            let from = &from;
+            let s = outside(from);
+            ops.push(Op { op: "copy".into(), game: g.title.clone(), to: to.display().to_string(), size: s.size, from: vec![s], names: vec![], aside: vec![], note: Some("as it was before".into()) });
+        }
+    }
+    if let Some(o) = m["mods"][name].as_object_mut() {
+        o.remove("installed");
+    }
+    ops.push(text_op(&g.title, &manifest_of(&dir), serde_json::to_string_pretty(&sorted(&m))? + "\n", "patches.json: the mod taken off"));
+    let mut p = plan_of("mods_install", format!("Took {name} off {}", g.title), format!("Take {name} off {}", g.title), lib, ops, json!({ "key": key, "mods": [name], "skipped": [], "to": target.display().to_string() }));
+    p.out = Some(target.display().to_string());
+    Ok(p)
+}
+
 /// A PC game's ticked mods that go in by themselves, in order, for a device installing it
 /// (D205): each one's file or folder in the library and its details.
 pub fn device_mods(lib: &Library, id: &str) -> Vec<(PathBuf, Details)> {
+    all_mods(lib, id).into_iter().filter(|(_, d)| d.on && goes_in_itself(d)).collect()
+}
+
+/// Whether a mod goes in by itself: into the game's folder, or a folder of the game's that's set.
+pub fn goes_in_itself(d: &Details) -> bool {
+    d.how == "game" || (d.how == "folder" && !d.folder.trim().is_empty())
+}
+
+/// Every mod of a PC game, in order, ticked or not (D209: a device picks its own): each
+/// one's file or folder in the library and its details.
+pub fn all_mods(lib: &Library, id: &str) -> Vec<(PathBuf, Details)> {
     let dir = crate::pcmeta::dir(lib, id).join(patches::FOLDER).join(FOLDER);
     let m = read_json_object(&manifest_of(&dir));
-    names_in(&dir, &m)
-        .into_iter()
-        .map(|n| (dir.join(&n), Details::of(&m["mods"][&n], &n)))
-        .filter(|(_, d)| d.on && (d.how == "game" || (d.how == "folder" && !d.folder.trim().is_empty())))
-        .collect()
+    names_in(&dir, &m).into_iter().map(|n| (dir.join(&n), Details::of(&m["mods"][&n], &n))).collect()
 }
 
 /// Where a mod's file goes in the game's folder: `rel` (its path inside the mod, `/`) with
@@ -384,30 +496,12 @@ pub fn install_plan(ix: &Index, lib: &Library, data_dir: &Path, key: &str, names
     let mut skipped = vec![];
     for n in &chosen {
         let d = Details::of(&m["mods"][n], n);
-        let src = dir.join(n);
-        let base = match d.how.as_str() {
-            "game" => target.clone(),
-            "folder" if !d.folder.trim().is_empty() => d.folder.split(['/', '\\']).filter(|x| !x.is_empty() && *x != "." && *x != "..").fold(target.clone(), |p, x| p.join(x)),
-            _ => {
-                skipped.push(json!({ "name": n, "how": d.how }));
-                continue;
-            }
+        let Some(list) = mod_files(&dir, n, &d, &target, &staging)? else {
+            skipped.push(json!({ "name": n, "how": d.how }));
+            continue;
         };
-        let list: Vec<(PathBuf, PathBuf)> = if src.is_dir() {
-            crate::cheats::walk(&src).into_iter().map(|f| (f.clone(), f.strip_prefix(&src).unwrap_or(&f).to_path_buf())).collect()
-        } else if is_archive(n) {
-            let at = staging.join(organise::new_id());
-            unpack(&src, &at)?;
-            let root = if d.inside.is_empty() { at.clone() } else { d.inside.split(['/', '\\']).filter(|x| !x.is_empty() && *x != "..").fold(at.clone(), |p, x| p.join(x)) };
-            crate::cheats::walk(&root).into_iter().map(|f| (f.clone(), f.strip_prefix(&root).unwrap_or(&f).to_path_buf())).collect()
-        } else {
-            vec![(src.clone(), PathBuf::from(n))]
-        };
-        if list.is_empty() {
-            bail!("The mod {n} has no files in it.");
-        }
-        for (f, rel) in list {
-            files.insert(base.join(rel), (f, n.clone()));
+        for (to, f) in list {
+            files.insert(to, (f, n.clone()));
         }
         put.push(n.clone());
     }
@@ -630,6 +724,22 @@ mod tests {
         let p = install_plan(&ix, &lib, &data, key, None).unwrap();
         organise::run(&ix, &lib, &p, &cancel, &mut |_| {}).unwrap();
         assert_eq!(std::fs::read(installed.join("Mods/Data/textures.pak")).unwrap(), b"NEW");
+        // D209: taken off again; then into the game's folder and taken off, the game's own file back
+        let p = uninstall_plan(&ix, &lib, &data, key, "HD Textures v1.2.zip").unwrap();
+        organise::run(&ix, &lib, &p, &cancel, &mut |_| {}).unwrap();
+        assert!(!installed.join("Mods/Data/textures.pak").exists());
+        assert!(mods(&ix, &lib, key).unwrap()["mods"][0]["installed"].is_null(), "not installed now");
+        d.how = "game".into();
+        edit(&ix, &lib, key, "HD Textures v1.2.zip", &d).unwrap();
+        let p = install_plan(&ix, &lib, &data, key, None).unwrap();
+        organise::run(&ix, &lib, &p, &cancel, &mut |_| {}).unwrap();
+        assert_eq!(std::fs::read(installed.join("Data/textures.pak")).unwrap(), b"NEW");
+        let p = uninstall_plan(&ix, &lib, &data, key, "HD Textures v1.2.zip").unwrap();
+        organise::run(&ix, &lib, &p, &cancel, &mut |_| {}).unwrap();
+        assert_eq!(std::fs::read(installed.join("Data/textures.pak")).unwrap(), b"OLD", "the game's own file back");
+        assert!(!installed.join("Data/extra.pak").exists());
+        organise::undo(&ix, &lib, &p.id, &cancel, &mut |_| {}).unwrap();
+        assert_eq!(std::fs::read(installed.join("Data/textures.pak")).unwrap(), b"NEW", "undone: on again");
         // removed: kept aside
         remove(&ix, &lib, key, "patcher.exe").unwrap();
         assert_eq!(mods(&ix, &lib, key).unwrap()["mods"].as_array().unwrap().len(), 1);

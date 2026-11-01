@@ -67,12 +67,14 @@ function ImportDialog({ k, paths, onDone }) {
 }
 
 /** Install the mods: the preview of the ticked mods going where the game is installed. */
-function InstallDialog({ plan, onDone }) {
+function InstallDialog({ plan, onDone, takeOff = false }) {
   const skipped = plan.skipped || [];
-  return html`<${Dialog} title=${plan.title || plan.label} id="mods-install-dialog" wide=${true} sticky=${true} busy=${plan.short || !plan.ops} submitLabel="Install them"
+  return html`<${Dialog} title=${plan.title || plan.label} id="mods-install-dialog" wide=${true} sticky=${true} busy=${plan.short || !plan.ops} submitLabel=${takeOff ? "Take it off" : "Install them"}
     onSubmit=${async () => { close(); await runPlan(plan); onDone?.(); again(); }}>
     <${Preview} plan=${plan} />
-    <p class="muted" id="mods-install-to">Into <code>${plan.to}</code>, in their order: a later mod's file goes over an earlier one's. The game's files they replace are set aside, and History's Undo puts them back.</p>
+    ${takeOff
+      ? html`<p class="muted" id="mods-install-to">In <code>${plan.to}</code>: its files are set aside, and each file it had replaced is put back (another installed mod's, the library's copy, or the game's own the install set aside). History's Undo puts it on again.</p>`
+      : html`<p class="muted" id="mods-install-to">Into <code>${plan.to}</code>, in their order: a later mod's file goes over an earlier one's. The game's files they replace are set aside, and History's Undo puts them back.</p>`}
     ${skipped.length ? html`<p class="warn-note" id="mods-install-skipped">Not by Game Repo: ${skipped.map((x) => `${x.name} (${howName(x.how).toLowerCase()})`).join(", ")}. Game Repo never runs a mod's installer: run it yourself, after these.</p>` : null}
   <//>`;
 }
@@ -181,6 +183,13 @@ export function ModsEditor({ k, off, focus = null }) {
       toast(`Couldn't install them: ${err(e)}`, 10000);
     }
   };
+  const takeOff = async (m) => {
+    try {
+      ui.set({ dialog: { type: "mods-install", plan: await api("mods_uninstall", { key: k, name: m.name }), onDone: load, takeOff: true } });
+    } catch (e) {
+      toast(`Couldn't take it off: ${err(e)}`, 10000);
+    }
+  };
   const check = async () => {
     try {
       ui.set({ dialog: { type: "mods-check", k, title: g.title, check: await api("mods_check", { key: k }), onDone: load } });
@@ -219,6 +228,7 @@ export function ModsEditor({ k, off, focus = null }) {
       <div class="lib-panel-actions">
         <button type="button" class="ghost compact" data-action="up" aria-label="Earlier" title="Earlier" disabled=${off || i === 0} onClick=${() => move(i, -1)}>↑</button>
         <button type="button" class="ghost compact" data-action="down" aria-label="Later" title="Later" disabled=${off || i === list.length - 1} onClick=${() => move(i, 1)}>↓</button>
+        ${m.installed?.to ? html`<button type="button" class="ghost compact" data-action="take-off" disabled=${off || !isDesktop() || !g.installed_found} onClick=${() => takeOff(m)}>Take it off…</button>` : null}
         <button type="button" class="ghost compact" data-action="edit" disabled=${off} onClick=${() => ui.set({ dialog: { type: "mods-edit", k, file: m.name, details: m.details, onDone: setG } })}>Edit details…</button>
         <button type="button" class="ghost compact" data-action="remove" disabled=${off} onClick=${() => confirmDialog({ title: `Remove ${m.name}?`, text: "It's kept aside in the game's patches/mods folder (.removed). What it put where the game is installed stays: History undoes that.", button: "Remove it", run: () => api("mods_remove", { key: k, name: m.name }).then((x) => { setG(x); again(); }) })}>${Icon.trash(14)} Remove</button>
       </div>

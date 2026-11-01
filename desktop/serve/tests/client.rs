@@ -585,7 +585,9 @@ fn pc_games_are_unpacked_by_the_library_written_whole_given_a_shortcut_and_remov
     for k in [ZETA, OMEGA] {
         assert_eq!(item(&q, k)["state"], "done", "{q}");
     }
-    assert_eq!(files_under(&games), ["Omega (2001)/omega.dat", "Omega (2001)/omega.exe", "Zeta (1999)/data/level1.dat", "Zeta (1999)/zeta.exe"]);
+    // (each with Game Repo Go's note of what mods it has, D209)
+    let game_files = |g: &Path| files_under(g).into_iter().filter(|f| !f.contains("/.gamerepo-mods/")).collect::<Vec<_>>();
+    assert_eq!(game_files(&games), ["Omega (2001)/omega.dat", "Omega (2001)/omega.exe", "Zeta (1999)/data/level1.dat", "Zeta (1999)/zeta.exe"]);
     assert_eq!(std::fs::read(games.join("Zeta (1999)/zeta.exe")).unwrap(), b"MZ zeta");
     // and a shortcut (D112): in Steam on Linux, through Proton, with its cover
     #[cfg(target_os = "linux")]
@@ -613,7 +615,8 @@ fn pc_games_are_unpacked_by_the_library_written_whole_given_a_shortcut_and_remov
     std::fs::write(games.join("Omega (2001)/saves/slot1.sav"), b"a save").unwrap();
     let gone = call(&app, "remove", json!({ "asks": [{ "key": OMEGA }] }));
     assert_eq!(gone["kept_made"], json!([["Omega (2001)", 1]]), "{gone}");
-    assert_eq!(files_under(&games), ["Omega (2001)/saves/slot1.sav", "Zeta (1999)/data/level1.dat", "Zeta (1999)/zeta.exe"]);
+    assert_eq!(game_files(&games), ["Omega (2001)/saves/slot1.sav", "Zeta (1999)/data/level1.dat", "Zeta (1999)/zeta.exe"]);
+    assert!(!games.join("Omega (2001)/.gamerepo-mods").exists(), "its note goes with it");
     #[cfg(target_os = "linux")]
     assert!(gamerepo_device::steam::state(&dir.join("go")).wanted.iter().all(|w| w.key != OMEGA));
     #[cfg(windows)]
@@ -738,9 +741,37 @@ fn an_installed_pc_game_is_checked_and_put_back_as_the_library_has_it() {
     let c = call(&app, "pc_check", json!({ "key": ZETA }));
     assert_eq!((c["state"].as_str(), c["kept"].as_u64()), (Some("as_installed"), Some(1)), "{c}");
     assert_eq!(c["put_aside"][0]["files"], 2, "{c}");
+    assert_eq!(c["mods"], json!([]), "put back with no mods: {c}");
     // emptied
     assert_eq!(call(&app, "pc_empty_aside", json!({ "key": ZETA }))["files"], 2);
     assert!(call(&app, "pc_check", json!({ "key": ZETA }))["put_aside"].as_array().unwrap().is_empty());
+    // D209: its mods picked on the device and applied to it as it's installed
+    let g = call(&app, "game", json!({ "key": ZETA }));
+    assert_eq!(g["details"]["mods"][0]["name"], "HD Data", "{g}");
+    let r = call(&app, "pc_apply_mods", json!({ "key": ZETA, "mods": ["HD Data"] }));
+    assert_eq!((r["fetched"].as_u64(), r["ask"].as_array().map(Vec::len)), (Some(2), Some(0)), "level1.dat and hd.pak: {r}");
+    assert_eq!(std::fs::read(z.join("data/level1.dat")).unwrap(), b"modded level");
+    assert_eq!(std::fs::read(z.join("data/hd.pak")).unwrap(), b"hd textures");
+    let c = call(&app, "pc_check", json!({ "key": ZETA }));
+    assert_eq!((c["state"].as_str(), c["mods"].clone()), (Some("as_installed"), json!(["HD Data"])), "{c}");
+    // changed by hand since: taking the mod off asks first, and keeps it when told to
+    std::fs::write(z.join("data/level1.dat"), b"my own level").unwrap();
+    let c = call(&app, "pc_check", json!({ "key": ZETA }));
+    assert_eq!(c["owners"]["data/level1.dat"], "HD Data", "{c}");
+    let r = call(&app, "pc_apply_mods", json!({ "key": ZETA, "mods": [] }));
+    assert_eq!(r["ask"], json!(["data/level1.dat"]), "{r}");
+    assert_eq!(std::fs::read(z.join("data/hd.pak")).unwrap(), b"hd textures", "nothing done before it's answered");
+    let r = call(&app, "pc_apply_mods", json!({ "key": ZETA, "mods": [], "keep": ["data/level1.dat"] }));
+    assert_eq!(r["removed"], 1, "{r}");
+    assert!(!z.join("data/hd.pak").exists(), "the mod's own file taken away");
+    assert_eq!(std::fs::read(z.join("data/level1.dat")).unwrap(), b"my own level", "kept");
+    let c = call(&app, "pc_check", json!({ "key": ZETA }));
+    assert_eq!((c["state"].as_str(), c["mods"].clone()), (Some("as_installed"), json!([])), "{c}");
+    // replaced: the library's own file back
+    let r = call(&app, "pc_apply_mods", json!({ "key": ZETA, "mods": ["HD Data"], "replace": [] }));
+    assert_eq!(r["ask"].as_array().map(Vec::len), Some(0), "a kept file is the game's own: {r}");
+    assert_eq!(std::fs::read(z.join("data/level1.dat")).unwrap(), b"my own level", "and stays as it is");
+    assert_eq!(std::fs::read(z.join("data/hd.pak")).unwrap(), b"hd textures");
     app.queue.quit();
     s.stop();
     let _ = std::fs::remove_dir_all(&dir);

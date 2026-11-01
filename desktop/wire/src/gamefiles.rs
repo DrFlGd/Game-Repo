@@ -41,6 +41,13 @@ pub struct State {
     /// The library's copy's files as last read (Game Repo's check, by their paths there)
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub library: BTreeMap<String, Seen>,
+    /// The mods in the game now, in order, as Game Repo Go put them in (D209); none: as the
+    /// library ticks them when it was installed, before Go kept this
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mods: Option<Vec<String>>,
+    /// Which mod gave each file it gave (by its path in the game's folder)
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub owners: BTreeMap<String, String>,
 }
 
 impl State {
@@ -117,6 +124,12 @@ pub struct Check {
     pub played: usize,
     /// What put backs put aside, newest first
     pub put_aside: Vec<Aside>,
+    /// The mods Game Repo Go put in, in order (D209), when it knows
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mods: Option<Vec<String>>,
+    /// Which mod gave a file, for each changed file a mod gave
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub owners: BTreeMap<String, String>,
 }
 
 impl Check {
@@ -216,6 +229,8 @@ pub fn check(dir: &Path, want: &[Want], hash: &dyn Fn(&Path) -> std::io::Result<
     state.seen = still;
     out.state = if out.is_changed() { "changed" } else { "as_installed" }.into();
     out.put_aside = put_aside(dir);
+    out.mods = state.mods.clone();
+    out.owners = out.changed.iter().filter_map(|r| state.owners.get(r).map(|m| (r.clone(), m.clone()))).collect();
     state.write(dir)?;
     Ok(out)
 }

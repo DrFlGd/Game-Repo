@@ -2336,6 +2336,19 @@ impl App {
                 let (key, name) = (s("key"), s("name"));
                 j(self.with_index(move |ix| crate::mods::remove(ix, &lib, &key, &name)).await?)
             }
+            "mods_uninstall" => {
+                let (key, name) = (s("key"), s("name"));
+                j(self
+                    .with_index(move |ix| {
+                        let plan = crate::mods::uninstall_plan(ix, &lib, &data_dir, &key, &name)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        let mut v = plan.summary();
+                        v["to"] = plan.dat["to"].clone();
+                        v["skipped"] = plan.dat["skipped"].clone();
+                        Ok(v)
+                    })
+                    .await?)
+            }
             "mods_check" => {
                 let key = s("key");
                 j(self.with_index(move |ix| crate::mods::check_installed(ix, &lib, &key)).await?)

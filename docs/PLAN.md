@@ -6901,6 +6901,35 @@ the pages `web/client/game.js` and `web/ui/mods.js`:
   `core` `mods` `an_installed_game_is_checked_against_the_librarys_copy_and_put_back_with_undo`,
   `client_page.py` (Zeta's files) and `desktop_page.py`'s `mods` part.
 
+### Mods on installed games notes, part 2: mods on a game already installed (built 2026-11-01)
+
+D209, in `desktop/device/src/pcfiles.rs`, `desktop/serve/src/{plans,lib}.rs`,
+`desktop/core/src/mods.rs` and the pages:
+- The server's game details (`GET /v1/games/<key>`) list a PC game's mods in order
+  (`mods::all_mods`: name, title, version, how, ticked, `goes_in`). `PlanAsk.mod_picks` gives
+  a device's own mods for a game in place of the library's ticks; each file a mod gives
+  carries its name in the plan (`File.from`).
+- Game Repo Go notes what mods each PC game has as its files go in (`note_mods`, in
+  `.gamerepo-mods/state.json`: `mods` in order, `owners` each file's mod), so the page
+  shows *In it now* without reading the files (`pc_mods_in`). *Its mods* on an installed
+  PC game's page ticks them for this device, and *Apply* (`pc_apply_mods`) asks for the
+  game's plan with them and lets `add_planned` fetch only what differs from the record;
+  files no mod gives any more are taken away (one changed by hand and replaced is put
+  aside instead). A file changed by hand since, that the mods would change or take away,
+  stops it until it's answered (`ask`: *Keep mine* or *Replace it*); a kept file is the
+  game's own from then on, and neither *Apply* nor *Put it back* touches one.
+- Game Repo: an installed mod has *Take it off…* (`mods_uninstall`, an Organise change):
+  its files set aside, and each file it had replaced put back from another installed mod
+  earlier in the order, else the library's unpacked copy, else the game's own file the
+  install set aside (the first kept); a file a later mod gives too is left as it is.
+- Not in this part: telling, on a check, that a game's update (Steam, GOG, a new copy in
+  the library) replaced modded files, to offer *Apply* again (*Apply* puts the mods back
+  in whenever it's pressed).
+- Tests: `serve/tests/client.rs` (the put-back test goes on to apply a mod, keep a file
+  changed by hand, take the mod off), `core` `mods` (taken off from a folder of the game's
+  and from the game's folder, then undone), `client_page.py` (Zeta's mod ticked on the
+  device) and `desktop_page.py`'s `mods` part.
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -7162,7 +7191,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     against how it was installed and put back from the library, whoever changed it; mods
     applied to and taken off a game already installed; mods put in by hand recorded as
     theirs; FOMOD installers and the common layouts; Nexus Mods' API. In progress: part 1
-    (checking an installed game and putting it back, on Game Repo Go and here) built.
+    (checking an installed game and putting it back, on Game Repo Go and here) and part 2
+    (mods applied to and taken off a game already installed) built.
 30. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices

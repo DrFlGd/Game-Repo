@@ -1881,6 +1881,13 @@ async def mods_page(pg, base, home, library):
     check("Put it back… copies the changed file from the library and sets the added one aside, as a change (D208)",
           t.is_file() and t.read_text() == "OLD" and not (installed / "Data" / "extra.pak").exists() and len(list(installed.glob(".gamerepo-set-aside/*/Data/extra.pak"))) == 1,
           sorted(str(p.relative_to(installed)) for p in installed.rglob("*")))
+    # D209: Take it off… marks it not installed, the library's file in place
+    await pg.click('#mods-panel [data-action="take-off"]')
+    await pg.wait_for_selector("#mods-install-dialog .op-paths", timeout=15000)
+    await pg.click("#mods-install-dialog button[type=submit]")
+    await pg.wait_for_selector('#mods-panel [data-installed="no"]', timeout=15000)
+    check("Take it off… takes an installed mod off as a change, the file it replaced put back (D209)",
+          (installed / "Data" / "textures.pak").read_text() == "OLD" and not await pg.query_selector('#mods-panel [data-action="take-off"]'), await pg.inner_text("#mods-panel"))
 
 
 async def cheats_page(pg, base, home, library):

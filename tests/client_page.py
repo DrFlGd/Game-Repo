@@ -273,6 +273,11 @@ def add_pc_game():
     size = (game / "install" / "Zeta.zip").stat().st_size
     (game / "game.json").write_text(json.dumps({"id": "zeta", "title": "Zeta", "year": 1999, "source": "other",
                                                 "files": [{"path": "install/Zeta.zip", "kind": "install", "size": size, "crc32": "", "added": ""}]}), encoding="utf-8")
+    # a mod for it, not ticked in the library: the device picks it (D209)
+    mods = lib / "_library" / "games" / "pc" / "zeta" / "patches"
+    (mods / "mods" / "Big Level" / "data").mkdir(parents=True)
+    (mods / "mods" / "Big Level" / "data" / "level1.dat").write_bytes(b"big level")
+    (mods / "patches.json").write_text(json.dumps({"mods": {"Big Level": {"title": "Big Level", "how": "game", "on": False, "order": 1}}}), encoding="utf-8")
     run("serve-devices", "changed", "--data", data)
 
 
@@ -987,7 +992,8 @@ async def main():
                       "Restart Steam" in note and (steam_bin / "started").exists(), note)
                 shell(kind="windows")
             folder = pc_games / "Zeta (1999)"
-            files = sorted(str(x.relative_to(folder)).replace("\\", "/") for x in folder.rglob("*") if x.is_file()) if folder.is_dir() else []
+            # (Game Repo Go's own .gamerepo-mods/ notes what mods it has, D209)
+            files = sorted(str(x.relative_to(folder)).replace("\\", "/") for x in folder.rglob("*") if x.is_file() and ".gamerepo-mods" not in x.parts) if folder.is_dir() else []
             if sys.platform == "win32":
                 shortcut = (home / "appdata" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Game Repo Go" / "Zeta.lnk").is_file()
             else:
@@ -1015,6 +1021,12 @@ async def main():
             await pg.wait_for_selector('#go-pc-state[data-state="as_installed"]', timeout=30000)
             check("Put it back fetches the changed file from the library and leaves the unticked save as it is (D208)",
                   (folder / "zeta.exe").read_bytes() == b"MZ zeta" and (folder / "save1.sav").read_bytes() == b"a save", await pg.inner_text("#go-pc-files"))
+            await pg.check('#go-pc-mods [data-mod="Big Level"] input')
+            await pg.click("#go-pc-apply")
+            await pg.wait_for_function("() => document.querySelector('#go-pc-mods-now')?.textContent.includes('Big Level')", timeout=30000)
+            check("its mods, ticked on the device, are applied to it as it's installed (D209)",
+                  (folder / "data" / "level1.dat").read_bytes() == b"big level" and (folder / "zeta.exe").read_bytes() == b"MZ zeta", await pg.inner_text("#go-pc-files"))
+            await shot(pg, "18c-pc-mods")
             await pg.click("#go-nav-device")
             await pg.click('#device-list [data-system="pcgames"] .go-sys-open')
             await pg.wait_for_selector('[data-id="pc:Zeta (1999)"]')

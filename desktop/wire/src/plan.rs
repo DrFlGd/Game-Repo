@@ -96,6 +96,9 @@ pub struct File {
     /// a ROM taken out of an archive, a cue sheet rewritten, a picture made smaller, a playlist)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub made: bool,
+    /// A PC game's file a mod gives, its name (the mod's file or folder in the library, D209)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub from: String,
     /// Where it's fetched from (`/v1/files/…`), with its SHA-1 at the same address with
     /// `?sha1` once it's known
     pub url: String,
