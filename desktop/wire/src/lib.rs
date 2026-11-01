@@ -7,6 +7,7 @@
 pub mod api;
 pub mod control;
 pub mod devices;
+pub mod gamefiles;
 pub mod gamelist;
 pub mod plan;
 pub mod saves;

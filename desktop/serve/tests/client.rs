@@ -685,6 +685,67 @@ fn texture_packs_go_into_an_emulators_folder_and_pc_games_get_their_ticked_mods(
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// An installed PC game checked against how it went in and put back (D207–D208): a file
+/// changed by hand, one added, one taken away and a mod Game Repo put in all found, the
+/// game put back as the library has it, what was added put aside, what's unticked kept.
+#[test]
+fn an_installed_pc_game_is_checked_and_put_back_as_the_library_has_it() {
+    use gamerepo_core::{library::Library, pcmeta};
+    let dir = temp("go-put-back");
+    let lib = library(&dir);
+    pc_games(&lib);
+    {
+        let l = Library::open(&lib).unwrap();
+        let mods = pcmeta::dir(&l, "zeta").join("patches");
+        std::fs::create_dir_all(mods.join("mods/HD Data/data")).unwrap();
+        std::fs::write(mods.join("mods/HD Data/data/level1.dat"), b"modded level").unwrap();
+        std::fs::write(mods.join("mods/HD Data/data/hd.pak"), b"hd textures").unwrap();
+        std::fs::write(mods.join("patches.json"), serde_json::to_vec(&json!({ "mods": { "HD Data": { "title": "HD Data", "how": "game", "on": true, "order": 1 } } })).unwrap()).unwrap();
+    }
+    let s = start(&lib, &dir.join("server"));
+    let d = a_device(&dir);
+    let app = open_app(&dir, &d.home);
+    let games = dir.join("Games");
+    call(&app, "set_settings", json!({ "pc_games": games, "media": [] }));
+    pair(&app, &s);
+    call(&app, "add", json!({ "keys": [ZETA] }));
+    queue_done(&app);
+    let z = games.join("Zeta (1999)");
+    let c = call(&app, "pc_check", json!({ "key": ZETA }));
+    assert_eq!(c["state"], "as_installed", "{c}");
+    // changed by hand: the program over, a save and a file added, a log made, a file gone
+    std::fs::write(z.join("zeta.exe"), b"MZ cracked").unwrap();
+    std::fs::write(z.join("save1.sav"), b"my save").unwrap();
+    std::fs::write(z.join("data/extra.pak"), b"a mod by hand").unwrap();
+    std::fs::create_dir_all(z.join("logs")).unwrap();
+    std::fs::write(z.join("logs/run.txt"), b"log").unwrap();
+    std::fs::remove_file(z.join("data/level1.dat")).unwrap();
+    let c = call(&app, "pc_check", json!({ "key": ZETA }));
+    assert_eq!(c["state"], "changed");
+    assert_eq!(c["changed"], json!(["zeta.exe"]), "{c}");
+    assert_eq!(c["added"], json!(["data/extra.pak", "save1.sav"]), "{c}");
+    assert_eq!(c["missing"], json!(["data/level1.dat"]), "{c}");
+    assert_eq!(c["played"], 1, "the log isn't listed: {c}");
+    // put back, the save left as it is
+    let r = call(&app, "pc_put_back", json!({ "key": ZETA, "leave": ["save1.sav"] }));
+    assert_eq!((r["put_aside"].as_u64(), r["kept"].as_u64(), r["fetched"].as_u64()), (Some(2), Some(1), Some(2)), "extra.pak and hd.pak (only the mod gave it) aside; zeta.exe and level1.dat fetched: {r}");
+    assert_eq!(std::fs::read(z.join("zeta.exe")).unwrap(), b"MZ zeta");
+    assert_ne!(std::fs::read(z.join("data/level1.dat")).unwrap(), b"modded level", "the game as the library has it, no mods");
+    assert_eq!(std::fs::read(z.join("save1.sav")).unwrap(), b"my save");
+    assert!(!z.join("data/extra.pak").exists() && !z.join("data/hd.pak").exists());
+    let when = r["when"].as_str().unwrap();
+    assert_eq!(std::fs::read(z.join(format!(".gamerepo-mods/put-aside/{when}/data/extra.pak"))).unwrap(), b"a mod by hand", "put aside, not deleted");
+    let c = call(&app, "pc_check", json!({ "key": ZETA }));
+    assert_eq!((c["state"].as_str(), c["kept"].as_u64()), (Some("as_installed"), Some(1)), "{c}");
+    assert_eq!(c["put_aside"][0]["files"], 2, "{c}");
+    // emptied
+    assert_eq!(call(&app, "pc_empty_aside", json!({ "key": ZETA }))["files"], 2);
+    assert!(call(&app, "pc_check", json!({ "key": ZETA }))["put_aside"].as_array().unwrap().is_empty());
+    app.queue.quit();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // The targets of docs/PLAN.md ("Phase 9b design"): the whole catalogue of 100,000 games
 // read over loopback in under 20 s; a page and a search of the device's copy under 50 ms.
 // Run with `cargo test --release -- --ignored timing` (CI does, on Windows).

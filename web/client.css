@@ -374,3 +374,8 @@ progress { accent-color: var(--tool); height: 8px; }
   [data-view="big"] .go-place-name { font-size: 20px; flex-basis: 100%; }
   [data-view="big"] .go-search { flex: 1 1 160px; }
 }
+/* An installed PC game's files (D207–D208) */
+.go-pc-files { margin-top: 18px; }
+.go-pc-list { border: 1px solid var(--steel-2); border-radius: 6px; margin: 8px 0; padding: 6px 10px; display: grid; gap: 4px; }
+.go-pc-list legend { font-size: 13px; padding: 0 4px; }
+.go-pc-list .go-file { word-break: break-all; }

@@ -1304,6 +1304,7 @@ impl App {
                     "textures_install" => "Installing a texture pack",
                     "mods" => "Bringing in mods",
                     "mods_install" => "Installing mods",
+                    "pc_put_back" => "Putting a game back",
                     "video_remove" => "Removing videos",
                     "magazine_move" => "Moving magazine issues",
                     "bios" => "Importing BIOS files",
@@ -2334,6 +2335,25 @@ impl App {
             "mods_remove" => {
                 let (key, name) = (s("key"), s("name"));
                 j(self.with_index(move |ix| crate::mods::remove(ix, &lib, &key, &name)).await?)
+            }
+            "mods_check" => {
+                let key = s("key");
+                j(self.with_index(move |ix| crate::mods::check_installed(ix, &lib, &key)).await?)
+            }
+            "mods_put_back" => {
+                let key = s("key");
+                let leave: Vec<String> = args["leave"].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect();
+                j(self
+                    .with_index(move |ix| {
+                        let plan = crate::mods::put_back_plan(ix, &lib, &key, &leave)?;
+                        organise::save_pending(&data_dir, &plan)?;
+                        let mut v = plan.summary();
+                        for k in ["to", "changed", "missing", "added", "kept"] {
+                            v[k] = plan.dat[k].clone();
+                        }
+                        Ok(v)
+                    })
+                    .await?)
             }
             "mods_install" => {
                 let key = s("key");

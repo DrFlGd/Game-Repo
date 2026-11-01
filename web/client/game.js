@@ -1,7 +1,8 @@
 // A game's page (C7): its pictures, description, players and genre, its files and media
 // with their sizes, and whether it's on the device already, with Download… and Add to queue
 // (D114). Its
-// details are fetched when it's opened and kept, so it shows away from home too.
+// details are fetched when it's opened and kept, so it shows away from home too. An installed
+// PC game's files can be checked and the game put back (D207–D208).
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
@@ -18,6 +19,57 @@ function Picture({ k, kind, size, alt }) {
 }
 
 const list = (v) => (Array.isArray(v) ? v.join(", ") : v);
+
+const checkSay = (c) => (c.state === "as_installed" ? "As it was installed: nothing has changed." : c.state === "not_there" ? "Its folder isn't there." : `Changed: ${[c.changed.length ? `${c.changed.length} changed` : null, c.missing.length ? `${c.missing.length} gone` : null, c.added.length ? `${c.added.length} added` : null].filter(Boolean).join(", ")}.`);
+
+/** An installed PC game's files checked against how they went in, and put back from the
+ *  library (D207–D208): unticked files are left as they are, added ones put aside. */
+function PcFiles({ k, title }) {
+  const [c, setC] = useState(null);
+  const [leave, setLeave] = useState([]);
+  const [busy, setBusy] = useState("");
+  const [said, setSaid] = useState("");
+  const [error, setError] = useState("");
+  const run = async (what, f) => {
+    setBusy(what);
+    setError("");
+    try {
+      await f();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy("");
+    }
+  };
+  const check = () => run("Checking…", async () => { setSaid(""); setLeave([]); setC(await call("pc_check", { key: k })); });
+  const putBack = () => run("Putting it back…", async () => {
+    const r = await call("pc_put_back", { key: k, leave });
+    setSaid(`Put back: ${r.fetched} fetched from the library, ${r.put_aside} put aside${r.kept ? `, ${r.kept} left as they are` : ""}.`);
+    setLeave([]);
+    setC(await call("pc_check", { key: k }));
+  });
+  const empty = () => run("Emptying…", async () => { await call("pc_empty_aside", { key: k }); setC(await call("pc_check", { key: k })); });
+  const all = c ? [...c.changed, ...c.missing, ...c.added] : [];
+  const flip = (p, on) => setLeave(on ? leave.filter((x) => x !== p) : [...leave, p]);
+  const groups = [["changed", "Changed since it was installed", "fetched again"], ["missing", "Gone", "fetched again"], ["added", "Added", "put aside, not deleted"]];
+  return html`<section class="go-pc-files" id="go-pc-files">
+    <h2>Its files</h2>
+    <p class="muted">Check ${title}'s folder against how it was installed: a mod put in by hand or a file changed or deleted shows here, and the game can be put back as the library has it.</p>
+    <div class="go-game-do">
+      <button type="button" class="ghost" id="go-pc-check" disabled=${!!busy} onClick=${check}>${busy === "Checking…" ? busy : "Check the game's files"}</button>
+      ${c && all.length ? html`<button type="button" class="primary" id="go-pc-put-back" disabled=${!!busy || leave.length === all.length} onClick=${putBack}>${busy === "Putting it back…" ? busy : "Put it back as it was installed"}</button>` : null}
+    </div>
+    ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
+    ${said ? html`<p id="go-pc-said">${said}</p>` : null}
+    ${c ? html`<p id="go-pc-state" data-state=${c.state}>${checkSay(c)}</p>
+      ${groups.filter(([g]) => c[g]?.length).map(([g, label, what]) => html`<fieldset class="go-pc-list" key=${g} data-list=${g}><legend>${label} (${c[g].length}): ${what}</legend>
+        ${c[g].map((p) => html`<label class="check-row" key=${p}><input type="checkbox" data-file=${p} checked=${!leave.includes(p)} disabled=${!!busy} onChange=${(e) => flip(p, e.target.checked)} /> <span class="go-file">${p}</span></label>`)}
+      </fieldset>`)}
+      ${all.length ? html`<p class="muted">Untick a file to leave it as it is: it's kept as the game's own from then on (a save made in the game's folder, say).</p>` : null}
+      ${c.kept || c.played ? html`<p class="muted" data-kept=${c.kept || 0}>${[c.kept ? `${c.kept} kept as the game's own` : null, c.played ? `${c.played} the game made as it was played (logs, caches), not listed` : null].filter(Boolean).join("; ")}.</p>` : null}
+      ${c.put_aside?.length ? html`<p class="muted" id="go-pc-aside">Put aside: ${c.put_aside.map((a) => `${a.files} files (${bytes(a.size)})`).join(", ")}, in its folder's .gamerepo-mods/put-aside. <button type="button" class="ghost compact" id="go-pc-empty" disabled=${!!busy} onClick=${empty}>Empty</button></p>` : null}` : null}
+  </section>`;
+}
 
 export function GamePage({ gameKey }) {
   const s = useStore(go, (x) => ({ systems: x.systems, picked: x.picked, deviceRev: x.deviceRev, savesRev: x.savesRev }));
@@ -61,6 +113,7 @@ export function GamePage({ gameKey }) {
                   <button type="button" class="ghost" id="go-game-enqueue" onClick=${() => enqueue([game.key])}>Add to queue</button>
                   <button type="button" class="ghost" id="go-game-tick" aria-pressed=${ticked ? "true" : "false"} onClick=${() => pick([game])}>${ticked ? "Selected" : "Select"}</button>`}
           </div>
+          ${g.on_device && game.system === "pcgames" ? html`<${PcFiles} k=${game.key} title=${game.title} />` : null}
           ${saves.length ? html`<ul class="go-sizes" id="go-game-saves">${saves.map((x) => html`<li data-conflict=${x.conflict ? "yes" : "no"}><span>${x.label}</span><span class="muted">${x.conflict ? "differs from the library's: choose one in Game Repo" : `synced ${ago(x.at)}`}</span></li>`)}</ul>` : null}
           ${d.description ? html`<div class="go-game-text">${String(d.description).split(/\n\s*\n/).map((p) => html`<p>${p}</p>`)}</div>` : null}
           ${facts.length ? html`<dl class="go-facts">${facts.map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>` : null}

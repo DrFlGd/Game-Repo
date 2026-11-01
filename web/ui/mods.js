@@ -4,6 +4,8 @@
 // folder of the game's, a file to run (never run by Game Repo), or by hand. Mods have an
 // order. Install the mods puts the ticked ones where the game is installed on this computer,
 // what they replace set aside first, as a change History can undo; never into the library.
+// Check the game's files… compares where it's installed with the library's copy and puts it
+// back, after mods put in by Game Repo or by hand ("Mods on installed games", D207–D208).
 import { html, useState, useEffect, useMemo } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -75,6 +77,55 @@ function InstallDialog({ plan, onDone }) {
   <//>`;
 }
 
+/** The files a check found, each ticked to be put back (D207–D208): the unticked are left
+ *  as they are and kept as the game's own. Game Repo Go's page shows the same lists. */
+export function CheckLists({ check, leave, setLeave, off = false }) {
+  const groups = [["changed", "Changed since it was installed", "copied again from the library"], ["missing", "Gone", "copied again from the library"], ["added", "Added", "set aside, not deleted"]];
+  const flip = (p, on) => setLeave(on ? leave.filter((x) => x !== p) : [...leave, p]);
+  return html`<div class="pc-check-lists">${groups.filter(([k]) => check[k]?.length).map(([k, label, what]) => html`<fieldset class="field-block" key=${k} data-list=${k}>
+    <legend class="field-label">${label} (${check[k].length}): ${what}</legend>
+    <ul class="ls-list">${check[k].map((p) => html`<li key=${p}><label class="check-row"><input type="checkbox" data-file=${p} checked=${!leave.includes(p)} disabled=${off} onChange=${(e) => flip(p, e.target.checked)} /> <code>${p}</code></label></li>`)}</ul>
+  </fieldset>`)}
+  ${check.kept || check.played ? html`<p class="muted" data-kept=${check.kept || 0}>${[check.kept ? `${check.kept} kept as the game's own` : null, check.played ? `${check.played} the game made as it was played (logs, caches), not listed` : null].filter(Boolean).join("; ")}.</p>` : null}
+  </div>`;
+}
+
+const checkSay = (c) => (c.state === "as_installed" ? "As it was installed: nothing has changed." : c.state === "not_there" ? "Its folder isn't there." : `Changed: ${[c.changed.length ? `${c.changed.length} changed` : null, c.missing.length ? `${c.missing.length} gone` : null, c.added.length ? `${c.added.length} added` : null].filter(Boolean).join(", ")}.`);
+
+/** Check the game's files: where it's installed against the library's copy (D207), then
+ *  Put it back… as a change with Undo (D208). */
+function CheckDialog({ k, title, check, onDone }) {
+  const [leave, setLeave] = useState([]);
+  const [plan, setPlan] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const all = [...check.changed, ...check.missing, ...check.added];
+  if (plan) {
+    return html`<${Dialog} title=${plan.title || plan.label} id="mods-put-back-dialog" wide=${true} sticky=${true} busy=${plan.short || !plan.ops} submitLabel="Put it back"
+      cancelLabel="Back" onCancel=${() => setPlan(null)} onSubmit=${async () => { close(); await runPlan(plan); onDone?.(); again(); }}>
+      <${Preview} plan=${plan} />
+      <p class="muted">In <code>${plan.to}</code>: what changed or was added is set aside first, so History's Undo puts it all back as it is now.</p>
+    <//>`;
+  }
+  const preview = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      setPlan(await api("mods_put_back", { key: k, leave }));
+    } catch (e) {
+      setError(err(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return html`<${Dialog} title=${`${title}'s files`} id="mods-check-dialog" wide=${true} onSubmit=${all.length ? preview : close} busy=${busy || (all.length > 0 && leave.length === all.length)} error=${error}
+    submitLabel=${all.length ? (busy ? "Planning…" : "Put it back…") : "Close"}>
+    <p id="mods-check-state" data-state=${check.state}>${checkSay(check)}</p>
+    <p class="muted">Compared with the library's copy, in <code>${check.folder}</code>. Untick a file to leave it as it is: it's kept as the game's own from then on.</p>
+    <${CheckLists} check=${check} leave=${leave} setLeave=${setLeave} />
+  <//>`;
+}
+
 /** Edit details…: a mod's title, author, version, address, notes and the folder in its archive. */
 function EditDialog({ k, file, details, onDone }) {
   const [d, setD] = useState(details);
@@ -93,6 +144,7 @@ export function ModDialogs({ dialog }) {
   if (dialog.type === "mods-import") return html`<${ImportDialog} ...${dialog} />`;
   if (dialog.type === "mods-install") return html`<${InstallDialog} ...${dialog} />`;
   if (dialog.type === "mods-edit") return html`<${EditDialog} ...${dialog} />`;
+  if (dialog.type === "mods-check") return html`<${CheckDialog} ...${dialog} />`;
   return null;
 }
 
@@ -129,6 +181,13 @@ export function ModsEditor({ k, off, focus = null }) {
       toast(`Couldn't install them: ${err(e)}`, 10000);
     }
   };
+  const check = async () => {
+    try {
+      ui.set({ dialog: { type: "mods-check", k, title: g.title, check: await api("mods_check", { key: k }), onDone: load } });
+    } catch (e) {
+      toast(`Couldn't check it: ${err(e)}`, 10000);
+    }
+  };
   const ticked = list.filter((m) => m.details.on && (m.details.how === "game" || m.details.how === "folder")).length;
   return html`<div class="patches-editor" id="mods-editor" data-key=${k}>
     <div class="lib-panel-actions">
@@ -139,7 +198,10 @@ export function ModsEditor({ k, off, focus = null }) {
       ? html`Installed on this computer in <code>${g.installed_at}</code>${g.installed_found ? "" : html` <span class="warn-note">(not there now)</span>`}.`
       : "Mods go where the game is installed, never into the library's copy: say where it's installed on this computer to install them here."}
       ${isDesktop() && !off ? html` <button type="button" class="ghost compact" id="mods-where-choose" onClick=${where}>${g.installed_at ? "Change…" : "Where it's installed…"}</button>` : null}</p>
-    ${list.length ? html`<div class="lib-panel-actions"><button type="button" class="primary compact" id="mods-install" disabled=${off || !ticked || !g.installed_found || !isDesktop()} onClick=${install}>Install the ticked mods…</button></div>` : null}
+    ${list.length || g.installed_found ? html`<div class="lib-panel-actions">
+      ${list.length ? html`<button type="button" class="primary compact" id="mods-install" disabled=${off || !ticked || !g.installed_found || !isDesktop()} onClick=${install}>Install the ticked mods…</button>` : null}
+      ${g.installed_found ? html`<button type="button" class="ghost compact" id="mods-check" disabled=${off || !isDesktop()} title="Compare where it's installed with the library's copy, and put it back" onClick=${check}>Check the game's files…</button>` : null}
+    </div>` : null}
     ${!list.length ? html`<p class="muted" id="mods-none">${g.title} has no mods yet. Add a mod… brings one in: its archive, its installer or its folder.</p>` : null}
     ${list.map((m, i) => html`<section class=${`patch-file${focus === m.name ? " on" : ""}`} key=${m.name} data-file=${m.name} data-how=${m.details.how}>
       <h3><label class="check-row"><input type="checkbox" data-action="on" aria-label=${`Install ${m.name}`} checked=${m.details.on} disabled=${off || m.details.how === "run" || m.details.how === "hand"} onChange=${(e) => set(m, { on: e.target.checked })} /> ${i + 1}. ${m.details.title || m.name}</label></h3>

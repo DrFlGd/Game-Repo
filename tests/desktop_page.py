@@ -1805,13 +1805,18 @@ async def mods_page(pg, base, home, library):
     """D205: Add a mod… on the Patches page's PC mods tab asks for the PC game, brings the
     mod's ZIP in with its readme (how it goes in guessed: into the game's folder, its
     archive's top folder named like it left out), and Install the ticked mods… puts its
-    files where the game is installed, the game's file it replaces set aside."""
+    files where the game is installed, the game's file it replaces set aside. D207–D208: Check
+    the game's files… finds what the mod changed against the library's copy, and Put it
+    back… undoes it as a change."""
     pc = library / "PC" / "Mod Game (2001)"
     pc.mkdir(parents=True)
     (pc / "game.json").write_text(json.dumps({"id": "pc-modtest", "title": "Mod Game", "year": 2001}))
     installed = home / "Games" / "Mod Game"
     (installed / "Data").mkdir(parents=True)
     (installed / "Data" / "textures.pak").write_text("OLD")
+    # the library's unpacked copy it was installed from (D207)
+    (pc / "extracted" / "Mod Game" / "Data").mkdir(parents=True)
+    (pc / "extracted" / "Mod Game" / "Data" / "textures.pak").write_text("OLD")
     downloads = home / "downloads"
     downloads.mkdir()
     mod = downloads / "HD Pack v2.zip"
@@ -1858,6 +1863,24 @@ async def mods_page(pg, base, home, library):
           (installed / "Data" / "textures.pak").read_text() == "NEW" and (installed / "Data" / "extra.pak").is_file() and len(held) == 1 and held[0].read_text() == "OLD",
           sorted(str(p.relative_to(installed)) for p in installed.rglob("*")))
     await pg.screenshot(path=str(out / "97-mods-panel.png"))
+    # D207–D208: checked against the library's copy, then put back
+    await pg.click("#mods-check")
+    await pg.wait_for_selector('#mods-check-state[data-state="changed"]', timeout=15000)
+    said = await pg.inner_text("#mods-check-dialog")
+    check("Check the game's files… finds the file the mod changed and the one it added, compared with the library's copy (D207)",
+          "textures.pak" in said and "extra.pak" in said and await pg.is_checked('#mods-check-dialog [data-file="Data/extra.pak"]'), said[:600])
+    await pg.screenshot(path=str(out / "97b-mods-check.png"))
+    await pg.click("#mods-check-dialog button[type=submit]")
+    await pg.wait_for_selector("#mods-put-back-dialog .op-paths", timeout=15000)
+    await pg.click("#mods-put-back-dialog button[type=submit]")
+    for _ in range(150):
+        t = installed / "Data" / "textures.pak"
+        if t.is_file() and t.read_text() == "OLD" and not (installed / "Data" / "extra.pak").exists() and list(installed.glob(".gamerepo-set-aside/*/Data/extra.pak")):
+            break
+        await asyncio.sleep(0.1)
+    check("Put it back… copies the changed file from the library and sets the added one aside, as a change (D208)",
+          t.is_file() and t.read_text() == "OLD" and not (installed / "Data" / "extra.pak").exists() and len(list(installed.glob(".gamerepo-set-aside/*/Data/extra.pak"))) == 1,
+          sorted(str(p.relative_to(installed)) for p in installed.rglob("*")))
 
 
 async def cheats_page(pg, base, home, library):

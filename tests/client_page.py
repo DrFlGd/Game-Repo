@@ -995,7 +995,26 @@ async def main():
             # (zipped as its folder, Zeta: that folder isn't made again inside the game's, D124)
             check("a PC game is unpacked into its own folder of the PC games folder, with a shortcut, and no ES-DE restart asked for",
                   files == ["data/level1.dat", "zeta.exe"] and shortcut and restart is None, (files, shortcut, restart is None))
+            # D207–D208: its files checked on its page, a change put back, a save left as it is
+            await pg.goto(B + "#library")
+            await pg.wait_for_selector("#go-place-pick option[value='s:pcgames']", state="attached", timeout=20000)
+            await pg.select_option("#go-place-pick", "s:pcgames")
+            await pg.click('.go-card[data-key="pcgames/zeta"] .go-card-open')
+            await pg.click("#go-pc-check")
+            await pg.wait_for_selector('#go-pc-state[data-state="as_installed"]', timeout=20000)
+            (folder / "zeta.exe").write_bytes(b"MZ cracked")
             (folder / "save1.sav").write_bytes(b"a save")
+            await pg.click("#go-pc-check")
+            await pg.wait_for_selector('#go-pc-state[data-state="changed"]', timeout=20000)
+            said = await pg.inner_text("#go-pc-files")
+            check("an installed PC game's page checks its files: one changed by hand and one added are listed (D207)",
+                  "zeta.exe" in said and "save1.sav" in said, said[:400])
+            await pg.uncheck('#go-pc-files [data-file="save1.sav"]')
+            await shot(pg, "18b-pc-files")
+            await pg.click("#go-pc-put-back")
+            await pg.wait_for_selector('#go-pc-state[data-state="as_installed"]', timeout=30000)
+            check("Put it back fetches the changed file from the library and leaves the unticked save as it is (D208)",
+                  (folder / "zeta.exe").read_bytes() == b"MZ zeta" and (folder / "save1.sav").read_bytes() == b"a save", await pg.inner_text("#go-pc-files"))
             await pg.click("#go-nav-device")
             await pg.click('#device-list [data-system="pcgames"] .go-sys-open')
             await pg.wait_for_selector('[data-id="pc:Zeta (1999)"]')

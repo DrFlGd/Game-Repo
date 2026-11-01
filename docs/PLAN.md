@@ -6865,6 +6865,42 @@ running a mod's installer or patcher (Game Repo never runs one, D205); Steam Wor
 (Steam installs those); Thunderstore and r2modman's profiles; putting back a game on Android
 (no PC games there); and checking a game while it's running (Go says to close it first).
 
+### Mods on installed games notes, part 1: checking a game and putting it back (built 2026-11-01)
+
+D207–D208, in `desktop/wire/src/gamefiles.rs` (the check both apps use),
+`desktop/device/src/pcfiles.rs` (Game Repo Go), `desktop/core/src/mods.rs` (Game Repo) and
+the pages `web/client/game.js` and `web/ui/mods.js`:
+- `gamefiles::check` walks the game's folder (Game Repo's own `.gamerepo-*` folders left
+  out) and compares it with the files as installed, paths ignoring case: a size that
+  differs is a change; the same size is read for its SHA-1, kept in
+  `.gamerepo-mods/state.json`'s `seen` with the size and time (nanoseconds), so a later
+  check reads again only what changed. Files the game makes as it's played aren't listed
+  (`made_by_playing`: logs, crash dumps, shader caches, `.tmp`; counted as `played`);
+  files in `keep` are counted as `kept`, whether added, changed or gone.
+- Game Repo Go: an installed PC game's page has *Its files*: *Check the game's files*
+  (`pc_check`, against the record) and *Put it back as it was installed* (`pc_put_back`,
+  with the unticked files as `leave`). Putting back asks the server for the game's plan
+  with no mods; the changed files' SHA-1s are cleared in the record so they're fetched;
+  the files left are taken out of the plan and kept; what was added, and a file only a
+  mod gave, are moved into `.gamerepo-mods/put-aside/<when>/` (`put_file_aside`); *Empty*
+  (`pc_empty_aside`) deletes them. Removing the game takes `state.json` with it, and
+  leaves what was put aside, as the user's.
+- Game Repo: the PC mods panel has *Check the game's files…* (`mods_check`) once the game
+  is installed on this computer, against the library's unpacked copy (`extracted/`, its
+  lone top folder left out when the installed folder doesn't have it; the library's
+  files' SHA-1s kept in `state.json`'s `library`); *Put it back…* (`mods_put_back`) is an
+  Organise change, kind `pc_put_back`: a changed file set aside and copied from the
+  library, a gone one copied, an added one set aside, so Undo puts it as it was. A game
+  with only an installer in the library is asked to be unpacked first.
+- Not in this part: telling a mod Game Repo put in from a change by hand (part 2, D209);
+  *Take a record now* for a game Steam or GOG installed (Game Repo checks against the
+  library's copy, which serves the same end when the library has one); the 30-day offer
+  to empty what was put aside.
+- Tests: `wire` `gamefiles` (a check: changed, added, gone, played, kept, put aside),
+  `serve/tests/client.rs` `an_installed_pc_game_is_checked_and_put_back_as_the_library_has_it`,
+  `core` `mods` `an_installed_game_is_checked_against_the_librarys_copy_and_put_back_with_undo`,
+  `client_page.py` (Zeta's files) and `desktop_page.py`'s `mods` part.
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -7125,7 +7161,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
 29. Mods on installed games (D207–D213, Jerred, 2026-11-01): an installed PC game checked
     against how it was installed and put back from the library, whoever changed it; mods
     applied to and taken off a game already installed; mods put in by hand recorded as
-    theirs; FOMOD installers and the common layouts; Nexus Mods' API. Planned, not built.
+    theirs; FOMOD installers and the common layouts; Nexus Mods' API. In progress: part 1
+    (checking an installed game and putting it back, on Game Repo Go and here) built.
 30. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices
