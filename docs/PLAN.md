@@ -6974,6 +6974,55 @@ D210, in `desktop/wire/src/gamefiles.rs`, `desktop/device/src/pcfiles.rs`,
   taken off, then the kept copy applied), `client_page.py` (Hand Patch) and
   `desktop_page.py`'s `mods` part.
 
+### Mods on installed games notes, part 4: FOMOD installers and the common layouts (built 2026-11-01)
+
+D211, in `desktop/core/src/fomod.rs` (new), `desktop/core/src/mods.rs`,
+`desktop/serve/src/{plans,lib}.rs` and the pages:
+- `fomod.rs` reads `fomod/ModuleConfig.xml` (UTF-16 with or without its mark, or UTF-8;
+  its XML declaration left out) into steps, groups, options, required files and
+  conditional files, with the `order` each has (Ascending by name unless Explicit), and
+  `info.xml`. `Fomod::resolve(choices, here)` works the choices through in order: a step is
+  shown when its `visible` conditions hold with the flags set so far; each option's type is
+  fixed or the first pattern whose conditions hold; a group's picks are those chosen (a
+  Required option always, a Not usable one never), else the defaults (Required and
+  Recommended; the first usable for *pick one* and *at least one*; every option for *all*);
+  the picked options set their flags and give their files; then the conditional files
+  whose conditions hold. Files are sorted by `priority` (then as given), so a later one
+  wins. A file's destination that's empty or ends in a slash takes the file's own name.
+  Conditions on another mod's file (`fileDependency`) are the questions the page asks
+  (*There and active*, *There, not active*, *Not there*), answered by default from whether
+  the file is in the game's folder; game and mod manager versions are taken as met.
+- A mod's details keep `fomod` (it has one, in its `inside` folder), `choices` (none: not
+  chosen yet, so it doesn't go in) and `files` (the `Put`s the choices give). `device_paths`
+  maps each of the mod's files through them (`fomod::places`: a file, or a folder and
+  what's in it), with a rank; the install here (`mod_files`) and the server's plans put the
+  files in rank order, so the later one wins where two land on one place. A FOMOD that
+  asks nothing has its files worked out on *Add a mod…*.
+- *Add a mod…* (`import_plan`) looks at the mod's files (`layout`): a FOMOD (its folder,
+  `info.xml`'s name, author, version, web address and description into the details; into
+  the game's `Data/` when it names Bethesda plugins or archives or the game has
+  `Data/*.esm`); else folders the files are wrapped in are left out (a lone top folder that
+  isn't one of the layouts' own), and the top says where it goes (`guess_tops`): `Data/`,
+  `BepInEx/`, `MelonLoader/`, `Mods/`, `bin/` into the game's folder; `plugins/` into
+  `BepInEx/`; Bethesda plugins and archives, or only `textures/`, `meshes/` and the like,
+  into `Data/`; `.pak` files into the folder with the game's own (`~mods` in a `Paks`
+  folder); files named like the game's into the folder they're in; anything else *By
+  hand* (it was *Into the game's folder* for any archive before).
+- The page: a mod with a FOMOD says so on its card, unticked until *Choose its options…*
+  (`mods_fomod`, `mods_fomod_choose`) has been answered: a dialog with the questions, then
+  each visible step's groups (radio buttons for *pick one*, ticks for the rest; Required and
+  Not usable fixed), each option's description, type and picture (read out of the archive
+  once into the mods folder's `.fomod/<mod>/`, served from the library), Back and Next,
+  each change worked through again by the backend. *Change the choices…* asks again.
+  Game Repo Go lists such a mod as one to choose in Game Repo first.
+- Not in this part: FOMOD C# scripts (`script.cs`, never run); `fileDependency` read from a
+  game's load order (asked instead); a mod's FOMOD read on Go (the choices are the
+  library's, made in Game Repo).
+- Tests: `core` `fomod` (read in UTF-16, defaults, a step shown by a flag, an option's type
+  by a file's state, priorities, where files go), `core` `mods` (a FOMOD mod brought in,
+  chosen and installed into `Data/`, and the same places for a device; the common layouts)
+  and `desktop_page.py`'s `mods` part (Better Sky chosen in two steps and installed).
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -7236,8 +7285,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     applied to and taken off a game already installed; mods put in by hand recorded as
     theirs; FOMOD installers and the common layouts; Nexus Mods' API. In progress: part 1
     (checking an installed game and putting it back, on Game Repo Go and here), part 2
-    (mods applied to and taken off a game already installed) and part 3 (mods put in by
-    hand, recorded) built.
+    (mods applied to and taken off a game already installed), part 3 (mods put in by
+    hand, recorded) and part 4 (FOMOD installers and the common layouts) built.
 30. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices

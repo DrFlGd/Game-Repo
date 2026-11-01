@@ -49,6 +49,15 @@ pub struct Details {
     pub inside: String,
     /// Ticked to go in with *Install the mods*
     pub on: bool,
+    /// It has a FOMOD installer (D211), in its `inside` folder
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub fomod: bool,
+    /// The FOMOD's options as chosen (none: not chosen yet, so it doesn't go in)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub choices: Option<crate::fomod::Choices>,
+    /// The files the choices put in: each from the mod to the game's folder (D211)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<crate::fomod::Put>,
 }
 
 impl Details {
@@ -173,16 +182,6 @@ pub fn list(ix: &Index, lib: &Library) -> Result<Value> {
     Ok(json!({ "items": items }))
 }
 
-/// The folder inside an archive its files are in: a lone top folder named like the mod.
-fn inside_of(root: &Path, stem: &str) -> String {
-    let tops: Vec<PathBuf> = std::fs::read_dir(root).into_iter().flatten().flatten().map(|e| e.path()).collect();
-    let squash = |s: &str| s.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect::<String>();
-    match tops.as_slice() {
-        [one] if one.is_dir() && squash(&one.file_name().unwrap_or_default().to_string_lossy()) == squash(stem) => one.file_name().unwrap_or_default().to_string_lossy().into_owned(),
-        _ => String::new(),
-    }
-}
-
 fn stem_of(name: &str) -> &str {
     if is_archive(name) || name.contains('.') { name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name) } else { name }
 }
@@ -229,16 +228,44 @@ pub fn import_plan(ix: &Index, lib: &Library, data_dir: &Path, key: &str, paths:
             ops.push(Op { op: "copy".into(), game: g.title.clone(), to: readme_of(&dir, &name).display().to_string(), size: std::fs::metadata(r).map(|x| x.len()).unwrap_or(0), from: vec![outside(r)], names: vec![], aside: vec![], note: Some("its readme".into()) });
         }
         let guessed = patches::guess(&format!("{stem}.x"), &text);
-        let h = guess_how(p);
-        let inside = if p.is_file() && is_archive(&name) {
+        // how it goes in, from how its files are laid out (D211)
+        let game_dir = installed_at(lib, &g).filter(|d| d.is_dir());
+        let lay = if guess_how(p) == "run" {
+            Layout { how: "run", ..Default::default() }
+        } else if p.is_file() && is_archive(&name) {
             let at = data_dir.join("mod-import").join(organise::new_id());
-            let found = unpack(p, &at).map(|_| inside_of(&at, &stem)).unwrap_or_default();
+            let found = unpack(p, &at).map(|_| layout(&at, game_dir.as_deref())).unwrap_or_default();
             let _ = std::fs::remove_dir_all(&at);
             found
+        } else if p.is_dir() {
+            layout(p, game_dir.as_deref())
         } else {
-            String::new()
+            let game = game_dir.as_deref().map(|d| game_files(d, 50_000)).unwrap_or_default();
+            let (how, folder) = guess_tops(&[(name.clone(), false)], &game);
+            Layout { how, folder, ..Default::default() }
         };
-        let d = Details { title: guessed.title, author: guessed.author, version: guessed.version, how: h.into(), inside, on: matches!(h, "game" | "folder"), ..Default::default() };
+        let h = if lay.how.is_empty() { "hand" } else { lay.how };
+        let mut d = Details { title: guessed.title, author: guessed.author, version: guessed.version, how: h.into(), folder: lay.folder, inside: lay.inside, on: matches!(h, "game" | "folder"), ..Default::default() };
+        let i = &lay.info;
+        for (to, from) in [(&mut d.title, &i.name), (&mut d.author, &i.author), (&mut d.version, &i.version), (&mut d.url, &i.website)] {
+            if !from.trim().is_empty() {
+                *to = from.trim().to_string();
+            }
+        }
+        if !i.description.trim().is_empty() {
+            d.notes = i.description.trim().chars().take(2000).collect();
+        }
+        if let Some(f) = &lay.fomod {
+            d.fomod = true;
+            if f.asks() {
+                // not in until its options are chosen
+                d.on = false;
+            } else {
+                let r = f.resolve(&Default::default(), &|_| false);
+                d.choices = Some(Default::default());
+                d.files = r.puts;
+            }
+        }
         let mut e = serde_json::to_value(&d)?;
         e["order"] = json!(next);
         e["added"] = json!(now());
@@ -264,25 +291,45 @@ fn plan_of(kind: &str, label: String, title: String, lib: &Library, ops: Vec<Op>
 /// archive's unpacked into `staging`). None: it doesn't go in by itself.
 fn mod_files(dir: &Path, n: &str, d: &Details, target: &Path, staging: &Path) -> Result<Option<Vec<(PathBuf, PathBuf)>>> {
     let src = dir.join(n);
-    let base = match d.how.as_str() {
-        "game" => target.to_path_buf(),
-        "folder" if !d.folder.trim().is_empty() => d.folder.split(['/', '\\']).filter(|x| !x.is_empty() && *x != "." && *x != "..").fold(target.to_path_buf(), |p, x| p.join(x)),
-        _ => return Ok(None),
-    };
-    let list: Vec<(PathBuf, PathBuf)> = if src.is_dir() {
-        crate::cheats::walk(&src).into_iter().map(|f| (f.clone(), f.strip_prefix(&src).unwrap_or(&f).to_path_buf())).collect()
+    if !goes_in_itself(d) {
+        return Ok(None);
+    }
+    let rel_of = |f: &Path, root: &Path| f.strip_prefix(root).unwrap_or(f).to_string_lossy().replace('\\', "/");
+    // each of the mod's files with its path in the mod (the archive's, `inside` and all)
+    let list: Vec<(PathBuf, String)> = if src.is_dir() {
+        crate::cheats::walk(&src).into_iter().map(|f| (f.clone(), rel_of(&f, &src))).collect()
     } else if is_archive(n) {
         let at = staging.join(organise::new_id());
         unpack(&src, &at)?;
-        let root = if d.inside.is_empty() { at.clone() } else { d.inside.split(['/', '\\']).filter(|x| !x.is_empty() && *x != "..").fold(at.clone(), |p, x| p.join(x)) };
-        crate::cheats::walk(&root).into_iter().map(|f| (f.clone(), f.strip_prefix(&root).unwrap_or(&f).to_path_buf())).collect()
+        crate::cheats::walk(&at).into_iter().map(|f| (f.clone(), rel_of(&f, &at))).collect()
     } else {
-        vec![(src.clone(), PathBuf::from(n))]
+        let inside = d.inside.trim_matches('/');
+        vec![(src.clone(), if inside.is_empty() { n.to_string() } else { format!("{inside}/{n}") })]
     };
-    if list.is_empty() {
-        bail!("The mod {n} has no files in it.");
+    // where each goes, in rank order, a later one winning at the same place
+    let mut placed: Vec<(usize, String, PathBuf)> = vec![];
+    for (f, rel) in list {
+        for (at, rank) in device_paths(d, &rel) {
+            placed.push((rank, at, f.clone()));
+        }
     }
-    Ok(Some(list.into_iter().map(|(f, rel)| (base.join(rel), f)).collect()))
+    placed.sort_by_key(|x| x.0);
+    let mut out: Vec<(PathBuf, PathBuf)> = vec![];
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    for (_, at, f) in placed {
+        let to = at.split('/').filter(|x| !x.is_empty() && *x != "." && *x != "..").fold(target.to_path_buf(), |p, x| p.join(x));
+        match seen.get(&at.to_lowercase()) {
+            Some(&i) => out[i] = (to, f),
+            None => {
+                seen.insert(at.to_lowercase(), out.len());
+                out.push((to, f));
+            }
+        }
+    }
+    if out.is_empty() {
+        bail!("The mod {n} has no files in it{}.", if d.fomod { " for the options chosen" } else { "" });
+    }
+    Ok(Some(out))
 }
 
 /// *Take it off…* (D209 on this computer): an installed mod's files taken off where the game
@@ -371,9 +418,10 @@ pub fn device_mods(lib: &Library, id: &str) -> Vec<(PathBuf, Details)> {
     all_mods(lib, id).into_iter().filter(|(_, d)| d.on && goes_in_itself(d)).collect()
 }
 
-/// Whether a mod goes in by itself: into the game's folder, or a folder of the game's that's set.
+/// Whether a mod goes in by itself: into the game's folder, or a folder of the game's that's
+/// set; one with a FOMOD once its options are chosen (D211).
 pub fn goes_in_itself(d: &Details) -> bool {
-    d.how == "game" || (d.how == "folder" && !d.folder.trim().is_empty())
+    (d.how == "game" || (d.how == "folder" && !d.folder.trim().is_empty())) && (!d.fomod || d.choices.is_some())
 }
 
 /// Every mod of a PC game, in order, ticked or not (D209: a device picks its own): each
@@ -385,12 +433,322 @@ pub fn all_mods(lib: &Library, id: &str) -> Vec<(PathBuf, Details)> {
 }
 
 /// Where a mod's file goes in the game's folder: `rel` (its path inside the mod, `/`) with
-/// its `inside` folder left out and its `folder` in front; None: outside `inside`.
-pub fn device_path(d: &Details, rel: &str) -> Option<String> {
+/// its `inside` folder left out and its `folder` in front; None: outside `inside`. A mod
+/// with a FOMOD has its files where its choices put them (D211): one may go to several
+/// places, or none, each with its rank (a later one wins at the same place).
+pub fn device_paths(d: &Details, rel: &str) -> Vec<(String, usize)> {
     let inside = d.inside.trim_matches('/');
-    let rel = if inside.is_empty() { rel.to_string() } else { rel.strip_prefix(inside)?.strip_prefix('/')?.to_string() };
+    let rel = rel.replace('\\', "/");
+    let rel = if inside.is_empty() {
+        rel
+    } else {
+        match rel.get(..inside.len()).filter(|h| h.eq_ignore_ascii_case(inside)).and_then(|_| rel[inside.len()..].strip_prefix('/')) {
+            Some(r) => r.to_string(),
+            None => return vec![],
+        }
+    };
     let folder: Vec<&str> = if d.how == "folder" { d.folder.split(['/', '\\']).filter(|x| !x.is_empty() && *x != "." && *x != "..").collect() } else { vec![] };
-    Some(folder.into_iter().map(String::from).chain(std::iter::once(rel)).collect::<Vec<_>>().join("/"))
+    let ats = if d.fomod { crate::fomod::places(&d.files, &rel) } else { vec![(rel, 0)] };
+    ats.into_iter().map(|(at, i)| (folder.iter().map(|x| x.to_string()).chain(std::iter::once(at)).collect::<Vec<_>>().join("/"), i)).collect()
+}
+
+/// [`device_paths`]' first place (a mod without a FOMOD has one).
+pub fn device_path(d: &Details, rel: &str) -> Option<String> {
+    device_paths(d, rel).into_iter().last().map(|(at, _)| at)
+}
+
+// ------------------------------------------------------------ layouts and FOMODs (D211)
+
+/// Folders that are a layout of their own at a mod's top: never taken as a folder its
+/// files are wrapped in.
+const LAYOUT_TOPS: [&str; 17] = ["data", "bepinex", "plugins", "melonloader", "mods", "bin", "fomod", "textures", "meshes", "scripts", "interface", "sound", "music", "userlibs", "userdata", "config", "content"];
+/// A Bethesda game's plugins and archives: they go in its `Data/`.
+const BETHESDA: [&str; 5] = [".esp", ".esm", ".esl", ".bsa", ".ba2"];
+/// Unreal Engine's packed files: they go where the game's own `.pak` files are.
+const PAKS: [&str; 4] = [".pak", ".utoc", ".ucas", ".sig"];
+
+/// How a mod's files are laid out, as a guess (D211).
+#[derive(Debug, Default)]
+struct Layout {
+    inside: String,
+    how: &'static str,
+    folder: String,
+    fomod: Option<crate::fomod::Fomod>,
+    info: crate::fomod::Info,
+}
+
+fn ext_in(n: &str, list: &[&str]) -> bool {
+    let l = n.to_lowercase();
+    list.iter().any(|x| l.ends_with(x))
+}
+
+/// A game's files, by their paths in its folder (`/`), the first `max` found.
+fn game_files(dir: &Path, max: usize) -> Vec<String> {
+    let mut out = vec![];
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if e.file_name().to_string_lossy().starts_with(".gamerepo") {
+                continue;
+            }
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                out.push(p.strip_prefix(dir).unwrap_or(&p).to_string_lossy().replace('\\', "/"));
+                if out.len() >= max {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
+fn parent_of(rel: &str) -> String {
+    rel.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default()
+}
+
+/// Where a game keeps its `.pak` files (Unreal Engine): the folder with most of them, its
+/// `~mods` folder when it's a `Paks` folder.
+fn pak_folder(game: &[String]) -> Option<String> {
+    let mut count: BTreeMap<String, usize> = BTreeMap::new();
+    for f in game.iter().filter(|f| f.to_lowercase().ends_with(".pak")) {
+        *count.entry(parent_of(f)).or_default() += 1;
+    }
+    let (dir, _) = count.into_iter().max_by_key(|(d, n)| (*n, std::cmp::Reverse(d.len())))?;
+    let dir = dir.split('/').filter(|x| *x != "~mods").collect::<Vec<_>>().join("/");
+    Some(if dir.to_lowercase().ends_with("paks") { format!("{dir}/~mods") } else { dir })
+}
+
+/// The folder of the game's that files named like `names` are in (all in one), if any.
+fn named_like(game: &[String], names: &[String]) -> Option<String> {
+    let mut common: Option<std::collections::BTreeSet<String>> = None;
+    for n in names {
+        let dirs: std::collections::BTreeSet<String> = game.iter().filter(|f| f.rsplit('/').next().is_some_and(|x| x.eq_ignore_ascii_case(n))).map(|f| parent_of(f)).collect();
+        common = Some(match common {
+            None => dirs,
+            Some(c) => c.intersection(&dirs).cloned().collect(),
+        });
+    }
+    common.and_then(|c| c.into_iter().min_by_key(|d| d.len()))
+}
+
+/// The layout of a mod's files in `root` (an archive unpacked, or its folder), with the game
+/// installed in `game` when that's known (D211): a FOMOD; else its folder of the game's
+/// from its top (`Data/`, `BepInEx/`, `plugins/`, `MelonLoader/`, `Mods/`, `bin/`, plugins
+/// and archives of a Bethesda game, `.pak` files, files named like the game's); else by hand.
+fn layout(root: &Path, game: Option<&Path>) -> Layout {
+    let rels: Vec<String> = crate::cheats::walk(root).iter().map(|f| f.strip_prefix(root).unwrap_or(f).to_string_lossy().replace('\\', "/")).collect();
+    let game_list = game.map(|g| game_files(g, 50_000)).unwrap_or_default();
+    if let Some(r) = crate::fomod::root_of(rels.iter().map(String::as_str)) {
+        let at = |rel: &str| r.split('/').chain(rel.split('/')).filter(|x| !x.is_empty()).fold(root.to_path_buf(), |p, x| p.join(x));
+        let find = |name: &str| rels.iter().find(|x| x.eq_ignore_ascii_case(&[r.as_str(), "fomod", name].iter().filter(|x| !x.is_empty()).cloned().collect::<Vec<_>>().join("/"))).cloned();
+        let config = find("ModuleConfig.xml").and_then(|c| std::fs::read(root.join(c)).ok()).unwrap_or_default();
+        let info = find("info.xml").and_then(|i| std::fs::read(at(&format!("fomod/{}", i.rsplit('/').next().unwrap_or("info.xml")))).ok()).map(|b| crate::fomod::info(&b)).unwrap_or_default();
+        // a Bethesda game's FOMOD puts its files in Data/
+        let text = crate::fomod::text_of(&config).to_lowercase();
+        let bethesda = BETHESDA.iter().any(|x| text.contains(x)) || game_list.iter().any(|f| f.to_lowercase().starts_with("data/") && ext_in(f, &[".esm"]));
+        return Layout { inside: r, how: if bethesda { "folder" } else { "game" }, folder: if bethesda { "Data".into() } else { String::new() }, fomod: crate::fomod::parse(&config).ok(), info };
+    }
+    // a folder its files are wrapped in (not one of the layouts' own)
+    let mut inside = String::new();
+    let mut here = root.to_path_buf();
+    for _ in 0..3 {
+        let tops: Vec<PathBuf> = std::fs::read_dir(&here).into_iter().flatten().flatten().map(|e| e.path()).collect();
+        match tops.as_slice() {
+            [one] if one.is_dir() && !LAYOUT_TOPS.contains(&one.file_name().unwrap_or_default().to_string_lossy().to_lowercase().as_str()) => {
+                let n = one.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                inside = if inside.is_empty() { n } else { format!("{inside}/{n}") };
+                here = one.clone();
+            }
+            _ => break,
+        }
+    }
+    let tops: Vec<(String, bool)> = std::fs::read_dir(&here).into_iter().flatten().flatten().map(|e| (e.file_name().to_string_lossy().into_owned(), e.path().is_dir())).collect();
+    let (how, folder) = guess_tops(&tops, &game_list);
+    Layout { inside, how, folder, ..Default::default() }
+}
+
+/// How a mod goes in, by what's at its top: (how, folder).
+fn guess_tops(tops: &[(String, bool)], game: &[String]) -> (&'static str, String) {
+    let dirs: Vec<String> = tops.iter().filter(|t| t.1).map(|t| t.0.to_lowercase()).collect();
+    let files: Vec<&String> = tops.iter().filter(|t| !t.1).map(|t| &t.0).collect();
+    let has = |n: &str| dirs.iter().any(|d| d == n);
+    if ["data", "bepinex", "melonloader", "mods", "bin"].iter().any(|n| has(n)) {
+        return ("game", String::new());
+    }
+    if has("plugins") && dirs.iter().all(|d| d == "plugins" || d == "config" || d == "patchers") {
+        return ("folder", "BepInEx".into());
+    }
+    let bethesda_dirs = ["textures", "meshes", "scripts", "interface", "sound", "music", "skse", "f4se"];
+    if (!files.is_empty() || !dirs.is_empty()) && files.iter().all(|f| ext_in(f, &BETHESDA) || f.to_lowercase().ends_with(".txt")) && files.iter().any(|f| ext_in(f, &BETHESDA)) && dirs.iter().all(|d| bethesda_dirs.contains(&d.as_str())) {
+        return ("folder", "Data".into());
+    }
+    if files.is_empty() && !dirs.is_empty() && dirs.iter().all(|d| bethesda_dirs.contains(&d.as_str())) {
+        return ("folder", "Data".into());
+    }
+    if !files.is_empty() && dirs.is_empty() && files.iter().all(|f| ext_in(f, &PAKS)) {
+        if let Some(d) = pak_folder(game) {
+            return ("folder", d);
+        }
+    }
+    // files (and folders) named like the game's own: where those are
+    if !game.is_empty() && !tops.is_empty() {
+        let top_dirs: std::collections::BTreeSet<String> = game.iter().filter_map(|f| f.split_once('/').map(|(d, _)| d.to_lowercase())).collect();
+        if !dirs.is_empty() && dirs.iter().all(|d| top_dirs.contains(d)) && files.iter().all(|f| game.iter().any(|g| g.eq_ignore_ascii_case(f))) {
+            return ("game", String::new());
+        }
+        if dirs.is_empty() {
+            let names: Vec<String> = files.iter().filter(|f| !f.to_lowercase().starts_with("readme")).map(|f| f.to_string()).collect();
+            if !names.is_empty() {
+                match named_like(game, &names) {
+                    Some(d) if d.is_empty() => return ("game", String::new()),
+                    Some(d) => return ("folder", d),
+                    None => {}
+                }
+            }
+        }
+    }
+    ("hand", String::new())
+}
+
+/// The mod `name`'s FOMOD files (`fomod/` and its pictures) where they can be read: its own
+/// folder for a mod kept as a folder; for an archive, read out once into the mods folder's
+/// `.fomod/<name>/` (as the module's folder has them). The folder they're in.
+fn fomod_files(dir: &Path, name: &str, d: &Details) -> Result<PathBuf> {
+    let src = dir.join(name);
+    let inside: Vec<&str> = d.inside.split('/').filter(|x| !x.is_empty()).collect();
+    if src.is_dir() {
+        return Ok(inside.iter().fold(src, |p, x| p.join(x)));
+    }
+    let cache = dir.join(".fomod").join(name);
+    let stamp = std::fs::metadata(&src).map(|m| format!("{} {:?}", m.len(), m.modified().ok())).unwrap_or_default();
+    if std::fs::read_to_string(cache.join(".from")).ok().as_deref() == Some(stamp.as_str()) {
+        return Ok(cache);
+    }
+    let _ = std::fs::remove_dir_all(&cache);
+    std::fs::create_dir_all(&cache)?;
+    let prefix = if inside.is_empty() { String::new() } else { format!("{}/", inside.join("/")).to_lowercase() };
+    let pics = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"];
+    let want = |m: &str| {
+        let l = m.replace('\\', "/").to_lowercase();
+        l.strip_prefix(&prefix).is_some_and(|r| r.starts_with("fomod/") || ext_in(r, &pics))
+    };
+    let never = std::sync::atomic::AtomicBool::new(false);
+    crate::archive::each_wanted(&src, &want, &never, &mut |m, _, r| {
+        let l = m.replace('\\', "/");
+        let rel = &l[prefix.len().min(l.len())..];
+        let to = rel.split('/').filter(|x| !x.is_empty() && *x != "." && *x != "..").fold(cache.clone(), |p, x| p.join(x));
+        if l.ends_with('/') || to == cache {
+            std::io::copy(r, &mut std::io::sink())?;
+            return Ok(());
+        }
+        if let Some(p) = to.parent() {
+            std::fs::create_dir_all(p)?;
+        }
+        std::io::copy(r, &mut std::fs::File::create(&to)?)?;
+        Ok(())
+    })
+    .with_context(|| format!("couldn't read {name}'s installer"))?;
+    std::fs::write(cache.join(".from"), stamp)?;
+    Ok(cache)
+}
+
+/// A file found in `root` by its path there, any case (`/`).
+fn found_in(root: &Path, rel: &str) -> Option<PathBuf> {
+    let mut at = root.to_path_buf();
+    for part in rel.split('/').filter(|x| !x.is_empty()) {
+        let exact = at.join(part);
+        at = if exact.exists() {
+            exact
+        } else {
+            std::fs::read_dir(&at).ok()?.flatten().find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(part))?.path()
+        };
+    }
+    Some(at)
+}
+
+fn fomod_of(lib: &Library, g: &LibGame, name: &str) -> Result<(PathBuf, Details, crate::fomod::Fomod, PathBuf, Value)> {
+    let dir = dir_of(lib, g)?;
+    if name.contains(['/', '\\']) || !dir.join(name).exists() {
+        bail!("{} has no mod {name}.", g.title);
+    }
+    let m = read_json_object(&manifest_of(&dir));
+    let d = Details::of(&m["mods"][name], name);
+    if !d.fomod {
+        bail!("{name} has no installer (FOMOD) to choose its options in.");
+    }
+    let root = fomod_files(&dir, name, &d)?;
+    let config = found_in(&root, "fomod/ModuleConfig.xml").ok_or_else(|| anyhow!("{name}'s installer (fomod/ModuleConfig.xml) isn't in it any more."))?;
+    let f = crate::fomod::parse(&std::fs::read(&config)?)?;
+    Ok((dir, d, f, root, m))
+}
+
+/// Whether a file a FOMOD asks about is in the game's folder (or its mod's folder, `Data/`).
+fn here_fn(lib: &Library, g: &LibGame, d: &Details) -> impl Fn(&str) -> bool {
+    let target = installed_at(lib, g).filter(|p| p.is_dir());
+    let folder = d.folder.clone();
+    move |f: &str| {
+        let Some(t) = &target else { return false };
+        [String::new(), folder.clone(), "Data".into()].iter().any(|b| found_in(t, &format!("{b}/{f}")).is_some())
+    }
+}
+
+/// *Choose its options…* (D211): the mod's FOMOD worked through with `choices` (none: those
+/// kept, else its defaults), for the page to show one step at a time; its pictures by
+/// their paths in the library.
+pub fn fomod_show(ix: &Index, lib: &Library, key: &str, name: &str, choices: Option<crate::fomod::Choices>) -> Result<Value> {
+    let g = game_of(ix.conn(), key)?;
+    let (_, d, f, root, _) = fomod_of(lib, &g, name)?;
+    let c = choices.or(d.choices.clone()).unwrap_or_default();
+    let r = f.resolve(&c, &here_fn(lib, &g, &d));
+    let pic = |p: &str| -> Option<String> {
+        if p.is_empty() {
+            return None;
+        }
+        let at = found_in(&root, p)?;
+        lib.relative(&at)
+    };
+    let mut v = serde_json::to_value(&r)?;
+    v["image"] = json!(pic(&r.image));
+    for s in v["steps"].as_array_mut().into_iter().flatten() {
+        for g in s["groups"].as_array_mut().into_iter().flatten() {
+            for o in g["options"].as_array_mut().into_iter().flatten() {
+                let p = o["image"].as_str().unwrap_or("").to_string();
+                o["image"] = json!(pic(&p));
+            }
+        }
+    }
+    v["chosen"] = json!(d.choices.is_some());
+    v["choices"] = serde_json::to_value(&c)?;
+    v["files"] = json!(r.puts.len());
+    Ok(v)
+}
+
+/// The FOMOD's options chosen, kept with the mod with the files they put in (D211): it goes
+/// in by itself from then on, ticked.
+pub fn fomod_choose(ix: &Index, lib: &Library, key: &str, name: &str, choices: &crate::fomod::Choices) -> Result<Value> {
+    lib.writable()?;
+    let g = game_of(ix.conn(), key)?;
+    let (dir, d, f, _, mut m) = fomod_of(lib, &g, name)?;
+    crate::fomod::check(&f, choices)?;
+    let r = f.resolve(choices, &here_fn(lib, &g, &d));
+    if !r.cannot.is_empty() {
+        bail!("{}", r.cannot);
+    }
+    if r.puts.is_empty() {
+        bail!("Those options put no files in: choose at least one that does.");
+    }
+    let how = if d.how == "folder" && !d.folder.trim().is_empty() { "folder" } else { "game" };
+    let e = &mut m["mods"][name];
+    e["choices"] = serde_json::to_value(choices)?;
+    e["files"] = serde_json::to_value(&r.puts)?;
+    e["how"] = json!(how);
+    e["on"] = json!(true);
+    e["edited"] = json!(now());
+    crate::config::write_json(&manifest_of(&dir), &sorted(&m))?;
+    mods(ix, lib, key)
 }
 
 /// Change a mod's details (written straight away: it's the mod's description, not a change).
@@ -947,4 +1305,96 @@ mod tests {
         assert!(put_back_plan(&ix, &lib, &data, key, &[], Some("other.zip")).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn a_mod_with_a_fomod_has_its_options_chosen_and_goes_in_as_they_say() {
+        let _turn = crate::platforms::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, lib, ix) = crate::collection::tests::fixture("mods-fomod");
+        let cancel = AtomicBool::new(false);
+        // a Bethesda game, installed here
+        let installed = dir.join("Installed").join("Elder Game");
+        std::fs::create_dir_all(installed.join("Data")).unwrap();
+        std::fs::write(installed.join("Data/Elder.esm"), b"ESM").unwrap();
+        let pc = crate::pcgames::folder(&lib).join("Elder Game (2011)");
+        std::fs::create_dir_all(&pc).unwrap();
+        let game = crate::pcgames::PcGame { id: "pc-fomod1".into(), title: "Elder Game".into(), year: Some(2011), installed: Some(installed.display().to_string()), ..Default::default() };
+        crate::pcgames::write_manifest(&pc, &game).unwrap();
+        let key = "pc/pc-fomod1";
+        let zip = dir.join("Better Things-123-1-2.zip");
+        {
+            let mut w = zip::ZipWriter::new(std::fs::File::create(&zip).unwrap());
+            let o: zip::write::SimpleFileOptions = Default::default();
+            let config = crate::fomod::tests::utf16(crate::fomod::tests::CONFIG);
+            let info = br#"<fomod><Name>Better Things</Name><Author>Someone</Author><Version>1.2</Version><Website>https://www.nexusmods.com/elder/mods/123</Website><Description>Makes things better.</Description></fomod>"#;
+            for (n, b) in [
+                ("Better Things/fomod/ModuleConfig.xml", &config[..]),
+                ("Better Things/fomod/info.xml", &info[..]),
+                ("Better Things/fomod/images/2k.png", b"PNG"),
+                ("Better Things/Core/Better.esp", b"ESP"),
+                ("Better Things/Textures/2K/sky.dds", b"2K"),
+                ("Better Things/Textures/1K/sky.dds", b"1K"),
+                ("Better Things/Extra/2k.ini", b"INI"),
+                ("Better Things/readme.txt", b"README"),
+                ("Better Things/Patches/fix.esp", b"FIX"),
+            ] {
+                w.start_file(n, o).unwrap();
+                std::io::Write::write_all(&mut w, b).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        let data = dir.join("data");
+        let p = import_plan(&ix, &lib, &data, key, &[zip.clone()], "copy").unwrap();
+        organise::run(&ix, &lib, &p, &cancel, &mut |_| {}).unwrap();
+        let name = "Better Things-123-1-2.zip";
+        let v = mods(&ix, &lib, key).unwrap();
+        let d = &v["mods"][0]["details"];
+        assert_eq!((d["title"].as_str(), d["author"].as_str(), d["fomod"].as_bool(), d["on"].as_bool(), d["how"].as_str(), d["folder"].as_str(), d["inside"].as_str()), (Some("Better Things"), Some("Someone"), Some(true), Some(false), Some("folder"), Some("Data"), Some("Better Things")), "{v}");
+        assert!(install_plan(&ix, &lib, &data, key, None).is_err(), "not in until its options are chosen");
+        // its options shown, the defaults picked, its pictures from the library
+        let s = fomod_show(&ix, &lib, key, name, None).unwrap();
+        assert_eq!((s["name"].as_str(), s["chosen"].as_bool()), (Some("Better Things"), Some(false)), "{s}");
+        assert_eq!(s["steps"][0]["groups"][0]["options"][1]["picked"], json!(true));
+        let pic = s["steps"][0]["groups"][0]["options"][0]["image"].as_str().unwrap_or("").to_string();
+        assert!(pic.ends_with("fomod/images/2k.png") && lib.resolve(&pic).unwrap().is_file(), "{pic}");
+        // chosen: 2K and its readme, kept with the mod, ticked
+        let mut c = crate::fomod::Choices::default();
+        c.picks.insert("0/0".into(), vec!["2K".into()]);
+        c.picks.insert("1/0".into(), vec!["A readme".into()]);
+        assert!(fomod_choose(&ix, &lib, key, name, &crate::fomod::Choices { picks: [("0/0".to_string(), vec!["8K".to_string()])].into(), ..Default::default() }).is_err());
+        let v = fomod_choose(&ix, &lib, key, name, &c).unwrap();
+        assert_eq!(v["mods"][0]["details"]["on"], json!(true), "{v}");
+        let p = install_plan(&ix, &lib, &data, key, None).unwrap();
+        organise::run(&ix, &lib, &p, &cancel, &mut |_| {}).unwrap();
+        let got = |r: &str| std::fs::read(installed.join(r)).ok();
+        assert_eq!((got("Data/Better.esp"), got("Data/textures/sky.dds"), got("Data/Better.ini"), got("Data/Docs/readme.txt")), (Some(b"ESP".to_vec()), Some(b"2K".to_vec()), Some(b"INI".to_vec()), Some(b"README".to_vec())));
+        assert!(!installed.join("Data/Patches").exists() && !installed.join("Data/fomod").exists(), "only what the options put in");
+        // and the same files for a device (D205)
+        let (_, dd) = all_mods(&lib, "pc-fomod1").into_iter().next().unwrap();
+        assert!(goes_in_itself(&dd));
+        assert_eq!(device_paths(&dd, "Better Things/Textures/2K/sky.dds"), vec![("Data/textures/sky.dds".to_string(), 3)]);
+        assert!(device_paths(&dd, "Better Things/Textures/1K/sky.dds").is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_common_layouts_say_where_a_mod_goes() {
+        let t = |tops: &[(&str, bool)], game: &[&str]| {
+            let tops: Vec<(String, bool)> = tops.iter().map(|(n, d)| (n.to_string(), *d)).collect();
+            let game: Vec<String> = game.iter().map(|x| x.to_string()).collect();
+            let (h, f) = guess_tops(&tops, &game);
+            (h.to_string(), f)
+        };
+        let s = |h: &str, f: &str| (h.to_string(), f.to_string());
+        assert_eq!(t(&[("BepInEx", true)], &[]), s("game", ""));
+        assert_eq!(t(&[("Data", true), ("readme.txt", false)], &[]), s("game", ""));
+        assert_eq!(t(&[("plugins", true)], &[]), s("folder", "BepInEx"));
+        assert_eq!(t(&[("MyMod.esp", false), ("textures", true)], &[]), s("folder", "Data"));
+        assert_eq!(t(&[("meshes", true), ("textures", true)], &[]), s("folder", "Data"));
+        assert_eq!(t(&[("MyMod_P.pak", false)], &["Game/Content/Paks/Game-Windows.pak", "Game/Binaries/Win64/Game.exe"]), s("folder", "Game/Content/Paks/~mods"));
+        assert_eq!(t(&[("d3d11.dll", false)], &["bin/x64/game.exe", "bin/x64/d3d11.dll"]), s("folder", "bin/x64"));
+        assert_eq!(t(&[("game.ini", false)], &["game.exe", "game.ini"]), s("game", ""));
+        assert_eq!(t(&[("random.txt", false)], &["game.exe"]), s("hand", ""));
+        assert_eq!(t(&[("Stuff", true)], &["game.exe"]), s("hand", ""));
+    }
+
 }

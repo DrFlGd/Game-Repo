@@ -257,8 +257,15 @@ fn pc_games(ix: &Index, lib: &Library, unpacker: &Unpacker, hashes: &Hashes, ask
             let mod_name = src.file_name().unwrap_or_default().to_string_lossy().into_owned();
             match source_files(ix, lib, &roots, unpacker, &mut hash, &src) {
                 Ok(Some(files)) => {
+                    // where each goes, in rank order: a FOMOD's later file wins (D211)
+                    let mut ranked: Vec<(usize, Got)> = vec![];
                     for (rel, size, sha1, url) in files {
-                        let Some(at) = gamerepo_core::mods::device_path(&d, &rel) else { continue };
+                        for (at, rank) in gamerepo_core::mods::device_paths(&d, &rel) {
+                            ranked.push((rank, (at, size, sha1.clone(), url.clone())));
+                        }
+                    }
+                    ranked.sort_by_key(|x| x.0);
+                    for (_, (at, size, sha1, url)) in ranked {
                         placed.retain(|f| !f.0 .0.eq_ignore_ascii_case(&at));
                         placed.push(((at, size, sha1, url), mod_name.clone()));
                     }

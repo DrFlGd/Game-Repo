@@ -1918,6 +1918,67 @@ async def mods_page(pg, base, home, library):
           (kept_hand / "Data" / "textures.pak").read_text() == "BY HAND" and (kept_hand / "Data" / "hand.ini").is_file()
           and (installed / "Data" / "textures.pak").read_text() == "OLD" and not (installed / "Data" / "hand.ini").exists(),
           sorted(str(p.relative_to(installed)) for p in installed.rglob("*")))
+    # D211: a mod with a FOMOD installer: its options chosen in steps, then it goes in as they say
+    config = """<?xml version="1.0" encoding="UTF-16"?>
+<config><moduleName>Better Sky</moduleName>
+  <requiredInstallFiles><file source="Core\\BetterSky.esp" destination="BetterSky.esp" /></requiredInstallFiles>
+  <installSteps order="Explicit">
+    <installStep name="Resolution"><optionalFileGroups><group name="Textures" type="SelectExactlyOne"><plugins order="Explicit">
+      <plugin name="2K"><description>Sharper.</description><image path="fomod\\2k.png" /><files><folder source="Tex\\2K" destination="textures" /></files>
+        <conditionFlags><flag name="res">2k</flag></conditionFlags><typeDescriptor><type name="Optional" /></typeDescriptor></plugin>
+      <plugin name="1K"><description>Lighter.</description><files><folder source="Tex\\1K" destination="textures" /></files>
+        <conditionFlags><flag name="res">1k</flag></conditionFlags><typeDescriptor><type name="Recommended" /></typeDescriptor></plugin>
+    </plugins></group></optionalFileGroups></installStep>
+    <installStep name="Extras"><visible><flagDependency flag="res" value="2k" /></visible><optionalFileGroups><group name="Extras" type="SelectAny"><plugins>
+      <plugin name="Clouds"><description>More clouds.</description><files><file source="Extra\\clouds.ini" destination="BetterSky\\" /></files><typeDescriptor><type name="Optional" /></typeDescriptor></plugin>
+    </plugins></group></optionalFileGroups></installStep>
+  </installSteps></config>"""
+    fomod_zip = downloads / "Better Sky.zip"
+    with zipfile.ZipFile(fomod_zip, "w") as z:
+        z.writestr("Better Sky/fomod/ModuleConfig.xml", b"\xff\xfe" + config.encode("utf-16-le"))
+        z.writestr("Better Sky/fomod/info.xml", "<fomod><Name>Better Sky</Name><Author>Sky Modder</Author><Version>2.0</Version></fomod>")
+        z.writestr("Better Sky/fomod/2k.png", base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+        z.writestr("Better Sky/Core/BetterSky.esp", "ESP")
+        z.writestr("Better Sky/Tex/2K/sky.dds", "2K")
+        z.writestr("Better Sky/Tex/1K/sky.dds", "1K")
+        z.writestr("Better Sky/Extra/clouds.ini", "CLOUDS")
+    pick(fomod_zip, base)
+    await pg.click("#mods-panel #mods-add")
+    await pg.wait_for_selector("#mods-import-dialog #mods-import-how", timeout=15000)
+    await pg.click("#mods-import-dialog button[type=submit]")
+    await pg.wait_for_selector("#mods-import-dialog .op-paths", timeout=15000)
+    await pg.click("#mods-import-dialog button[type=submit]")
+    card = '#mods-panel .patch-file[data-file="Better Sky.zip"]'
+    await pg.wait_for_selector(card + ' [data-fomod="to-choose"]', timeout=20000)
+    said = await pg.inner_text(card)
+    check("a mod with a FOMOD is read on Add a mod…: its name and author from info.xml, not ticked until its options are chosen (D211)",
+          "Sky Modder" in said and not await pg.is_checked(card + ' [data-action="on"]') and await pg.is_disabled(card + ' [data-action="on"]'), said[:400])
+    await pg.click(card + ' [data-action="fomod"]')
+    await pg.wait_for_selector('#mods-fomod-dialog [data-option="1K"] input:checked', timeout=15000)
+    first = await pg.inner_text("#mods-fomod-dialog")
+    await pg.click('#mods-fomod-dialog [data-option="2K"] input')
+    await pg.wait_for_selector('#mods-fomod-dialog [data-option="2K"] input:checked', timeout=15000)
+    pic = await pg.evaluate("() => { const i = document.querySelector('#mods-fomod-dialog [data-option=\\'2K\\'] img'); return i ? i.naturalWidth : -1; }")
+    await pg.screenshot(path=str(out / "97d-mods-fomod.png"))
+    await pg.click("#mods-fomod-dialog button[type=submit]")
+    await pg.wait_for_selector('#mods-fomod-dialog [data-option="Clouds"]', timeout=15000)
+    await pg.click('#mods-fomod-dialog [data-option="Clouds"] input')
+    await pg.wait_for_selector('#mods-fomod-dialog [data-option="Clouds"] input:checked', timeout=15000)
+    await pg.click("#mods-fomod-dialog button[type=submit]")
+    await pg.wait_for_selector(card + ' [data-fomod="chosen"]', timeout=15000)
+    check("Choose its options… asks its steps like the installer: the recommended one first, a step shown by an earlier choice, the option's picture (D211)",
+          "Recommended" in first and "Step 1 of 1" in first and pic == 1 and await pg.is_checked(card + ' [data-action="on"]'), (first[:300], pic))
+    await pg.click("#mods-install")
+    await pg.wait_for_selector("#mods-install-dialog .op-paths", timeout=15000)
+    await pg.click("#mods-install-dialog button[type=submit]")
+    sky = installed / "Data" / "textures" / "sky.dds"
+    for _ in range(150):
+        if sky.is_file():
+            break
+        await asyncio.sleep(0.1)
+    check("Install the ticked mods… puts in what the options chose, into the game's Data folder: 2K, not 1K, and the clouds (D211)",
+          sky.is_file() and sky.read_text() == "2K" and (installed / "Data" / "BetterSky.esp").is_file() and (installed / "Data" / "BetterSky" / "clouds.ini").is_file() and not (installed / "Data" / "fomod").exists(),
+          sorted(str(p.relative_to(installed)) for p in installed.rglob("*") if ".gamerepo" not in str(p)))
 
 
 async def cheats_page(pg, base, home, library):

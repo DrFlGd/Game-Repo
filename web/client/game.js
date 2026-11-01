@@ -50,17 +50,19 @@ function PcMods({ k, mods, applied, busy, run, onDone }) {
     setAsks(null);
     onDone(`Its mods applied: ${files(r.fetched)} fetched, ${files(r.removed)} taken away.`);
   });
-  if (!goes.length) return null;
+  const later = mods.filter((m) => m.to_choose);
+  if (!goes.length && !later.length) return null;
   return html`<div class="go-pc-mods" id="go-pc-mods">
     <h2>Its mods</h2>
     <p class="muted" id="go-pc-mods-now">${applied ? (applied.length ? `In it now: ${applied.join(", ")}.` : "No mods in it now.") : "Tick the mods it should have, and apply them to it as it's installed."}</p>
     ${goes.map((m) => html`<label class="check-row" key=${m.name} data-mod=${m.name}><input type="checkbox" checked=${want.includes(m.name)} disabled=${!!busy}
       onChange=${(e) => setPicked(e.target.checked ? [...want, m.name] : want.filter((x) => x !== m.name))} /> ${m.title || m.name}${m.version ? ` v${m.version}` : ""}</label>`)}
+    ${later.map((m) => html`<p class="muted" key=${m.name} data-mod-later=${m.name}>${m.title || m.name}: it has an installer, so choose its options in Game Repo first (its mods, Choose its options…).</p>`)}
     ${asks ? html`<fieldset class="go-pc-list" id="go-pc-asks"><legend>Changed since, by you or another program: replace it, or keep yours?</legend>
       ${asks.map((p) => html`<div class="go-pc-ask" key=${p} data-file=${p}><span class="go-file">${p}</span>
         <select aria-label=${`What to do with ${p}`} value=${choice[p] || "keep"} onChange=${(e) => setChoice({ ...choice, [p]: e.target.value })}><option value="keep">Keep mine</option><option value="replace">Replace it</option></select></div>`)}
     </fieldset>` : null}
-    <div class="go-game-do"><button type="button" class="primary" id="go-pc-apply" disabled=${!!busy || (same && !asks)} onClick=${apply}>${busy === "Applying…" ? busy : asks ? "Apply, as chosen" : "Apply"}</button></div>
+    ${goes.length ? html`<div class="go-game-do"><button type="button" class="primary" id="go-pc-apply" disabled=${!!busy || (same && !asks)} onClick=${apply}>${busy === "Applying…" ? busy : asks ? "Apply, as chosen" : "Apply"}</button></div>` : null}
   </div>`;
 }
 
@@ -68,7 +70,7 @@ function PcMods({ k, mods, applied, busy, run, onDone }) {
  *  installed it* to record what changed as theirs, then *Take it off* and *Keep these files
  *  in the library*. */
 function HandMods({ k, mods, hand, folder, busy, run, onDone }) {
-  const names = [...mods.filter((m) => !m.goes_in).map((m) => m.name), ...Object.keys(hand).filter((n) => !mods.some((m) => m.name === n))];
+  const names = [...mods.filter((m) => !m.goes_in && !m.to_choose).map((m) => m.name), ...Object.keys(hand).filter((n) => !mods.some((m) => m.name === n))];
   if (!names.length) return null;
   const record = (n, again) => run(`Recording ${n}…`, async () => {
     const fp = await call("pc_record_hand", { key: k, name: n });
