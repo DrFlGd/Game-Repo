@@ -91,6 +91,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.65 (2026-11-01)
+
 - **Texture packs and mods on your devices.** Game Repo Go puts a game's texture packs in the folder of an emulator on the device that loads them, when *Put each game's texture packs here with it* is ticked in its Settings (off at first, as packs are big). It also installs a PC game with its ticked mods over it, in their order (*Install PC games with their ticked mods*, on at first). Cards and drives don't take texture packs yet.
 ## 0.5.64 (2026-10-31)
 
