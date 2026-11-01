@@ -2353,6 +2353,16 @@ impl App {
                 let key = s("key");
                 j(self.with_index(move |ix| crate::mods::check_installed(ix, &lib, &data_dir, &key)).await?)
             }
+            "mods_fomod" => {
+                let (key, name) = (s("key"), s("name"));
+                let choices: Option<crate::fomod::Choices> = args.get("choices").filter(|c| !c.is_null()).map(|c| serde_json::from_value(c.clone())).transpose().map_err(|e| e.to_string())?;
+                j(self.with_index(move |ix| crate::mods::fomod_show(ix, &lib, &key, &name, choices)).await?)
+            }
+            "mods_fomod_choose" => {
+                let (key, name) = (s("key"), s("name"));
+                let choices: crate::fomod::Choices = serde_json::from_value(args["choices"].clone()).map_err(|e| e.to_string())?;
+                j(self.with_index(move |ix| crate::mods::fomod_choose(ix, &lib, &key, &name, &choices)).await?)
+            }
             "mods_record" => {
                 let (key, name) = (s("key"), s("name"));
                 j(self.with_index(move |ix| crate::mods::record_hand(ix, &lib, &data_dir, &key, &name)).await?)

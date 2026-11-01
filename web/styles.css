@@ -2116,6 +2116,21 @@ html.drop-over-import #main-root { outline: 2px dashed var(--accent-edge); outli
 /* Patches (D201–D203): a game's ROM patches, each with its details and Apply… */
 .patches-editor { display: grid; gap: 10px; min-width: 0; }
 .patch-file { border-top: 1px solid var(--steel-2); padding-top: 8px; }
+/* a FOMOD's options (D211) */
+.fomod-head { display: flex; justify-content: center; margin-bottom: 8px; }
+.fomod-head .fomod-pic { max-height: 180px; max-width: 100%; }
+.fomod-group { display: grid; gap: 6px; }
+.fomod-option { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 6px 8px; border: 1px solid var(--steel-2); border-radius: 6px; cursor: pointer; }
+.fomod-option.on { border-color: var(--accent, var(--steel-3)); }
+.fomod-option input { margin-top: 3px; }
+.fomod-text { display: grid; gap: 2px; min-width: 0; }
+.fomod-desc { white-space: pre-wrap; font-size: 13px; }
+.fomod-option .fomod-pic { width: 120px; max-height: 90px; object-fit: contain; }
+.fomod-type { justify-self: start; width: max-content; font-size: 12px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--steel-2); }
+.fomod-type.Recommended { border-color: var(--ok, var(--steel-3)); }
+.fomod-type.NotUsable { opacity: .7; }
+.fomod-q { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+@media (max-width: 640px) { .fomod-option { grid-template-columns: auto 1fr; } .fomod-option .fomod-pic { grid-column: 2; } }
 .patch-file.on { border-left: 3px solid var(--accent-edge); padding-left: 8px; }
 .patch-file h3 { margin: 4px 0 0; font-size: 14px; overflow-wrap: anywhere; }
 .patch-file p, .patch-file code { overflow-wrap: anywhere; }

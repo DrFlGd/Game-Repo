@@ -7,7 +7,9 @@
 // Check the game's files… compares where it's installed with the library's copy and puts it
 // back, after mods put in by Game Repo or by hand ("Mods on installed games", D207–D208).
 // A mod put in by hand is recorded as installed (what changed, as its), taken off by
-// itself, and kept in the library as a mod that goes in by itself (D210).
+// itself, and kept in the library as a mod that goes in by itself (D210). A mod with a FOMOD
+// installer has its options chosen in a dialog like the installer's, one step at a time,
+// and goes in as they say (D211).
 import { html, useState, useEffect, useMemo } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -133,6 +135,84 @@ function CheckDialog({ k, title, check, onDone }) {
   <//>`;
 }
 
+const TYPE_SAY = { Required: "Required", Recommended: "Recommended", NotUsable: "Not usable", CouldBeUsable: "Could be usable" };
+
+/** Choose its options… (D211): a FOMOD's steps one at a time, each group's options picked as
+ *  the installer would ask (one, at most one, at least one, all, any), the questions on
+ *  other mods' files first; the choices kept with the mod, and it goes in as they say. */
+function FomodDialog({ k, name, first, onDone }) {
+  const [r, setR] = useState(first);
+  const [choices, setChoices] = useState(first.choices || { picks: {}, files: {} });
+  const [at, setAt] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const steps = r.steps.map((s, i) => ({ ...s, i })).filter((s) => s.visible && s.groups.some((g) => g.options.length));
+  const step = steps[Math.min(at, steps.length - 1)];
+  const last = at >= steps.length - 1;
+  const again = async (c) => {
+    setChoices(c);
+    try {
+      setR(await api("mods_fomod", { key: k, name, choices: c }));
+      setError("");
+    } catch (e) {
+      setError(err(e));
+    }
+  };
+  const pick = (g, o, on) => {
+    const one = g.kind === "SelectExactlyOne" || g.kind === "SelectAtMostOne";
+    const now = g.options.filter((x) => x.picked).map((x) => x.name);
+    const next = one ? (on ? [o.name] : []) : on ? [...now.filter((x) => x !== o.name), o.name] : now.filter((x) => x !== o.name);
+    again({ ...choices, picks: { ...choices.picks, [g.id]: next } });
+  };
+  const answer = (file, v) => again({ ...choices, files: { ...choices.files, [file]: v } });
+  const finish = async () => {
+    // every group's picks as shown, so the choices kept say all of them
+    const picks = {};
+    for (const s of r.steps) for (const g of s.groups) picks[g.id] = g.options.filter((o) => o.picked).map((o) => o.name);
+    setBusy(true);
+    setError("");
+    try {
+      const g = await api("mods_fomod_choose", { key: k, name, choices: { ...choices, picks } });
+      close();
+      onDone?.(g);
+      toast(`${r.name || name} goes in as you chose: tick it and Install the ticked mods… to put it in.`, 8000);
+    } catch (e) {
+      setError(err(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pic = (p) => (p ? html`<img class="fomod-pic" src=${libraryUrl(p)} alt="" />` : null);
+  return html`<${Dialog} title=${`${r.name || name}: its options`} id="mods-fomod-dialog" wide=${true} sticky=${true} busy=${busy || !!r.cannot} error=${error || r.cannot}
+    submitLabel=${last ? (busy ? "Saving…" : "Use these options") : "Next"} onSubmit=${last ? finish : () => setAt(at + 1)}
+    cancelLabel=${at > 0 ? "Back" : "Cancel"} onCancel=${at > 0 ? () => setAt(at - 1) : close}>
+    ${at === 0 && r.image ? html`<div class="fomod-head">${pic(r.image)}</div>` : null}
+    ${at === 0 && r.questions.length ? html`<fieldset class="field-block" id="fomod-questions"><legend class="field-label">It asks about other mods' files (Game Repo can't tell whether another mod's plugin is active)</legend>
+      ${r.questions.map((q) => html`<label class="fomod-q" key=${q.file}><code>${q.file}</code>
+        <select aria-label=${`Is ${q.file} there?`} data-file=${q.file} value=${q.answer} onChange=${(e) => answer(q.file, e.target.value)}><option value="Active">There and active</option><option value="Inactive">There, not active</option><option value="Missing">Not there</option></select></label>`)}
+    </fieldset>` : null}
+    ${step ? html`<p class="muted" id="fomod-step" data-step=${step.i}>Step ${Math.min(at, steps.length - 1) + 1} of ${steps.length}: <strong>${step.name}</strong></p>
+      ${step.groups.filter((g) => g.options.length).map((g) => {
+        const one = g.kind === "SelectExactlyOne" || g.kind === "SelectAtMostOne";
+        const say = { SelectExactlyOne: "pick one", SelectAtMostOne: "pick one or none", SelectAtLeastOne: "pick at least one", SelectAll: "all of these", SelectAny: "pick any" }[g.kind] || "pick any";
+        return html`<fieldset class="field-block fomod-group" key=${g.id} data-group=${g.id}><legend class="field-label">${g.name} <span class="muted">(${say})</span></legend>
+          ${g.options.map((o) => {
+            const fixed = o.type === "Required" || o.type === "NotUsable" || g.kind === "SelectAll";
+            return html`<label class=${`fomod-option${o.picked ? " on" : ""}`} key=${o.name} data-option=${o.name} data-type=${o.type}>
+              <input type=${one ? "radio" : "checkbox"} name=${`fomod-${g.id}`} checked=${o.picked} disabled=${fixed || busy}
+                onClick=${one && o.picked && g.kind === "SelectAtMostOne" ? (e) => { e.preventDefault(); pick(g, o, false); } : null}
+                onChange=${(e) => pick(g, o, e.target.checked)} />
+              <span class="fomod-text"><strong>${o.name}</strong>${TYPE_SAY[o.type] ? html` <span class=${`fomod-type ${o.type}`}>${TYPE_SAY[o.type]}</span>` : null}
+                ${o.description ? html`<span class="muted fomod-desc">${o.description}</span>` : null}</span>
+              ${pic(o.image)}
+            </label>`;
+          })}
+        </fieldset>`;
+      })}` : html`<p class="muted">It asks nothing: its files go in as they are.</p>`}
+    ${last ? html`<p class="muted" id="fomod-files">${r.files} ${r.files === 1 ? "file or folder goes" : "files or folders go"} in with these options.</p>` : null}
+  <//>`;
+}
+
 /** Edit details…: a mod's title, author, version, address, notes and the folder in its archive. */
 function EditDialog({ k, file, details, onDone }) {
   const [d, setD] = useState(details);
@@ -152,6 +232,7 @@ export function ModDialogs({ dialog }) {
   if (dialog.type === "mods-install") return html`<${InstallDialog} ...${dialog} />`;
   if (dialog.type === "mods-edit") return html`<${EditDialog} ...${dialog} />`;
   if (dialog.type === "mods-check") return html`<${CheckDialog} ...${dialog} />`;
+  if (dialog.type === "mods-fomod") return html`<${FomodDialog} ...${dialog} />`;
   return null;
 }
 
@@ -221,6 +302,13 @@ export function ModsEditor({ k, off, focus = null }) {
       toast(err(e), 10000);
     }
   };
+  const chooseFomod = async (m) => {
+    try {
+      ui.set({ dialog: { type: "mods-fomod", k, name: m.name, first: await api("mods_fomod", { key: k, name: m.name }), onDone: setG } });
+    } catch (e) {
+      toast(`Couldn't read its installer: ${err(e)}`, 10000);
+    }
+  };
   const check = async () => {
     try {
       ui.set({ dialog: { type: "mods-check", k, title: g.title, check: await api("mods_check", { key: k }), onDone: load } });
@@ -244,12 +332,14 @@ export function ModsEditor({ k, off, focus = null }) {
     </div>` : null}
     ${!list.length ? html`<p class="muted" id="mods-none">${g.title} has no mods yet. Add a mod… brings one in: its archive, its installer or its folder.</p>` : null}
     ${list.map((m, i) => html`<section class=${`patch-file${focus === m.name ? " on" : ""}`} key=${m.name} data-file=${m.name} data-how=${m.details.how}>
-      <h3><label class="check-row"><input type="checkbox" data-action="on" aria-label=${`Install ${m.name}`} checked=${m.details.on} disabled=${off || m.details.how === "run" || m.details.how === "hand"} onChange=${(e) => set(m, { on: e.target.checked })} /> ${i + 1}. ${m.details.title || m.name}</label></h3>
+      <h3><label class="check-row"><input type="checkbox" data-action="on" aria-label=${`Install ${m.name}`} checked=${m.details.on} disabled=${off || m.details.how === "run" || m.details.how === "hand" || (m.details.fomod && !m.details.choices)} onChange=${(e) => set(m, { on: e.target.checked })} /> ${i + 1}. ${m.details.title || m.name}</label></h3>
       <p class="muted">${[m.name, m.archive ? "an archive" : m.folder ? "a folder" : "a file", size(m.size), m.details.version ? `v${m.details.version}` : null, m.details.author ? `by ${m.details.author}` : null].filter(Boolean).join(" · ")}</p>
       <span class="patch-found-row">
         <select class="compact" aria-label="How it goes in" data-action="how" value=${m.details.how} disabled=${off} onChange=${(e) => set(m, { how: e.target.value, on: e.target.value === "game" || (e.target.value === "folder" && !!m.details.folder) })}>${HOWS.map(([v, l]) => html`<option value=${v} key=${v}>${l}</option>`)}</select>
         ${m.details.how === "folder" ? html`<input type="text" class="compact" aria-label="The game's folder it goes into" data-action="folder" placeholder="Mods/" value=${m.details.folder} disabled=${off} onChange=${(e) => set(m, { folder: e.target.value, on: !!e.target.value })} />` : null}
       </span>
+      ${m.details.fomod ? html`<p class=${m.details.choices ? "muted" : "warn-note"} data-fomod=${m.details.choices ? "chosen" : "to-choose"}>${m.details.choices ? `Its installer's options are chosen: ${(m.details.files || []).length} files or folders go in.` : "It has an installer (FOMOD): choose its options to put it in."}
+        <button type="button" class="ghost compact" data-action="fomod" disabled=${off || !isDesktop()} onClick=${() => chooseFomod(m)}>${m.details.choices ? "Change the choices…" : "Choose its options…"}</button></p>` : null}
       ${m.details.how === "run" ? html`<p class="muted">Game Repo never runs it: run it yourself once the game is installed (and its other mods are in).</p>` : null}
       ${m.details.how === "hand" ? html`<p class="muted">Kept here: put it in as its readme says, then say <em>I've installed it</em> so what changed is recorded as its.</p>` : null}
       ${(m.details.how === "hand" || m.details.how === "run") && g.installed_found ? html`<div class="lib-panel-actions mods-hand" data-recorded=${g.hand?.[m.name] ? "yes" : "no"}>
