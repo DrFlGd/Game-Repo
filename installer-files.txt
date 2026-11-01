@@ -1,0 +1,32 @@
+
+7-Zip 26.05 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-10-21
+
+Scanning the drive for archives:
+1 file, 19176492 bytes (19 MiB)
+
+Listing archive: dist\Game Repo_0.5.70_x64-setup.exe
+
+--
+Path = dist\Game Repo_0.5.70_x64-setup.exe
+Type = Nsis
+Physical Size = 19176492
+Method = LZMA:23
+Solid = +
+Headers Size = 75662
+Embedded Stub Size = 52736
+SubType = NSIS-3 Unicode
+
+   Date      Time    Attr         Size   Compressed  Name
+------------------- ----- ------------ ------------  ------------------------
+                    .....        12288     19123752  $PLUGINSDIR\System.dll
+2026-11-01 21:35:52 .....        26494               $PLUGINSDIR\modern-wizard.bmp
+                    .....         9728               $PLUGINSDIR\nsDialogs.dll
+                    .....        34304               $PLUGINSDIR\nsis_tauri_utils.dll
+                    .....        13316               $PLUGINSDIR\StartMenu.dll
+                    .....        15360               $PLUGINSDIR\NSISdl.dll
+                    .....         7168               $PLUGINSDIR\nsExec.dll
+2026-11-01 21:44:24 .....     41540608               game-repo.exe
+2026-11-01 21:36:04 ....A     28134912               gamerepo-server.exe
+                    .....                            uninstall.exe
+------------------- ----- ------------ ------------  ------------------------
+2026-11-01 21:44:24           69794178     19123752  10 files

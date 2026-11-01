@@ -1,0 +1,11 @@
+starting a session…
+PASS Game Repo Go opens asking to be paired with a library
+PASS the code from Game Repo pairs it, and the library's games are shown
+PASS a box front comes through the app's picture protocol
+PASS the pairing is kept in Windows Credential Manager
+PASS a game added is downloaded into ES-DE's folder and gamelist, with its box front
+PASS Settings shows ES-DE's folder and the app's version
+PASS Unpair forgets the pairing, in Credential Manager too, and asks to be paired again
+PASS the game downloaded stays on the device
+PASS no page errors
+9 of 9 checks passed
