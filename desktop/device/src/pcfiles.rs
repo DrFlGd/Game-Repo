@@ -54,6 +54,8 @@ pub fn check(d: &Device, key: &str) -> Result<Check> {
 #[serde(default)]
 pub struct PutBack {
     pub leave: Vec<String>,
+    /// A mod put in by hand (D210) to take off by itself: only the files it changed put back
+    pub only: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -72,17 +74,40 @@ pub struct PutBackDone {
 /// *Put the game back as it was installed…* (D208): what changed or went fetched again,
 /// what was added put aside, what's in `leave` kept as it is.
 pub fn put_back(s: &Server, d: &Device, key: &str, o: &AddOptions, ask: &PutBack, progress: &mut dyn FnMut(&str)) -> Result<PutBackDone> {
-    let (folder, _) = installed(d, key)?;
+    let (folder, want) = installed(d, key)?;
     let dir = dir_of(d, &folder)?;
-    let c = check(d, key)?;
-    if c.state == "not_there" {
-        bail!("Its folder isn't there any more ({}): remove it from the device and download it again.", c.folder);
+    if !dir.is_dir() {
+        bail!("Its folder isn't there any more ({}): remove it from the device and download it again.", dir.display());
+    }
+    // the mods put in by hand go too (D210), or with `only` that one alone
+    let st = State::read(&dir);
+    let drop: Vec<String> = if ask.only.is_empty() {
+        st.hand.keys().cloned().collect()
+    } else if st.hand.contains_key(&ask.only) {
+        vec![ask.only.clone()]
+    } else {
+        bail!("{} isn't recorded as put in by hand here.", ask.only);
+    };
+    let mut c = gamefiles::check_without(&dir, &want, &drop, &hash)?;
+    let only: Option<HashSet<String>> = st.hand.get(&ask.only).map(|fp| fp.paths().iter().map(|p| p.to_lowercase()).collect());
+    if let Some(paths) = &only {
+        for l in [&mut c.changed, &mut c.missing, &mut c.added] {
+            l.retain(|r| paths.contains(&r.to_lowercase()));
+        }
     }
     let listed: HashSet<String> = c.changed.iter().chain(&c.added).chain(&c.missing).map(|p| p.to_lowercase()).collect();
     let leave: HashSet<String> = ask.leave.iter().map(|p| p.to_lowercase()).filter(|p| listed.contains(p)).collect();
-    // the game as the library has it, no mods (D208)
+    // the game as the library has it, no mods (D208); one mod by hand taken off: with the
+    // mods Game Repo Go put in, as they are
     let o = AddOptions { mods: false, media_only: false, adopt: vec![], ..o.clone() };
-    let mut plan: Plan = s.call("POST", "/v1/plans", Some(&o.ask(&[key.to_string()])))?;
+    let mut want = o.ask(&[key.to_string()]);
+    if only.is_some() {
+        match &st.mods {
+            Some(m) => want.mod_picks = vec![(key.to_string(), m.clone())],
+            None => want.mods = true,
+        }
+    }
+    let mut plan: Plan = s.call("POST", "/v1/plans", Some(&want))?;
     if plan.waiting.iter().any(|k| k == key) {
         bail!("The library is still unpacking it: try again in a minute.");
     }
@@ -99,7 +124,7 @@ pub fn put_back(s: &Server, d: &Device, key: &str, o: &AddOptions, ask: &PutBack
     let in_plan: HashSet<String> = plan.files.iter().filter(|f| f.place == "pc" && f.key == key).filter_map(|f| rel_of(&f.path)).collect();
     // what was added goes aside, and so does a file only a mod gave (not in the game now)
     let mut aside: Vec<String> = c.added.iter().filter(|p| !leave.contains(&p.to_lowercase())).cloned().collect();
-    for w in installed(d, key)?.1 {
+    for w in installed(d, key)?.1.into_iter().filter(|_| only.is_none()) {
         let l = w.path.to_lowercase();
         if !in_plan.contains(&l) && !leave.contains(&l) && !c.missing.iter().any(|m| m.eq_ignore_ascii_case(&w.path)) && dir.join(&w.path).is_file() {
             aside.push(w.path);
@@ -129,6 +154,7 @@ pub fn put_back(s: &Server, d: &Device, key: &str, o: &AddOptions, ask: &PutBack
         }
     }
     let mut st = State::read(&dir);
+    st.hand.retain(|n, _| !drop.contains(n));
     for p in &ask.leave {
         if leave.contains(&p.to_lowercase()) && !st.keeps(p) {
             st.keep.push(p.clone());
@@ -139,11 +165,59 @@ pub fn put_back(s: &Server, d: &Device, key: &str, o: &AddOptions, ask: &PutBack
     Ok(out)
 }
 
-/// The mods Game Repo Go put in an installed PC game, as its folder's state says (none: not
-/// known), without reading its files.
-pub fn mods_in(d: &Device, key: &str) -> Result<Option<Vec<String>>> {
+/// *I've installed it* / *I've changed it* (D210): what changed in the game's folder since
+/// it was installed (and the other mods recorded) recorded as the mod `name`'s.
+pub fn record_hand(d: &Device, key: &str, name: &str) -> Result<gamefiles::Footprint> {
+    if name.trim().is_empty() {
+        bail!("Say which mod it is.");
+    }
+    let (folder, want) = installed(d, key)?;
+    Ok(gamefiles::record_hand(&dir_of(d, &folder)?, &want, name, &hash)?)
+}
+
+/// *Keep these files in the library* (D210): a mod put in by hand, its files as recorded
+/// sent to the library as a mod of its own (each file sent first, as saves' are). Its name
+/// in the library.
+pub fn keep_hand(s: &Server, d: &Device, key: &str, name: &str) -> Result<String> {
     let (folder, _) = installed(d, key)?;
-    Ok(State::read(&dir_of(d, &folder)?).mods)
+    let dir = dir_of(d, &folder)?;
+    let st = State::read(&dir);
+    let fp = st.hand.get(name).ok_or_else(|| anyhow!("{name} isn't recorded as put in by hand here: say *I've installed it* first."))?;
+    for w in &fp.files {
+        let p = dir.join(&w.path);
+        if !p.is_file() || !hash(&p)?.eq_ignore_ascii_case(&w.sha1) {
+            bail!("{} has changed since {name} was recorded: say *I've changed it* first.", w.path);
+        }
+        if w.size > gamerepo_wire::saves::MAX_FILE {
+            bail!("{} is too big to send ({} MB at most).", w.path, gamerepo_wire::saves::MAX_FILE >> 20);
+        }
+        let at = format!("/v1/saves/blob/{}", w.sha1.to_ascii_lowercase());
+        if !s.has(&at)? {
+            s.put_bytes(&at, &std::fs::read(&p)?)?;
+        }
+    }
+    let ask = gamefiles::KeepAsk { key: key.to_string(), name: name.to_string(), files: fp.files.clone() };
+    let v: serde_json::Value = s.call("POST", "/v1/mods/keep", Some(&ask)).map_err(|e| match e.downcast::<crate::client::Refused>() {
+        Ok(r) => anyhow!("{}", r.message),
+        Err(e) => e,
+    })?;
+    Ok(v["name"].as_str().unwrap_or(name).to_string())
+}
+
+/// What's in an installed PC game, as its folder's state says, without reading its files.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct ModsIn {
+    /// The mods Game Repo Go put in (none: not known)
+    pub mods: Option<Vec<String>>,
+    /// The mods put in by hand and recorded (D210), with when each was
+    pub hand: std::collections::BTreeMap<String, String>,
+}
+
+pub fn mods_in(d: &Device, key: &str) -> Result<ModsIn> {
+    let (folder, _) = installed(d, key)?;
+    let st = State::read(&dir_of(d, &folder)?);
+    Ok(ModsIn { mods: st.mods, hand: st.hand.into_iter().map(|(n, f)| (n, f.when)).collect() })
 }
 
 /// What mods a plan put in a PC game, kept in its folder's state (D209): each file's mod,
@@ -227,7 +301,9 @@ pub fn apply_mods(s: &Server, d: &Device, key: &str, o: &AddOptions, ask: &Apply
         }
     };
     let decided = |rel: &String| ask.replace.iter().chain(&ask.keep).any(|x| x.eq_ignore_ascii_case(rel));
-    let by_hand: Vec<&String> = c.changed.iter().chain(&c.missing).collect();
+    // changed by hand: since the record, or by a mod put in by hand and recorded (D210)
+    let recorded: Vec<String> = State::read(&dir).hand.values().flat_map(|fp| fp.paths()).collect();
+    let by_hand: Vec<&String> = c.changed.iter().chain(&c.missing).chain(&recorded).collect();
     let asks: Vec<String> = by_hand.iter().filter(|r| touched(r) && !decided(r)).map(|r| r.to_string()).collect();
     if !asks.is_empty() {
         return Ok(Applied { ask: asks, ..Default::default() });
@@ -279,6 +355,12 @@ pub fn apply_mods(s: &Server, d: &Device, key: &str, o: &AddOptions, ask: &Apply
             st.keep.push(k.clone());
         }
     }
+    // a file of a mod put in by hand that's been replaced isn't that mod's now
+    for fp in st.hand.values_mut() {
+        fp.files.retain(|w| !replace.contains(&lower(&w.path)));
+        fp.gone.retain(|g| !replace.contains(&lower(g)));
+    }
+    st.hand.retain(|_, fp| !fp.files.is_empty() || !fp.gone.is_empty());
     out.mods = st.mods.clone().unwrap_or_default();
     st.write(&dir)?;
     Ok(out)

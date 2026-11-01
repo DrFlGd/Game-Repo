@@ -132,6 +132,40 @@ fn answer(lib: &Library, data: &Path, req: &Request, device: &Device) -> Result<
     }
 }
 
+/// `POST /v1/mods/keep` (D210): a mod a device's user put in by hand, its files as they
+/// recorded it (each sent first to `/v1/saves/blob/<sha1>`), kept in the library as a mod
+/// of its own that goes in by itself, so other devices get it with no steps.
+pub fn keep_mod(lib: &Library, data: &Path, req: &Request, device: &Device) -> Result<Response> {
+    let ask: gamerepo_wire::gamefiles::KeepAsk = match serde_json::from_slice(&req.body) {
+        Ok(a) => a,
+        Err(e) => return Ok(Response::problem(400, format!("That request can't be read: {e}"))),
+    };
+    let Some(id) = ask.key.strip_prefix("pcgames/").filter(|id| !id.is_empty() && !id.contains(['/', '\\']) && !id.contains("..")) else {
+        return Ok(Response::problem(400, "Mods are for PC games."));
+    };
+    if gamerepo_core::pcgames::get(lib, id).is_err() {
+        return Ok(Response::problem(404, "The library has no such PC game."));
+    }
+    let dir = incoming(data);
+    let mut files = vec![];
+    for w in &ask.files {
+        let sha1 = w.sha1.to_ascii_lowercase();
+        let p = dir.join(&sha1);
+        if !is_sha1(&sha1) || !std::fs::metadata(&p).is_ok_and(|m| m.len() == w.size) {
+            return Ok(Response::problem(400, format!("{} wasn't sent first.", w.path)));
+        }
+        files.push((w.path.clone(), p));
+    }
+    let when = gamerepo_core::library::now().chars().take(10).collect::<String>();
+    let note = format!("{}'s files as it was put in by hand on {} ({when}).", ask.name, device.name);
+    let r = match gamerepo_core::mods::keep_recorded(lib, id, &ask.name, &files, &note) {
+        Ok(name) => Response::json(200, &serde_json::json!({ "name": name, "files": files.len() })),
+        Err(e) => Response::problem(400, format!("{e:#}")),
+    };
+    tidy(&dir);
+    Ok(r)
+}
+
 /// Files sent long ago and never made part of a version.
 fn tidy(dir: &Path) {
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {

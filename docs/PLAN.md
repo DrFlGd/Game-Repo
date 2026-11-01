@@ -6931,6 +6931,49 @@ D209, in `desktop/device/src/pcfiles.rs`, `desktop/serve/src/{plans,lib}.rs`,
   and from the game's folder, then undone), `client_page.py` (Zeta's mod ticked on the
   device) and `desktop_page.py`'s `mods` part.
 
+### Mods on installed games notes, part 3: mods put in by hand, recorded (built 2026-11-01)
+
+D210, in `desktop/wire/src/gamefiles.rs`, `desktop/device/src/pcfiles.rs`,
+`desktop/core/src/mods.rs`, `desktop/serve/src/saves.rs` and the pages:
+- `.gamerepo-mods/state.json` now holds only what the user did (`keep`, the mods, `hand`);
+  what a check reads (`seen`, `library`) is in `seen.json` beside it, so `state.json`
+  changes only on a press and Game Repo's Undo can put it back.
+- *I've installed it* (`pc_record_hand` on Go, `mods_record` here) records what differs from
+  the files as installed, with the other recorded mods laid over them, as the mod's
+  `Footprint` (`hand` in `state.json`: its files changed or added with their SHA-1s, those
+  it took away, when). A check lays every footprint over the files as installed, so they
+  aren't changes, and names the mods (`hand`; a changed file of one, in `owners`). *I've
+  changed it* records it afresh. Recording when nothing changed is refused.
+- *Take it off* is *Put it back* with `only` (the mod's name): a check without that
+  footprint (`check_without`), its paths alone put back. On Go the game's plan is asked with
+  the mods Go put in (`state.json`'s `mods`), so only the mod's own files are fetched; here
+  it's an Organise change (kind `pc_put_back`) whose last step writes `state.json` without
+  it. Putting the whole game back takes every recorded mod with it. *Apply* (D209) asks
+  before changing a file a recorded mod gave, and one replaced leaves its footprint.
+- *Keep these files in the library*: here the files are copied from where the game is
+  installed (`keep_hand`); Go sends each to `/v1/saves/blob/<sha1>` as saves are, then
+  `POST /v1/mods/keep` (`KeepAsk`, answered without the index), and the server copies them
+  in. Either way `mods::keep_recorded` writes them as `<mod> (as installed)` in the game's
+  mods folder, *Into the game's folder*, not ticked, its notes saying where and when. A
+  file changed since it was recorded stops it (*I've changed it* first).
+- Game Repo's check now lays the mods it installed (`installed.to` this folder) over the
+  library's copy, so they aren't changes either; *Put it back…* here leaves them in (their
+  own *Take it off…* takes them out, D209), unlike Go's, which puts the game back with no
+  mods (D208). A file whose source isn't there (a recorded mod's, its own copy not kept)
+  is left and listed as `skipped`.
+- The pages: a mod *By hand* or *A file to run* gets its notes and readme, *I've installed
+  it*, then *I've changed it*, *Take it off* and *Keep these files in the library*; Game
+  Repo adds *Open the game's folder* and *Show the mod*. Go shows the game's folder's path
+  (it has no file browser to open); the server's game details give each mod's readme (its
+  first 20,000 characters). On Go's page the ticks list only mods that go in by themselves.
+- Not in this part: Go fetching a mod to copy from (*Open the mod*): a mod by hand is
+  copied from the library's own folder or a download; the PC mods tab's *Installed* column
+  still counts only mods Game Repo installed.
+- Tests: `wire` `gamefiles` (recorded, then no change), `core` `mods` (recorded, kept,
+  taken off and undone), `serve/tests/client.rs` (recorded on Go, sent to the library,
+  taken off, then the kept copy applied), `client_page.py` (Hand Patch) and
+  `desktop_page.py`'s `mods` part.
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -7192,8 +7235,9 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     against how it was installed and put back from the library, whoever changed it; mods
     applied to and taken off a game already installed; mods put in by hand recorded as
     theirs; FOMOD installers and the common layouts; Nexus Mods' API. In progress: part 1
-    (checking an installed game and putting it back, on Game Repo Go and here) and part 2
-    (mods applied to and taken off a game already installed) built.
+    (checking an installed game and putting it back, on Game Repo Go and here), part 2
+    (mods applied to and taken off a game already installed) and part 3 (mods put in by
+    hand, recorded) built.
 30. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices
