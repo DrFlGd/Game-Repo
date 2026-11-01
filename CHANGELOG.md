@@ -93,6 +93,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 - **FOMOD installers, and mods put where they go.** A mod with a FOMOD installer (most from Nexus Mods) is read when you add it: its name, author and version fill its details, and *Choose its options…* asks its steps as the installer would, with each option's description, picture and whether it's recommended. The options you pick decide which files go in and where, on this computer and on your devices. Mods without one are looked at too: `Data/`, `BepInEx/`, `plugins/`, `MelonLoader/`, `Mods/`, `bin/`, a Bethesda game's plugins, Unreal `.pak` files and files named like the game's own each go where they belong. Anything else is marked *By hand*.
 
+## 0.5.68 (2026-11-01)
+
 - **Mods you put in by hand, recorded.** Most mods need steps a readme gives. Put one in as it says, then press *I've installed it* on its card (on Game Repo Go's page for the game, or in Game Repo's PC mods panel): what changed in the game's folder is recorded as that mod's. From then on a check names it, *Take it off* puts back only what it changed (its added files set aside, never deleted), and *I've changed it* records it again after you edit a setting. *Keep these files in the library* sends the files as recorded to the library as a mod of its own that goes in by itself, so your other devices get it with a tick and no steps. Game Repo's check now takes the mods it installed as the game's own, and names them.
 
 ## 0.5.67 (2026-11-01)
