@@ -91,6 +91,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.67 (2026-11-01)
+
 - **Mods on a PC game that's already installed.** On Game Repo Go, an installed PC game's page lists its mods from the library: tick the ones this device should have and *Apply*, and only the files that differ are fetched or taken away. If you changed a file by hand that a mod would change, Go asks first: keep yours, or replace it. In Game Repo, an installed mod has *Take it off…*, which puts back the files it replaced, as a change History can undo.
 
 - **Check an installed PC game's files and put it back.** On Game Repo Go, an installed PC game's page has *Check the game's files*: every file changed, added or gone since it was installed is listed, however it happened (a mod put in by hand, a file deleted). *Put it back as it was installed* fetches what changed from the library and moves what was added into the game's `.gamerepo-mods/put-aside/` (never deleted; *Empty* when you're sure). Untick a file, a save say, to leave it as it is. Game Repo does the same for a game installed on this computer, against the library's unpacked copy, as a change History can undo (PC mods panel, *Check the game's files…*).
