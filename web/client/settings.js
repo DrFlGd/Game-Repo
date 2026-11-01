@@ -196,6 +196,9 @@ function SavesSettings({ settings, set, paired }) {
     <label class="check-row"><input type="checkbox" id="set-cheats" checked=${settings.cheats !== false} onChange=${() => set({ cheats: settings.cheats === false })} />
       <span>Put each game's RetroArch cheats here with it</span></label>
     <p class="muted" id="set-cheats-note">Into RetroArch's cheats folder, in its core's folder, as RetroArch looks for them when the game starts (its <i>Auto-Apply Cheats During Game Load</i> turns on those marked to be). A cheat file you saved in RetroArch is never written over.</p>
+    <label class="check-row"><input type="checkbox" id="set-textures" checked=${settings.textures === true} onChange=${() => set({ textures: settings.textures !== true })} />
+      <span>Put each game's texture packs here with it</span></label>
+    <p class="muted" id="set-textures-note">Into the folder of an emulator here that loads them (Dolphin, PCSX2, PPSSPP, DuckStation, Azahar, Cemu, Eden, or RetroArch for NES and N64), where it looks for the game's pack. They're often big, so they're off until you tick this; turn on the emulator's own setting for custom textures to see them.</p>
     <label class="field-block"><span>RetroArch's settings file</span>
       <input id="set-retroarch" value=${settings.retroarch} placeholder="Found by itself (retroarch.cfg)" onChange=${(e) => set({ retroarch: e.currentTarget.value.trim() })} /></label>
     ${sv?.emulators?.length ? html`<h3>Emulators of their own</h3>
@@ -266,6 +269,9 @@ export function SettingsPage() {
     ${st.pc ? html`<section class="go-set" id="set-pc">
       <h2>PC games</h2>
       <${Folder} id="set-pc-folder" label="PC games folder" value=${st.pc.folder} setting="pc_games" fallback=${info.kind === "windows" ? "C:\\Games" : "Games in your home folder"} />
+      <label class="check-row"><input type="checkbox" id="set-mods" checked=${v.mods !== false} onChange=${() => set({ mods: v.mods === false })} />
+        <span>Install PC games with their ticked mods</span></label>
+      <p class="muted" id="set-mods-note">The mods ticked for a game in Game Repo go over its files as it's installed, in their order. Mods that are installers are never run: run those yourself.</p>
       <p class="muted" id="set-pc-shortcuts">Each game goes in a folder of its own there, with a shortcut ${info.kind === "windows" ? "in the Start menu's Game Repo Go folder" : "in Steam, through Proton for a Windows game"}. Removing a game keeps the files it made itself, such as saves.</p>
       ${!st.pc.default ? html`<div><button type="button" class="ghost" id="set-pc-usual" onClick=${() => set({ pc_games: "" }).then(refreshStatus)}>Use the usual folder</button></div>` : null}
     </section>` : null}

@@ -193,6 +193,13 @@ pub struct PlanAsk {
     /// place `cheats`, D200)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub cheats: bool,
+    /// The emulators whose folders the device knows (its places `textures-<emulator>`), for
+    /// the games' texture packs (D204); empty: none
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub textures: Vec<String>,
+    /// PC games installed with their ticked mods over them (D205)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub mods: bool,
 }
 
 /// A media kind's size for the games asked for, asked for or not (C13, D88), so a device

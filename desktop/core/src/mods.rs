@@ -257,6 +257,27 @@ fn plan_of(kind: &str, label: String, title: String, lib: &Library, ops: Vec<Op>
     p
 }
 
+/// A PC game's ticked mods that go in by themselves, in order, for a device installing it
+/// (D205): each one's file or folder in the library and its details.
+pub fn device_mods(lib: &Library, id: &str) -> Vec<(PathBuf, Details)> {
+    let dir = crate::pcmeta::dir(lib, id).join(patches::FOLDER).join(FOLDER);
+    let m = read_json_object(&manifest_of(&dir));
+    names_in(&dir, &m)
+        .into_iter()
+        .map(|n| (dir.join(&n), Details::of(&m["mods"][&n], &n)))
+        .filter(|(_, d)| d.on && (d.how == "game" || (d.how == "folder" && !d.folder.trim().is_empty())))
+        .collect()
+}
+
+/// Where a mod's file goes in the game's folder: `rel` (its path inside the mod, `/`) with
+/// its `inside` folder left out and its `folder` in front; None: outside `inside`.
+pub fn device_path(d: &Details, rel: &str) -> Option<String> {
+    let inside = d.inside.trim_matches('/');
+    let rel = if inside.is_empty() { rel.to_string() } else { rel.strip_prefix(inside)?.strip_prefix('/')?.to_string() };
+    let folder: Vec<&str> = if d.how == "folder" { d.folder.split(['/', '\\']).filter(|x| !x.is_empty() && *x != "." && *x != "..").collect() } else { vec![] };
+    Some(folder.into_iter().map(String::from).chain(std::iter::once(rel)).collect::<Vec<_>>().join("/"))
+}
+
 /// Change a mod's details (written straight away: it's the mod's description, not a change).
 pub fn edit(ix: &Index, lib: &Library, key: &str, name: &str, d: &Details) -> Result<Value> {
     lib.writable()?;

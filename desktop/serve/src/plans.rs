@@ -243,8 +243,33 @@ fn pc_games(ix: &Index, lib: &Library, unpacker: &Unpacker, hashes: &Hashes, ask
                 None => p.to_string(),
             }
         };
-        for (rel, size, sha1, url) in got {
-            plan.files.push(file(&inside(&rel), size, sha1, url));
+        // its ticked mods over it, in their order: a mod's file in place of the game's (D205)
+        let mut placed: Vec<Got> = got.into_iter().map(|(rel, size, sha1, url)| (inside(&rel), size, sha1, url)).collect();
+        let mut waits = false;
+        if ask.mods {
+            let roots = roots::list(lib);
+            for (src, d) in gamerepo_core::mods::device_mods(lib, id) {
+                let mod_name = src.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                match source_files(ix, lib, &roots, unpacker, &mut hash, &src) {
+                    Ok(Some(files)) => {
+                        for (rel, size, sha1, url) in files {
+                            let Some(at) = gamerepo_core::mods::device_path(&d, &rel) else { continue };
+                            placed.retain(|f| !f.0.eq_ignore_ascii_case(&at));
+                            placed.push((at, size, sha1, url));
+                        }
+                        plan.notes.push(format!("{} gets its mod {}.", g.title, d.title));
+                    }
+                    Ok(None) => waits = true,
+                    Err(why) => plan.left.push(Left { what: format!("{} › {mod_name}", g.title), why }),
+                }
+            }
+        }
+        if waits {
+            plan.waiting.push(key.clone());
+            continue;
+        }
+        for (rel, size, sha1, url) in placed {
+            plan.files.push(file(&rel, size, sha1, url));
         }
         let (path, dir) = (inside(&path), inside(&dir));
         if path.is_empty() {
@@ -286,14 +311,125 @@ fn pc_games(ix: &Index, lib: &Library, unpacker: &Unpacker, hashes: &Hashes, ask
     Ok(Ok(()))
 }
 
+/// What a file comes as for a device: its path inside the source, size, SHA-1 and where
+/// it's fetched from.
+type Got = (String, u64, Option<String>, String);
+
+/// A texture pack's or a mod's files (D204, D205): a folder's as they are, an archive's
+/// unpacked here (None while it's being unpacked: asked for), a lone file itself.
+fn source_files(ix: &Index, lib: &Library, roots: &[gamerepo_core::roots::Root], unpacker: &Unpacker, hash: &mut Vec<PathBuf>, src: &Path) -> std::result::Result<Option<Vec<Got>>, String> {
+    let name = src.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    if src.is_dir() || !gamerepo_core::textures::is_archive(&name) {
+        let mut found = vec![];
+        if src.is_dir() {
+            walk(src, &mut found);
+        } else {
+            found.push(src.to_path_buf());
+        }
+        let mut out = vec![];
+        for p in found {
+            let rel = if src.is_dir() { slashed(src, &p) } else { name.clone() };
+            let url = files::url_of(lib, roots, &p).ok_or("Its files are in a folder the server doesn't serve.")?;
+            let sha1 = Hashes::known(ix.conn(), &p);
+            if sha1.is_none() {
+                hash.push(p.clone());
+            }
+            out.push((rel, std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0), sha1, url));
+        }
+        return Ok(Some(out));
+    }
+    let archives = vec![src.to_path_buf()];
+    let uid = Unpacker::id_of(&archives);
+    match unpacker.status(&uid) {
+        Unpacked::Ready(list) => Ok(Some(list.into_iter().map(|f| {
+            let url = format!("/v1/files/unpacked/{uid}/{}", http::encode_path(&f.path));
+            (f.path, f.size, Some(f.sha1), url)
+        }).collect())),
+        Unpacked::Failed(why) => Err(format!("It couldn't be unpacked: {why}")),
+        Unpacked::Pending | Unpacked::Unknown => {
+            unpacker.want(&uid, archives);
+            Ok(None)
+        }
+    }
+}
+
+/// The games' texture packs (D204): each into the folder of an emulator the device knows
+/// (its place `textures-<emulator>`) that loads packs for the game's system, where it
+/// looks for the game's pack. A pack still being unpacked makes its game wait.
+fn textures(ix: &Index, lib: &Library, unpacker: &Unpacker, hashes: &Hashes, ask: &PlanAsk, keys: &[String], plan: &mut Plan) -> Result<()> {
+    let roots = roots::list(lib);
+    let mut hash = vec![];
+    for key in keys {
+        let Some(lib_keys) = catalogue::keys_of(ix, key)? else { continue };
+        let Some(first) = lib_keys.first() else { continue };
+        let platform = first.split('/').next().unwrap_or("").to_string();
+        let packs = gamerepo_core::textures::device_packs(ix.conn(), lib, first);
+        if packs.is_empty() {
+            continue;
+        }
+        let emulators = gamerepo_core::textures::emulators_for(&platform);
+        let stem = plan.files.iter().find(|f| &f.key == key && f.role == "game").map(|f| stem(f.path.rsplit('/').next().unwrap_or(&f.path)).to_string());
+        let id = gamerepo_core::gameid::of_key(ix.conn(), lib, first);
+        let title = first.split_once('/').map(|x| x.1).unwrap_or(first).to_string();
+        for p in packs {
+            // the emulator it's for, else the first the device has
+            let chosen = p.emulator.as_ref().and_then(|e| emulators.iter().find(|(pr, _)| &pr.id == e && ask.textures.contains(&pr.id))).or_else(|| emulators.iter().find(|(pr, _)| ask.textures.contains(&pr.id)));
+            let Some((profile, path)) = chosen else { continue };
+            let Some(stem) = stem.clone() else { continue };
+            let got = match source_files(ix, lib, &roots, unpacker, &mut hash, &p.path) {
+                Ok(Some(g)) => g,
+                Ok(None) => {
+                    if !plan.waiting.contains(key) {
+                        plan.waiting.push(key.clone());
+                    }
+                    continue;
+                }
+                Err(why) => {
+                    plan.left.push(Left { what: format!("{title} › {}", p.name), why });
+                    continue;
+                }
+            };
+            let names: Vec<String> = got.iter().map(|g| g.0.clone()).collect();
+            let rels = if p.path.is_file() { gamerepo_core::textures::strip_lone_top(&names) } else { names };
+            for ((_, size, sha1, url), rel) in got.into_iter().zip(rels) {
+                let Some(at) = gamerepo_core::textures::device_path(path, id.as_deref(), &stem, &p.name, &rel) else {
+                    plan.left.push(Left { what: format!("{title} › {}", p.name), why: format!("{} finds a pack by the game's ID, which couldn't be read.", profile.name) });
+                    break;
+                };
+                plan.files.push(gamerepo_wire::File {
+                    place: format!("textures-{}", profile.id),
+                    path: at,
+                    size,
+                    sha1,
+                    system: platform.clone(),
+                    game: title.clone(),
+                    key: key.clone(),
+                    role: "texture".into(),
+                    url,
+                    ..Default::default()
+                });
+            }
+        }
+    }
+    hashes.want(hash);
+    Ok(())
+}
+
 /// The plan for `ask`. Err(why) when a game asked for isn't in the catalogue.
 pub fn plan(ix: &Index, lib: &Library, data: &Path, maker: &Maker, unpacker: &Unpacker, hashes: &Hashes, ask: &PlanAsk) -> Result<std::result::Result<Plan, String>> {
     let (pc, games): (Vec<&String>, Vec<&String>) = ask.games.iter().partition(|k| k.strip_prefix(PC).is_some_and(|r| r.starts_with('/')));
     let mut plan = if games.is_empty() {
         Plan { ready: true, ..Default::default() }
     } else {
-        match games_plan(ix, lib, data, maker, hashes, &PlanAsk { games: games.into_iter().cloned().collect(), ..ask.clone() })? {
-            Ok(p) => p,
+        let keys: Vec<String> = games.into_iter().cloned().collect();
+        match games_plan(ix, lib, data, maker, hashes, &PlanAsk { games: keys.clone(), ..ask.clone() })? {
+            Ok(mut p) => {
+                if !ask.textures.is_empty() && !ask.media_only {
+                    textures(ix, lib, unpacker, hashes, ask, &keys, &mut p)?;
+                    p.ready &= p.waiting.is_empty();
+                }
+                p
+            }
             Err(why) => return Ok(Err(why)),
         }
     };

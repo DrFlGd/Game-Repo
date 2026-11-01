@@ -236,11 +236,15 @@ pub struct AddOptions {
     pub steam_art: bool,
     /// Each game's RetroArch cheats, into the device's place `cheats` (D200)
     pub cheats: bool,
+    /// The emulators whose texture folders the device knows (places `textures-<id>`, D204)
+    pub textures: Vec<String>,
+    /// PC games with their ticked mods (D205)
+    pub mods: bool,
 }
 
 impl Default for AddOptions {
     fn default() -> Self {
-        Self { media: vec!["cover".into()], manuals: false, size: 0, collection: String::new(), bios: false, at_once: 3, media_only: false, adopt: vec![], steam_art: false, cheats: false }
+        Self { media: vec!["cover".into()], manuals: false, size: 0, collection: String::new(), bios: false, at_once: 3, media_only: false, adopt: vec![], steam_art: false, cheats: false, textures: vec![], mods: false }
     }
 }
 
@@ -258,6 +262,8 @@ impl AddOptions {
             named: self.adopt.iter().filter_map(|(k, files)| Some((k.clone(), files.first()?.path.clone()))).collect(),
             steam_art: self.steam_art,
             cheats: self.cheats,
+            textures: self.textures.clone(),
+            mods: self.mods,
             ..Default::default()
         }
     }

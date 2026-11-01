@@ -58,7 +58,7 @@ fn dir_of(conn: &rusqlite::Connection, lib: &Library, g: &LibGame) -> Result<Opt
     Ok(patches::game_dir(conn, lib, g)?.map(|d| d.join(patches::FOLDER).join(FOLDER)))
 }
 
-pub(crate) fn is_archive(name: &str) -> bool {
+pub fn is_archive(name: &str) -> bool {
     let n = name.to_lowercase();
     [".zip", ".7z", ".rar"].iter().any(|x| n.ends_with(x))
 }
@@ -134,6 +134,48 @@ pub fn list(ix: &Index, lib: &Library) -> Result<Value> {
         }
     }
     Ok(json!({ "items": items }))
+}
+
+/// A game's pack, for a device (D204): where it is in the library and the emulator it's for.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pack {
+    pub name: String,
+    pub path: PathBuf,
+    /// The emulator its details name (none: the system's first that loads packs)
+    pub emulator: Option<String>,
+}
+
+/// A game's texture packs, for a device's plan (no refresh: the server's index is kept fresh).
+pub fn device_packs(conn: &Connection, lib: &Library, key: &str) -> Vec<Pack> {
+    let Ok(g) = game_of(conn, key) else { return vec![] };
+    let Ok(Some(dir)) = dir_of(conn, lib, &g) else { return vec![] };
+    let m = read_json_object(&dir.parent().unwrap_or(&dir).join(patches::MANIFEST));
+    let mut out: Vec<Pack> = std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
+        .filter(|(n, p)| !n.starts_with('.') && (p.is_dir() || is_archive(n)))
+        .map(|(n, p)| Pack { emulator: m["textures"][&n]["emulator"].as_str().map(String::from), name: n, path: p })
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// Where a pack's file goes in the emulator's folder: its path there with `/`, or None when
+/// the emulator finds packs by the game's ID and it isn't known.
+pub fn device_path(emulator_path: &str, id: Option<&str>, stem: &str, pack: &str, rel: &str) -> Option<String> {
+    let pack_name = if is_archive(pack) { pack.rsplit_once('.').map(|(s, _)| s).unwrap_or(pack) } else { pack };
+    let base = expand(emulator_path, id, stem, pack_name).ok()?;
+    Some(format!("{}/{}", base.trim_end_matches('/'), rel.trim_start_matches('/')))
+}
+
+/// The pack's files' paths inside it with a lone top folder left out (`pack_files`' rule,
+/// on names).
+pub fn strip_lone_top(names: &[String]) -> Vec<String> {
+    let tops: std::collections::HashSet<&str> = names.iter().map(|n| n.split('/').next().unwrap_or("")).collect();
+    let strip = tops.len() == 1 && names.iter().all(|n| n.contains('/'));
+    names.iter().map(|n| if strip { n.split_once('/').map(|(_, r)| r.to_string()).unwrap_or_default() } else { n.clone() }).collect()
 }
 
 /// Plan bringing packs (archives or folders) in to a game: hardlinked or copied (`how`
