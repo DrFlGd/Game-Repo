@@ -91,6 +91,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.70 (2026-11-01)
+
 - **Mods on installed games are done.** About now lists them with what's been built. Nexus Mods' own downloads are left out: a mod from Nexus comes in as any download does, and its FOMOD installer is still read.
 
 ## 0.5.69 (2026-11-01)
