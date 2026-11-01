@@ -91,6 +91,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.69 (2026-11-01)
+
 - **FOMOD installers, and mods put where they go.** A mod with a FOMOD installer (most from Nexus Mods) is read when you add it: its name, author and version fill its details, and *Choose its options…* asks its steps as the installer would, with each option's description, picture and whether it's recommended. The options you pick decide which files go in and where, on this computer and on your devices. Mods without one are looked at too: `Data/`, `BepInEx/`, `plugins/`, `MelonLoader/`, `Mods/`, `bin/`, a Bethesda game's plugins, Unreal `.pak` files and files named like the game's own each go where they belong. Anything else is marked *By hand*.
 
 ## 0.5.68 (2026-11-01)
