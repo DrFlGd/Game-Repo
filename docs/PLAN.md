@@ -6747,6 +6747,124 @@ and `desktop/core/src/{textures,mods}.rs`:
 - Tests: `serve/tests/client.rs`
   `texture_packs_go_into_an_emulators_folder_and_pc_games_get_their_ticked_mods`.
 
+### Mods on installed games, putting a game back, FOMOD and Nexus Mods (D207–D213)
+
+Jerred, 2026-11-01 11:47, after part 6: how would mods go onto a game that's already
+installed, and does ModDB or Nexus Mods have a format for it? Then, 11:51: yes, plan it,
+keeping in mind that most mods have no FOMOD and no plain "copy over the game's folder" step
+and are installed by hand, and being able to put an installed game back as it was, after
+mods put in by hand or by Game Repo, would be a nice feature.
+
+Neither site has a format of its own: a mod is an archive (zip, 7z, rar) or, on ModDB, often
+an installer. The one common standard is FOMOD (`fomod/ModuleConfig.xml`, with `info.xml`),
+an installer's steps, choices and file lists, which Vortex and Mod Organizer 2 both follow.
+Nexus Mods has an API (a personal key; direct downloads for Premium members, the site's
+*Mod Manager Download* button and an `nxm://` link for the rest); ModDB has none.
+Thunderstore (Unity games through BepInEx) has `manifest.json` and an open API.
+
+D207–D213 are Claude's defaults, followed unless Jerred says otherwise. The core idea:
+Game Repo already knows every file of an installed game as it was installed (Game Repo Go's
+record has each one's size and SHA-1, D93; the library's copy is the original), so it can
+tell what changed, whoever changed it, and put the game back from the library without
+having kept a backup of anything. Built in five pull requests, in this order: putting a game
+back (D207–D208); mods on an installed game (D209); mods by hand, recorded (D210); FOMOD and
+the common layouts (D211); Nexus Mods (D212).
+
+**D207 Check a game against how it was installed.** On Game Repo Go (Windows, the Steam
+Deck), an installed PC game's page gets *Check the game's files*: each file is compared with
+the record (size first, then SHA-1 when the size and time say it may differ), and the game is
+shown as *As installed*, *With mods from Game Repo* (every change is a ticked mod's, D209),
+or *Changed* with three lists: files changed, files added, files missing. Each file changed
+or added by a mod Game Repo put in is named with that mod. Folders a game writes to as it's
+played are left out: the save profiles' PC paths (D180) and a game's own list of them
+(`keep`, below), plus logs, `*.log`, shader caches and crash dumps, so a game that's only
+been played reads *As installed*. On this computer, a PC game pointed at where it's
+installed (Phase 4, `game.json` `installed`) is checked the same way against the library's
+copy.
+
+**D208 Put the game back.** *Put the game back as it was installed…* shows the three lists,
+each file ticked, and then:
+- a file changed or missing is fetched again from the library (Go asks the server for the
+  game's plan with no mods, D205 part 6, and takes only the files whose SHA-1 differs);
+- a file added is moved into `.gamerepo-mods/put-aside/<when>/` in the game's folder, never
+  deleted, so a save or a setting the game made that wasn't left out above can be had back
+  (*Put aside* lists them, *Empty* deletes them, and anything there more than 30 days is
+  offered for deleting);
+- an unticked file stays as it is, and is remembered as the game's own (`keep` in
+  `.gamerepo-mods/state.json`), so it isn't listed again.
+Mods Game Repo put in are unticked on the game after this (they can be ticked again, D209).
+On this computer it's an Organise change with Undo: changed files set aside and copied from
+the library, added files set aside. A game Steam or GOG Galaxy installed, not Game Repo,
+has no record: its page offers *Take a record now* (the files as they are, the baseline from
+then on) and points to Steam's *Verify integrity of game files* or Galaxy's *Verify / Repair*
+to get the files themselves back.
+
+**D209 Mods on a game already installed.** On Go, an installed PC game's page lists its
+mods from the library (the same order and ticks as Game Repo's Mods tab, the ticks this
+device's own). *Apply* works out what the folder should be, the game's files with the ticked
+mods laid over them in order (the server's plan, as part 6 builds it), and changes only what
+differs: a file a ticked mod gives is fetched, a file only an unticked mod gave is taken
+away (or brought back from the library, if the game had one there). `.gamerepo-mods/state.json`
+keeps which mod last wrote each file, so the page says which mod a file is from. A file that
+was changed by hand since (its SHA-1 not the record's or a mod's) is never overwritten
+without asking: *Changed since: replace it, or keep yours?* When a game's update (Steam,
+GOG, or a new copy in the library) replaces files, Go sees the record and the folder differ
+on the next check and offers *Apply the mods again*. On this computer, *Install the ticked
+mods…* (part 5) gets the same: unticking a mod and installing again takes its files off.
+
+**D210 Mods put in by hand, recorded.** Most mods need steps a person follows (a readme, a
+patcher to run, files moved into several places, an `.ini` line changed). Game Repo doesn't
+guess those. A mod whose how is *By hand* or *A file to run* gets, on Go and on this
+computer:
+- its readme and notes shown beside the game's folder, with *Open the game's folder* and
+  *Open the mod* (the archive unpacked into a folder of its own to copy from);
+- *I've installed it*: the game is checked (D207) and what changed since the last check is
+  recorded as that mod's: its files changed, added and taken away. From then on the check
+  names that mod for them, *Put the game back* can take off only that mod (its files back
+  from the library or the mod before it, its added files put aside), and removing it is as
+  safe as removing one Game Repo put in;
+- *Keep these files in the library* (optional, per mod): the recorded files are sent to the
+  library as a mod of its own (`how` *Into the game's folder*, its source the hand-installed
+  mod), so other devices get it with D205/D209 and no steps. Go sends them as save sync sends
+  saves (D181, the server writing what a device sends with its token), Game Repo copies them from the folder.
+  Everything else stays by hand.
+A mod changed by hand later (a setting edited) is recorded again with *I've changed it*.
+
+**D211 FOMOD, and the layouts that are common.** When a mod brought in has
+`fomod/ModuleConfig.xml`, *Add a mod…* reads it: its install steps, groups and options
+(*Required*, *Recommended*, *Optional*, *Not usable*), each option's picture and text, its
+files and folders with destinations and priorities, condition flags, and installs that
+depend on flags or on files in the game's folder. Its choices are asked once in a dialog
+like the installer's, kept in the mod's details (`fomod`), and the files to put in are worked
+out from them, so the mod becomes *Into the game's folder* with its own file list; *Change
+the choices…* asks again. Conditions on another plugin being active (Bethesda games) are
+asked as a question, not looked up. Without a FOMOD, the guess (part 5) learns the common
+layouts: an archive whose top folder is `Data/` (Bethesda games), `BepInEx/` or `plugins/`
+(Unity games, BepInEx's own loader included), `MelonLoader/`, `Mods/` or `mods/`, `bin/`, a
+lone `.pak` or `.esp`, and files named like files already in the game's folder (they go where
+those are). A mod none of these fits stays *By hand* (D210). `info.xml`'s name, author,
+version and web address fill the details.
+
+**D212 Nexus Mods.** Settings › Sources gets a Nexus Mods personal API key (kept with the other
+sources' keys, D8; tested with *Check*). With it:
+- a mod's web address from Nexus (pasted, or in its details) fills its title, author,
+  version, summary and picture, and the mod is checked for a newer version each week (shown
+  on the game and in the Mods tab, never fetched by itself);
+- *Get it from Nexus…* lists the mod's files; a Premium member's key downloads one straight
+  into the game's mods; for the rest, Game Repo opens the file's page and takes the download
+  the site's *Mod Manager Download* hands over, as the `nxm://` link handler on Windows
+  (Settings asks before taking that link from Vortex or Mod Organizer);
+- Nexus asks apps that use its API to be registered: Game Repo asks for its own
+  application name before this is built, and until then, Nexus mods come in as downloads do.
+ModDB has no API: a ModDB address is kept with the mod, *Open on ModDB* goes to it, and its
+files come in as downloads do. Thunderstore is left for later (below).
+
+**D213 What's left out for now.** Mod managers' own setups (Vortex's deployment, Mod
+Organizer 2's virtual folders and profiles) and load-order files (`plugins.txt`, LOOT);
+running a mod's installer or patcher (Game Repo never runs one, D205); Steam Workshop items
+(Steam installs those); Thunderstore and r2modman's profiles; putting back a game on Android
+(no PC games there); and checking a game while it's running (Go says to close it first).
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -6893,7 +7011,7 @@ and `desktop/core/src/{textures,mods}.rs`:
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D207). D197–D206 are in "Cheats and patches" (2026-10-31), Claude's defaults for Jerred's ask (D201, a patched game kept as a variant, his choice on the card), followed unless he says otherwise. D196 is in "Save sync notes, part 9: Switch, Wii U and PlayStation 3 emulators" (2026-10-31), Claude's defaults for the emulators Jerred's go-ahead asked for. D195 is in "Save sync notes, part 8: saves not matched" (2026-10-31), Claude's default for D183's last step, built as Jerred's go-ahead on the remaining save sync work asked. D192–D194 are in "Save sync notes, part 4: emulators of their own" (2026-10-26), Jerred's ask (PPSSPP, Dolphin, ARMSX2 and the other popular emulators, folders set in Go) with Claude's defaults for the rest, followed unless he says otherwise. D180–D191 are in "Save sync and the Devices page" (2026-10-26), Claude's defaults for Jerred's ask, D190 (phones over USB) his choice of Claude's recommendation, the rest followed unless he says otherwise. D179 is in "Setting up Tailscale on the Steam Deck" (2026-10-24), Jerred's agreement to Claude's suggestion, revised and built on 2026-10-25 as he asked (the installer in the app, Game Repo's own since the community script has no licence), with Claude's defaults for the details. D177–D178 are in "The October 2026 review's fixes, convert on import and tool downloads" (2026-10-24): Jerred's asks, with his choice to download and verify the tools (Tesseract's page), the rest Claude's defaults, followed unless he says otherwise. D174–D176 are in "Games on several discs as one" (2026-10-23), Jerred's ask with his choice of a CHD per disc and a playlist, and Claude's defaults for the rest, followed unless he says otherwise. D172–D173 are in "Updating every system's DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D168–D171 are in "Set aside in History, PC games as a shelf, the Documents grid, a collection's systems" (2026-10-23), Claude's defaults for Jerred's list, followed unless he says otherwise. D165–D167 are in "Adding a system, PlayStation 5 and Redump's own DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D214). D207–D213 are in "Mods on installed games, putting a game back, FOMOD and Nexus Mods" (2026-11-01), Claude's defaults for Jerred's ask, followed unless he says otherwise. D197–D206 are in "Cheats and patches" (2026-10-31), Claude's defaults for Jerred's ask (D201, a patched game kept as a variant, his choice on the card), followed unless he says otherwise. D196 is in "Save sync notes, part 9: Switch, Wii U and PlayStation 3 emulators" (2026-10-31), Claude's defaults for the emulators Jerred's go-ahead asked for. D195 is in "Save sync notes, part 8: saves not matched" (2026-10-31), Claude's default for D183's last step, built as Jerred's go-ahead on the remaining save sync work asked. D192–D194 are in "Save sync notes, part 4: emulators of their own" (2026-10-26), Jerred's ask (PPSSPP, Dolphin, ARMSX2 and the other popular emulators, folders set in Go) with Claude's defaults for the rest, followed unless he says otherwise. D180–D191 are in "Save sync and the Devices page" (2026-10-26), Claude's defaults for Jerred's ask, D190 (phones over USB) his choice of Claude's recommendation, the rest followed unless he says otherwise. D179 is in "Setting up Tailscale on the Steam Deck" (2026-10-24), Jerred's agreement to Claude's suggestion, revised and built on 2026-10-25 as he asked (the installer in the app, Game Repo's own since the community script has no licence), with Claude's defaults for the details. D177–D178 are in "The October 2026 review's fixes, convert on import and tool downloads" (2026-10-24): Jerred's asks, with his choice to download and verify the tools (Tesseract's page), the rest Claude's defaults, followed unless he says otherwise. D174–D176 are in "Games on several discs as one" (2026-10-23), Jerred's ask with his choice of a CHD per disc and a playlist, and Claude's defaults for the rest, followed unless he says otherwise. D172–D173 are in "Updating every system's DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D168–D171 are in "Set aside in History, PC games as a shelf, the Documents grid, a collection's systems" (2026-10-23), Claude's defaults for Jerred's list, followed unless he says otherwise. D165–D167 are in "Adding a system, PlayStation 5 and Redump's own DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -7004,7 +7122,11 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     part 5 (PC mods kept, ordered and installed where the game is on this computer) and
     part 6 (texture packs on Game Repo Go devices, Go installing a PC game with its
     ticked mods) built: done, but for texture packs on cards and drives.
-29. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
+29. Mods on installed games (D207–D213, Jerred, 2026-11-01): an installed PC game checked
+    against how it was installed and put back from the library, whoever changed it; mods
+    applied to and taken off a game already installed; mods put in by hand recorded as
+    theirs; FOMOD installers and the common layouts; Nexus Mods' API. Planned, not built.
+30. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices
     (D110). Smaller: re-applying a new picture size to pictures already exported (M20),

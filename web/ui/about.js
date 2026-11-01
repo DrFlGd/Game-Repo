@@ -69,6 +69,7 @@ const DONE = [
   ["Cheats and patches", "Each game's cheats kept in its folder, gathered from RetroArch's cheat database, edited on a Cheats page and taken to your devices; translations, hacks and fixes applied to a copy kept as a variant; texture packs installed where each emulator loads them, here and on your devices; and PC games' mods, in an order, installed with the game"],
 ];
 export const NEXT = [
+  ["Mods on installed games", "Mods added to or taken off a PC game already installed, the game checked and put back as it was from the library (after mods by hand too), FOMOD installers and Nexus Mods"],
   ["Phase 9d", "The Server on Unraid and reached away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only"],
   ["Android games", "APKs kept in the library and installed on Android devices through Game Repo Go"],
   ["GOG installers", "A PC game that has only its GOG installer unpacked, so Game Repo Go can install it too"],
