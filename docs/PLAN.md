@@ -6856,6 +6856,8 @@ sources' keys, D8; tested with *Check*). With it:
   (Settings asks before taking that link from Vortex or Mod Organizer);
 - Nexus asks apps that use its API to be registered: Game Repo asks for its own
   application name before this is built, and until then, Nexus mods come in as downloads do.
+*Left out (Jerred, 2026-11-01, on the decision card): Nexus Mods' API isn't built. Nexus mods
+come in as other downloads do, and a FOMOD in one is read as D211 says.*
 ModDB has no API: a ModDB address is kept with the mod, *Open on ModDB* goes to it, and its
 files come in as downloads do. Thunderstore is left for later (below).
 
@@ -7283,10 +7285,8 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
 29. Mods on installed games (D207–D213, Jerred, 2026-11-01): an installed PC game checked
     against how it was installed and put back from the library, whoever changed it; mods
     applied to and taken off a game already installed; mods put in by hand recorded as
-    theirs; FOMOD installers and the common layouts; Nexus Mods' API. In progress: part 1
-    (checking an installed game and putting it back, on Game Repo Go and here), part 2
-    (mods applied to and taken off a game already installed), part 3 (mods put in by
-    hand, recorded) and part 4 (FOMOD installers and the common layouts) built.
+    theirs; FOMOD installers and the common layouts: done (parts 1–4, v0.5.67–v0.5.69).
+    Nexus Mods' API (D212, part 5) left out by Jerred on 2026-11-01.
 30. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices
