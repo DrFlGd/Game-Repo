@@ -91,6 +91,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.66 (2026-11-01)
+
 - **Planned: mods on installed games.** The plan now covers checking an installed PC game against how it was installed and putting it back from the library, mods added to or taken off a game already installed, mods installed by hand recorded so they can be taken off too, FOMOD installers and Nexus Mods (in the app, only About's list of what's next changes).
 
 ## 0.5.65 (2026-11-01)
