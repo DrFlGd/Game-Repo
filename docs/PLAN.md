@@ -6873,8 +6873,9 @@ the pages `web/client/game.js` and `web/ui/mods.js`:
 - `gamefiles::check` walks the game's folder (Game Repo's own `.gamerepo-*` folders left
   out) and compares it with the files as installed, paths ignoring case: a size that
   differs is a change; the same size is read for its SHA-1, kept in
-  `.gamerepo-mods/state.json`'s `seen` with the size and time (nanoseconds), so a later
-  check reads again only what changed. Files the game makes as it's played aren't listed
+  `.gamerepo-mods/state.json`'s `seen` with the size and time (nanoseconds) and when it
+  was read, so a later check reads again only what changed (and a file read within two
+  seconds of its time, as a change in the same tick of the clock keeps its time). Files the game makes as it's played aren't listed
   (`made_by_playing`: logs, crash dumps, shader caches, `.tmp`; counted as `played`);
   files in `keep` are counted as `kept`, whether added, changed or gone.
 - Game Repo Go: an installed PC game's page has *Its files*: *Check the game's files*

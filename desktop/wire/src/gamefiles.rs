@@ -27,7 +27,14 @@ pub struct Seen {
     /// Its modified time (nanoseconds since 1970)
     pub modified: u64,
     pub sha1: String,
+    /// When it was read (nanoseconds since 1970): a file read within two seconds of its
+    /// time is read again next time, as a change in the same tick of the clock (FAT's two
+    /// seconds, Windows' sixteenth of one) wouldn't change its time
+    pub read_at: u64,
 }
+
+/// Two seconds, in nanoseconds.
+const SETTLED: u64 = 2_000_000_000;
 
 /// `.gamerepo-mods/state.json`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -167,11 +174,12 @@ pub fn modified_of(m: &std::fs::Metadata) -> u64 {
 /// A file's SHA-1, read again only when its size or time changed since `seen` had it.
 pub fn sha1_seen(seen: &mut BTreeMap<String, Seen>, rel: &str, path: &Path, m: &std::fs::Metadata, hash: &dyn Fn(&Path) -> std::io::Result<String>) -> std::io::Result<String> {
     let (size, modified) = (m.len(), modified_of(m));
-    if let Some(s) = seen.get(rel).filter(|s| s.size == size && s.modified == modified && !s.sha1.is_empty()) {
+    if let Some(s) = seen.get(rel).filter(|s| s.size == size && s.modified == modified && !s.sha1.is_empty() && s.read_at > modified.saturating_add(SETTLED)) {
         return Ok(s.sha1.clone());
     }
+    let read_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0);
     let sha1 = hash(path)?;
-    seen.insert(rel.to_string(), Seen { size, modified, sha1: sha1.clone() });
+    seen.insert(rel.to_string(), Seen { size, modified, sha1: sha1.clone(), read_at });
     Ok(sha1)
 }
 
@@ -324,6 +332,12 @@ mod tests {
         // kept as the game's own, and put aside
         let mut s = State::read(&dir);
         assert!(s.seen.contains_key("game.exe"), "what was read is kept");
+        // a file settled before it was read isn't read again while its size and time stay
+        let mut old = s.clone();
+        old.seen.get_mut("game.exe").unwrap().sha1 = "cached".into();
+        old.seen.get_mut("game.exe").unwrap().read_at = u64::MAX;
+        let m = std::fs::metadata(dir.join("game.exe")).unwrap();
+        assert_eq!(sha1_seen(&mut old.seen, "game.exe", &dir.join("game.exe"), &m, &fake_hash).unwrap(), "cached");
         s.keep.push("data/mod.pak".into());
         s.write(&dir).unwrap();
         let c = check(&dir, &want, &fake_hash).unwrap();
