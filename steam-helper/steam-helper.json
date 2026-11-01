@@ -1,0 +1,30 @@
+[
+ [
+  "the helper finishes without an error",
+  true
+ ],
+ [
+  "it closes the running Steam first",
+  true
+ ],
+ [
+  "the waiting shortcuts are written into Steam's shortcuts.vdf, tagged as Game Repo Go's",
+  true
+ ],
+ [
+  "the Windows game is given Proton in config.vdf, and Steam's own settings are kept",
+  true
+ ],
+ [
+  "the game's box front goes into Steam's grid",
+  true
+ ],
+ [
+  "what was written is noted, so nothing waits any more",
+  true
+ ],
+ [
+  "Steam is started again (outside Game Mode)",
+  true
+ ]
+]

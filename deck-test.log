@@ -1,0 +1,106 @@
+ Downloading crates ...
+  Downloaded pbkdf2 v0.12.2
+  Downloaded hmac v0.12.1
+  Downloaded ct-codecs v1.1.8
+  Downloaded salsa20 v0.10.2
+  Downloaded rtoolbox v0.0.6
+  Downloaded minisign v0.9.1
+  Downloaded scrypt v0.11.0
+  Downloaded rpassword v7.5.4
+  Downloaded getrandom v0.4.3
+   Compiling typenum v1.20.1
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling indexmap v2.14.2
+   Compiling memchr v2.8.3
+   Compiling generic-array v0.14.7
+   Compiling serde_json v1.0.154
+   Compiling syn v3.0.9
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling inout v0.1.4
+   Compiling digest v0.10.7
+   Compiling cipher v0.4.4
+   Compiling sha2 v0.10.9
+   Compiling hmac v0.12.1
+   Compiling getrandom v0.4.3
+   Compiling gamerepo-steam v0.5.70 (/home/runner/work/Game-Repo/Game-Repo/desktop/steam)
+   Compiling serde_derive v1.0.229
+   Compiling pbkdf2 v0.12.2
+   Compiling salsa20 v0.10.2
+   Compiling mio v1.2.4
+   Compiling rtoolbox v0.0.6
+   Compiling mdns-sd v0.21.4
+   Compiling rpassword v7.5.4
+   Compiling scrypt v0.11.0
+   Compiling sha1 v0.10.7
+   Compiling ct-codecs v1.1.8
+   Compiling minisign v0.9.1
+   Compiling serde v1.0.229
+   Compiling gamerepo-wire v0.5.70 (/home/runner/work/Game-Repo/Game-Repo/desktop/wire)
+   Compiling gamerepo-device v0.5.70 (/home/runner/work/Game-Repo/Game-Repo/desktop/device)
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+   --> device/src/client.rs:207:23
+    |
+207 |             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |                       ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+help: replace the use of the deprecated method
+    |
+207 -             let _ = g.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+207 +             let _ = g.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(n)));
+    |
+
+warning: `gamerepo-device` (lib test) generated 1 warning (1 duplicate)
+warning: `gamerepo-device` (lib) generated 1 warning (run `cargo fix --lib -p gamerepo-device` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 21.91s
+     Running unittests src/lib.rs (target/release/deps/gamerepo_device-4092ed9925ca29eb)
+
+running 22 tests
+test pcgames::tests::a_shortcuts_name_is_one_windows_takes ... ok
+test saves::tests::a_patterns_parts_match_names_and_say_the_slot ... ok
+test saves::tests::a_files_suffix_says_what_it_is ... ok
+test background::tests::the_timer_is_written_for_the_program_and_taken_away ... ok
+test saves::tests::a_saves_last_sync_is_kept_by_its_emulator_too ... ok
+test saves::tests::retroarchs_settings_say_where_and_how_its_saves_are_sorted ... ok
+test saves::tests::emulators_of_their_own_keep_saves_by_id_by_name_and_as_shared_cards ... ok
+test scan::tests::room_is_made_from_the_games_played_longest_ago ... ok
+test scan::tests::a_zips_crcs_come_from_its_directory_and_a_chds_sha1_from_its_header ... ok
+test saves::tests::switch_wii_u_and_ps3_saves_are_found_by_title_id_and_a_switch_save_goes_to_this_devices_user ... ok
+test scan::tests::es_des_games_are_found_with_their_tracks_discs_and_media ... ok
+test steam::tests::what_waits_is_written_once_and_taken_out_again ... ok
+test tailscale::tests::steamos_is_known_by_its_os_release ... ok
+test tailscale::tests::tailscale_status_and_passwd_are_read_as_the_page_needs_them ... ok
+test tests::a_cheat_file_go_didnt_put_there_is_kept ... ok
+test tests::es_des_folders_are_read_from_its_settings ... ok
+test update::tests::an_apk_is_checked_against_the_key_and_its_version ... ok
+test update::tests::the_update_file_names_this_devices_apk ... ok
+test update::tests::versions_compare_by_number ... ok
+test tailscale::tests::installer::a_download_that_isnt_what_tailscale_published_installs_nothing ... ok
+test tailscale::tests::installer::the_installer_puts_tailscale_where_steamos_keeps_it_and_again_over_it ... ok
+test tailscale::tests::installer::the_set_up_asks_for_a_password_when_there_is_none_installs_and_signs_in ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src/lib.rs (target/release/deps/gamerepo_steam-12688df90fbbbc10)
+
+running 3 tests
+test tests::a_vdf_file_reads_and_writes_back_the_same ... ok
+test text::tests::a_text_file_reads_and_writes_back_the_same ... ok
+test tests::a_programs_shortcuts_go_beside_the_others_and_its_proton_with_them ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests gamerepo_device
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests gamerepo_steam
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

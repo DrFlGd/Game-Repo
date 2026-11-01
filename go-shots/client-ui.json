@@ -1,0 +1,42 @@
+[
+ [
+  "Game Repo Go opens asking to be paired with a library",
+  true
+ ],
+ [
+  "the code from Game Repo pairs it, and the library's games are shown",
+  true
+ ],
+ [
+  "a box front comes through the app's picture protocol",
+  true
+ ],
+ [
+  "the pairing is kept in a file in the app's folder only its user can read",
+  true
+ ],
+ [
+  "a controller (as Steam Input gives one) moves between the games, opens one with A and comes back with B",
+  true
+ ],
+ [
+  "a game added is downloaded into ES-DE's folder and gamelist, with its box front",
+  true
+ ],
+ [
+  "Settings shows ES-DE's folder and the app's version",
+  true
+ ],
+ [
+  "Unpair forgets the pairing and asks to be paired again",
+  true
+ ],
+ [
+  "the game downloaded stays on the device",
+  true
+ ],
+ [
+  "no page errors",
+  true
+ ]
+]
