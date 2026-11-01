@@ -573,7 +573,7 @@ impl App {
                 self.changed("device");
                 json!(r)
             }
-            "pc_mods_in" => json!({ "mods": crate::pcfiles::mods_in(&self.device()?, &arg::<String>(args, "key")?)? }),
+            "pc_mods_in" => json!(crate::pcfiles::mods_in(&self.device()?, &arg::<String>(args, "key")?)?),
             "pc_apply_mods" => {
                 let key: String = arg(args, "key")?;
                 let ask: crate::pcfiles::Apply = serde_json::from_value(args.clone()).unwrap_or_default();
@@ -584,6 +584,11 @@ impl App {
                     self.changed("device");
                 }
                 json!(r)
+            }
+            "pc_record_hand" => json!(crate::pcfiles::record_hand(&self.device()?, &arg::<String>(args, "key")?, &arg::<String>(args, "name")?)?),
+            "pc_keep_hand" => {
+                let c = self.ctx()?;
+                json!({ "name": crate::pcfiles::keep_hand(&c.server, &c.device, &arg::<String>(args, "key")?, &arg::<String>(args, "name")?)? })
             }
             "pc_empty_aside" => json!({ "files": crate::pcfiles::empty_aside(&self.device()?, &arg::<String>(args, "key")?, &arg_or::<String>(args, "when"))? }),
             "add_media" => self.add_media(&arg_or::<String>(args, "id"), &arg_or::<String>(args, "key"), &arg::<Vec<String>>(args, "kinds")?)?,

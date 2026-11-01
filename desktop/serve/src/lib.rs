@@ -654,6 +654,10 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
     if let Some(r) = saves::route(&sh.lib, &sh.data, req, &device) {
         return ok(r?);
     }
+    // a mod put in by hand on a device, kept in the library (D210): no index either
+    if (m, path) == ("POST", "/v1/mods/keep") {
+        return ok(saves::keep_mod(&sh.lib, &sh.data, req, &device)?);
+    }
     if !sh.ready.load(Ordering::SeqCst) {
         return ok(Response::problem(503, NOT_READY).with("Retry-After", "5"));
     }
@@ -820,7 +824,7 @@ fn game_details(ix: &Index, lib: &Library, key: &str) -> Result<Response> {
         // a PC game's mods, in order, for a device to pick its own (D209)
         "mods": key.strip_prefix("pcgames/").map(|id| gamerepo_core::mods::all_mods(lib, id).into_iter().map(|(src, d)| json!({
             "name": src.file_name().unwrap_or_default().to_string_lossy(), "title": d.title, "author": d.author, "version": d.version, "url": d.url, "notes": d.notes,
-            "how": d.how, "on": d.on, "goes_in": gamerepo_core::mods::goes_in_itself(&d),
+            "how": d.how, "on": d.on, "goes_in": gamerepo_core::mods::goes_in_itself(&d), "readme": gamerepo_core::mods::readme_text(&src),
         })).collect::<Vec<_>>()).unwrap_or_default(),
     })))
 }

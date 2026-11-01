@@ -4,9 +4,11 @@
 //! hand, a patcher, a file deleted) and the game can be put back from the library. Game
 //! Repo Go checks against its record; Game Repo, against the library's unpacked copy.
 //!
-//! What a check learns is kept in the game's own `.gamerepo-mods/state.json`: each file's
-//! size, time and SHA-1 as last read (so a later check reads again only what changed), and
-//! the files the user said are the game's own (`keep`), which aren't listed again.
+//! What Game Repo knows of the game's folder is kept in its own `.gamerepo-mods/state.json`:
+//! the files the user said are the game's own (`keep`), which aren't listed again, and the
+//! mods in it. What a check reads, each file's size, time and SHA-1 (so a later check reads
+//! again only what changed), is kept apart in `seen.json`, so `state.json` changes only
+//! when the user does something (and Game Repo's Undo can put it back, D210).
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,8 +16,10 @@ use std::path::{Path, PathBuf};
 
 /// The folder in a game's folder that Game Repo keeps its own things in.
 pub const DIR: &str = ".gamerepo-mods";
-/// In [`DIR`]: what a check learnt.
+/// In [`DIR`]: what Game Repo knows of the game's folder.
 pub const STATE: &str = "state.json";
+/// In [`DIR`]: the files as a check last read them.
+pub const SEEN: &str = "seen.json";
 /// In [`DIR`]: files a put back took away, by when (`put-aside/<when>/<path>`).
 pub const PUT_ASIDE: &str = "put-aside";
 
@@ -43,10 +47,12 @@ pub struct State {
     /// Files the user keeps as they are (paths in the game's folder): one added stays the
     /// game's own, one changed or taken away stays so
     pub keep: Vec<String>,
-    /// Each file of the game's folder as last read, by its path
+    /// Each file of the game's folder as last read, by its path (in `seen.json`)
+    #[serde(skip)]
     pub seen: BTreeMap<String, Seen>,
-    /// The library's copy's files as last read (Game Repo's check, by their paths there)
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    /// The library's copy's files as last read (Game Repo's check, by their paths there;
+    /// in `seen.json`)
+    #[serde(skip)]
     pub library: BTreeMap<String, Seen>,
     /// The mods in the game now, in order, as Game Repo Go put them in (D209); none: as the
     /// library ticks them when it was installed, before Go kept this
@@ -55,6 +61,112 @@ pub struct State {
     /// Which mod gave each file it gave (by its path in the game's folder)
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub owners: BTreeMap<String, String>,
+    /// Mods put in by hand and recorded (D210), by name: what each changed
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub hand: BTreeMap<String, Footprint>,
+}
+
+/// What a mod put in by hand changed, as recorded when the user said it was in (D210).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Footprint {
+    /// Files it changed or added, as they were then
+    pub files: Vec<Want>,
+    /// Files it took away
+    pub gone: Vec<String>,
+    /// When it was recorded (`YYYYMMDD-HHMMSS`)
+    pub when: String,
+}
+
+impl Footprint {
+    /// Every path it touched.
+    pub fn paths(&self) -> Vec<String> {
+        self.files.iter().map(|w| w.path.clone()).chain(self.gone.iter().cloned()).collect()
+    }
+}
+
+/// The files as installed with the mods recorded by hand laid over them, and which mod
+/// gave each of theirs.
+pub fn with_hand(want: &[Want], st: &State) -> (Vec<Want>, BTreeMap<String, String>) {
+    let mut by: BTreeMap<String, Want> = want.iter().map(|w| (w.path.to_lowercase(), w.clone())).collect();
+    let mut owners = BTreeMap::new();
+    let mut fps: Vec<(&String, &Footprint)> = st.hand.iter().collect();
+    fps.sort_by(|a, b| a.1.when.cmp(&b.1.when));
+    for (name, fp) in fps {
+        for g in &fp.gone {
+            by.remove(&g.to_lowercase());
+        }
+        for w in &fp.files {
+            by.insert(w.path.to_lowercase(), w.clone());
+            owners.insert(w.path.clone(), name.clone());
+        }
+    }
+    (by.into_values().collect(), owners)
+}
+
+/// *I've installed it* (D210): what changed in the game's folder since the files as
+/// installed (and the other mods recorded) recorded as `name`'s. Recording it again (*I've
+/// changed it*) records it afresh.
+pub fn record_hand(dir: &Path, want: &[Want], name: &str, hash: &dyn Fn(&Path) -> std::io::Result<String>) -> std::io::Result<Footprint> {
+    let mut st = State::read(dir);
+    st.hand.remove(name);
+    st.write(dir)?;
+    let c = check(dir, want, hash)?;
+    let mut st = State::read(dir);
+    let mut fp = Footprint { when: when_now(), gone: c.missing.clone(), ..Default::default() };
+    for rel in c.changed.iter().chain(&c.added) {
+        let p = dir.join(rel);
+        let m = std::fs::metadata(&p)?;
+        let sha1 = sha1_seen(&mut st.seen, rel, &p, &m, hash)?;
+        fp.files.push(Want { path: rel.clone(), size: m.len(), sha1 });
+    }
+    if fp.files.is_empty() && fp.gone.is_empty() {
+        return Err(std::io::Error::other(format!("Nothing has changed in the game's folder since it was installed (or the other mods were recorded), so there's nothing to record as {name}'s: put it in first.")));
+    }
+    st.hand.insert(name.to_string(), fp.clone());
+    st.write(dir)?;
+    Ok(fp)
+}
+
+/// A check as if the mods recorded by hand in `drop` weren't (D210: taking one off, or
+/// putting the whole game back): their files are then changes like any other. The state
+/// keeps them; the caller drops them once it's done (`State::write` without them).
+pub fn check_without(dir: &Path, want: &[Want], drop: &[String], hash: &dyn Fn(&Path) -> std::io::Result<String>) -> std::io::Result<Check> {
+    let st = State::read(dir);
+    let held: Vec<(String, Footprint)> = st.hand.iter().filter(|(n, _)| drop.contains(n)).map(|(n, f)| (n.clone(), f.clone())).collect();
+    if held.is_empty() {
+        return check(dir, want, hash);
+    }
+    let mut less = st.clone();
+    less.hand.retain(|n, _| !drop.contains(n));
+    less.write(dir)?;
+    let c = check(dir, want, hash);
+    // what the check read stays (`seen`), with the footprints back
+    let mut after = State::read(dir);
+    after.hand.extend(held);
+    after.write(dir)?;
+    c
+}
+
+/// `seen.json`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct Cache {
+    seen: BTreeMap<String, Seen>,
+    library: BTreeMap<String, Seen>,
+}
+
+/// A mod put in by hand on a device, its files as recorded, sent to be kept in the library
+/// as a mod of its own (D210, `POST /v1/mods/keep`): each file sent first as a save's are
+/// (`PUT /v1/saves/blob/<sha1>`).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct KeepAsk {
+    /// The game (`pcgames/<id>`)
+    pub key: String,
+    /// The mod as the library names it
+    pub name: String,
+    pub files: Vec<Want>,
 }
 
 impl State {
@@ -63,15 +175,29 @@ impl State {
     }
 
     pub fn read(game: &Path) -> State {
-        std::fs::read(Self::path(game)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        let mut st: State = std::fs::read(Self::path(game)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let c: Cache = std::fs::read(game.join(DIR).join(SEEN)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        (st.seen, st.library) = (c.seen, c.library);
+        st
     }
 
+    /// `state.json` as it's written.
+    pub fn text(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+
+    /// Written: `state.json` only when it's changed, `seen.json` always.
     pub fn write(&self, game: &Path) -> std::io::Result<()> {
         let p = Self::path(game);
         if let Some(d) = p.parent() {
             std::fs::create_dir_all(d)?;
         }
-        std::fs::write(p, serde_json::to_vec_pretty(self).unwrap_or_default())
+        let text = self.text();
+        if std::fs::read_to_string(&p).ok().as_deref() != Some(text.as_str()) {
+            std::fs::write(&p, text)?;
+        }
+        let c = Cache { seen: self.seen.clone(), library: self.library.clone() };
+        std::fs::write(game.join(DIR).join(SEEN), serde_json::to_vec(&c).unwrap_or_default())
     }
 
     /// Whether the user keeps this file as the game's own.
@@ -97,7 +223,8 @@ pub fn made_by_playing(rel: &str) -> bool {
 
 /// A file as the install put it: its path in the game's folder, size and SHA-1 (empty: not
 /// known, so only its size is compared).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
 pub struct Want {
     pub path: String,
     pub size: u64,
@@ -137,6 +264,9 @@ pub struct Check {
     /// Which mod gave a file, for each changed file a mod gave
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub owners: BTreeMap<String, String>,
+    /// The mods put in by hand and recorded (D210)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub hand: Vec<String>,
 }
 
 impl Check {
@@ -194,6 +324,8 @@ pub fn check(dir: &Path, want: &[Want], hash: &dyn Fn(&Path) -> std::io::Result<
         return Ok(out);
     }
     let mut state = State::read(dir);
+    // with the mods recorded by hand over the files as installed (D210)
+    let (want, hand_owners) = with_hand(want, &state);
     let by: BTreeMap<String, &Want> = want.iter().map(|w| (w.path.to_lowercase(), w)).collect();
     let mut found: BTreeSet<String> = BTreeSet::new();
     let mut seen = std::mem::take(&mut state.seen);
@@ -238,7 +370,8 @@ pub fn check(dir: &Path, want: &[Want], hash: &dyn Fn(&Path) -> std::io::Result<
     out.state = if out.is_changed() { "changed" } else { "as_installed" }.into();
     out.put_aside = put_aside(dir);
     out.mods = state.mods.clone();
-    out.owners = out.changed.iter().filter_map(|r| state.owners.get(r).map(|m| (r.clone(), m.clone()))).collect();
+    out.owners = out.changed.iter().filter_map(|r| hand_owners.get(r).or_else(|| state.owners.get(r)).map(|m| (r.clone(), m.clone()))).collect();
+    out.hand = state.hand.keys().cloned().collect();
     state.write(dir)?;
     Ok(out)
 }
@@ -348,6 +481,21 @@ mod tests {
         assert_eq!(c.put_aside, vec![Aside { when: "20261101-120000".into(), files: 1, size: 7 }]);
         assert!(!c.added.iter().any(|a| a.contains(".gamerepo")), "its own folder isn't the game's");
         assert_eq!(when_now().len(), 15);
+        // D210: a mod put in by hand, recorded as its, then nothing's changed
+        std::fs::write(dir.join("game.exe"), b"patched exe").unwrap();
+        std::fs::write(dir.join("Data/hand.pak"), b"hand").unwrap();
+        let fp = record_hand(&dir, &want, "Hand Mod", &fake_hash).unwrap();
+        assert_eq!(fp.paths(), vec!["game.exe".to_string(), "Data/hand.pak".into(), "Data/level2.dat".into(), "readme.txt".into()], "what went is its too: {fp:?}");
+        let c = check(&dir, &want, &fake_hash).unwrap();
+        assert_eq!((c.state.as_str(), c.hand.clone()), ("as_installed", vec!["Hand Mod".to_string()]), "{c:?}");
+        std::fs::write(dir.join("game.exe"), b"PATCHED EXE").unwrap();
+        let c = check(&dir, &want, &fake_hash).unwrap();
+        assert_eq!(c.owners.get("game.exe").map(String::as_str), Some("Hand Mod"));
+        assert!(record_hand(&dir, &want, "Hand Mod", &fake_hash).is_ok(), "recorded again");
+        let mut st = State::read(&dir);
+        st.hand.clear();
+        st.write(&dir).unwrap();
+        assert!(check(&dir, &want, &fake_hash).unwrap().changed.contains(&"game.exe".to_string()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

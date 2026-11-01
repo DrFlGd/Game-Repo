@@ -94,12 +94,13 @@ def png(w, h, rgb):
 
 def snapshot(*dirs):
     """Every file with its bytes' hash and modified time, but those Game Repo Server writes in
-    the library itself (D181): Saves/ and the devices' records."""
+    the library itself (D181): Saves/ and the devices' records, and a mod a device's user put
+    in by hand and kept in the library (D210)."""
     snap = {}
     for d in dirs:
         for p in sorted(Path(d).rglob("*")):
             r = p.relative_to(d).parts
-            if Path(d) == lib and (r[:1] == ("Saves",) or r[:2] == ("_library", "devices")):
+            if Path(d) == lib and (r[:1] == ("Saves",) or r[:2] == ("_library", "devices") or (r[-1:] == ("patches.json",) or "Hand Patch (as installed)" in r) and r[:4] == ("_library", "games", "pc", "zeta")):
                 continue
             if p.is_file():
                 snap[str(p)] = (hashlib.sha1(p.read_bytes()).hexdigest(), p.stat().st_mtime_ns)
@@ -277,7 +278,12 @@ def add_pc_game():
     mods = lib / "_library" / "games" / "pc" / "zeta" / "patches"
     (mods / "mods" / "Big Level" / "data").mkdir(parents=True)
     (mods / "mods" / "Big Level" / "data" / "level1.dat").write_bytes(b"big level")
-    (mods / "patches.json").write_text(json.dumps({"mods": {"Big Level": {"title": "Big Level", "how": "game", "on": False, "order": 1}}}), encoding="utf-8")
+    # and one put in by hand, with a readme (D210)
+    (mods / "mods" / "Hand Patch").mkdir(parents=True)
+    (mods / "mods" / "Hand Patch" / "patch.ini").write_bytes(b"[patch]")
+    (mods / "mods" / "Hand Patch.readme.txt").write_text("Copy patch.ini into the game's folder.", encoding="utf-8")
+    (mods / "patches.json").write_text(json.dumps({"mods": {"Big Level": {"title": "Big Level", "how": "game", "on": False, "order": 1},
+                                                            "Hand Patch": {"title": "Hand Patch", "how": "hand", "notes": "Needs the 1.1 update.", "order": 2}}}), encoding="utf-8")
     run("serve-devices", "changed", "--data", data)
 
 
@@ -1027,6 +1033,28 @@ async def main():
             check("its mods, ticked on the device, are applied to it as it's installed (D209)",
                   (folder / "data" / "level1.dat").read_bytes() == b"big level" and (folder / "zeta.exe").read_bytes() == b"MZ zeta", await pg.inner_text("#go-pc-files"))
             await shot(pg, "18c-pc-mods")
+            # D210: a mod put in by hand, recorded as its, kept in the library, taken off
+            hand = '#go-pc-hand [data-hand="Hand Patch"]'
+            await pg.wait_for_selector(hand + '[data-recorded="no"]', timeout=20000)
+            shown = await pg.inner_text(hand)
+            (folder / "patch.ini").write_bytes(b"[patch]")
+            await pg.click(hand + ' [data-action="record"]')
+            await pg.wait_for_selector(hand + '[data-recorded="yes"]', timeout=20000)
+            await pg.click("#go-pc-check")
+            await pg.wait_for_function("() => document.querySelector('#go-pc-state')?.textContent.includes('put in by hand')", timeout=20000)
+            check("a mod put in by hand shows its notes and readme, and I've installed it records what changed as its (D210)",
+                  "Needs the 1.1 update." in shown and "Its readme" in shown and "Hand Patch put in by hand" in await pg.inner_text("#go-pc-state"), shown)
+            await shot(pg, "18d-pc-hand")
+            await pg.click(hand + ' [data-action="keep"]')
+            await pg.wait_for_function("() => document.querySelector('#go-pc-said')?.textContent.includes('Kept in the library')", timeout=30000)
+            kept = lib / "_library" / "games" / "pc" / "zeta" / "patches" / "mods" / "Hand Patch (as installed)" / "patch.ini"
+            await pg.click(hand + ' [data-action="take-off"]')
+            await pg.wait_for_selector(hand + '[data-recorded="no"]', timeout=30000)
+            check("its files are kept in the library as a mod of its own, and Take it off puts aside only what it added (D210)",
+                  kept.is_file() and not (folder / "patch.ini").exists() and (folder / "data" / "level1.dat").read_bytes() == b"big level", await pg.inner_text("#go-pc-files"))
+            await pg.click("#go-pc-check")
+            await pg.click("#go-pc-empty")
+            await pg.wait_for_function("() => !document.querySelector('#go-pc-aside')", timeout=20000)
             await pg.click("#go-nav-device")
             await pg.click('#device-list [data-system="pcgames"] .go-sys-open')
             await pg.wait_for_selector('[data-id="pc:Zeta (1999)"]')

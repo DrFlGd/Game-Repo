@@ -1806,8 +1806,9 @@ async def mods_page(pg, base, home, library):
     mod's ZIP in with its readme (how it goes in guessed: into the game's folder, its
     archive's top folder named like it left out), and Install the ticked mods… puts its
     files where the game is installed, the game's file it replaces set aside. D207–D208: Check
-    the game's files… finds what the mod changed against the library's copy, and Put it
-    back… undoes it as a change."""
+    the game's files… takes the mod as the game's and finds a file added by hand, and Put
+    it back… undoes it as a change. D209: Take it off…. D210: a mod put in by hand recorded,
+    kept in the library as a mod of its own, and taken off by itself."""
     pc = library / "PC" / "Mod Game (2001)"
     pc.mkdir(parents=True)
     (pc / "game.json").write_text(json.dumps({"id": "pc-modtest", "title": "Mod Game", "year": 2001}))
@@ -1863,23 +1864,27 @@ async def mods_page(pg, base, home, library):
           (installed / "Data" / "textures.pak").read_text() == "NEW" and (installed / "Data" / "extra.pak").is_file() and len(held) == 1 and held[0].read_text() == "OLD",
           sorted(str(p.relative_to(installed)) for p in installed.rglob("*")))
     await pg.screenshot(path=str(out / "97-mods-panel.png"))
-    # D207–D208: checked against the library's copy, then put back
+    # D207–D208: checked against the library's copy with the mods Game Repo put in, a file
+    # added by hand found, then put back
+    await pg.click("#mods-check")
+    await pg.wait_for_selector('#mods-check-state[data-state="as_installed"]', timeout=15000)
+    await pg.click("#mods-check-dialog button[type=submit]")
+    (installed / "Data" / "hand.ini").write_text("HAND")
     await pg.click("#mods-check")
     await pg.wait_for_selector('#mods-check-state[data-state="changed"]', timeout=15000)
     said = await pg.inner_text("#mods-check-dialog")
-    check("Check the game's files… finds the file the mod changed and the one it added, compared with the library's copy (D207)",
-          "textures.pak" in said and "extra.pak" in said and await pg.is_checked('#mods-check-dialog [data-file="Data/extra.pak"]'), said[:600])
+    check("Check the game's files… takes the mod Game Repo installed as the game's, and finds a file added by hand (D207)",
+          "hand.ini" in said and "textures.pak" not in said and await pg.is_checked('#mods-check-dialog [data-file="Data/hand.ini"]'), said[:600])
     await pg.screenshot(path=str(out / "97b-mods-check.png"))
     await pg.click("#mods-check-dialog button[type=submit]")
     await pg.wait_for_selector("#mods-put-back-dialog .op-paths", timeout=15000)
     await pg.click("#mods-put-back-dialog button[type=submit]")
     for _ in range(150):
-        t = installed / "Data" / "textures.pak"
-        if t.is_file() and t.read_text() == "OLD" and not (installed / "Data" / "extra.pak").exists() and list(installed.glob(".gamerepo-set-aside/*/Data/extra.pak")):
+        if not (installed / "Data" / "hand.ini").exists() and list(installed.glob(".gamerepo-set-aside/*/Data/hand.ini")):
             break
         await asyncio.sleep(0.1)
-    check("Put it back… copies the changed file from the library and sets the added one aside, as a change (D208)",
-          t.is_file() and t.read_text() == "OLD" and not (installed / "Data" / "extra.pak").exists() and len(list(installed.glob(".gamerepo-set-aside/*/Data/extra.pak"))) == 1,
+    check("Put it back… sets the added file aside as a change, the mod's files left in (D208)",
+          not (installed / "Data" / "hand.ini").exists() and len(list(installed.glob(".gamerepo-set-aside/*/Data/hand.ini"))) == 1 and (installed / "Data" / "textures.pak").read_text() == "NEW",
           sorted(str(p.relative_to(installed)) for p in installed.rglob("*")))
     # D209: Take it off… marks it not installed, the library's file in place
     await pg.click('#mods-panel [data-action="take-off"]')
@@ -1888,6 +1893,31 @@ async def mods_page(pg, base, home, library):
     await pg.wait_for_selector('#mods-panel [data-installed="no"]', timeout=15000)
     check("Take it off… takes an installed mod off as a change, the file it replaced put back (D209)",
           (installed / "Data" / "textures.pak").read_text() == "OLD" and not await pg.query_selector('#mods-panel [data-action="take-off"]'), await pg.inner_text("#mods-panel"))
+    # D210: the same mod put in by hand, recorded, kept in the library, taken off by itself
+    await pg.select_option('#mods-panel [data-action="how"]', "hand")
+    await pg.wait_for_selector('#mods-panel .mods-hand[data-recorded="no"]', timeout=15000)
+    (installed / "Data" / "textures.pak").write_text("BY HAND")
+    (installed / "Data" / "hand.ini").write_text("HAND")
+    await pg.click('#mods-panel .mods-hand [data-action="record"]')
+    await pg.wait_for_selector('#mods-panel .mods-hand[data-recorded="yes"]', timeout=15000)
+    await pg.click("#mods-check")
+    await pg.wait_for_selector('#mods-check-state[data-state="as_installed"]', timeout=15000)
+    said = await pg.inner_text("#mods-check-dialog")
+    await pg.click("#mods-check-dialog button[type=submit]")
+    check("I've installed it records what changed as the mod's, and the check names it (D210)",
+          "put in by hand" in said, said[:400])
+    await pg.click('#mods-panel .mods-hand [data-action="keep"]')
+    kept_hand = kept.parent / "HD Pack v2 (as installed)"
+    await pg.wait_for_selector('#mods-panel .patch-file[data-file="HD Pack v2 (as installed)"]', timeout=15000)
+    await pg.screenshot(path=str(out / "97c-mods-hand.png"))
+    await pg.click('#mods-panel .mods-hand [data-action="take-off-hand"]')
+    await pg.wait_for_selector("#mods-install-dialog .op-paths", timeout=15000)
+    await pg.click("#mods-install-dialog button[type=submit]")
+    await pg.wait_for_selector('#mods-panel .mods-hand[data-recorded="no"]', timeout=15000)
+    check("Keep these files in the library makes a mod of its own, and Take it off… puts back only what it changed (D210)",
+          (kept_hand / "Data" / "textures.pak").read_text() == "BY HAND" and (kept_hand / "Data" / "hand.ini").is_file()
+          and (installed / "Data" / "textures.pak").read_text() == "OLD" and not (installed / "Data" / "hand.ini").exists(),
+          sorted(str(p.relative_to(installed)) for p in installed.rglob("*")))
 
 
 async def cheats_page(pg, base, home, library):

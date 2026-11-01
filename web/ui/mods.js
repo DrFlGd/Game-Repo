@@ -6,6 +6,8 @@
 // what they replace set aside first, as a change History can undo; never into the library.
 // Check the game's files… compares where it's installed with the library's copy and puts it
 // back, after mods put in by Game Repo or by hand ("Mods on installed games", D207–D208).
+// A mod put in by hand is recorded as installed (what changed, as its), taken off by
+// itself, and kept in the library as a mod that goes in by itself (D210).
 import { html, useState, useEffect, useMemo } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { ui } from "./state.js";
@@ -17,6 +19,7 @@ import { gameHash, systemColour } from "./browse.js";
 import { Icon } from "./icons.js";
 import { argHash } from "./panels.js";
 import { Shelf, useShelfState, Pic, byName, askGame } from "./shelf.js";
+import { reveal } from "./games.js";
 
 const err = (e) => e.message || String(e);
 const again = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
@@ -67,12 +70,14 @@ function ImportDialog({ k, paths, onDone }) {
 }
 
 /** Install the mods: the preview of the ticked mods going where the game is installed. */
-function InstallDialog({ plan, onDone, takeOff = false }) {
-  const skipped = plan.skipped || [];
+function InstallDialog({ plan, onDone, takeOff = false, hand = false }) {
+  const skipped = hand ? [] : plan.skipped || [];
   return html`<${Dialog} title=${plan.title || plan.label} id="mods-install-dialog" wide=${true} sticky=${true} busy=${plan.short || !plan.ops} submitLabel=${takeOff ? "Take it off" : "Install them"}
     onSubmit=${async () => { close(); await runPlan(plan); onDone?.(); again(); }}>
     <${Preview} plan=${plan} />
-    ${takeOff
+    ${hand
+      ? html`<p class="muted" id="mods-install-to">In <code>${plan.to}</code>: the files it changed or added as recorded are set aside, and the library's copy of each put back${plan.skipped?.length ? html` (not ${plan.skipped.join(", ")}: no copy of the game's own, left as it is)` : ""}. History's Undo puts it on again.</p>`
+      : takeOff
       ? html`<p class="muted" id="mods-install-to">In <code>${plan.to}</code>: its files are set aside, and each file it had replaced is put back (another installed mod's, the library's copy, or the game's own the install set aside). History's Undo puts it on again.</p>`
       : html`<p class="muted" id="mods-install-to">Into <code>${plan.to}</code>, in their order: a later mod's file goes over an earlier one's. The game's files they replace are set aside, and History's Undo puts them back.</p>`}
     ${skipped.length ? html`<p class="warn-note" id="mods-install-skipped">Not by Game Repo: ${skipped.map((x) => `${x.name} (${howName(x.how).toLowerCase()})`).join(", ")}. Game Repo never runs a mod's installer: run it yourself, after these.</p>` : null}
@@ -92,7 +97,7 @@ export function CheckLists({ check, leave, setLeave, off = false }) {
   </div>`;
 }
 
-const checkSay = (c) => (c.state === "as_installed" ? "As it was installed: nothing has changed." : c.state === "not_there" ? "Its folder isn't there." : `Changed: ${[c.changed.length ? `${c.changed.length} changed` : null, c.missing.length ? `${c.missing.length} gone` : null, c.added.length ? `${c.added.length} added` : null].filter(Boolean).join(", ")}.`);
+const checkSay = (c) => (c.state === "as_installed" ? (c.hand?.length ? `As it was installed, with ${c.hand.join(", ")} put in by hand.` : "As it was installed: nothing has changed.") : c.state === "not_there" ? "Its folder isn't there." : `Changed: ${[c.changed.length ? `${c.changed.length} changed` : null, c.missing.length ? `${c.missing.length} gone` : null, c.added.length ? `${c.added.length} added` : null].filter(Boolean).join(", ")}.`);
 
 /** Check the game's files: where it's installed against the library's copy (D207), then
  *  Put it back… as a change with Undo (D208). */
@@ -190,6 +195,32 @@ export function ModsEditor({ k, off, focus = null }) {
       toast(`Couldn't take it off: ${err(e)}`, 10000);
     }
   };
+  const record = async (m, again) => {
+    try {
+      const fp = await api("mods_record", { key: k, name: m.name });
+      toast(`${again ? "Recorded again" : "Recorded"}: ${fp.files.length} changed or added${fp.gone.length ? `, ${fp.gone.length} taken away` : ""}, as ${m.details.title || m.name}'s.`, 8000);
+      load();
+    } catch (e) {
+      toast(err(e), 10000);
+    }
+  };
+  const takeOffHand = async (m) => {
+    try {
+      ui.set({ dialog: { type: "mods-install", plan: await api("mods_put_back", { key: k, leave: [], only: m.name }), onDone: load, takeOff: true, hand: true } });
+    } catch (e) {
+      toast(`Couldn't take it off: ${err(e)}`, 10000);
+    }
+  };
+  const keepHand = async (m) => {
+    try {
+      const r = await api("mods_keep_recorded", { key: k, name: m.name });
+      toast(`Kept as ${r.name}: it goes in by itself now (tick it to install it).`, 8000);
+      load();
+      again();
+    } catch (e) {
+      toast(err(e), 10000);
+    }
+  };
   const check = async () => {
     try {
       ui.set({ dialog: { type: "mods-check", k, title: g.title, check: await api("mods_check", { key: k }), onDone: load } });
@@ -220,8 +251,17 @@ export function ModsEditor({ k, off, focus = null }) {
         ${m.details.how === "folder" ? html`<input type="text" class="compact" aria-label="The game's folder it goes into" data-action="folder" placeholder="Mods/" value=${m.details.folder} disabled=${off} onChange=${(e) => set(m, { folder: e.target.value, on: !!e.target.value })} />` : null}
       </span>
       ${m.details.how === "run" ? html`<p class="muted">Game Repo never runs it: run it yourself once the game is installed (and its other mods are in).</p>` : null}
-      ${m.details.how === "hand" ? html`<p class="muted">Kept here: put it in as its readme says.</p>` : null}
-      <p class="muted" data-installed=${m.installed?.to ? "yes" : "no"}>${m.installed?.to ? html`Installed in <code>${m.installed.to}</code>.` : "Not installed here yet."}</p>
+      ${m.details.how === "hand" ? html`<p class="muted">Kept here: put it in as its readme says, then say <em>I've installed it</em> so what changed is recorded as its.</p>` : null}
+      ${(m.details.how === "hand" || m.details.how === "run") && g.installed_found ? html`<div class="lib-panel-actions mods-hand" data-recorded=${g.hand?.[m.name] ? "yes" : "no"}>
+        ${isDesktop() ? html`<button type="button" class="ghost compact" data-action="open-game" onClick=${() => reveal(g.installed_at)}>Open the game's folder</button>
+          <button type="button" class="ghost compact" data-action="open-mod" onClick=${() => reveal(m.path)}>Show the mod</button>` : null}
+        ${g.hand?.[m.name]
+          ? html`<button type="button" class="ghost compact" data-action="record" disabled=${off || !isDesktop()} onClick=${() => record(m, true)}>I've changed it</button>
+            <button type="button" class="ghost compact" data-action="take-off-hand" disabled=${off || !isDesktop()} onClick=${() => takeOffHand(m)}>Take it off…</button>
+            <button type="button" class="ghost compact" data-action="keep" disabled=${off || !isDesktop()} title="Its files as recorded, kept as a mod of its own that goes in by itself" onClick=${() => keepHand(m)}>Keep these files in the library</button>`
+          : html`<button type="button" class="primary compact" data-action="record" disabled=${off || !isDesktop()} title="Record what changed in the game's folder as this mod's" onClick=${() => record(m, false)}>I've installed it</button>`}
+      </div>` : null}
+      <p class="muted" data-installed=${m.installed?.to || g.hand?.[m.name] ? "yes" : "no"}>${m.installed?.to ? html`Installed in <code>${m.installed.to}</code>.` : g.hand?.[m.name] ? `Put in by hand, recorded ${g.hand[m.name].slice(0, 8).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3")}.` : "Not installed here yet."}</p>
       ${m.details.url ? html`<p class="muted"><a href=${m.details.url} target="_blank" rel="noopener">${m.details.url}</a></p>` : null}
       ${m.details.notes ? html`<p>${m.details.notes}</p>` : null}
       ${m.readme ? html`<details><summary>Its readme</summary><pre class="patch-readme">${m.readme}</pre></details>` : null}

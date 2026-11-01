@@ -382,3 +382,10 @@ progress { accent-color: var(--tool); height: 8px; }
 .go-pc-mods { margin: 12px 0; }
 .go-pc-mods .check-row { display: flex; gap: 8px; align-items: center; padding: 3px 0; }
 .go-pc-ask { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.go-pc-hand { margin: 12px 0; }
+.go-pc-hand .go-file { word-break: break-all; }
+.go-pc-hand-mod { border: 1px solid var(--steel-2); border-radius: 6px; margin: 8px 0; padding: 8px 10px; }
+.go-pc-hand-mod h3 { font-size: 15px; margin: 0 0 4px; }
+.go-pc-hand-mod h3 .muted { font-size: 13px; font-weight: normal; }
+.go-pc-notes { margin: 4px 0; white-space: pre-wrap; }
+.go-pc-readme pre { white-space: pre-wrap; max-height: 320px; overflow: auto; font-size: 13px; }

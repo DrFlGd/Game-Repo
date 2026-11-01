@@ -21,7 +21,7 @@ use crate::organise::{self, safe_name, Op, Plan};
 use crate::patches;
 use crate::textures::{is_archive, size_of, unpack};
 use gamerepo_wire::gamefiles;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -124,13 +124,15 @@ pub fn mods(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
         let e = &m["mods"][&n];
         out.push(json!({
             "name": n, "details": Details::of(e, &n), "size": size_of(&p), "archive": p.is_file() && is_archive(&n), "folder": p.is_dir(),
-            "readme": std::fs::read_to_string(readme_of(&dir, &n)).ok(), "added": e["added"], "installed": e["installed"],
+            "readme": std::fs::read_to_string(readme_of(&dir, &n)).ok(), "added": e["added"], "installed": e["installed"], "path": p.display().to_string(),
         }));
     }
     let at = installed_at(lib, &g);
+    // the mods put in by hand and recorded where it's installed (D210), with when
+    let hand: BTreeMap<String, String> = at.as_ref().filter(|p| p.is_dir()).map(|p| gamefiles::State::read(p).hand.into_iter().map(|(n, f)| (n, f.when)).collect()).unwrap_or_default();
     Ok(json!({
         "key": key, "title": g.title, "mods": out, "hows": HOWS.iter().map(|(id, name)| json!({ "id": id, "name": name })).collect::<Vec<_>>(),
-        "installed_at": at.as_ref().map(|p| p.display().to_string()), "installed_found": at.as_ref().is_some_and(|p| p.is_dir()),
+        "installed_at": at.as_ref().map(|p| p.display().to_string()), "installed_found": at.as_ref().is_some_and(|p| p.is_dir()), "hand": hand,
     }))
 }
 
@@ -571,12 +573,14 @@ fn copies(lib: &Library, g: &LibGame) -> Result<(PathBuf, PathBuf)> {
     Ok((target, base))
 }
 
-/// The installed game checked against the library's copy: (where, the library's copy, what
-/// the check found).
-fn check_of(lib: &Library, g: &LibGame) -> Result<(PathBuf, PathBuf, gamefiles::Check)> {
+/// The files a PC game installed on this computer should have: the library's unpacked copy,
+/// with the mods Game Repo installed there over it in their order (D209): each as a check
+/// wants it, and where each comes from. (where it's installed, the files, their sources)
+fn want_of(lib: &Library, g: &LibGame, data_dir: Option<&Path>) -> Result<(PathBuf, Vec<gamefiles::Want>, BTreeMap<String, PathBuf>)> {
     let (target, base) = copies(lib, g)?;
     let mut st = gamefiles::State::read(&target);
-    let mut want = vec![];
+    let mut want: BTreeMap<String, gamefiles::Want> = BTreeMap::new();
+    let mut from: BTreeMap<String, PathBuf> = BTreeMap::new();
     let mut cache = std::mem::take(&mut st.library);
     let mut still = BTreeMap::new();
     for (rel, m) in gamefiles::files_in(&base) {
@@ -584,27 +588,107 @@ fn check_of(lib: &Library, g: &LibGame) -> Result<(PathBuf, PathBuf, gamefiles::
         if let Some(x) = cache.remove(&rel) {
             still.insert(rel.clone(), x);
         }
-        want.push(gamefiles::Want { path: rel, size: m.len(), sha1 });
+        from.insert(rel.to_lowercase(), rel.split('/').fold(base.clone(), |p, x| p.join(x)));
+        want.insert(rel.to_lowercase(), gamefiles::Want { path: rel, size: m.len(), sha1 });
     }
     st.library = still;
     st.write(&target)?;
+    // the mods installed here by Game Repo, in their order
+    if let (Ok(dir), Some(data)) = (dir_of(lib, g), data_dir) {
+        let m = read_json_object(&manifest_of(&dir));
+        let staging = data.join("mods-staging");
+        let here = target.display().to_string();
+        for n in names_in(&dir, &m).into_iter().filter(|n| m["mods"][n]["installed"]["to"].as_str() == Some(here.as_str())) {
+            let d = Details::of(&m["mods"][&n], &n);
+            for (to, f) in mod_files(&dir, &n, &d, &target, &staging)?.unwrap_or_default() {
+                let Ok(rel) = to.strip_prefix(&target) else { continue };
+                let rel = rel.to_string_lossy().replace('\\', "/");
+                let size = std::fs::metadata(&f).map(|x| x.len()).unwrap_or(0);
+                want.insert(rel.to_lowercase(), gamefiles::Want { path: rel.clone(), size, sha1: sha1_path(&f)? });
+                from.insert(rel.to_lowercase(), f);
+            }
+        }
+    }
+    Ok((target, want.into_values().collect(), from))
+}
+
+/// The installed game checked (D207): (where, each file's source, what the check found).
+fn check_of(lib: &Library, g: &LibGame, data_dir: Option<&Path>) -> Result<(PathBuf, BTreeMap<String, PathBuf>, gamefiles::Check)> {
+    let (target, want, from) = want_of(lib, g, data_dir)?;
     let c = gamefiles::check(&target, &want, &sha1_path)?;
-    Ok((target, base, c))
+    Ok((target, from, c))
+}
+
+/// *I've installed it* on this computer (D210): what changed where the game is installed
+/// recorded as the mod `name`'s, put in by hand.
+pub fn record_hand(ix: &Index, lib: &Library, data_dir: &Path, key: &str, name: &str) -> Result<Value> {
+    let g = game_of(ix.conn(), key)?;
+    let (target, want, _) = want_of(lib, &g, Some(data_dir))?;
+    let fp = gamefiles::record_hand(&target, &want, name, &sha1_path)?;
+    Ok(serde_json::to_value(fp)?)
+}
+
+/// *Keep these files in the library* (D210): a mod put in by hand, its files as recorded
+/// where the game is installed, kept as a mod of its own that goes in by itself (into the
+/// game's folder, not ticked). Its name in the game's mods.
+pub fn keep_recorded(lib: &Library, id: &str, name: &str, files: &[(String, PathBuf)], note: &str) -> Result<String> {
+    if files.is_empty() {
+        bail!("{name} changed no files to keep (it only took some away).");
+    }
+    let dir = crate::pcmeta::dir(lib, id).join(patches::FOLDER).join(FOLDER);
+    std::fs::create_dir_all(&dir)?;
+    let stem = stem_of(name).trim().to_string();
+    let mut new = format!("{stem} (as installed)");
+    let mut n = 2;
+    while dir.join(&new).exists() {
+        new = format!("{stem} (as installed {n})");
+        n += 1;
+    }
+    let to = dir.join(&new);
+    for (rel, src) in files {
+        let at = rel.split('/').filter(|x| !x.is_empty() && *x != "." && *x != "..").fold(to.clone(), |p, x| p.join(x));
+        if let Some(p) = at.parent() {
+            std::fs::create_dir_all(p)?;
+        }
+        std::fs::copy(src, &at).with_context(|| format!("couldn't copy {rel}"))?;
+    }
+    let path = manifest_of(&dir);
+    let mut m = read_json_object(&path);
+    let order = m["mods"].as_object().map(|o| o.values().filter_map(|v| v["order"].as_u64()).max().unwrap_or(0)).unwrap_or(0) + 1;
+    let title = Details::of(&m["mods"][name], name).title;
+    m["mods"][&new] = json!({ "title": format!("{title} (as installed)"), "how": "game", "on": false, "order": order, "notes": note, "added": now() });
+    crate::config::write_json(&path, &sorted(&m))?;
+    Ok(new)
 }
 
 /// *Check the game's files* on this computer (D207): the PC game where it's installed,
 /// against the library's unpacked copy.
-pub fn check_installed(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
+pub fn check_installed(ix: &Index, lib: &Library, data_dir: &Path, key: &str) -> Result<Value> {
     let g = game_of(ix.conn(), key)?;
-    Ok(serde_json::to_value(check_of(lib, &g)?.2)?)
+    Ok(serde_json::to_value(check_of(lib, &g, Some(data_dir))?.2)?)
 }
 
 /// *Put the game back as it was installed…* on this computer (D208), as a change with Undo:
-/// a file changed is set aside and copied from the library, one gone is copied, one added
-/// is set aside; those in `leave` stay as they are and are kept as the game's own.
-pub fn put_back_plan(ix: &Index, lib: &Library, key: &str, leave: &[String]) -> Result<Plan> {
+/// a file changed is set aside and copied from the library (or the mod Game Repo installed
+/// that gives it, D209), one gone is copied, one added is set aside; those in `leave` stay
+/// as they are and are kept as the game's own. The mods recorded by hand go with it (D210);
+/// with `only`, it's that one mod put in by hand taken off: only the files it changed.
+pub fn put_back_plan(ix: &Index, lib: &Library, data_dir: &Path, key: &str, leave: &[String], only: Option<&str>) -> Result<Plan> {
     let g = game_of(ix.conn(), key)?;
-    let (target, base, c) = check_of(lib, &g)?;
+    let (target, want, from) = want_of(lib, &g, Some(data_dir))?;
+    let st = gamefiles::State::read(&target);
+    let drop: Vec<String> = match only {
+        Some(n) if !st.hand.contains_key(n) => bail!("{n} isn't recorded as put in by hand here."),
+        Some(n) => vec![n.to_string()],
+        None => st.hand.keys().cloned().collect(),
+    };
+    let mut c = gamefiles::check_without(&target, &want, &drop, &sha1_path)?;
+    if let Some(n) = only {
+        let paths: HashSet<String> = st.hand[n].paths().iter().map(|p| p.to_lowercase()).collect();
+        for l in [&mut c.changed, &mut c.missing, &mut c.added] {
+            l.retain(|r| paths.contains(&r.to_lowercase()));
+        }
+    }
     let left = |r: &String| leave.iter().any(|l| l.eq_ignore_ascii_case(r));
     let at = |root: &Path, rel: &str| rel.split('/').fold(root.to_path_buf(), |p, x| p.join(x));
     let mut ops = vec![];
@@ -616,37 +700,84 @@ pub fn put_back_plan(ix: &Index, lib: &Library, key: &str, leave: &[String]) -> 
         let s = outside(from);
         Op { op: "copy".into(), game: g.title.clone(), to: to.display().to_string(), size: s.size, from: vec![s], names: vec![], aside: vec![], note: Some("as the library has it".into()) }
     };
+    let source = |rel: &str| from.get(&rel.to_lowercase()).filter(|p| p.is_file());
     let mut steps: BTreeMap<String, Vec<Op>> = BTreeMap::new();
+    let mut skipped = vec![];
     for rel in c.changed.iter().filter(|r| !left(r)) {
         let to = at(&target, rel);
-        steps.insert(rel.clone(), vec![aside(&to, "changed since it was installed"), copy(&at(&base, rel), &to)]);
+        match source(rel) {
+            Some(f) => {
+                steps.insert(rel.clone(), vec![aside(&to, "changed since it was installed"), copy(f, &to)]);
+            }
+            None => skipped.push(rel.clone()),
+        }
     }
     for rel in c.missing.iter().filter(|r| !left(r)) {
-        steps.insert(rel.clone(), vec![copy(&at(&base, rel), &at(&target, rel))]);
+        match source(rel) {
+            Some(f) => {
+                steps.insert(rel.clone(), vec![copy(f, &at(&target, rel))]);
+            }
+            None => skipped.push(rel.clone()),
+        }
     }
     for rel in c.added.iter().filter(|r| !left(r)) {
         steps.insert(rel.clone(), vec![aside(&at(&target, rel), "added since it was installed")]);
     }
+    let any = !steps.is_empty();
     for (_, v) in steps {
         ops.extend(v);
     }
     let kept: Vec<String> = c.changed.iter().chain(&c.missing).chain(&c.added).filter(|r| left(r)).cloned().collect();
-    if !kept.is_empty() {
-        let mut st = gamefiles::State::read(&target);
-        for k in &kept {
-            if !st.keeps(k) {
-                st.keep.push(k.clone());
-            }
-        }
-        st.write(&target)?;
-    }
-    if ops.is_empty() {
+    if !any && drop.is_empty() {
         bail!("{} is as it was installed: there's nothing to put back.", g.title);
     }
-    let n = c.changed.len() + c.missing.len() + c.added.len() - kept.len();
-    let mut p = plan_of("pc_put_back", format!("Put {} back as the library has it", g.title), format!("Put {} back ({n} files)", g.title), lib, ops, json!({ "key": key, "to": target.display().to_string(), "changed": c.changed, "missing": c.missing, "added": c.added, "kept": kept }));
+    // the state: the mods put in by hand gone with their files, the files left kept
+    let mut after = gamefiles::State::read(&target);
+    after.hand.retain(|n, _| !drop.contains(n));
+    for k in &kept {
+        if !after.keeps(k) {
+            after.keep.push(k.clone());
+        }
+    }
+    if after != gamefiles::State::read(&target) {
+        ops.push(text_op(&g.title, &gamefiles::State::path(&target), after.text(), "the game's own files and mods, as Game Repo knows them"));
+    }
+    let n = c.changed.len() + c.missing.len() + c.added.len() - kept.len() - skipped.len();
+    let (label, title) = match only {
+        Some(m) => (format!("Took {m} off {}", g.title), format!("Take {m} off {} ({n} files)", g.title)),
+        None => (format!("Put {} back as the library has it", g.title), format!("Put {} back ({n} files)", g.title)),
+    };
+    let mut p = plan_of("pc_put_back", label, title, lib, ops, json!({ "key": key, "to": target.display().to_string(), "changed": c.changed, "missing": c.missing, "added": c.added, "kept": kept, "skipped": skipped, "hand": drop }));
     p.out = Some(target.display().to_string());
     Ok(p)
+}
+
+/// *Keep these files in the library* on this computer (D210): a mod put in by hand, its
+/// files as recorded copied from where the game is installed into a mod of its own.
+pub fn keep_hand(ix: &Index, lib: &Library, key: &str, name: &str) -> Result<Value> {
+    let g = game_of(ix.conn(), key)?;
+    let target = installed_at(lib, &g).ok_or_else(|| anyhow!("Say where {} is installed on this computer first.", g.title))?;
+    let st = gamefiles::State::read(&target);
+    let fp = st.hand.get(name).ok_or_else(|| anyhow!("{name} isn't recorded as put in by hand here: say *I've installed it* first."))?;
+    let mut files = vec![];
+    for w in &fp.files {
+        let p = w.path.split('/').fold(target.clone(), |p, x| p.join(x));
+        if !p.is_file() || (!w.sha1.is_empty() && !sha1_path(&p)?.eq_ignore_ascii_case(&w.sha1)) {
+            bail!("{} has changed since {name} was recorded: say *I've changed it* first.", w.path);
+        }
+        files.push((w.path.clone(), p));
+    }
+    let id = g.key.strip_prefix("pc/").unwrap_or(&g.key);
+    let note = format!("{name}'s files as it was put in by hand, recorded on this computer ({}).", fp.when);
+    let new = keep_recorded(lib, id, name, &files, &note)?;
+    Ok(json!({ "name": new, "files": files.len() }))
+}
+
+/// A mod's readme, for a device's page (D210): the first 20,000 characters.
+pub fn readme_text(src: &Path) -> Option<String> {
+    let n = src.file_name()?.to_string_lossy().into_owned();
+    let t = std::fs::read_to_string(readme_of(src.parent()?, &n)).ok()?;
+    Some(t.chars().take(20_000).collect())
 }
 
 #[cfg(test)]
@@ -764,29 +895,56 @@ mod tests {
         crate::pcgames::write_manifest(&pc, &game).unwrap();
         crate::cheats::fresh(&ix, &lib).unwrap();
         let key = "pc/pc-back1";
-        let c = check_installed(&ix, &lib, key).unwrap();
+        let data = dir.join("data");
+        let c = check_installed(&ix, &lib, &data, key).unwrap();
         assert_eq!(c["state"], "as_installed", "{c}");
-        assert!(put_back_plan(&ix, &lib, key, &[]).unwrap_err().to_string().contains("nothing to put back"));
+        assert!(put_back_plan(&ix, &lib, &data, key, &[], None).unwrap_err().to_string().contains("nothing to put back"));
         // a mod put in by hand: a file over, one added, one deleted, a save made
         std::fs::write(installed.join("Data/level.dat"), b"MODDED").unwrap();
         std::fs::write(installed.join("Data/mod.pak"), b"MOD").unwrap();
         std::fs::write(installed.join("save.sav"), b"SAVE").unwrap();
         std::fs::remove_file(installed.join("game.exe")).unwrap();
-        let c = check_installed(&ix, &lib, key).unwrap();
+        let c = check_installed(&ix, &lib, &data, key).unwrap();
         assert_eq!((c["changed"].clone(), c["added"].clone(), c["missing"].clone()), (json!(["Data/level.dat"]), json!(["Data/mod.pak", "save.sav"]), json!(["game.exe"])), "{c}");
-        let p = put_back_plan(&ix, &lib, key, &["save.sav".into()]).unwrap();
+        let p = put_back_plan(&ix, &lib, &data, key, &["save.sav".into()], None).unwrap();
         organise::run(&ix, &lib, &p, &cancel, &mut |_| {}).unwrap();
         assert_eq!(std::fs::read(installed.join("Data/level.dat")).unwrap(), b"LEVEL");
         assert_eq!(std::fs::read(installed.join("game.exe")).unwrap(), b"EXE");
         assert!(!installed.join("Data/mod.pak").exists());
         assert_eq!(std::fs::read(installed.join("save.sav")).unwrap(), b"SAVE", "left as it is");
-        let c = check_installed(&ix, &lib, key).unwrap();
+        let c = check_installed(&ix, &lib, &data, key).unwrap();
         assert_eq!((c["state"].as_str(), c["kept"].as_u64()), (Some("as_installed"), Some(1)), "{c}");
         // undone: the mod is back
         organise::undo(&ix, &lib, &p.id, &cancel, &mut |_| {}).unwrap();
         assert_eq!(std::fs::read(installed.join("Data/level.dat")).unwrap(), b"MODDED");
         assert_eq!(std::fs::read(installed.join("Data/mod.pak")).unwrap(), b"MOD");
         assert!(!installed.join("game.exe").exists());
+        // D210: the same recorded as a mod put in by hand, then the check names it
+        let fp = record_hand(&ix, &lib, &data, key, "hand-mod.zip").unwrap();
+        assert_eq!(fp["gone"], json!(["game.exe"]), "{fp}");
+        let c = check_installed(&ix, &lib, &data, key).unwrap();
+        assert_eq!((c["state"].as_str(), c["hand"].clone()), (Some("as_installed"), json!(["hand-mod.zip"])), "{c}");
+        // kept in the library as a mod of its own, its files as they are here
+        let k = keep_hand(&ix, &lib, key, "hand-mod.zip").unwrap();
+        assert_eq!((k["name"].as_str(), k["files"].as_u64()), (Some("hand-mod (as installed)"), Some(3)), "{k}");
+        let kept = mods(&ix, &lib, key).unwrap();
+        let m = kept["mods"].as_array().unwrap().iter().find(|m| m["name"] == "hand-mod (as installed)").cloned().unwrap();
+        assert_eq!((m["details"]["how"].as_str(), m["details"]["on"].as_bool(), m["folder"].as_bool()), (Some("game"), Some(false), Some(true)), "{m}");
+        let lib_dir = crate::pcmeta::dir(&lib, "pc-back1").join(patches::FOLDER).join(FOLDER).join("hand-mod (as installed)");
+        assert_eq!(std::fs::read(lib_dir.join("Data/level.dat")).unwrap(), b"MODDED");
+        // taken off by itself: only its files put back, as Organise changes
+        let p = put_back_plan(&ix, &lib, &data, key, &[], Some("hand-mod.zip")).unwrap();
+        assert!(p.label.starts_with("Took hand-mod.zip off"), "{}", p.label);
+        organise::run(&ix, &lib, &p, &cancel, &mut |_| {}).unwrap();
+        assert_eq!(std::fs::read(installed.join("Data/level.dat")).unwrap(), b"LEVEL");
+        assert_eq!(std::fs::read(installed.join("game.exe")).unwrap(), b"EXE");
+        assert!(!installed.join("Data/mod.pak").exists() && !installed.join("save.sav").exists());
+        let c = check_installed(&ix, &lib, &data, key).unwrap();
+        assert_eq!((c["state"].as_str(), c.get("hand")), (Some("as_installed"), None), "{c}");
+        organise::undo(&ix, &lib, &p.id, &cancel, &mut |_| {}).unwrap();
+        let c = check_installed(&ix, &lib, &data, key).unwrap();
+        assert_eq!((c["state"].as_str(), c["hand"].clone()), (Some("as_installed"), json!(["hand-mod.zip"])), "undone: on again, recorded: {c}");
+        assert!(put_back_plan(&ix, &lib, &data, key, &[], Some("other.zip")).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

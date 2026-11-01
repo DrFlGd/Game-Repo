@@ -772,6 +772,40 @@ fn an_installed_pc_game_is_checked_and_put_back_as_the_library_has_it() {
     assert_eq!(r["ask"].as_array().map(Vec::len), Some(0), "a kept file is the game's own: {r}");
     assert_eq!(std::fs::read(z.join("data/level1.dat")).unwrap(), b"my own level", "and stays as it is");
     assert_eq!(std::fs::read(z.join("data/hd.pak")).unwrap(), b"hd textures");
+    // D210: a mod put in by hand, recorded as its, and the check names it
+    std::fs::write(z.join("zeta.exe"), b"MZ patched").unwrap();
+    std::fs::write(z.join("data/hand.ini"), b"[hand]").unwrap();
+    let fp = call(&app, "pc_record_hand", json!({ "key": ZETA, "name": "Hand Fix" }));
+    let mut paths: Vec<String> = fp["files"].as_array().unwrap().iter().map(|w| w["path"].as_str().unwrap().to_string()).collect();
+    paths.sort();
+    assert_eq!(paths, vec!["data/hand.ini".to_string(), "zeta.exe".into()], "{fp}");
+    let c = call(&app, "pc_check", json!({ "key": ZETA }));
+    assert_eq!((c["state"].as_str(), c["hand"].clone()), (Some("as_installed"), json!(["Hand Fix"])), "{c}");
+    assert!(app.call("pc_record_hand", &json!({ "key": ZETA, "name": "Other" })).unwrap_err().to_string().contains("Nothing has changed"));
+    // kept in the library as a mod of its own
+    let k = call(&app, "pc_keep_hand", json!({ "key": ZETA, "name": "Hand Fix" }));
+    assert_eq!(k["name"], "Hand Fix (as installed)", "{k}");
+    let kept = {
+        let l = Library::open(&lib).unwrap();
+        pcmeta::dir(&l, "zeta").join("patches/mods/Hand Fix (as installed)")
+    };
+    assert_eq!(std::fs::read(kept.join("zeta.exe")).unwrap(), b"MZ patched");
+    let g = call(&app, "game", json!({ "key": ZETA }));
+    let m = g["details"]["mods"].as_array().unwrap().iter().find(|m| m["name"] == "Hand Fix (as installed)").cloned().unwrap_or_default();
+    assert_eq!((m["how"].as_str(), m["on"].as_bool(), m["goes_in"].as_bool()), (Some("game"), Some(false), Some(true)), "{g}");
+    // taken off by itself: its files back, the mods Game Repo Go put in left
+    let r = call(&app, "pc_put_back", json!({ "key": ZETA, "only": "Hand Fix" }));
+    assert_eq!((r["fetched"].as_u64(), r["put_aside"].as_u64()), (Some(1), Some(1)), "{r}");
+    assert_eq!(std::fs::read(z.join("zeta.exe")).unwrap(), b"MZ zeta");
+    assert!(!z.join("data/hand.ini").exists());
+    assert_eq!(std::fs::read(z.join("data/hd.pak")).unwrap(), b"hd textures", "HD Data stays");
+    let c = call(&app, "pc_check", json!({ "key": ZETA }));
+    assert_eq!((c["state"].as_str(), c.get("hand"), c["mods"].clone()), (Some("as_installed"), None, json!(["HD Data"])), "{c}");
+    // and the kept copy goes in as any mod does, with no steps
+    let r = call(&app, "pc_apply_mods", json!({ "key": ZETA, "mods": ["HD Data", "Hand Fix (as installed)"] }));
+    assert_eq!(r["ask"].as_array().map(Vec::len), Some(0), "{r}");
+    assert_eq!(std::fs::read(z.join("zeta.exe")).unwrap(), b"MZ patched");
+    assert_eq!(std::fs::read(z.join("data/hand.ini")).unwrap(), b"[hand]");
     app.queue.quit();
     s.stop();
     let _ = std::fs::remove_dir_all(&dir);

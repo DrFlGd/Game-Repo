@@ -162,6 +162,7 @@ pub fn left_in(d: &Device, folders: &[String]) -> Vec<(String, usize)> {
         // aside stays, as the user's
         let ours = dir.join(gamerepo_wire::gamefiles::DIR);
         let _ = std::fs::remove_file(ours.join(gamerepo_wire::gamefiles::STATE));
+        let _ = std::fs::remove_file(ours.join(gamerepo_wire::gamefiles::SEEN));
         let _ = std::fs::remove_dir(&ours);
         if std::fs::read_dir(&dir).is_ok_and(|mut e| e.next().is_none()) {
             let _ = std::fs::remove_dir(&dir);

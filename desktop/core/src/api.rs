@@ -2351,17 +2351,27 @@ impl App {
             }
             "mods_check" => {
                 let key = s("key");
-                j(self.with_index(move |ix| crate::mods::check_installed(ix, &lib, &key)).await?)
+                j(self.with_index(move |ix| crate::mods::check_installed(ix, &lib, &data_dir, &key)).await?)
+            }
+            "mods_record" => {
+                let (key, name) = (s("key"), s("name"));
+                j(self.with_index(move |ix| crate::mods::record_hand(ix, &lib, &data_dir, &key, &name)).await?)
+            }
+            "mods_keep_recorded" => {
+                let (key, name) = (s("key"), s("name"));
+                j(self.with_index(move |ix| crate::mods::keep_hand(ix, &lib, &key, &name)).await?)
             }
             "mods_put_back" => {
                 let key = s("key");
                 let leave: Vec<String> = args["leave"].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect();
+                // D210: one mod put in by hand taken off, not the whole game put back
+                let only = args["only"].as_str().filter(|n| !n.is_empty()).map(String::from);
                 j(self
                     .with_index(move |ix| {
-                        let plan = crate::mods::put_back_plan(ix, &lib, &key, &leave)?;
+                        let plan = crate::mods::put_back_plan(ix, &lib, &data_dir, &key, &leave, only.as_deref())?;
                         organise::save_pending(&data_dir, &plan)?;
                         let mut v = plan.summary();
-                        for k in ["to", "changed", "missing", "added", "kept"] {
+                        for k in ["to", "changed", "missing", "added", "kept", "skipped", "hand"] {
                             v[k] = plan.dat[k].clone();
                         }
                         Ok(v)
