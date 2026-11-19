@@ -1309,6 +1309,130 @@ fn a_games_packs_of_maps_and_guides_go_into_atlass_packs_folder() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A map made in Atlas as Atlas Importer keeps one for Game Repo (block A6; synthetic): from
+/// no site, written by Atlas, with the maker's own things under `mine/`, counted in `mine`.
+fn write_made_pack(path: &Path, id: &str, title: &str, updated: &str, exported_at: &str) {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let description = json!({
+        "format": "atlas-pack-file", "version": 5, "packId": id, "title": title, "packVersion": "1.0.0", "detail": "full",
+        "exportedAt": exported_at, "exportedBy": { "name": "Atlas", "version": "0.23.0", "platform": "windows" },
+        "pack": { "id": id, "title": title, "packVersion": "1.0.0", "schemaVersion": 2, "attribution": [], "updated": updated, "writtenBy": { "name": "Atlas", "version": "0.23.0" } },
+        "game": { "title": title },
+        "source": { "kind": "unknown" },
+        "contents": { "maps": 1, "locations": 4 },
+        "maps": [{ "id": "map:one", "name": "My Island", "width": 2048, "height": 2048, "locations": 4 }],
+        "images": { "detail": "full", "files": 1, "bytes": 8192, "layers": [] },
+        "files": 3, "bytes": 8300,
+        "mine": { "locations": 4, "notes": 2 },
+    });
+    let mut z = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+    z.start_file("atlaspack.json", SimpleFileOptions::default()).unwrap();
+    z.write_all(description.to_string().as_bytes()).unwrap();
+    z.start_file("images/tile-0-0.png", SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored)).unwrap();
+    z.write_all(&bytes(updated.len() as u32 + exported_at.len() as u32, 8 * 1024)).unwrap();
+    z.start_file("mine/my-locations.json", SimpleFileOptions::default()).unwrap();
+    z.write_all(format!(r#"{{"locations":[{{"id":"x1","name":"A chest by the well","at":"{updated}"}}]}}"#).as_bytes()).unwrap();
+    z.start_file("mine/my-notes.json", SimpleFileOptions::default()).unwrap();
+    z.write_all(br#"{"notes":[{"location":"x1","text":"Come back with the key"}]}"#).unwrap();
+    z.finish().unwrap();
+}
+
+/// Block A6 and D222 revised (2026-11-19): a map made in Atlas, a pack from no site with the
+/// maker's own things under `mine/`, is linked, listed and delivered whole, said to be made
+/// in Atlas; when Atlas writes it again on the device, newer, the library's older one isn't
+/// put over it, the page says it's newer here and kept, and it isn't fetched again; a newer
+/// one in the library then replaces it.
+#[test]
+fn a_map_made_in_atlas_goes_whole_and_one_atlas_wrote_newer_on_the_device_is_kept() {
+    use gamerepo_core::{browse, index::Index, library::Library, maps, organise};
+    let dir = temp("go-packs-made");
+    let lib = library(&dir);
+    let l = Library::open(&lib).unwrap();
+    let ix = Index::open(&dir.join("game-repo-index.sqlite"), &l.id().unwrap()).unwrap();
+    browse::refresh(&ix, &l).unwrap();
+    let no_game = maps::folder(&l).join(maps::NO_GAME);
+    // named by the game's title alone, as the Importer names a pack from no site
+    write_made_pack(&no_game.join("Alpha.atlaspack"), "alpha-my-island", "Alpha", "2026-11-18T08:00:00Z", "2026-11-18T08:05:00Z");
+    let original = std::fs::read(no_game.join("Alpha.atlaspack")).unwrap();
+    maps::sync(&ix, &l).unwrap();
+    let plan = maps::link(&ix, &l, "alpha-my-island", ALPHA, false).unwrap().unwrap();
+    let r = organise::run(&ix, &l, &plan, &std::sync::atomic::AtomicBool::new(false), &mut |_| {}).unwrap();
+    assert!(r["failed"].as_array().unwrap().is_empty(), "{r}");
+    maps::after(&ix, &l, &plan, false).unwrap();
+    let kept = maps::folder(&l).join("Alpha").join("Alpha.atlaspack");
+    assert_eq!(std::fs::read(&kept).unwrap(), original, "linked whole, mine/ and all");
+
+    let s = start(&lib, &dir.join("server"));
+    let server = paired(&s);
+    let g: Value = server.get(&format!("/v1/games/{}", ALPHA.replace(' ', "%20"))).unwrap();
+    let p = &g["packs"][0];
+    assert_eq!(
+        (p["title"].as_str(), p["source"].as_str().unwrap_or(""), p["made_in"].as_str(), p["own_things"].as_str(), p["file"].as_str()),
+        (Some("Alpha"), "", Some("Atlas"), Some("With your own locations and notes"), Some("Alpha.atlaspack")),
+        "{g}"
+    );
+
+    let d = a_device(&dir);
+    let app = open_app(&dir, &d.home);
+    let atlas = dir.join("Atlas Packs");
+    call(&app, "set_settings", json!({ "media": [], "atlas_folder": atlas, "atlas_packs": true }));
+    pair(&app, &s);
+    call(&app, "add", json!({ "keys": [ALPHA] }));
+    queue_done(&app);
+    let on_device = atlas.join("Alpha.atlaspack");
+    assert_eq!(std::fs::read(&on_device).unwrap(), original, "delivered whole, mine/ and all");
+    let pack_item = |app: &App| call(app, "game", json!({ "key": ALPHA }))["packs"]["items"][0].clone();
+    let it = pack_item(&app);
+    assert_eq!((it["made_in"].as_str(), it["here"].as_bool(), it["newer_here"].as_bool()), (Some("Atlas"), Some(true), Some(false)), "{it}");
+
+    // Atlas changes the map on the device and writes its pack again: newer than the library's
+    write_made_pack(&on_device, "alpha-my-island", "Alpha", "2026-11-19T10:00:00Z", "2026-11-19T10:00:00Z");
+    let atlas_wrote = std::fs::read(&on_device).unwrap();
+    assert_ne!(atlas_wrote, original);
+    call(&app, "packs_get", json!({ "key": ALPHA }));
+    queue_done(&app);
+    assert_eq!(std::fs::read(&on_device).unwrap(), atlas_wrote, "the older one isn't put over it");
+    assert_eq!(names_in(&atlas), ["Alpha.atlaspack"], "nor beside it");
+    let it = pack_item(&app);
+    assert_eq!((it["here"].as_bool(), it["newer_here"].as_bool()), (Some(true), Some(true)), "{it}");
+    let rec: Value = serde_json::from_slice(&std::fs::read(dir.join("go").join("packs.json")).unwrap()).unwrap();
+    let e = &rec["delivered"][0];
+    assert_eq!((e["size"].as_u64(), e["sha1"].as_str()), (Some(atlas_wrote.len() as u64), Some(gamerepo_device::sha1_file(&on_device).unwrap().as_str())), "{rec}");
+    // the next time: the library's pack (as its SHA-1 says) is taken as here, so it isn't
+    // fetched again and again
+    let ask = gamerepo_wire::api::PlanAsk { games: vec![ALPHA.into()], packs: true, ..Default::default() };
+    let started = std::time::Instant::now();
+    let plan = loop {
+        let plan: gamerepo_wire::Plan = server.call("POST", "/v1/plans", Some(&ask)).unwrap();
+        if plan.files.iter().any(|f| f.role == "pack" && f.sha1.is_some()) || started.elapsed() > Duration::from_secs(60) {
+            break plan;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let pack_file = plan.files.iter().position(|f| f.role == "pack").unwrap();
+    assert_eq!(plan.files[pack_file].sha1.as_deref(), Some(gamerepo_device::sha1_file(&kept).unwrap().as_str()));
+    let (todo, _) = gamerepo_device::to_fetch(&app.device().unwrap(), &plan).unwrap();
+    assert!(!todo.contains(&pack_file), "no download loop");
+    let before = snapshot(&atlas);
+    call(&app, "packs_get", json!({ "key": ALPHA }));
+    queue_done(&app);
+    assert_eq!(snapshot(&atlas), before);
+
+    // a newer one in the library replaces it
+    write_made_pack(&kept, "alpha-my-island", "Alpha", "2026-11-20T09:00:00Z", "2026-11-20T09:00:00Z");
+    call(&app, "packs_get", json!({ "key": ALPHA }));
+    queue_done(&app);
+    assert_eq!(std::fs::read(&on_device).unwrap(), std::fs::read(&kept).unwrap());
+    assert_eq!(names_in(&atlas), ["Alpha.atlaspack"]);
+    let it = pack_item(&app);
+    assert_eq!((it["here"].as_bool(), it["newer_here"].as_bool()), (Some(true), Some(false)), "{it}");
+    app.queue.quit();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// D222, revised 2026-11-19: 0.5.72 guessed Atlas's packs folder on Linux as
 /// `~/.local/share/Atlas/Packs`, and Atlas's is `~/.local/share/atlas/packs` (the contract's
 /// answer 5). A saved setting of the old folder is taken as the usual one, and the packs Go

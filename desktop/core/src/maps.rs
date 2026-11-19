@@ -696,6 +696,10 @@ pub struct Item {
     pub pack_id: Option<String>,
     pub title: Option<String>,
     pub source: Option<String>,
+    /// For a pack from no site, the app it was made in ("Atlas")
+    pub made_in: Option<String>,
+    /// "With your own locations and notes", when it carries the maker's own things
+    pub own_things: Option<String>,
     pub version: Option<u64>,
     /// The sentence when it can't be read (it's brought in all the same)
     pub error: Option<String>,
@@ -745,6 +749,8 @@ pub fn read_items(ix: &Index, lib: &Library, paths: &[PathBuf]) -> Result<Vec<It
                 it.pack_id = d.pack_id.clone();
                 it.title = d.game_title().map(String::from);
                 it.source = d.source_name().map(String::from);
+                it.made_in = d.made_in().map(String::from);
+                it.own_things = d.own_things();
                 it.version = Some(d.version);
                 it.to_name = if named_as_contract(&name) { name.clone() } else { d.file_name().map(|n| safe_name(&n)).unwrap_or_else(|| name.clone()) };
                 if let Some(kept) = d.pack_id.as_deref().and_then(|id| state.pack(id)) {
@@ -1144,7 +1150,7 @@ pub fn packs_of(ix: &Index, lib: &Library, key: &str) -> Result<Vec<Linked>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::atlaspack::tests::{format6, format7, jpeg, write_pack};
+    use crate::atlaspack::tests::{format6, format7, jpeg, made_by_map_maker, made_in_atlas, mine_entries, write_pack, write_pack_with};
     use std::sync::atomic::AtomicBool;
 
     fn run(ix: &Index, lib: &Library, plan: &Plan) -> Value {
@@ -1395,6 +1401,48 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Block A6: maps made in Atlas or by Atlas Map Maker are packs from no site, named by
+    /// their game's title alone (never "Delta - .atlaspack"), matched and linked by it, shown
+    /// as made in the app, and the maker's own things under `mine/` go through import and
+    /// link byte for byte: Game Repo never reads or strips them.
+    #[test]
+    fn a_map_made_in_atlas_comes_from_no_site_and_goes_whole() {
+        let (dir, lib, ix) = crate::collection::tests::fixture("maps-made");
+        let base = folder(&lib);
+        let inbox = dir.join("made");
+        write_pack_with(&inbox.join("export-77.atlaspack"), &made_in_atlas("delta-my-map", "Delta", "2026-11-18T08:30:00Z"), &[], &mine_entries());
+        write_pack(&inbox.join("Beta.atlaspack"), &made_by_map_maker("beta-map-maker", "Beta", "2026-11-18T08:30:00Z"), &[]);
+        let original = std::fs::read(inbox.join("export-77.atlaspack")).unwrap();
+        let items = read_items(&ix, &lib, &[inbox.clone()]).unwrap();
+        let by = |n: &str| items.iter().find(|i| i.name == n).cloned().unwrap();
+        let made = by("export-77.atlaspack");
+        assert_eq!((made.to_name.as_str(), made.source.as_deref(), made.made_in.as_deref()), ("Delta.atlaspack", None, Some("Atlas")), "named by its game alone");
+        assert_eq!(made.own_things.as_deref(), Some("With your own locations, types and notes"));
+        let mm = by("Beta.atlaspack");
+        assert_eq!((mm.to_name.as_str(), mm.made_in.as_deref(), mm.own_things.as_deref()), ("Beta.atlaspack", Some("Atlas Map Maker"), None));
+        // copied (never hardlinked here), then matched by the game's title and linked
+        let plan = import_plan(&lib, &items, "copy", true).unwrap();
+        run(&ix, &lib, &plan);
+        assert_eq!(std::fs::read(base.join(NO_GAME).join("Delta.atlaspack")).unwrap(), original, "imported whole, mine/ and all");
+        let plan = auto_link_plan(&ix, &lib).unwrap().unwrap();
+        assert_eq!(plan.label, "Linked 2 packs to their games");
+        run(&ix, &lib, &plan);
+        assert_eq!(std::fs::read(base.join("Delta").join("Delta.atlaspack")).unwrap(), original, "linked whole, mine/ and all");
+        assert!(base.join("Beta").join("Beta.atlaspack").is_file());
+        // the page: no site, made in the app, and what of the maker's own it carries
+        let page = overview(&ix, &lib).unwrap();
+        let card = |id: &str| page["packs"].as_array().unwrap().iter().find(|p| p["id"] == id).cloned().unwrap();
+        let delta = card("delta-my-map");
+        assert_eq!((delta["source_name"].clone(), delta["made_in"].clone(), delta["own_things"].clone()), (Value::Null, json!("Atlas"), json!("With your own locations, types and notes")), "{delta}");
+        assert_eq!((delta["file"].as_str(), delta["games"][0]["title"].as_str()), (Some("Delta/Delta.atlaspack"), Some("Delta")), "{delta}");
+        assert_eq!(card("beta-map-maker")["made_in"], "Atlas Map Maker");
+        // Game Repo Server takes it as it is, for a device
+        let linked = linked(&ix, &lib).unwrap();
+        let l = linked.iter().find(|l| l.pack_id == "delta-my-map").unwrap();
+        assert_eq!((l.description.made_in(), std::fs::read(&l.path).unwrap() == original), (Some("Atlas"), true));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// The pack files below the folder outside any folder whose name begins with a dot (where
     /// Atlas Importer looks: it skips those, D216), and those inside one, `.part` files too.
     fn where_packs_are(base: &Path) -> (Vec<String>, Vec<String>) {
@@ -1504,6 +1552,8 @@ mod tests {
         write_pack(&gamma, &format6("gamma-example-maps", "Gamma", "2026-11-10T08:30:00Z"), &[]);
         write_pack(&delta_part, &format7("delta-example-maps", "Delta", "2026-11-19T08:30:00Z"), &[]);
         write_pack(&gamma_part, &format6("gamma-example-maps", "Gamma", "2026-11-19T08:30:00Z"), &[]);
+        // as written later (the same size: only its time tells it from the file it replaces)
+        std::fs::File::options().write(true).open(&gamma_part).unwrap().set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();
         write_pack(&alpha_part, &format6("alpha-example-maps", "Alpha", "2026-11-19T08:30:00Z"), &[]);
         let parts = [delta_part.clone(), gamma_part.clone(), alpha_part.clone()];
         let stamp = |p: &Path| (std::fs::read(p).unwrap(), std::fs::metadata(p).unwrap().modified().unwrap());

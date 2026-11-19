@@ -289,28 +289,37 @@ def add_pc_game():
     run("serve-devices", "changed", "--data", data)
 
 
-def atlas_packs():
-    """Two packs of maps and guides as Atlas Importer writes them (the Atlas pack contract,
-    as Atlas's block A3 built it), linked in the library to Beta, which the device has, and to Echo, which it
-    hasn't (D214-D222). Made-up games and sites only."""
+def atlas_pack_file(path, pack_id, title, key, updated="2026-11-10T10:00:00Z", more=""):
+    """A pack of maps and guides as Atlas Importer writes one (the Atlas pack contract, as
+    Atlas's block A3 built it), as docs/pack-file-format.md in Atlas's repository has it; no
+    small pictures, so version 6. `updated`: when its content last changed (`pack.updated`);
+    `more`: more in it (as Atlas writes a pack again with more of yours). Made-up games and
+    sites only."""
     import zipfile
+    d = {"format": "atlas-pack-file", "version": 6, "packId": pack_id, "title": f"{title} - Example Maps", "packVersion": "1.0.0", "detail": "standard",
+         "exportedAt": "2026-11-12T08:00:00Z", "exportedBy": {"name": "Atlas Importer", "version": "0.23.0", "platform": "linux"},
+         "pack": {"id": pack_id, "title": f"{title} - Example Maps", "packVersion": "1.0.0", "schemaVersion": 2, "attribution": [], "created": "2026-11-01T09:00:00Z", "updated": updated},
+         "images": {"detail": "standard", "files": 1, "bytes": 4096, "layers": []},
+         "source": {"kind": "web-pages", "name": "Example Maps", "importer": {"id": "example-maps", "title": "Example Maps"}, "newestPageAt": "2026-11-10T10:00:00Z"},
+         "game": {"title": title, "system": "Game Boy" if key.startswith("gb/") else "NES"}, "personalUse": True,
+         "contents": {"maps": 2, "locations": 120, "guides": 2}, "files": 2, "bytes": 4096,
+         "maps": [{"id": "map:world", "name": "The World", "width": 1024, "height": 768, "locations": 100}, {"id": "map:caves", "name": "The Caves", "width": 512, "height": 512, "locations": 20}],
+         "guides": [{"title": "The Wiki", "type": "wiki", "pages": 30}]}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("atlaspack.json", json.dumps(d))
+        z.writestr("data/pack.json", json.dumps({"id": pack_id}) + " " * 4000, compress_type=zipfile.ZIP_STORED)
+        if more:
+            z.writestr("mine/my-notes.json", more, compress_type=zipfile.ZIP_DEFLATED)
+    return path
+
+
+def atlas_packs():
+    """Two packs of maps and guides as Atlas Importer writes them, linked in the library to
+    Beta, which the device has, and to Echo, which it hasn't (D214-D222)."""
     made = {}
     for pack_id, title, key in (("beta-example-maps", "Beta", "gb/Beta (Europe)"), ("echo-example-maps", "Echo", "nes/Echo (USA)")):
-        # as docs/pack-file-format.md in Atlas's repository has it; no small pictures, so version 6
-        d = {"format": "atlas-pack-file", "version": 6, "packId": pack_id, "title": f"{title} - Example Maps", "packVersion": "1.0.0", "detail": "standard",
-             "exportedAt": "2026-11-12T08:00:00Z", "exportedBy": {"name": "Atlas Importer", "version": "0.23.0", "platform": "linux"},
-             "pack": {"id": pack_id, "title": f"{title} - Example Maps", "packVersion": "1.0.0", "schemaVersion": 2, "attribution": [], "created": "2026-11-01T09:00:00Z", "updated": "2026-11-10T10:00:00Z"},
-             "images": {"detail": "standard", "files": 1, "bytes": 4096, "layers": []},
-             "source": {"kind": "web-pages", "name": "Example Maps", "importer": {"id": "example-maps", "title": "Example Maps"}, "newestPageAt": "2026-11-10T10:00:00Z"},
-             "game": {"title": title, "system": "Game Boy" if key.startswith("gb/") else "NES"}, "personalUse": True,
-             "contents": {"maps": 2, "locations": 120, "guides": 2}, "files": 2, "bytes": 4096,
-             "maps": [{"id": "map:world", "name": "The World", "width": 1024, "height": 768, "locations": 100}, {"id": "map:caves", "name": "The Caves", "width": 512, "height": 512, "locations": 20}],
-             "guides": [{"title": "The Wiki", "type": "wiki", "pages": 30}]}
-        path = lib / "Maps and Guides" / "No game yet" / f"{title} - Example Maps.atlaspack"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(path, "w") as z:
-            z.writestr("atlaspack.json", json.dumps(d))
-            z.writestr("data/pack.json", json.dumps({"id": pack_id}) + " " * 4000, compress_type=zipfile.ZIP_STORED)
+        atlas_pack_file(lib / "Maps and Guides" / "No game yet" / f"{title} - Example Maps.atlaspack", pack_id, title, key)
         made[pack_id] = key
     run("maps", "sync", *lh)
     for pack_id, key in made.items():
@@ -1022,6 +1031,35 @@ async def main():
             check("unticking a pack on a game the device has takes it out of Atlas's packs folder, and only that",
                   "taken out of Atlas's packs folder" in said and sorted(p.name for p in atlas.iterdir()) == sorted(theirs)
                   and all((atlas / n).read_bytes() == b for n, b in theirs.items()), (said, sorted(p.name for p in atlas.iterdir())))
+            # ticked again it comes back; then Atlas writes it again here, newer than the
+            # library's (D222 revised): the library's older one isn't put over it, and the page
+            # says it's newer here and kept; unticked, it stays
+            await pg.click(f"{beta_pack} input")
+            got = atlas / came[0]
+            for _ in range(120):
+                if got.is_file() and not list(atlas.glob("*.part")):
+                    break
+                await asyncio.sleep(0.5)
+            atlas_pack_file(got, "beta-example-maps", "Beta", "gb/Beta (Europe)", updated="2026-11-19T10:00:00Z", more=json.dumps({"notes": [{"text": "by the well"}]}))
+            newer_here = got.read_bytes()
+            await pg.reload()
+            await pg.wait_for_selector("#go-game-packs-get", timeout=20000)
+            await pg.click("#go-game-packs-get")
+            for _ in range(60):
+                await asyncio.sleep(0.5)
+                await pg.reload()
+                if await pg.query_selector(f'{beta_pack} [data-said="newer-here"]'):
+                    break
+            kept_said = await pg.inner_text(beta_pack)
+            await shot(pg, "17c-phone-game-packs-newer-here")
+            check("a pack Atlas wrote again on the device, newer than the library's, is kept: the older one isn't put over it, and the page says so",
+                  "Newer on this device: kept" in kept_said and got.read_bytes() == newer_here and not list(atlas.glob("*.part"))
+                  and sorted(p.name for p in atlas.iterdir()) == sorted([*theirs, came[0]]) and not await pg.query_selector("#go-game-packs-get"), kept_said)
+            await pg.click(f"{beta_pack} input")
+            await settled(pg, f"() => !document.querySelector('{beta_pack} input')?.disabled")
+            await pg.reload()
+            await pg.wait_for_selector(f"{beta_pack} input:not(:checked)", timeout=20000)
+            check("unticked, a pack kept as newer on the device stays where it is", got.read_bytes() == newer_here, sorted(p.name for p in atlas.iterdir()))
             await pg.goto(B + "#game/" + "nes%2FEcho%20(USA)")
             await pg.wait_for_selector('#go-game-packs li[data-pack="echo-example-maps"]', timeout=20000)
             await pg.click("#go-game-add")

@@ -49,6 +49,8 @@ pub fn info(p: &Linked) -> Pack {
         pack_id: p.pack_id.clone(),
         title: d.game_title().map(String::from).unwrap_or(stem),
         source: d.source_name().unwrap_or_default().to_string(),
+        made_in: d.made_in().unwrap_or_default().to_string(),
+        own_things: d.own_things().unwrap_or_default(),
         file,
         size: p.size,
         maps,

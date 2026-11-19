@@ -63,8 +63,11 @@ export function packCounts(p) {
   ].filter(Boolean);
 }
 
-/** What's said under a pack's title: its site, counts, detail and size. */
-export const packFacts = (p) => [p.source_name, ...packCounts(p), DETAIL[p.detail] ? `${DETAIL[p.detail]} detail` : null, size(p.size)].filter(Boolean).join(" · ");
+/** Where a pack is from: its site, or for a map made in Atlas or Atlas Map Maker (no site), "Made in Atlas". */
+export const packFrom = (p) => p.source_name || (p.made_in ? `Made in ${p.made_in}` : null);
+
+/** What's said under a pack's title: where it's from, its counts, detail and size. */
+export const packFacts = (p) => [packFrom(p), ...packCounts(p), DETAIL[p.detail] ? `${DETAIL[p.detail]} detail` : null, size(p.size)].filter(Boolean).join(" · ");
 
 /** How old its pages are (`source.newestPageAt`), and when it last changed (`pack.updated`). */
 const ageLine = (p) => [p.source?.newest_page_at ? `Read ${howLong(p.source.newest_page_at)}` : null, p.updated ? `changed ${day(p.updated)}` : null].filter(Boolean).join(", ");
@@ -175,7 +178,7 @@ function ImportDialog({ paths }) {
       <ul class="ls-list pc-items" id="maps-items">${items.map((it) => html`<li key=${it.path} class="pc-item" data-name=${it.name} data-state=${it.state} data-include=${it.include ? "yes" : "no"}>
         <label class="check-row pc-item-include"><input type="checkbox" data-action="include" aria-label=${`Import ${it.name}`} checked=${it.include} disabled=${it.state === "same" || it.state === "older"} onChange=${(e) => set(it.path, { include: e.target.checked })} /></label>
         <div class="pc-item-main">
-          <span class="pc-item-name" title=${it.path}>${it.title || it.name} <span class="muted">${[it.source, size(it.size)].filter(Boolean).join(" · ")}</span></span>
+          <span class="pc-item-name" title=${it.path}>${it.title || it.name} <span class="muted">${[it.source || (it.made_in ? `Made in ${it.made_in}` : null), it.own_things, size(it.size)].filter(Boolean).join(" · ")}</span></span>
           ${it.to_name && it.to_name !== it.name ? html`<span class="muted maps-item-to">Named ${it.to_name}</span>` : null}
           ${it.error ? html`<span class="warn-note maps-item-error">${it.error} It's brought in all the same, and read once Game Repo can.</span>` : null}
           ${STATE[it.state] ? html`<span class="muted maps-item-state">${STATE[it.state]}</span>` : null}
@@ -219,7 +222,7 @@ const GROUPS = [["game", "Game"], ["", "None"], ["is", "Is"], ["source", "Site"]
 const COLUMNS = [
   ["title", "Title", (p) => p.title || p.name, "title"],
   ["game", "Game", (p) => (p.games || []).map((g) => g.title).join(", ") || STATUS[status(p)], "game"],
-  ["source", "Site", (p) => p.source_name || "", null],
+  ["source", "Site", (p) => packFrom(p) || "", null],
   ["counts", "Has", (p) => (p.unreadable ? p.error : packCounts(p).join(", ")), null],
   ["read", "Read", (p) => howLong(p.source?.newest_page_at) || "", "read"],
   ["size", "Size", (p) => size(p.size), "size"],
@@ -261,6 +264,7 @@ function PackPanel({ p, off, actions }) {
     <h2 id="maps-panel-title">${p.title || p.name}</h2>
     <p class="muted" id="maps-panel-facts">${packFacts(p)}</p>
     ${ageLine(p) ? html`<p class="muted" id="maps-panel-age">${ageLine(p)}</p>` : null}
+    ${p.own_things ? html`<p class="muted" id="maps-panel-mine">${p.own_things}.</p>` : null}
     ${p.personal_use ? html`<p class="muted" id="maps-panel-own-use">For your own use.</p>` : null}
     <${PanelActions} page="maps" actions=${actions} />
     ${status(p) === "review" ? html`<${Suggestions} p=${p} off=${off} />` : null}
@@ -330,7 +334,7 @@ export function Maps() {
     { id: "is", name: "Is", of: (p) => [status(p), p.personal_use ? "own" : null, p.copies?.length ? "copies" : null], label: (x) => STATUS[x] || (x === "own" ? "For your own use" : x === "copies" ? "Has another copy" : x) },
     { id: "game", name: "Game", of: (p) => (p.games?.length ? p.games.map((g) => g.title) : []), long: true, none: "No game yet", groupOrder: "name" },
     { id: "system", name: "System", of: (p) => (p.games || []).map((g) => g.platform), label: (x) => names.system.get(x) || x, none: "No game yet" },
-    { id: "source", name: "Site", of: (p) => [p.source_name], long: true, none: "No site given" },
+    { id: "source", name: "Site", of: (p) => [packFrom(p)], long: true, none: "No site given" },
     { id: "kind", name: "Has", of: (p) => p.kinds || [], label: (k) => KIND[k] || k },
     { id: "detail", name: "Detail", of: (p) => [p.detail], label: (d) => DETAIL[d] || d },
   ];
@@ -372,7 +376,7 @@ export function Maps() {
   return html`<${Shelf} page="maps" noun=${["pack", "packs"]} title="Maps and Guides" items=${data ? packs : null} error=${error} st=${st} set=${set}
     fields=${fields} groups=${GROUPS} sorts=${SORTS} ratio="4 / 3" columns=${COLUMNS} cols=${COLS}
     text=${(p) => [p.title, p.name, p.game_title, p.source_name, ...(p.games || []).map((g) => g.title), ...(p.maps || []).map((m) => m.name), ...(p.guides || []).map((g) => g.title)].join(" ")}
-    tile=${(p) => ({ pics: pics(p, 512), none: noPic(p), badge: { text: p.unreadable ? "Can't be read" : p.games?.length ? p.games[0].platform_name : STATUS[status(p)], colour: systemColour(p.games?.[0]?.platform || "maps") }, title: p.title || p.name, meta: p.unreadable ? p.error : [gameTitle(p) !== p.title ? gameTitle(p) : null, p.source_name, packCounts(p)[0]].filter(Boolean).join(" · "), missing: p.unreadable })}
+    tile=${(p) => ({ pics: pics(p, 512), none: noPic(p), badge: { text: p.unreadable ? "Can't be read" : p.games?.length ? p.games[0].platform_name : STATUS[status(p)], colour: systemColour(p.games?.[0]?.platform || "maps") }, title: p.title || p.name, meta: p.unreadable ? p.error : [gameTitle(p) !== p.title ? gameTitle(p) : null, packFrom(p), packCounts(p)[0]].filter(Boolean).join(" · "), missing: p.unreadable })}
     line=${(p) => ({ pics: pics(p, 256), none: noPic(p), badge: { text: p.games?.length ? p.games.map((g) => g.title).slice(0, 2).join(", ") : STATUS[status(p)] }, title: p.title || p.name, meta: p.unreadable ? p.error : [packFacts(p), ageLine(p)].filter(Boolean).join(" · "), missing: p.unreadable })}
     actions=${actions} onOpen=${(p) => !p.unreadable && openInAtlas(p)} top=${top} primary=${packs.length ? null : primary} more=${more} moreTitle="Import, look again, tile size" empty=${empty}
     panel=${(p) => html`<${PackPanel} p=${p} off=${off} actions=${actions([p]).filter((a) => ["open", "link", "take-off", "picture", "show", "remove"].includes(a.id))} />`} />`;
@@ -384,7 +388,7 @@ export function GameMaps({ g }) {
   return html`<section class="ls-section" id="game-maps"><h2>Maps and guides</h2>
     <ul class="ls-list">${g.maps.map((p) => html`<li key=${p.id} data-id=${p.id}><span class="op-paths">
       <span>${Icon.map(14)} ${p.title || p.name}</span>
-      <span class="muted">${packFacts(p)}${ageLine(p) ? ` · ${ageLine(p)}` : ""}</span></span>
+      <span class="muted">${packFacts(p)}${ageLine(p) ? ` · ${ageLine(p)}` : ""}${p.own_things ? ` · ${p.own_things}` : ""}</span></span>
       <button type="button" class="ghost compact" data-action="open-atlas" disabled=${!isDesktop()} onClick=${() => openInAtlas(p)}>Open in Atlas</button></li>`)}</ul>
     <p class="muted"><a href=${routeHash("maps")}>Maps and Guides</a> has every pack.</p>
   </section>`;

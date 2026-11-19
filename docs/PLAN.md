@@ -7106,6 +7106,11 @@ of this app is needed to open it.*), still shown as it is; and a description who
 refused as damaged (*This pack file names a game id that cannot be used.*), so Game Repo's
 own "no packId" sentence is gone.
 
+Revised 2026-11-19 a third time ("Maps and Guides notes, part 5"): Atlas released 0.23.0, and
+`atlas-pack` is now taken by its release tag, `tag = "v0.23.0"` (commit
+`e8b42006efb55a4031848cdd73add25514254eea`; the crate's code is the same as at 60b4666).
+Game Repo Go's crate takes it too, for D222's revised rule.
+
 **D216 The folder and the record.** Packs live in the library's `Maps and Guides/` folder,
 laid out as the contract says:
 ```
@@ -7220,6 +7225,20 @@ is sent as it is. Game Repo Go, on Windows and Linux (the Steam Deck):
 - Removing a game from a device leaves its packs (taking them off is an open point of the
   contract, to be agreed by both projects). Android doesn't offer packs until trial T2's
   result is in the contract.
+
+Revised 2026-11-19 ("Maps and Guides notes, part 5"; the contract's new rule for Go, block
+A6): Atlas can change a map made in it and write its pack file again where it lies, so a
+pack on a device can be newer than the library's. Before Go replaces a pack file on a
+device (a newer delivery over its old file, under the same name or another, or in the
+folder used before), it reads both descriptions with Atlas's crate and never puts an older
+pack over a newer one: `pack.updated` first, then `exportedAt`. The file on the device newer
+or as new: it's kept, the download dropped, and Go's record follows it (its size and SHA-1,
+and the library's SHA-1 it was kept over, so it's not fetched again); the game's page says
+*Newer on this device: kept*, and unticking never takes it out. The one coming newer: it
+replaces the file there, even one written again since Go delivered it (a pack Atlas rewrote
+is expected now). Either one that can't be read as the pack: the rules above (Go replaces
+only a file it delivered, unchanged). Carrying a newer file on a device back to the library
+is open in the contract, and not built.
 
 **D223 What's left out for now.** Guidebooks (the `Guidebooks/` folder under a title, their
 text, and the guidebook pack Game Repo would make with the crate's writer: draft, block A8),
@@ -7551,6 +7570,101 @@ merged blocks A1, A2, A4 and A5; the pack code hasn't changed since A1. What cha
   again just before its rename would help. And does Atlas take a path ending in
   `.ATLASPACK` (upper case) as a pack's, as Game Repo does?
 
+### Maps and Guides notes, part 5: Atlas 0.23.0 and maps made in Atlas (built 2026-11-19)
+
+The contract changed again on 2026-11-19 (entries after rev 31): Atlas 0.23.0 is released
+(tag `v0.23.0`, commit `e8b42006efb55a4031848cdd73add25514254eea`, blocks A1–A6; Atlas
+Importer 0.23.0 is the first that writes format 7 packs and keeps them up to date in Maps and
+Guides), and block A6 makes maps made in Atlas and by Atlas Map Maker pack files too, with a
+new rule for Go. What changed here:
+- The tag: `atlas-pack = { git = "https://github.com/DrFlGd/Atlas", tag = "v0.23.0" }` in
+  `desktop/core/Cargo.toml` and now `desktop/device/Cargo.toml` too; `Cargo.lock`'s source
+  line becomes `?tag=v0.23.0#e8b42006…` and the device crate lists `atlas-pack` (and `zip` for
+  its tests), nothing else; `THIRD_PARTY.md` names the tag. The crate's code at the tag is
+  the same as at 60b4666 (checked file by file). `vendor.yml`'s check for the git source
+  (`git = "https://github.com/DrFlGd/Atlas"` in `vendor-config.toml`) still matches a
+  `[source."git+…?tag=v0.23.0"]` section; it already vendors the device crate's
+  dependencies, and a change to its `Cargo.toml` starts it.
+- Packs from no site (A6 (1)): a map made in Atlas or by Atlas Map Maker comes into
+  `No game yet` as `GAME TITLE.atlaspack`; its description names no site (`source.kind`
+  `unknown`, no `source.name`, no importer) and says who wrote it in `pack.writtenBy`.
+  `Description::made_in` is `pack.writtenBy.name`, else `exportedBy.name`, for a pack that
+  names no site and isn't `web-pages`; the card, the panel, the import review, a game's page,
+  the Site filter, Game Repo Server's game details (`api::Pack.made_in`) and Go's page say
+  *Made in Atlas* (or *Made in Atlas Map Maker*) where a site's name would be. The import
+  names such a file `<game title>.atlaspack` (`file_name` already left the site out when
+  there's none; never "Title - .atlaspack"), and matching and linking go by the game's title
+  as before.
+- The maker's own things (A6 (2)): a pack of a map made in Atlas carries them under `mine/`
+  and counts them in `mine` (lists, locations, types, areas, photos, pages, sections, notes,
+  guide links, group). `Description.mine` keeps the counts and `own_things` says them
+  plainly (*With your own locations and notes*), on the card's panel, the import review, a
+  game's page, the server's game details (`api::Pack.own_things`) and Go's page. Nothing
+  reads, strips or changes `mine/`: an import copies the file, a link renames it, the server
+  serves the file as it is and Go renames it into place; tests now hold each byte for byte.
+- Go's new rule (A6 (3), D222 revised): `gamerepo-device` takes the crate (its ZIP reading
+  is pure Rust, `zip` with `deflate-flate2-zlib-rs`: `cargo tree --target
+  aarch64-linux-android` shows no C zlib for Game Repo Go, and `cargo check --target
+  aarch64-linux-android -p atlas-pack` builds here; the whole APK builds only in CI). In
+  `packs::put_in_place`, before the `.part` is renamed, `compare` reads the `packId`,
+  `pack.updated` and `exportedAt` of the `.part` and of the file Go delivered of the pack
+  (wherever it is now, whatever was written in it since), and `gamerepo_wire::packs::newer`
+  (the date comparison moved there from the core, so both decide alike) gives a `Verdict`:
+  - `Here` or `Same` (the file there newer, or as new) with that file in the folder used
+    now: it's kept, the `.part` and its ETag removed, and the record follows the file there
+    (`size`, `sha1` hashed from it, `kept_over` the library's SHA-1, `newer_here` for
+    `Here`). `packs::there` takes a plan's pack whose SHA-1 is `kept_over` as here while the
+    file is (whatever Atlas writes in it later), so it's not fetched again: no download
+    loop. The game's page says *Newer on this device: kept* (`packs_view`'s `newer_here`).
+  - `Coming` (the one coming newer): it replaces the file there, renamed over it or the old
+    one removed when its name changed, even when the file was changed since Go delivered
+    it: a pack Atlas rewrote is expected now, and this one is older by its description. The
+    record starts again (`kept_over` empty).
+  - `Unknown` (either can't be read as the pack: a newer format, not a pack, another
+    `packId`, gone): part 2's rules, Go replaces only a file it delivered that's unchanged,
+    else the pack goes beside it as `<name> (2).atlaspack`.
+  - The file Go delivered in the folder used before (another `atlas_folder`): the one coming
+    goes into the folder used now, and the old one is removed only when it's older than
+    that one, or unchanged and not newer.
+  Part 2's "changed since delivered, not Go's to replace" stays for files Go can't compare,
+  and for removal: `take_off` (unticking) removes a file only when its size and its SHA-1
+  are as Go left it (Atlas may write a pack again at the same size), and never one kept over
+  the library's, which stays in the record so ticked again it isn't fetched. The folder move
+  of part 4 (`move_from`) never writes over a file (a taken name gives `(2)`), so it can't
+  put an older pack over a newer one; it's unchanged. A file of the pack's name that Go
+  didn't deliver is still never written over, nor compared.
+- Not built, open in the contract: carrying a newer file on a device back to the library.
+  The record keeps `newer_here` for when it's agreed.
+- Also: `atlas_importers_unfinished_files_are_never_shown_read_moved_or_removed` could fail
+  when the Importer's file renamed into place had the same size and time as the one it
+  replaced (the index remembers a file by both); the test now gives it a later time.
+- Tests: `wire` `packs` (`pack.updated` first, then `exportedAt`, instants with offsets,
+  a missing date earlier), `core` `atlaspack`
+  (`a_pack_from_no_site_is_made_in_atlas_and_says_what_of_yours_it_carries`: made in Atlas
+  and by Map Maker, `Title.atlaspack`, `own_things`' wording, a site's pack never "made
+  in"), `core` `maps` (`a_map_made_in_atlas_comes_from_no_site_and_goes_whole`: the import
+  review, named by its game, copied and linked byte for byte with `mine/`, the card, Game
+  Repo Server's `linked`), `device` `packs`
+  (`an_older_pack_is_never_put_over_a_newer_one_atlas_wrote_on_the_device`: delivered whole,
+  Atlas's newer file kept over the library's of a later `exportedAt` but an older
+  `pack.updated`, the record's size, SHA-1 and `kept_over`, not fetched again even after Atlas
+  writes it again, never taken out by an untick, then replaced by a newer library file;
+  `the_same_pack_updated_is_decided_by_exported_at_and_a_file_that_cant_be_read_by_the_rules_before`:
+  a renamed pack kept and then replaced by `exportedAt`, both as new kept, a file that's not
+  a pack and one coming in a format Go can't read by the old rules, the folder used before;
+  and a file written again at the same size not removed by an untick), `serve`
+  `tests/client.rs` (`a_map_made_in_atlas_goes_whole_and_one_atlas_wrote_newer_on_the_device_is_kept`:
+  linked and delivered byte for byte, the server's `made_in` and `own_things`, Atlas's newer
+  file kept with the page's `newer_here`, the record, the plan's pack not in `to_fetch`, then
+  a newer library file replacing it), `desktop_page.py` (a map made in Atlas linked by the
+  watcher, whole, its card and panel saying *Made in Atlas* and *With your own locations and
+  notes*) and `client_page.py` (a pack Atlas wrote again on the device kept, *Newer on this
+  device: kept*, and left by an untick). Made-up packs only.
+- For the Atlas side: should Go's `made_in` follow `pack.writtenBy.name` (Atlas Importer's
+  own build may write a made map's manifest as "Atlas Importer"), or will the description
+  say which of the three sorts a pack is? And when Go keeps a newer file on a device, is
+  there anything Atlas wants Go to do with the library's older copy beyond leaving it?
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -7821,9 +7935,11 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     a commit of Atlas's main branch until a release tag: built ("Maps and Guides
     notes, part 3"); part 4, the contract's answers (the pin moved to 60b4666, refusals
     with their kinds, Atlas's real packs folder on Linux, Atlas Importer's unfinished files
-    left alone, renames tried again): built ("Maps and Guides notes, part 4"). Guidebooks,
-    starting Atlas on a device's game, your data beside a pack and Android wait for the
-    contract (D223).
+    left alone, renames tried again): built ("Maps and Guides notes, part 4"); part 5, Atlas
+    0.23.0 by its tag, maps made in Atlas (packs from no site, the maker's own things) and
+    Go never putting an older pack over a newer one (D222 revised): built ("Maps and Guides
+    notes, part 5"). Guidebooks, starting Atlas on a device's game, your data beside a pack,
+    carrying a newer pack on a device back, and Android wait for the contract (D223).
 31. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices
