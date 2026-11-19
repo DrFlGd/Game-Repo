@@ -93,6 +93,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.75 (2026-11-19)
+
 - **Maps and Guides tells the sort of a pack as Atlas does.** A map made in Atlas Importer now says *Made in Atlas* (not *Made in Atlas Importer*), a map made by Atlas Map Maker *Made in Atlas Map Maker*, and a pack that came with an app *Came with an app*, in Maps and Guides, the import review, a game's page and Game Repo Go; a pack read from a site still names its site. *With your own …* stays a line of its own.
 - **Game Repo Go doesn't download a pack Atlas already has as new or newer.** When Atlas's packs folder on a device already holds a copy of a pack that Game Repo Go didn't put there (copied in by hand, say) and that copy is the same version as the library's or newer, Go leaves it as it is, doesn't download its own (Atlas would show that copy anyway), and says so on the game's page. It never replaces or removes that copy.
 - A pack changed on a device stays on the device: Game Repo Go keeps the newer file there and leaves the library's copy as it is. Nothing is brought back to the library (Jerred's decision, for now).
