@@ -4,7 +4,8 @@
 // details are fetched when it's opened and kept, so it shows away from home too. An installed
 // PC game's files can be checked and the game put back (D207–D208), its mods picked
 // and applied to it as it's installed (D209), and a mod put in by hand recorded as its,
-// taken off by itself, or kept in the library (D210).
+// taken off by itself, or kept in the library (D210). On Windows and Linux its packs of
+// maps and guides for Atlas are listed, each ticked or not (D222).
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
@@ -13,6 +14,7 @@ import { back, go, open, showDialog } from "./state.js";
 import { ago, bytes, kindName, message } from "./format.js";
 import { pick } from "./library.js";
 import { enqueue } from "./add.js";
+import { Packs } from "./packs.js";
 
 function Picture({ k, kind, size, alt }) {
   const [bad, setBad] = useState(false);
@@ -168,10 +170,11 @@ export function GamePage({ gameKey }) {
   // its saves as last synced (D191)
   useEffect(() => { call("saves").then((v) => setSaves(v?.games?.[gameKey] || [])).catch(() => setSaves([])); }, [gameKey, s.savesRev]);
   const [error, setError] = useState("");
+  const [rev, setRev] = useState(0);
   useEffect(() => {
     setError("");
     call("game", { key: gameKey }).then(setG).catch((e) => setError(message(e)));
-  }, [gameKey, s.deviceRev]);
+  }, [gameKey, s.deviceRev, rev]);
   const game = g?.game;
   const d = g?.details?.details || {};
   const media = g?.details?.media || [];
@@ -207,6 +210,7 @@ export function GamePage({ gameKey }) {
           ${saves.length ? html`<ul class="go-sizes" id="go-game-saves">${saves.map((x) => html`<li data-conflict=${x.conflict ? "yes" : "no"}><span>${x.label}</span><span class="muted">${x.conflict ? "differs from the library's: choose one in Game Repo" : `synced ${ago(x.at)}`}</span></li>`)}</ul>` : null}
           ${d.description ? html`<div class="go-game-text">${String(d.description).split(/\n\s*\n/).map((p) => html`<p>${p}</p>`)}</div>` : null}
           ${facts.length ? html`<dl class="go-facts">${facts.map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>` : null}
+          <${Packs} k=${game.key} packs=${g.packs} onDevice=${g.on_device} onChange=${() => setRev((r) => r + 1)} />
           ${media.length ? html`<h2>Pictures and manuals</h2>
             <ul class="go-sizes">${media.map((m) => html`<li><span>${kindName(m.kind)}</span><span class="muted">${bytes(m.size)}</span></li>`)}</ul>` : null}
           ${files.length ? html`<h2>Files</h2>

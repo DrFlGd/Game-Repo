@@ -4,13 +4,14 @@
 // (the view, D113, the big screen's size, D132, and Game Repo's skins and themes) and the
 // version with its updates (D134); on Windows and Linux, the PC games folder (D111) and full screen (D127); on
 // Linux, Steam (D107, D109); Tailscale, set up on the Steam Deck (D179); and saves synced
-// with the library (D186). Each change is kept as it's made.
+// with the library (D186); and on Windows and Linux, maps and guides for Atlas with their
+// folder (D222). Each change is kept as it's made.
 import { html, useEffect, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { SKINS, THEMES } from "../ui/state.js";
 import { call, info, pickFolder } from "./backend.js";
 import { go, look, refreshLists, refreshSettings, refreshStatus, say, setLook, showDialog, usualView } from "./state.js";
-import { ago, bytes, count, KINDS, message } from "./format.js";
+import { ago, bytes, count, KINDS, message, plural } from "./format.js";
 import { UpdatePanel } from "../ui/updates.js";
 
 function Folder({ id, label, value, fallback, setting, error }) {
@@ -274,6 +275,16 @@ export function SettingsPage() {
       <p class="muted" id="set-mods-note">The mods ticked for a game in Game Repo go over its files as it's installed, in their order. Mods that are installers are never run: run those yourself.</p>
       <p class="muted" id="set-pc-shortcuts">Each game goes in a folder of its own there, with a shortcut ${info.kind === "windows" ? "in the Start menu's Game Repo Go folder" : "in Steam, through Proton for a Windows game"}. Removing a game keeps the files it made itself, such as saves.</p>
       ${!st.pc.default ? html`<div><button type="button" class="ghost" id="set-pc-usual" onClick=${() => set({ pc_games: "" }).then(refreshStatus)}>Use the usual folder</button></div>` : null}
+    </section>` : null}
+
+    ${st.atlas && info.kind !== "android" ? html`<section class="go-set" id="set-atlas">
+      <h2>Maps and guides for Atlas</h2>
+      <label class="check-row"><input type="checkbox" id="set-atlas-on" checked=${v.atlas_packs === true} onChange=${() => set({ atlas_packs: v.atlas_packs !== true }).then(refreshStatus)} />
+        <span>Maps and guides for Atlas</span></label>
+      <p class="muted" id="set-atlas-note">A game's packs of maps and guides from the library go into Atlas's packs folder with it, those ticked on its page. Packs can be large, so this is off until you tick it. Game Repo Go only changes the pack files it put there itself, and removing a game leaves its packs.</p>
+      <${Folder} id="set-atlas-folder" label="Atlas's packs folder" value=${st.atlas.folder} setting="atlas_folder" fallback=${st.atlas.usual} />
+      ${st.atlas.delivered ? html`<p class="muted" id="set-atlas-delivered">${plural(st.atlas.delivered, "pack")} put there by Game Repo Go.</p>` : null}
+      ${!st.atlas.default ? html`<div><button type="button" class="ghost" id="set-atlas-usual" onClick=${() => set({ atlas_folder: "" }).then(refreshStatus)}>Use the usual folder</button></div>` : null}
     </section>` : null}
 
     <section class="go-set" id="set-downloads">

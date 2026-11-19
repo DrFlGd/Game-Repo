@@ -50,6 +50,9 @@ pub struct Item {
     pub manuals: bool,
     /// Only its media and manual, for a game the device has (D102)
     pub media_only: bool,
+    /// Only its packs of maps and guides for Atlas, for a game the device has (D222)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub packs_only: bool,
     /// Its files on the device, for a game from elsewhere whose media is asked for (D102)
     pub adopt: Vec<HeldFile>,
     /// The ES-DE custom collection it's put in too (C16); empty: none
@@ -227,7 +230,12 @@ impl Queue {
         let mut next = inner.items.iter().map(|i| i.id).max().unwrap_or(0) + 1;
         let mut ids = vec![];
         for mut it in items {
-            if let Some(there) = inner.items.iter_mut().find(|x| x.key == it.key && x.media_only == it.media_only && x.state != State::Done) {
+            let same = |x: &Item| x.key == it.key && x.media_only == it.media_only && x.packs_only == it.packs_only;
+            // a game's packs asked for again while some come: another turn, with the ticks as they are now
+            if let Some(there) = inner.items.iter_mut().find(|x| same(x) && x.state != State::Done && !(it.packs_only && x.state == State::Downloading)) {
+                if it.packs_only {
+                    there.plan = None;
+                }
                 if start && matches!(there.state, State::Failed | State::Paused | State::Queued) {
                     there.state = State::Waiting;
                     there.error.clear();
@@ -237,7 +245,7 @@ impl Queue {
                 ids.push(there.id);
                 continue;
             }
-            inner.items.retain(|x| !(x.key == it.key && x.media_only == it.media_only && x.state == State::Done));
+            inner.items.retain(|x| !(same(x) && x.state == State::Done));
             it.id = next;
             next += 1;
             it.state = if start { State::Waiting } else { State::Queued };
@@ -451,8 +459,8 @@ impl Queue {
                             it.state = State::Done;
                             it.done = it.size;
                             it.plan = None;
-                            // ES-DE doesn't list PC games, so they need no restart of it
-                            if !crate::pcgames::is_pc(&it.key) {
+                            // ES-DE doesn't list PC games or Atlas's packs, so they need no restart of it
+                            if !crate::pcgames::is_pc(&it.key) && !it.packs_only {
                                 inner.added += 1;
                             }
                         }
@@ -522,6 +530,7 @@ impl Queue {
         o.media = item.media.clone();
         o.manuals = item.manuals;
         o.media_only = item.media_only;
+        o.packs_only = item.packs_only;
         o.collection = item.collection.clone();
         o.adopt = if item.adopt.is_empty() { vec![] } else { vec![(item.key.clone(), item.adopt.clone())] };
         let keys = [item.key.clone()];

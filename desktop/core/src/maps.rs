@@ -1091,20 +1091,29 @@ pub struct Linked {
     pub path: PathBuf,
     pub size: u64,
     pub games: Vec<PackGame>,
+    /// Its description (empty when it can't be read: see `error`)
     pub description: Description,
+    /// Why Game Repo can't read it (a newer format, say): it's sent on as it is all the same
+    /// (D215, D222), since the Atlas on the device may be newer
+    pub error: Option<String>,
 }
 
 /// Every pack linked to a game, with its file, size and description (the folder read
-/// again first; nothing is written in a library that's read only).
+/// again first; nothing is written in a library that's read only). A linked pack whose
+/// file can't be read now (the Importer wrote a newer format in its place) is still one:
+/// the record has its file, and it goes as it is.
 pub fn linked(ix: &Index, lib: &Library) -> Result<Vec<Linked>> {
     let state = sync(ix, lib)?;
     let base = folder(lib);
-    Ok(state
-        .packs
-        .into_iter()
-        .filter(|p| !p.kept.games.is_empty())
-        .map(|p| Linked { path: base.join(&p.file.rel), size: p.file.size, games: p.kept.games.clone(), description: p.file.description.clone().unwrap_or_default(), pack_id: p.id })
-        .collect())
+    let mut out: Vec<Linked> = vec![];
+    for p in state.packs.iter().filter(|p| !p.kept.games.is_empty()) {
+        out.push(Linked { path: base.join(&p.file.rel), size: p.file.size, games: p.kept.games.clone(), description: p.file.description.clone().unwrap_or_default(), pack_id: p.id.clone(), error: None });
+    }
+    for (id, k) in state.record.packs.iter().filter(|(id, k)| !k.games.is_empty() && state.pack(id).is_none()) {
+        let Some(f) = k.file.as_deref().and_then(|rel| state.unreadable.iter().find(|f| f.rel == rel)) else { continue };
+        out.push(Linked { pack_id: id.clone(), path: base.join(&f.rel), size: f.size, games: k.games.clone(), description: Description::default(), error: f.error.clone() });
+    }
+    Ok(out)
 }
 
 /// The packs linked to one game, by its key.
@@ -1249,6 +1258,29 @@ mod tests {
         let state = sync(&ix, &lib).unwrap();
         let z = state.pack("zeta-example-maps").unwrap();
         assert!(z.kept.games.is_empty() && in_no_game(&z.file.rel));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_linked_pack_rewritten_in_a_newer_format_is_still_sent_as_it_is() {
+        // D222: Game Repo Server sends a game's linked packs; one the Importer has since
+        // written in a format this Game Repo can't read keeps its link and goes on as it is
+        let (dir, lib, ix) = crate::collection::tests::fixture("maps-linked");
+        let base = folder(&lib);
+        write_pack(&base.join(NO_GAME).join("Delta - Example Maps.atlaspack"), &format7("delta-example-maps", "Delta", "2026-11-17T08:30:00Z"), &[]);
+        write_pack(&base.join(NO_GAME).join("Zeta - Example Maps.atlaspack"), &format6("zeta-example-maps", "Zeta", "2026-11-10T08:30:00Z"), &[]);
+        sync(&ix, &lib).unwrap();
+        run(&ix, &lib, &auto_link_plan(&ix, &lib).unwrap().unwrap());
+        let all = linked(&ix, &lib).unwrap();
+        assert_eq!(all.iter().map(|p| (p.pack_id.as_str(), p.error.is_none())).collect::<Vec<_>>(), [("delta-example-maps", true)], "only the packs linked to a game");
+        let file = base.join("Delta/Delta - Example Maps.atlaspack");
+        let mut eight = format7("delta-example-maps", "Delta", "2026-11-19T08:30:00Z");
+        eight["version"] = json!(8);
+        write_pack(&file, &eight, &[]);
+        let p = packs_of(&ix, &lib, "gb/Delta (World)").unwrap();
+        assert_eq!(p.len(), 1);
+        assert_eq!((p[0].pack_id.as_str(), &p[0].path, p[0].size), ("delta-example-maps", &file, std::fs::metadata(&file).unwrap().len()));
+        assert!(p[0].error.as_deref().is_some_and(|e| e.contains("format 8")), "{:?}", p[0].error);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

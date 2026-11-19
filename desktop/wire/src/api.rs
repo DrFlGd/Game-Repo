@@ -204,6 +204,51 @@ pub struct PlanAsk {
     /// the library's ticks (D209); with `mods` or not
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub mod_picks: Vec<(String, Vec<String>)>,
+    /// Each game's packs of maps and guides for Atlas (D222), for a device that puts them in
+    /// Atlas's packs folder (its place `atlas`)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub packs: bool,
+    /// Only the games' packs, for games the device has already (a pack ticked on its page)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub packs_only: bool,
+    /// The packs a device left out of a game (its key, and their `packId`s), unticked on the
+    /// game's page
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub packs_left: Vec<(String, Vec<String>)>,
+}
+
+/// A pack of a game's maps and guides for Atlas (D222), as `GET /v1/games/<key>` lists it
+/// (`packs`), from its description (`atlaspack.json`).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Pack {
+    /// Its `packId`: the same every time it's written again
+    pub pack_id: String,
+    /// The game's title it's for, else the pack's own title, else its file's name
+    pub title: String,
+    /// The site it was read from (`source.name`, else `source.importer.title`)
+    pub source: String,
+    /// Its file's name and size
+    pub file: String,
+    pub size: u64,
+    /// Its maps, locations, and guides' and wiki pages (0: none, or not said)
+    pub maps: u64,
+    pub locations: u64,
+    pub guide_pages: u64,
+    pub wiki_pages: u64,
+    /// overview | standard | full
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub detail: String,
+    /// When its content last changed (`pack.updated`)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub updated: String,
+    /// Made for your own use only (`personalUse`)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub personal_use: bool,
+    /// Why Game Repo can't read it (a newer format): it's sent as it is all the same, since
+    /// the Atlas on the device may be newer
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub error: String,
 }
 
 /// A media kind's size for the games asked for, asked for or not (C13, D88), so a device

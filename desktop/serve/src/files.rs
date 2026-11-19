@@ -136,6 +136,9 @@ mod tests {
             ("_library/games/gb/Alpha/media/cover.png", true),
             ("_library/docs/General/Guide.pdf", true),
             ("BIOS/psx/scph1001.bin", true),
+            // a game's pack of maps and guides (D222), not the pictures chosen for packs
+            ("Maps and Guides/Delta/Delta - Example Maps.atlaspack", true),
+            ("Maps and Guides/.pictures/ab12.png", false),
             ("_library/library.json", false),
             ("_library/journal/x.json", false),
             ("_library/dats/gb/a.dat", false),

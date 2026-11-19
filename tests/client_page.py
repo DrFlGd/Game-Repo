@@ -21,7 +21,9 @@ folders and gamelists with the kinds chosen and not the other; On this device wi
 games from the library, the copy recognised and the game from elsewhere, by system and in
 one list; Make room ticking
 games; a removal shown and done; a game's media removed alone; Settings (Show games on this
-device, the look, each skin, About and updates with the CLI's stand-in for the updater, Tailscale set up on the Steam Deck with stand-ins for Konsole and Tailscale); the Library and a game's page kept with the library away; every page
+device, the look, each skin, About and updates with the CLI's stand-in for the updater, Tailscale set up on the Steam Deck with stand-ins for Konsole and Tailscale); Maps and
+guides for Atlas (off at first, a game's packs listed and ticked, one brought into Atlas's
+packs folder and taken out again, Atlas's own files untouched, hidden on Android); the Library and a game's page kept with the library away; every page
 moved through with the keys alone, and the games by rows and columns; no page errors; and
 the library and everything outside ES-DE's folders as they were. Screenshots for each.
 """
@@ -285,6 +287,34 @@ def add_pc_game():
     (mods / "patches.json").write_text(json.dumps({"mods": {"Big Level": {"title": "Big Level", "how": "game", "on": False, "order": 1},
                                                             "Hand Patch": {"title": "Hand Patch", "how": "hand", "notes": "Needs the 1.1 update.", "order": 2}}}), encoding="utf-8")
     run("serve-devices", "changed", "--data", data)
+
+
+def atlas_packs():
+    """Two packs of maps and guides as Atlas Importer writes them (the Atlas pack contract,
+    format 7), linked in the library to Beta, which the device has, and to Echo, which it
+    hasn't (D214-D222). Made-up games and sites only."""
+    import zipfile
+    made = {}
+    for pack_id, title, key in (("beta-example-maps", "Beta", "gb/Beta (Europe)"), ("echo-example-maps", "Echo", "nes/Echo (USA)")):
+        d = {"format": "atlas-pack-file", "version": 7, "packId": pack_id, "title": f"{title} - Example Maps", "packVersion": "1.0.0", "detail": "standard",
+             "exportedAt": "2026-11-12T08:00:00Z", "exportedBy": {"name": "Atlas Importer", "version": "0.23.0", "platform": "linux"},
+             "pack": {"id": pack_id, "title": f"{title} - Example Maps", "packVersion": "1.0.0", "created": "2026-11-01T09:00:00Z", "updated": "2026-11-10T10:00:00Z"},
+             "source": {"kind": "web-pages", "name": "Example Maps", "importer": {"id": "example-maps", "title": "Example Maps"}, "newestPageAt": "2026-11-10T10:00:00Z"},
+             "game": {"title": title, "system": "Game Boy" if key.startswith("gb/") else "NES"}, "personalUse": True,
+             "contents": {"maps": 2, "locations": 120, "guides": 2}, "files": 2, "bytes": 4096,
+             "maps": [{"id": "map:world", "name": "The World", "width": 1024, "height": 768, "locations": 100}, {"id": "map:caves", "name": "The Caves", "width": 512, "height": 512, "locations": 20}],
+             "guides": [{"title": "Walkthrough", "type": "guide", "pages": 12}, {"title": "The Wiki", "type": "wiki", "pages": 30}]}
+        path = lib / "Maps and Guides" / "No game yet" / f"{title} - Example Maps.atlaspack"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("atlaspack.json", json.dumps(d))
+            z.writestr("data/pack.json", json.dumps({"id": pack_id}) + " " * 4000, compress_type=zipfile.ZIP_STORED)
+        made[pack_id] = key
+    run("maps", "sync", *lh)
+    for pack_id, key in made.items():
+        run("maps", "link", pack_id, key, *lh)
+    run("serve-devices", "changed", "--data", data)
+    return sorted((lib / "Maps and Guides").rglob("*.atlaspack"))
 
 
 async def main():
@@ -929,6 +959,104 @@ async def main():
 
             shell(kind="windows", game_mode=False)
             await pg.set_viewport_size(PHONE)
+
+            # 13b. Maps and guides for Atlas (D222), on Windows and Linux: off at first, with
+            # Atlas's packs folder where the contract says; a game's packs on its page, each
+            # with its size and ticked; the ticked ones brought into Atlas's packs folder whole
+            # (a .part, then renamed), one unticked taken out again, and nothing Go didn't put
+            # there touched; Download… counting them; not offered on Android
+            in_lib = {p.name: p for p in atlas_packs()}
+            atlas = home / "Atlas Packs"
+            atlas.mkdir()
+            (atlas / "atlas-index.db").write_bytes(b"Atlas's own")
+            (atlas / "Someone Else - Other Maps.atlaspack").write_bytes(b"PK not Go's")
+            theirs = {p.name: p.read_bytes() for p in atlas.iterdir()}
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#set-atlas #set-atlas-folder", timeout=20000)
+            usual = Path(await pg.input_value("#set-atlas-folder input"))
+            was_on = await pg.is_checked("#set-atlas-on")
+            where = phone / "AppData" / "Local" / "Atlas" / "Packs" if sys.platform == "win32" else phone / ".local" / "share" / "Atlas" / "Packs"
+            check("Settings has Maps and guides for Atlas, off at first, with Atlas's packs folder where the contract says", not was_on and usual == where, (was_on, usual))
+            await pg.fill("#set-atlas-folder input", str(atlas))
+            await pg.click("#set-atlas-folder button:has-text('Save')")
+            await pg.wait_for_selector("#set-atlas-usual")
+            beta_page = B + "#game/" + "gb%2FBeta%20(Europe)"
+            beta_pack = '#go-game-packs li[data-pack="beta-example-maps"]'
+            await pg.goto(beta_page)
+            await pg.wait_for_selector(beta_pack, timeout=20000)
+            listed = await pg.inner_text("#go-game-packs")
+            ticked = await pg.is_checked(f"{beta_pack} input")
+            on = await pg.get_attribute("#go-game-packs", "data-on")
+            check("a game's page lists its packs of maps and guides with their sizes, ticked, and says the setting is off",
+                  ticked and on == "no" and "Beta from Example Maps" in listed and "2 maps" in listed and "12 guide pages" in listed and "30 wiki pages" in listed
+                  and " KB" in listed and "Turn on Maps and guides for Atlas" in listed and not await pg.query_selector("#go-game-packs-get"), listed)
+            check("with the setting off, no pack is put in Atlas's packs folder", sorted(p.name for p in atlas.iterdir()) == sorted(theirs), sorted(p.name for p in atlas.iterdir()))
+            await pg.click("#go-game-packs-settings")
+            await pg.wait_for_selector("#set-atlas-on")
+            await pg.check("#set-atlas-on")
+            await pg.wait_for_function("() => document.querySelector('#set-atlas-on')?.checked")
+            await pg.goto(beta_page)
+            await pg.wait_for_selector("#go-game-packs-get", timeout=20000)
+            asked = await pg.inner_text("#go-game-packs-get")
+            await shot(pg, "17b-phone-game-packs")
+            await pg.click("#go-game-packs-get")
+            came = []
+            for _ in range(120):
+                came = sorted(p.name for p in atlas.iterdir() if p.name not in theirs)
+                if came and not any(n.endswith(".part") for n in came):
+                    break
+                await asyncio.sleep(0.5)
+            record = json.loads((go_data / "packs.json").read_text(encoding="utf-8")) if (go_data / "packs.json").is_file() else {}
+            got = atlas / came[0] if came else None
+            check("Download its ticked pack brings it into Atlas's packs folder whole, recorded as Go's, the other files there untouched",
+                  "Download its ticked pack" in asked and len(came) == 1 and came[0] in in_lib and got.read_bytes() == in_lib[came[0]].read_bytes()
+                  and [e.get("pack_id") for e in record.get("delivered", [])] == ["beta-example-maps"]
+                  and all((atlas / n).read_bytes() == b for n, b in theirs.items()) and not list(go_data.glob("packs-coming/*")), (asked, came, record))
+            await pg.reload()
+            await pg.wait_for_selector(f'{beta_pack}[data-here="yes"]', timeout=20000)
+            await pg.click(f"{beta_pack} input")
+            await pg.wait_for_selector("#go-game-packs-said", timeout=20000)
+            said = await pg.inner_text("#go-game-packs-said")
+            check("unticking a pack on a game the device has takes it out of Atlas's packs folder, and only that",
+                  "taken out of Atlas's packs folder" in said and sorted(p.name for p in atlas.iterdir()) == sorted(theirs)
+                  and all((atlas / n).read_bytes() == b for n, b in theirs.items()), (said, sorted(p.name for p in atlas.iterdir())))
+            await pg.goto(B + "#game/" + "nes%2FEcho%20(USA)")
+            await pg.wait_for_selector('#go-game-packs li[data-pack="echo-example-maps"]', timeout=20000)
+            await pg.click("#go-game-add")
+            await pg.wait_for_selector("#add-packs", timeout=20000)
+            summed = await pg.inner_text("#add-dialog")
+            await pg.click("#add-dialog button:has-text('Cancel')")
+            check("Download… counts a game's ticked packs, and says where they go",
+                  "1 pack of maps and guides for Atlas" in summed and str(atlas) in summed, summed)
+            # the big screen: Maps and guides… opens the same list as a panel
+            await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); l.view = 'big'; localStorage.setItem('go-look', JSON.stringify(l)); }")
+            await pg.goto(beta_page)
+            await pg.reload()
+            await pg.wait_for_selector(".go-big-game #go-game-packs-open", timeout=20000)
+            await pg.click("#go-game-packs-open")
+            await pg.wait_for_selector(f'#packs-dialog {beta_pack}')
+            panel_ticked = await pg.is_checked(f"#packs-dialog {beta_pack} input")
+            await pg.keyboard.press("Escape")
+            await pg.wait_for_selector("#packs-dialog", state="detached")
+            await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); delete l.view; localStorage.setItem('go-look', JSON.stringify(l)); }")
+            check("the big screen's game page has Maps and guides…, the same list as a panel", panel_ticked is False, panel_ticked)
+            # Android: not offered yet (the page hides it)
+            shell(kind="android")
+            await pg.goto(beta_page)
+            await pg.reload()
+            await pg.wait_for_selector("#go-game-title")
+            await settled(pg, "() => document.querySelector('#go-game-on')")
+            hidden_game = not await pg.query_selector("#go-game-packs")
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#set-esde")
+            hidden_set = not await pg.query_selector("#set-atlas")
+            shell(kind="windows")
+            await pg.goto(B + "#settings")
+            await pg.reload()
+            await pg.wait_for_selector("#set-atlas-on")
+            await pg.uncheck("#set-atlas-on")
+            await pg.wait_for_function("() => !document.querySelector('#set-atlas-on')?.checked")
+            check("on Android neither the setting nor a game's packs are shown", hidden_game and hidden_set, (hidden_game, hidden_set))
 
             # 13c. PC games (D110-D112), on Windows and Linux: a system of their own, put in the
             # PC games folder Settings names, each game in its folder with a shortcut (in the
