@@ -479,8 +479,9 @@ impl App {
     }
 
     /// A game's packs for its page (D222): each as the library lists it, ticked or not on
-    /// this device, and whether Go put it in Atlas's packs folder; with whether packs go to
-    /// Atlas here at all, and where.
+    /// this device, whether Go put it in Atlas's packs folder, and whether the file here was
+    /// newer than the library's and kept; with whether packs go to Atlas here at all, and
+    /// where.
     fn packs_view(&self, key: &str, details: Option<&Value>) -> Value {
         if !self.packs_offered() {
             return json!({ "offered": false });
@@ -496,7 +497,10 @@ impl App {
                 let id = p["pack_id"].as_str().unwrap_or("");
                 let mut v = p.clone();
                 v["ticked"] = json!(!left.iter().any(|x| x == id));
-                v["here"] = json!(rec.delivered.iter().any(|e| e.pack_id == id && e.there()));
+                let here = rec.delivered.iter().find(|e| e.pack_id == id && e.here());
+                v["here"] = json!(here.is_some());
+                // newer on this device than the library's, so kept (D222 revised)
+                v["newer_here"] = json!(here.is_some_and(|e| e.newer_here));
                 v
             })
             .collect();
@@ -906,7 +910,7 @@ impl App {
             // Maps and guides for Atlas (D222): where the packs go, on Windows and Linux
             "atlas": self.packs_offered().then(|| {
                 let home = self.home();
-                json!({ "folder": self.packs_folder(&home), "usual": packs::default_folder(&home), "default": self.packs_folder_usual(&home), "delivered": packs::load(&self.data).delivered.iter().filter(|e| e.there()).count() })
+                json!({ "folder": self.packs_folder(&home), "usual": packs::default_folder(&home), "default": self.packs_folder_usual(&home), "delivered": packs::load(&self.data).delivered.iter().filter(|e| e.here()).count() })
             }),
         })
     }

@@ -9,6 +9,11 @@ name = "gamerepo_device"
 
 [dependencies]
 anyhow = "1"
+# Atlas's own reader of pack files (D222 revised): before Game Repo Go replaces a pack on a
+# device, both descriptions are read and an older pack is never put over a newer one. The
+# same tag as gamerepo-core's; its ZIP reading is pure Rust (zlib-rs), so it builds for
+# Android too.
+atlas-pack = { git = "https://github.com/DrFlGd/Atlas", tag = "v0.23.0" }
 base64 = "0.22"
 crc32fast = "1"
 gamerepo-steam = { path = "../steam" }
@@ -27,5 +32,7 @@ sha1 = "0.10"
 sha2 = "0.10"
 
 [dev-dependencies]
+# writes made-up packs for the tests of Go's rule (never an older pack over a newer one)
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 # signs as the Tauri CLI signs, for the update tests
 minisign = "0.9"

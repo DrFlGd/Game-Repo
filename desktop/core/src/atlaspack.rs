@@ -2,8 +2,8 @@
 //! Atlas Importer wrote, by the *Atlas pack contract for Game Repo*.
 //!
 //! The reading is Atlas's own `atlas-pack` crate (the contract's block A3), a git
-//! dependency pinned to the commit of Atlas's main branch the contract names, until Atlas
-//! tags a release with it; its `docs/pack-file-format.md` is the reference for the format.
+//! dependency pinned to Atlas's release tag v0.23.0; its `docs/pack-file-format.md` is the
+//! reference for the format.
 //! [`read_header`] reads the description from the front of the file only, and
 //! [`read_preview`] one small picture the description lists, from the entries right behind
 //! it. A file that's wrong is refused with the crate's [`Refusal`]: its sentence (not a pack
@@ -113,6 +113,24 @@ pub struct GuideInfo {
     pub pages: Option<u64>,
 }
 
+/// The maker's own things a pack carries under `mine/` (`mine`: a map made in Atlas,
+/// written with the person's own lists, locations, pages, notes and photos): how many of
+/// each. Game Repo only says so; it never reads, strips or changes `mine/`, and a pack is
+/// always copied, moved and sent whole.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct Mine {
+    pub lists: u64,
+    pub locations: u64,
+    pub types: u64,
+    pub areas: u64,
+    pub photos: u64,
+    pub pages: u64,
+    pub sections: u64,
+    pub notes: u64,
+    pub guide_links: bool,
+    pub group: bool,
+}
+
 /// A pack's description (`atlaspack.json`), as a card reads it: every field optional, the
 /// whole of it kept in `raw` (the crate's `Header` as JSON, which is what the index keeps).
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -140,6 +158,11 @@ pub struct Description {
     pub cover: Option<String>,
     pub maps: Vec<MapInfo>,
     pub guides: Vec<GuideInfo>,
+    /// The person's own things it carries (`mine`), when it carries them
+    pub mine: Option<Mine>,
+    /// `pack.writtenBy.name`: the app that wrote the pack's own files (Atlas for a map made
+    /// in it, Atlas Map Maker for one made there)
+    pub pack_written_by: Option<String>,
     /// The whole description as it was read
     #[serde(skip)]
     pub raw: Value,
@@ -203,6 +226,19 @@ impl Description {
                 .filter(|g| g.is_object())
                 .map(|g| GuideInfo { title: text(g, "title"), kind: text(g, "type"), pages: number(g, "pages") })
                 .collect(),
+            mine: v.get("mine").filter(|m| m.is_object()).map(|m| Mine {
+                lists: number(m, "lists").unwrap_or(0),
+                locations: number(m, "locations").unwrap_or(0),
+                types: number(m, "types").unwrap_or(0),
+                areas: number(m, "areas").unwrap_or(0),
+                photos: number(m, "photos").unwrap_or(0),
+                pages: number(m, "pages").unwrap_or(0),
+                sections: number(m, "sections").unwrap_or(0),
+                notes: number(m, "notes").unwrap_or(0),
+                guide_links: m.get("guideLinks").and_then(Value::as_bool).unwrap_or(false),
+                group: m.get("group").and_then(Value::as_bool).unwrap_or(false),
+            }),
+            pack_written_by: pack.get("writtenBy").and_then(|w| w.as_str().map(String::from).or_else(|| text(w, "name"))).map(|n| n.trim().to_string()).filter(|n| !n.is_empty()),
             raw,
         }
     }
@@ -217,7 +253,43 @@ impl Description {
         self.source.name.as_deref().or(self.source.importer_title.as_deref())
     }
 
-    /// The name the contract gives a pack: `<game title> - <source name>.atlaspack`.
+    /// For a pack from no site (a map made in Atlas or by Atlas Map Maker: `source.kind`
+    /// isn't `web-pages` and it names no site), the app it was made in, for "Made in Atlas":
+    /// `pack.writtenBy.name`, else `exportedBy.name`. None for a pack read from a site.
+    pub fn made_in(&self) -> Option<&str> {
+        if self.source_name().is_some() || self.source.kind.as_deref() == Some("web-pages") {
+            return None;
+        }
+        self.pack_written_by.as_deref().or(self.exported_by.name.as_deref())
+    }
+
+    /// What a card says of the person's own things a pack carries (`mine`), as plain words:
+    /// "With your own locations and notes"; "With your own things" when it doesn't say how
+    /// many of what. None when it carries none.
+    pub fn own_things(&self) -> Option<String> {
+        let m = self.mine.as_ref()?;
+        let kinds: Vec<&str> = [
+            (m.lists, "lists"),
+            (m.locations, "locations"),
+            (m.types, "types"),
+            (m.areas, "areas"),
+            (m.pages + m.sections, "guide pages"),
+            (m.notes, "notes"),
+            (m.photos, "photos"),
+        ]
+        .into_iter()
+        .filter(|(n, _)| *n > 0)
+        .map(|(_, k)| k)
+        .collect();
+        Some(match kinds.split_last() {
+            None => "With your own things".to_string(),
+            Some((last, [])) => format!("With your own {last}"),
+            Some((last, rest)) => format!("With your own {} and {last}", rest.join(", ")),
+        })
+    }
+
+    /// The name the contract gives a pack: `<game title> - <source name>.atlaspack`, or
+    /// `<game title>.atlaspack` for a pack from no site.
     pub fn file_name(&self) -> Option<String> {
         let t = self.game_title()?;
         Some(match self.source_name() {
@@ -241,7 +313,7 @@ impl Description {
     /// Which of two descriptions of a pack is the newer: the later `pack.updated`, then
     /// the later `exportedAt` (Equal: neither is).
     pub fn newer(&self, other: &Description) -> Ordering {
-        later(self.updated.as_deref(), other.updated.as_deref()).then_with(|| later(self.exported_at.as_deref(), other.exported_at.as_deref()))
+        gamerepo_wire::packs::newer(self.updated.as_deref(), self.exported_at.as_deref(), other.updated.as_deref(), other.exported_at.as_deref())
     }
 
     /// Who wrote it, for a sentence: "Atlas Importer 0.22.0".
@@ -251,59 +323,6 @@ impl Description {
             Some(v) => format!("{n} {v}"),
             None => n.to_string(),
         })
-    }
-}
-
-/// An ISO 8601 date and time as seconds and nanoseconds since 1970 (UTC), for comparing.
-fn instant(s: &str) -> Option<(i64, u32)> {
-    let s = s.trim();
-    let b = s.as_bytes();
-    let num = |r: std::ops::Range<usize>| -> Option<i64> { s.get(r).filter(|x| x.bytes().all(|c| c.is_ascii_digit())).and_then(|x| x.parse().ok()) };
-    let (y, mo, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
-    if b.get(4) != Some(&b'-') || b.get(7) != Some(&b'-') {
-        return None;
-    }
-    let (mut h, mut mi, mut sec, mut nanos, mut at) = (0, 0, 0, 0u32, 10);
-    if matches!(b.get(10), Some(b'T') | Some(b't') | Some(b' ')) {
-        h = num(11..13)?;
-        mi = num(14..16)?;
-        at = 16;
-        if b.get(16) == Some(&b':') {
-            sec = num(17..19)?;
-            at = 19;
-        }
-        if b.get(at) == Some(&b'.') {
-            let digits: String = s[at + 1..].chars().take_while(char::is_ascii_digit).collect();
-            at += 1 + digits.len();
-            nanos = format!("{:0<9}", &digits[..digits.len().min(9)]).parse().unwrap_or(0);
-        }
-    }
-    let offset = match s.get(at..) {
-        None | Some("") | Some("Z") | Some("z") => 0,
-        Some(o) if (o.starts_with('+') || o.starts_with('-')) && o.len() >= 3 => {
-            let oh: i64 = o.get(1..3)?.parse().ok()?;
-            let om: i64 = o.get(o.len() - 2..).filter(|_| o.len() >= 5)?.parse().unwrap_or(0);
-            (oh * 3600 + om * 60) * if o.starts_with('-') { -1 } else { 1 }
-        }
-        _ => return None,
-    };
-    // days from the civil date (Howard Hinnant's days_from_civil)
-    let y = if mo <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * (if mo > 2 { mo - 3 } else { mo + 9 }) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    Some((days * 86_400 + h * 3600 + mi * 60 + sec - offset, nanos))
-}
-
-/// Which of two dates is later; one that can't be read counts as earlier than one that can.
-fn later(a: Option<&str>, b: Option<&str>) -> Ordering {
-    match (a.and_then(instant), b.and_then(instant)) {
-        (Some(x), Some(y)) => x.cmp(&y),
-        (Some(_), None) => Ordering::Greater,
-        (None, Some(_)) => Ordering::Less,
-        (None, None) => a.unwrap_or("").cmp(b.unwrap_or("")),
     }
 }
 
@@ -331,6 +350,8 @@ pub fn card(d: &Description) -> Value {
         o.insert("game_title".into(), d.game_title().map(Value::from).unwrap_or(Value::Null));
         o.insert("source_name".into(), d.source_name().map(Value::from).unwrap_or(Value::Null));
         o.insert("written_by".into(), d.written_by().map(Value::from).unwrap_or(Value::Null));
+        o.insert("made_in".into(), d.made_in().map(Value::from).unwrap_or(Value::Null));
+        o.insert("own_things".into(), d.own_things().map(Value::from).unwrap_or(Value::Null));
     }
     v
 }
@@ -395,9 +416,52 @@ pub(crate) mod tests {
         d
     }
 
+    /// A map made in Atlas (block A6): from no site (`source.kind` `unknown`, no name and no
+    /// importer), written by Atlas (`pack.writtenBy`), with the maker's own things counted in
+    /// `mine` (they're under `mine/` in the file: [`write_pack_with`]); version 5, as it
+    /// carries notes and no small pictures.
+    pub(crate) fn made_in_atlas(id: &str, game: &str, updated: &str) -> Value {
+        let mut d = format6(id, game, updated);
+        let o = d.as_object_mut().unwrap();
+        o.insert("version".into(), json!(5));
+        o.insert("game".into(), json!({ "title": game }));
+        o.insert("exportedBy".into(), json!({ "name": "Atlas", "version": "0.23.0", "platform": "windows" }));
+        o["pack"]["writtenBy"] = json!({ "name": "Atlas", "version": "0.23.0" });
+        o.insert("source".into(), json!({ "kind": "unknown" }));
+        o.insert("mine".into(), json!({ "lists": 0, "locations": 12, "types": 2, "areas": 0, "photos": 0, "guideLinks": false, "pages": 0, "sections": 0, "notes": 3, "group": false }));
+        d
+    }
+
+    /// A map made by Atlas Map Maker (block A6): from no site, its manifest written by Atlas
+    /// Map Maker, the file by Atlas Importer's keeper, and none of the maker's own things.
+    pub(crate) fn made_by_map_maker(id: &str, game: &str, updated: &str) -> Value {
+        let mut d = made_in_atlas(id, game, updated);
+        let o = d.as_object_mut().unwrap();
+        o.remove("mine");
+        o.insert("version".into(), json!(1));
+        o.insert("exportedBy".into(), json!({ "name": "Atlas Importer", "version": "0.23.0", "platform": "windows" }));
+        o["pack"]["writtenBy"] = json!({ "name": "Atlas Map Maker", "version": "0.2.0" });
+        d
+    }
+
+    /// The maker's own things as a map made in Atlas carries them, under `mine/`.
+    pub(crate) fn mine_entries() -> Vec<(&'static str, Vec<u8>)> {
+        vec![
+            ("mine/my-locations.json", br#"{"locations":[{"id":"x1","name":"A chest by the well"}]}"#.to_vec()),
+            ("mine/my-notes.json", br#"{"notes":[{"location":"x1","text":"Come back with the key"}]}"#.to_vec()),
+            ("mine/my-pictures/well.jpg", jpeg(7)),
+        ]
+    }
+
     /// A pack as Atlas writes one: the description deflated first, the small pictures stored
     /// right behind it, then a JSON file and an image.
     pub(crate) fn write_pack(path: &Path, description: &Value, previews: &[(&str, Vec<u8>)]) {
+        write_pack_with(path, description, previews, &[]);
+    }
+
+    /// [`write_pack`] with more entries at its end (the maker's own things under `mine/`, as
+    /// Atlas writes them last).
+    pub(crate) fn write_pack_with(path: &Path, description: &Value, previews: &[(&str, Vec<u8>)], more: &[(&str, Vec<u8>)]) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut z = zip::ZipWriter::new(File::create(path).unwrap());
         let deflated = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
@@ -412,6 +476,10 @@ pub(crate) mod tests {
         z.write_all(b"{}").unwrap();
         z.start_file("images/tile-0-0.png", stored).unwrap();
         z.write_all(&[0u8; 300]).unwrap();
+        for (n, b) in more {
+            z.start_file(*n, deflated).unwrap();
+            z.write_all(b).unwrap();
+        }
         z.finish().unwrap();
     }
 
@@ -561,6 +629,38 @@ pub(crate) mod tests {
         // a file that isn't there can't be opened
         assert_eq!(refused(read_header(&d.join("gone.atlaspack"))).0, "cannot-open");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_pack_from_no_site_is_made_in_atlas_and_says_what_of_yours_it_carries() {
+        let dir = dir("made");
+        // a map made in Atlas: no site, named by its game alone, with the maker's own things
+        let path = dir.join("Delta.atlaspack");
+        write_pack_with(&path, &made_in_atlas("delta-my-map", "Delta", "2026-11-18T08:30:00Z"), &[], &mine_entries());
+        let d = read_header(&path).unwrap();
+        assert_eq!((d.source.kind.as_deref(), d.source_name(), d.made_in()), (Some("unknown"), None, Some("Atlas")));
+        assert_eq!(d.file_name().as_deref(), Some("Delta.atlaspack"), "no \"Delta - .atlaspack\"");
+        assert_eq!(d.mine.as_ref().map(|m| (m.locations, m.types, m.notes)), Some((12, 2, 3)));
+        assert_eq!(d.own_things().as_deref(), Some("With your own locations, types and notes"));
+        let c = card(&d);
+        assert_eq!((c["source_name"].clone(), c["made_in"].clone(), c["own_things"].clone()), (Value::Null, json!("Atlas"), json!("With your own locations, types and notes")));
+        assert_eq!(c["mine"]["notes"], 3);
+        // one by Atlas Map Maker: made there, nothing of yours
+        let mm = Description::from_value(made_by_map_maker("beta-map-maker", "Beta", "2026-11-18T08:30:00Z"));
+        assert_eq!((mm.made_in(), mm.own_things(), mm.file_name().as_deref()), (Some("Atlas Map Maker"), None, Some("Beta.atlaspack")));
+        // a pack read from a site is never "made in" anything, even one that names no site
+        let site = Description::from_value(format7("delta-example-maps", "Delta", "2026-11-18T08:30:00Z"));
+        assert_eq!((site.made_in(), site.own_things(), site.file_name().as_deref()), (None, None, Some("Delta - Example Maps.atlaspack")));
+        let mut v = format6("delta-example-maps", "Delta", "2026-11-18T08:30:00Z");
+        v["source"] = json!({ "kind": "web-pages" });
+        assert_eq!(Description::from_value(v).made_in(), None);
+        // the maker's own things however many: one kind, several, or not said
+        let mut v = made_in_atlas("x", "X", "2026-11-18T08:30:00Z");
+        v["mine"] = json!({ "photos": 4 });
+        assert_eq!(Description::from_value(v.clone()).own_things().as_deref(), Some("With your own photos"));
+        v["mine"] = json!({});
+        assert_eq!(Description::from_value(v).own_things().as_deref(), Some("With your own things"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

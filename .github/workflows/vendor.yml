@@ -5,10 +5,11 @@ name: Vendor crates
 # only; not the window's) and pushes them, with a matching
 # Cargo.lock, to the "crates-vendor" branch. Build offline with:
 #   cargo build --offline --config <branch>/vendor-config.toml
-# Git dependencies are vendored too: Atlas's atlas-pack crate (gamerepo-core's, pinned to a
-# commit of https://github.com/DrFlGd/Atlas) gets its own [source."git+…"] section in
-# vendor-config.toml, replaced by the vendored copy, so an offline build never asks GitHub.
-# Moving it to another commit or tag changes core's Cargo.toml, which starts this again.
+# Git dependencies are vendored too: Atlas's atlas-pack crate (gamerepo-core's and the
+# device crate's, pinned to a release tag of https://github.com/DrFlGd/Atlas) gets its own
+# [source."git+…?tag=…"] section in vendor-config.toml, replaced by the vendored copy, so
+# an offline build never asks GitHub. Moving it to another tag changes core's and device's
+# Cargo.toml, which starts this again.
 on:
   push:
     branches: [main]

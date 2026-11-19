@@ -1,8 +1,9 @@
 // A game's packs of maps and guides for Atlas on its page (D222): each with its size and a
 // tick, all ticked at first. Installing the game with Maps and guides for Atlas on brings
 // its ticked packs into Atlas's packs folder; ticking one later on a game this device has
-// brings it, and unticking one takes it out again, if Game Repo Go put it there. Windows
-// and Linux only: not offered on Android yet.
+// brings it, and unticking one takes it out again, if Game Repo Go put it there. A pack
+// whose file on this device is newer than the library's (Atlas changed it here) is kept and
+// said so. Windows and Linux only: not offered on Android yet.
 import { html, useEffect, useState } from "../lib/html.js";
 import { call, info } from "./backend.js";
 import { closeDialog, open, say } from "./state.js";
@@ -58,9 +59,11 @@ export function Packs({ k, packs, onDevice, onChange }) {
       : html`Turn on Maps and guides for Atlas in Settings for the ticked packs to come with the game. <button type="button" class="ghost compact" id="go-game-packs-settings" onClick=${() => { closeDialog(); open({ page: "settings" }); }}>Open Settings</button>`}</p>
     <ul class="go-sizes go-pack-list">${packs.items.map((p) => html`<li key=${p.pack_id} data-pack=${p.pack_id} data-here=${p.here ? "yes" : "no"}>
       <label class="check-row"><input type="checkbox" checked=${isTicked(p)} disabled=${!!busy} aria-label=${`Bring ${p.title}`} onChange=${(e) => tick(p, e.currentTarget.checked)} />
-        <span><strong>${p.title}</strong>${p.source ? html` <span class="muted">from ${p.source}</span>` : null}
+        <span><strong>${p.title}</strong>${p.source ? html` <span class="muted">from ${p.source}</span>` : p.made_in ? html` <span class="muted" data-said="made-in">made in ${p.made_in}</span>` : null}
           ${holds(p) ? html`<br /><small class="muted">${holds(p)}</small>` : null}
-          ${p.here ? html`<br /><small class="muted" data-said="here">In Atlas's packs folder</small>` : null}
+          ${p.own_things ? html`<br /><small class="muted" data-said="mine">${p.own_things}</small>` : null}
+          ${p.newer_here ? html`<br /><small class="muted" data-said="newer-here">Newer on this device: kept. Game Repo's copy is older, so it isn't put over it.</small>`
+            : p.here ? html`<br /><small class="muted" data-said="here">In Atlas's packs folder</small>` : null}
           ${p.personal_use ? html`<br /><small class="muted" data-said="personal">For your own use only</small>` : null}
           ${p.error ? html`<br /><small class="muted" data-said="error">Game Repo can't read this pack (${p.error}); it's sent as it is.</small>` : null}</span></label>
       <span class="muted">${bytes(p.size)}</span></li>`)}</ul>

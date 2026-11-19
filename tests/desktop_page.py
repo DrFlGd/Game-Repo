@@ -2076,12 +2076,14 @@ JPG_GREEN = base64.b64decode("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg
 JPG_BROWN = base64.b64decode("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAMABADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAT/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAABf/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AIQBRZ//2Q==")
 
 
-def atlas_pack(path, pack_id, title, version=7, updated="2026-11-10T10:00:00Z", game=None, site="Example Maps"):
+def atlas_pack(path, pack_id, title, version=7, updated="2026-11-10T10:00:00Z", game=None, site="Example Maps", made=False):
     """A pack as Atlas Importer writes it (the Atlas pack contract, and docs/pack-file-format.md in
     Atlas's repository): a ZIP whose first entry is its description, atlaspack.json, then its
     small pictures under preview/ and its data. As built in Atlas's block A3, only a pack with
     small pictures is version 7; one of a lower version (6 here) still has the game, the site's
-    name, its maps and its one entry of pages, without pictures. Made-up games and sites only."""
+    name, its maps and its one entry of pages, without pictures. `made`: a map made in Atlas
+    (block A6), from no site, with the maker's own things under mine/ (version 5). Made-up
+    games and sites only."""
     d = {"format": "atlas-pack-file", "version": version, "packId": pack_id, "title": title, "packVersion": "1.0.0", "detail": "standard",
          "exportedAt": "2026-11-12T08:00:00Z", "exportedBy": {"name": "Atlas Importer", "version": "0.23.0", "platform": "linux"},
          "pack": {"id": pack_id, "title": title, "packVersion": "1.0.0", "schemaVersion": 2, "attribution": [], "created": "2026-11-01T09:00:00Z", "updated": updated},
@@ -2101,12 +2103,24 @@ def atlas_pack(path, pack_id, title, version=7, updated="2026-11-10T10:00:00Z", 
         d["cover"] = "preview/map-1.jpg"
         d["maps"][0]["preview"], d["maps"][1]["preview"] = "preview/map-1.jpg", "preview/map-2.jpg"
         pictures = [("preview/map-1.jpg", JPG_GREEN), ("preview/map-2.jpg", JPG_BROWN)]
+    mine = []
+    if made:
+        d["version"] = 5
+        d["source"] = {"kind": "unknown"}
+        d["game"] = {"title": game or title}
+        d["exportedBy"] = {"name": "Atlas", "version": "0.23.0", "platform": "windows"}
+        d["pack"]["writtenBy"] = {"name": "Atlas", "version": "0.23.0"}
+        d["mine"] = {"locations": 3, "notes": 2}
+        mine = [("mine/my-locations.json", json.dumps({"locations": [{"id": "x1", "name": "A chest by the well"}]})),
+                ("mine/my-notes.json", json.dumps({"notes": [{"location": "x1", "text": "Come back with the key"}]}))]
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("atlaspack.json", json.dumps(d), compress_type=zipfile.ZIP_DEFLATED)
         for name, b in pictures:
             z.writestr(name, b)
         z.writestr("manifest.json", json.dumps({"id": pack_id}), compress_type=zipfile.ZIP_DEFLATED)
+        for name, b in mine:
+            z.writestr(name, b, compress_type=zipfile.ZIP_DEFLATED)
     return path
 
 
@@ -2269,6 +2283,22 @@ async def maps_page(pg, base, home, library):
     await pg.wait_for_selector('#maps-items .lib-tile[data-id="moss-harbour-other-maps"]', timeout=15000)
     kept = json.loads((maps / "packs.json").read_text()).get("packs", {}).get("moss-harbour-other-maps", {})
     check("a pack renamed by hand is found again by its packId, and keeps its game", kept.get("file") == "Moss Harbour/renamed by hand.atlaspack" and kept.get("games", [{}])[0].get("key") == "gb/Moss Harbour (USA)", kept)
+    # a map made in Atlas (block A6): from no site, named by its game alone, with the maker's
+    # own things under mine/; linked whole, and said to be made in Atlas
+    made_at = atlas_pack(no_game / "Moss Harbour.atlaspack", "moss-harbour-my-map", "Moss Harbour", made=True)
+    made_bytes = made_at.read_bytes()
+    said = await toast_text(pg, "Linked 1 new pack", timeout=40000)
+    made_linked = maps / "Moss Harbour" / "Moss Harbour.atlaspack"
+    await until(lambda: made_linked.is_file(), 15)
+    await pg.wait_for_selector('#maps-items .lib-tile[data-id="moss-harbour-my-map"]', timeout=15000)
+    made_meta = await pg.inner_text('#maps-items .lib-tile[data-id="moss-harbour-my-map"] .lib-tile-meta')
+    await pg.click('#maps-items .lib-tile[data-id="moss-harbour-my-map"]')
+    await pg.wait_for_selector("#maps-panel-mine")
+    made_panel = await pg.inner_text("#maps-panel")
+    await pg.screenshot(path=str(out / "99b-maps-made-in-atlas.png"))
+    check("a map made in Atlas (from no site) is linked by its game's title, whole with its mine/ things, and its card says Made in Atlas and what of yours it carries",
+          made_linked.read_bytes() == made_bytes and "Made in Atlas" in made_meta and "Made in Atlas" in made_panel and "With your own locations and notes." in made_panel and " - " not in made_linked.name,
+          (said, made_meta, made_panel[:400]))
     # Open in Atlas: the program set in Settings › Tools, started with the pack's path alone,
     # its one argument (D221; Atlas's block A2); off Windows no program is registered for
     # packs, so without Atlas set it says to set it

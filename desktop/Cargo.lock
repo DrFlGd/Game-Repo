@@ -260,7 +260,7 @@ dependencies = [
 [[package]]
 name = "atlas-pack"
 version = "0.1.0"
-source = "git+https://github.com/DrFlGd/Atlas?rev=60b466624c8601a2b23d26ed3c8c856a0e4999cc#60b466624c8601a2b23d26ed3c8c856a0e4999cc"
+source = "git+https://github.com/DrFlGd/Atlas?tag=v0.23.0#e8b42006efb55a4031848cdd73add25514254eea"
 dependencies = [
  "serde",
  "serde_json",
@@ -1594,6 +1594,7 @@ name = "gamerepo-device"
 version = "0.5.0"
 dependencies = [
  "anyhow",
+ "atlas-pack",
  "base64 0.22.1",
  "crc32fast",
  "fs4",
@@ -1610,6 +1611,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2 0.10.9",
+ "zip",
 ]
 
 [[package]]

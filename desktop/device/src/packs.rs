@@ -16,6 +16,22 @@
 //! is held open is tried again for about seven seconds ([`patiently`], as the contract
 //! asks); Atlas opens a pack only for each read. Atlas Importer's unfinished files
 //! (`.atlas-importer.part`) are never Go's: it touches only the files in its record.
+//!
+//! Never an older pack over a newer one (D222 revised, the contract's new rule of
+//! 2026-11-19): Atlas can change a map made in it and write its pack file again where it
+//! lies, so the file on a device can be newer than the library's. Before a pack coming
+//! replaces the file Go delivered of it ([`put_in_place`]: renamed over it, or the old one
+//! removed when its name or folder changed), both descriptions are read with Atlas's own
+//! crate and compared ([`Verdict`]): `pack.updated`, then `exportedAt`
+//! (`gamerepo_wire::packs::newer`). The file here newer or as new: it's kept, the one
+//! coming dropped, and the record follows the file here (its size and SHA-1, and the
+//! library's SHA-1 it was kept over, so it isn't fetched again; [`Delivered::kept_over`]).
+//! The one coming newer: it replaces the file here, even one changed since Go delivered it
+//! (a pack Atlas wrote again is expected now, and this one is older). Either can't be read
+//! as this pack: the rules from before, Go replaces only a file it delivered that's
+//! unchanged. Packs are always sent and put in place whole, `mine/` and all: Go reads
+//! nothing of a pack but its description. Carrying a newer file here back to the library
+//! is open in the contract, and not done.
 
 use crate::Device;
 use anyhow::{bail, Result};
@@ -52,6 +68,12 @@ pub struct Delivered {
     pub games: Vec<String>,
     /// When it came (seconds since 1970)
     pub at: u64,
+    /// The library's SHA-1 of this pack that wasn't put over the file here, as the file here
+    /// was newer or as new by its description (empty: none): that file is fetched no more
+    pub kept_over: String,
+    /// The file here was newer than the library's (by `pack.updated`, then `exportedAt`) and
+    /// was kept: "Newer on this device: kept"
+    pub newer_here: bool,
 }
 
 impl Delivered {
@@ -62,6 +84,47 @@ impl Delivered {
     /// Its file is there as Go put it (its size the same): Go's to replace or remove.
     pub fn there(&self) -> bool {
         std::fs::metadata(self.path()).is_ok_and(|m| m.is_file() && m.len() == self.size)
+    }
+
+    /// It's in the packs folder for Atlas: there as Go put it, or a file Go kept over the
+    /// library's (newer, or as new) there still, whatever Atlas has written in it since.
+    pub fn here(&self) -> bool {
+        self.there() || (!self.kept_over.is_empty() && self.path().is_file())
+    }
+}
+
+/// Which of a pack coming and the file of it on the device is the newer, by their
+/// descriptions read with Atlas's crate: `pack.updated`, then `exportedAt`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    /// The one coming is newer: it replaces the file here
+    Coming,
+    /// The file here is newer: it's kept
+    Here,
+    /// Both are as new: the file here is kept
+    Same,
+    /// One of them can't be read as this pack (a newer format, not a pack, another
+    /// `packId`, gone): the rules from before
+    Unknown,
+}
+
+/// A pack file's `packId`, `pack.updated` and `exportedAt`, read by Atlas's crate.
+fn dates(path: &Path) -> Option<(String, Option<String>, String)> {
+    let h = atlas_pack::read_header(path).ok()?;
+    Some((h.pack_id, h.pack.updated, h.exported_at))
+}
+
+/// The pack coming (its `.part`) compared with the file of it here, both read as the pack
+/// `pack_id`.
+pub fn compare(pack_id: &str, coming: &Path, here: &Path) -> Verdict {
+    let (Some(c), Some(h)) = (dates(coming), dates(here)) else { return Verdict::Unknown };
+    if c.0 != pack_id || h.0 != pack_id {
+        return Verdict::Unknown;
+    }
+    match gamerepo_wire::packs::newer(c.1.as_deref(), Some(&c.2), h.1.as_deref(), Some(&h.2)) {
+        std::cmp::Ordering::Greater => Verdict::Coming,
+        std::cmp::Ordering::Less => Verdict::Here,
+        std::cmp::Ordering::Equal => Verdict::Same,
     }
 }
 
@@ -234,10 +297,11 @@ pub fn tag_of(d: &Device, part: &Path) -> PathBuf {
 }
 
 /// Whether a plan's pack is here already, as Go delivered it (the same `packId` and SHA-1,
-/// its file there).
+/// its file there), or the library's file is one Go kept the file here over (it was older),
+/// so it's never fetched again and again.
 pub fn there(d: &Device, f: &File) -> bool {
     let (Some(data), Some(folder), Some(sha1)) = (&d.data, d.places.get(PLACE), &f.sha1) else { return false };
-    load(data).delivered.iter().any(|e| e.pack_id == f.pack && &e.sha1 == sha1 && &e.folder == folder && e.there())
+    load(data).delivered.iter().any(|e| e.pack_id == f.pack && &e.folder == folder && ((&e.sha1 == sha1 && e.there()) || (&e.kept_over == sha1 && e.here())))
 }
 
 /// The games a plan's pack came with.
@@ -268,17 +332,48 @@ fn free_name(folder: &Path, name: &str, mine: impl Fn(&str) -> bool) -> String {
 
 /// A pack fetched and checked, put in place: its `.part` renamed to its name, over the file
 /// of the same pack Go delivered before; when that one had another name, it's removed once
-/// the new one is in. A file of that name that isn't this pack's as Go delivered it (one
-/// copied in by hand, another pack's) is never written over: the pack takes a name beside
-/// it. The record notes it with its games.
+/// the new one is in. Never an older pack over a newer one: the two descriptions are
+/// compared first ([`compare`]), and when the file here is newer or as new, it's kept, the
+/// `.part` removed, and the record follows the file here. A file of that name that isn't
+/// this pack's as Go delivered it (one copied in by hand, another pack's) is never written
+/// over: the pack takes a name beside it. The record notes it with its games. The file it's
+/// in now.
 pub fn put_in_place(d: &Device, f: &File, part: &Path, sha1: &str) -> Result<PathBuf> {
     let Some(data) = &d.data else { bail!("Game Repo Go has no data folder to note the packs it delivers in.") };
     let folder = d.places.get(PLACE).cloned().ok_or_else(|| anyhow::anyhow!("This device has no packs folder for Atlas."))?;
     change(data, |rec| {
         let old = rec.delivered.iter().position(|e| e.pack_id == f.pack);
         let old_entry = old.map(|i| rec.delivered[i].clone());
-        // this pack's file as Go put it, in this folder: written over
-        let mine = |name: &str| old_entry.as_ref().is_some_and(|e| e.folder == folder && e.file == name && e.there());
+        // the file Go delivered of this pack, wherever it is now and whatever was written in
+        // it since, compared with the one coming
+        let verdict = match &old_entry {
+            Some(e) if e.path().is_file() => compare(&f.pack, part, &e.path()),
+            _ => Verdict::Unknown,
+        };
+        if let (Some(i), Some(e), Verdict::Here | Verdict::Same) = (old, &old_entry, verdict) {
+            if e.folder == folder {
+                // the file here is newer (Atlas wrote it again), or as new: kept, the one
+                // coming dropped, and the record follows the file here so it isn't taken as
+                // changed by hand nor fetched again
+                let _ = std::fs::remove_file(part);
+                let _ = std::fs::remove_file(tag_of(d, part));
+                let here = e.path();
+                let k = &mut rec.delivered[i];
+                k.size = std::fs::metadata(&here).map(|m| m.len()).unwrap_or(k.size);
+                k.sha1 = crate::sha1_file(&here).unwrap_or_else(|_| k.sha1.clone());
+                k.kept_over = sha1.to_string();
+                k.newer_here = verdict == Verdict::Here;
+                for g in games_of(f) {
+                    if !k.games.contains(&g) {
+                        k.games.push(g);
+                    }
+                }
+                return Ok(here);
+            }
+        }
+        // this pack's file as Go put it, in this folder: written over; or, older than the one
+        // coming by its description, even if it was written again since
+        let mine = |name: &str| old_entry.as_ref().is_some_and(|e| e.folder == folder && e.file == name && (e.there() || verdict == Verdict::Coming));
         let name = free_name(&folder, &f.path, mine);
         let dest = folder.join(&name);
         std::fs::create_dir_all(&folder)?;
@@ -288,8 +383,11 @@ pub fn put_in_place(d: &Device, f: &File, part: &Path, sha1: &str) -> Result<Pat
         let mut games = games_of(f);
         if let Some(e) = &old_entry {
             // the old file under another name (or in the folder used before), once the new one's in
-            // (one that still can't be removed is left beside it: the new one is in and noted)
-            if (e.folder != folder || e.file != name) && e.there() {
+            // (one that still can't be removed is left beside it: the new one is in and noted):
+            // as Go put it and not newer than the one coming, or older than it by its
+            // description; a newer or changed one in the folder used before is left there
+            let older = verdict == Verdict::Coming || (e.there() && verdict != Verdict::Here);
+            if (e.folder != folder || e.file != name) && older && e.path().is_file() {
                 let _ = patiently(|| std::fs::remove_file(e.path()));
             }
             for g in &e.games {
@@ -299,7 +397,7 @@ pub fn put_in_place(d: &Device, f: &File, part: &Path, sha1: &str) -> Result<Pat
             }
         }
         rec.delivered.retain(|e| e.pack_id != f.pack);
-        rec.delivered.push(Delivered { pack_id: f.pack.clone(), file: name, folder: folder.clone(), size: f.size, sha1: sha1.to_string(), games, at: now() });
+        rec.delivered.push(Delivered { pack_id: f.pack.clone(), file: name, folder: folder.clone(), size: f.size, sha1: sha1.to_string(), games, at: now(), ..Default::default() });
         Ok(dest)
     })
 }
@@ -339,17 +437,21 @@ pub fn set_ticked(data: &Path, key: &str, pack: &str, on: bool) -> Result<()> {
 
 /// A pack unticked on the page of a game the device has: the game taken off what Go
 /// delivered it for, and its file removed once no game here wants it, only when it's there
-/// as Go put it. True when the file was removed.
+/// as Go put it. A file Go kept over the library's (newer or as new here: Atlas wrote it,
+/// maybe with the maker's own things) is never removed. True when the file was removed.
 pub fn take_off(data: &Path, key: &str, pack: &str) -> Result<bool> {
     change(data, |rec| {
         let Some(i) = rec.delivered.iter().position(|e| e.pack_id == pack) else { return Ok(false) };
         let e = &mut rec.delivered[i];
         e.games.retain(|g| g != key);
-        if !e.games.is_empty() {
+        if !e.games.is_empty() || !e.kept_over.is_empty() {
+            // a file kept over the library's stays, and stays noted, so ticked again it isn't
+            // fetched (nor put beside it)
             return Ok(false);
         }
         let e = rec.delivered.remove(i);
-        if e.there() {
+        // unchanged: its size, and its SHA-1 (Atlas may have written it again at the same size)
+        if e.there() && e.kept_over.is_empty() && crate::sha1_file(&e.path()).is_ok_and(|h| h.eq_ignore_ascii_case(&e.sha1)) {
             std::fs::remove_file(e.path())?;
             return Ok(true);
         }
@@ -357,9 +459,9 @@ pub fn take_off(data: &Path, key: &str, pack: &str) -> Result<bool> {
     })
 }
 
-/// The pack Go delivered of a `packId`, with its file there.
+/// The pack Go delivered of a `packId`, with its file there (or kept over the library's).
 pub fn here(data: &Path, pack: &str) -> Option<Delivered> {
-    load(data).delivered.into_iter().find(|e| e.pack_id == pack && e.there())
+    load(data).delivered.into_iter().find(|e| e.pack_id == pack && e.here())
 }
 
 #[cfg(test)]
@@ -378,7 +480,9 @@ mod tests {
     }
 
     fn pack(name: &str, id: &str, key: &str, bytes: &[u8]) -> File {
-        File { place: PLACE.into(), path: name.into(), size: bytes.len() as u64, sha1: Some(format!("sha-{}", bytes.len())), key: key.into(), role: ROLE.into(), pack: id.into(), ..Default::default() }
+        use sha1::Digest;
+        let sha1 = hex::encode(sha1::Sha1::digest(bytes));
+        File { place: PLACE.into(), path: name.into(), size: bytes.len() as u64, sha1: Some(sha1), key: key.into(), role: ROLE.into(), pack: id.into(), ..Default::default() }
     }
 
     /// The pack as it comes: written whole as `<name>.part`, then put in place.
@@ -441,8 +545,9 @@ mod tests {
         assert!(folder.join("Delta - Better Maps.atlaspack").is_file());
         assert!(take_off(&data, "gb/Delta (USA)", "delta-example-maps").unwrap());
         assert!(!folder.join("Delta - Better Maps.atlaspack").exists());
-        // a pack changed since by someone else (Atlas, or you) isn't Go's to remove
-        std::fs::write(folder.join("Beta - Example Maps (2).atlaspack"), b"beta, changed by hand").unwrap();
+        // a pack changed since by someone else (Atlas, or you) isn't Go's to remove, even one
+        // written again at the same size (its SHA-1 tells)
+        std::fs::write(folder.join("Beta - Example Maps (2).atlaspack"), b"BETA").unwrap();
         assert!(!take_off(&data, "gb/Beta (Japan)", "beta-example-maps").unwrap());
         assert_eq!(names(&folder), ["Beta - Example Maps (2).atlaspack", "Beta - Example Maps.atlaspack", "Delta - Example Maps.atlasdata", "atlas-index.db"]);
         assert_eq!(std::fs::read(folder.join("atlas-index.db")).unwrap(), b"Atlas's own");
@@ -457,6 +562,159 @@ mod tests {
         assert!(part_of(&d, &pack("../x.atlaspack", "x", "k", b"x")).is_err());
         assert!(part_of(&d, &pack("sub/x.atlaspack", "x", "k", b"x")).is_err());
         assert!(part_of(&d, &pack("x.exe", "x", "k", b"x")).is_err());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A made-up pack's bytes as Atlas writes one (docs/pack-file-format.md): its description
+    /// first, with every field a pack always has, then a tile, then `more` (the maker's own
+    /// things under `mine/`).
+    fn atlas_pack(id: &str, updated: &str, exported_at: &str, more: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+        let description = serde_json::json!({
+            "format": "atlas-pack-file", "version": 5, "packId": id, "title": "Island", "packVersion": "1.0.0", "detail": "full",
+            "game": { "title": "Island" },
+            "exportedAt": exported_at, "exportedBy": { "name": "Atlas", "version": "0.23.0", "platform": "windows" },
+            "pack": { "id": id, "title": "Island", "packVersion": "1.0.0", "schemaVersion": 2, "attribution": [], "updated": updated, "writtenBy": { "name": "Atlas", "version": "0.23.0" } },
+            "source": { "kind": "unknown" },
+            "contents": { "maps": 1, "locations": 3 },
+            "images": { "detail": "full", "files": 1, "bytes": 64, "layers": [] },
+            "files": 1 + more.len(), "bytes": 64,
+            "mine": { "locations": 3, "notes": 1 },
+        });
+        let mut z = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let deflated = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        z.start_file("atlaspack.json", deflated).unwrap();
+        z.write_all(description.to_string().as_bytes()).unwrap();
+        z.start_file("images/tile-0-0.png", SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored)).unwrap();
+        z.write_all(&[7u8; 64]).unwrap();
+        for (n, b) in more {
+            z.start_file(*n, deflated).unwrap();
+            z.write_all(b).unwrap();
+        }
+        z.finish().unwrap().into_inner()
+    }
+
+    /// The maker's own things, as a map made in Atlas carries them.
+    const MINE: &[(&str, &[u8])] = &[("mine/my-locations.json", br#"{"locations":[{"id":"x1"}]}"#), ("mine/my-notes.json", br#"{"notes":[{"text":"by the well"}]}"#)];
+
+    /// The contract's new rule (D222 revised): Atlas wrote a map made in it again on the
+    /// device, so the file there is newer than the library's; the library's older one comes
+    /// and isn't put over it: the file here is kept whole, the `.part` dropped, the record
+    /// follows the file here and isn't fetched again; a newer one from the library later
+    /// replaces it, though Atlas changed it since Go delivered it.
+    #[test]
+    fn an_older_pack_is_never_put_over_a_newer_one_atlas_wrote_on_the_device() {
+        let (home, d) = device("older");
+        let folder = d.places[PLACE].clone();
+        let data = d.data.clone().unwrap();
+        let key = "pc/island";
+        // delivered whole, the maker's own things and all
+        let v1 = atlas_pack("island", "2026-11-18T08:00:00Z", "2026-11-18T08:05:00Z", MINE);
+        let f1 = pack("Island.atlaspack", "island", key, &v1);
+        let at = deliver(&d, &f1, &v1);
+        assert_eq!(std::fs::read(&at).unwrap(), v1, "byte for byte, mine/ and all");
+        assert!(there(&d, &f1));
+        // Atlas changes the map here and writes its pack again, newer (more of your own things)
+        let v2 = atlas_pack("island", "2026-11-19T10:00:00Z", "2026-11-19T10:00:00Z", &[MINE[0], MINE[1], ("mine/my-pictures/well.jpg", &[0xFF, 0xD8, 0xFF, 0xD9])]);
+        std::fs::write(&at, &v2).unwrap();
+        assert!(!there(&d, &f1), "changed here: the library's is fetched to compare");
+        // the library's comes, written again by the Importer later (a later exportedAt) but
+        // of an older change (pack.updated first): it isn't put over the newer file
+        let lib1 = atlas_pack("island", "2026-11-18T08:00:00Z", "2026-11-19T12:00:00Z", MINE);
+        let g1 = pack("Island.atlaspack", "island", key, &lib1);
+        assert_eq!(compare("island", &at, &at), Verdict::Same);
+        let kept = deliver(&d, &g1, &lib1);
+        assert_eq!(kept, at);
+        assert_eq!(std::fs::read(&at).unwrap(), v2, "the newer file here is kept");
+        assert_eq!(names(&folder), ["Island.atlaspack"], "the .part dropped, nothing beside it");
+        let e = here(&data, "island").unwrap();
+        assert_eq!((e.size, e.sha1.clone(), e.kept_over.clone(), e.newer_here), (v2.len() as u64, crate::sha1_file(&at).unwrap(), g1.sha1.clone().unwrap(), true));
+        assert!(e.there(), "as it is now: not taken as changed by hand");
+        // the next sync: not fetched again, even once Atlas has written it again since
+        assert!(there(&d, &g1));
+        let v3 = atlas_pack("island", "2026-11-19T11:00:00Z", "2026-11-19T11:00:00Z", &[MINE[0]]);
+        std::fs::write(&at, &v3).unwrap();
+        assert!(there(&d, &g1), "no download loop");
+        // unticked: a file kept over the library's is never taken out, and stays noted
+        assert!(!take_off(&data, key, "island").unwrap());
+        assert_eq!(std::fs::read(&at).unwrap(), v3);
+        assert!(there(&d, &g1), "ticked again, it isn't fetched");
+        note_there(&d, &g1).unwrap();
+        assert_eq!(here(&data, "island").unwrap().games, [key]);
+        // a newer one in the library replaces the file here, though Atlas wrote it since Go
+        // delivered it: it's older by its description
+        let lib2 = atlas_pack("island", "2026-11-20T09:00:00Z", "2026-11-20T09:00:00Z", MINE);
+        let g2 = pack("Island.atlaspack", "island", key, &lib2);
+        assert!(!there(&d, &g2));
+        deliver(&d, &g2, &lib2);
+        assert_eq!(std::fs::read(&at).unwrap(), lib2);
+        assert_eq!(names(&folder), ["Island.atlaspack"]);
+        let e = here(&data, "island").unwrap();
+        assert_eq!((e.size, e.sha1.clone(), e.kept_over.as_str(), e.newer_here, e.games.clone()), (lib2.len() as u64, g2.sha1.clone().unwrap(), "", false, vec![key.to_string()]));
+        assert!(there(&d, &g2) && !there(&d, &g1));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// The same `pack.updated` is decided by `exportedAt`, whatever the files are named; both
+    /// as new keeps the file here; and a file that can't be read as the pack, here or coming,
+    /// follows the rules from before (Go replaces only its own file, unchanged).
+    #[test]
+    fn the_same_pack_updated_is_decided_by_exported_at_and_a_file_that_cant_be_read_by_the_rules_before() {
+        let (home, d) = device("tie");
+        let folder = d.places[PLACE].clone();
+        let data = d.data.clone().unwrap();
+        let key = "pc/island";
+        let t = "2026-11-18T08:00:00Z";
+        let a = atlas_pack("island", t, "2026-11-18T08:05:00Z", &[]);
+        let at = deliver(&d, &pack("Island - Example Maps.atlaspack", "island", key, &a), &a);
+        // written again here later, the same change
+        let b = atlas_pack("island", t, "2026-11-19T08:05:00Z", &[]);
+        std::fs::write(&at, &b).unwrap();
+        // the library's, renamed and exported before it: the file here is kept, under its name
+        let c = atlas_pack("island", t, "2026-11-18T20:00:00+02:00", MINE);
+        let kept = deliver(&d, &pack("Island - Better Maps.atlaspack", "island", key, &c), &c);
+        assert_eq!((kept, names(&folder)), (at.clone(), vec!["Island - Example Maps.atlaspack".to_string()]));
+        assert_eq!(std::fs::read(&at).unwrap(), b);
+        assert!(here(&data, "island").unwrap().newer_here);
+        // exported after it: it replaces the file here, and the old name goes
+        let e4 = atlas_pack("island", t, "2026-11-19T09:00:00Z", MINE);
+        let new_at = deliver(&d, &pack("Island - Better Maps.atlaspack", "island", key, &e4), &e4);
+        assert_eq!(names(&folder), ["Island - Better Maps.atlaspack"]);
+        assert_eq!(std::fs::read(&new_at).unwrap(), e4, "whole, mine/ and all");
+        // both as new (the same dates, other bytes): the file here is kept, not said newer
+        let same = atlas_pack("island", t, "2026-11-19T09:00:00Z", &[MINE[0]]);
+        let g = pack("Island - Better Maps.atlaspack", "island", key, &same);
+        deliver(&d, &g, &same);
+        assert_eq!(std::fs::read(&new_at).unwrap(), e4);
+        let e = here(&data, "island").unwrap();
+        assert_eq!((e.newer_here, e.kept_over.clone()), (false, g.sha1.clone().unwrap()));
+        assert!(there(&d, &g));
+
+        // a file here that can't be read as a pack (changed by hand): not Go's to replace,
+        // the one coming goes beside it, as before
+        let p1 = atlas_pack("gamma", t, t, &[]);
+        let gamma = deliver(&d, &pack("Gamma.atlaspack", "gamma", "pc/gamma", &p1), &p1);
+        std::fs::write(&gamma, b"not a pack any more").unwrap();
+        let p2 = atlas_pack("gamma", "2026-11-19T08:00:00Z", t, &[]);
+        let beside = deliver(&d, &pack("Gamma.atlaspack", "gamma", "pc/gamma", &p2), &p2);
+        assert_eq!(beside, folder.join("Gamma (2).atlaspack"));
+        assert_eq!(std::fs::read(&gamma).unwrap(), b"not a pack any more");
+        // one coming that Game Repo can't read (a newer format, say) over Go's own file,
+        // unchanged: replaced, as before
+        let newer_format = b"PK a pack in a format this Game Repo Go doesn't know".to_vec();
+        deliver(&d, &pack("Gamma.atlaspack", "gamma", "pc/gamma", &newer_format), &newer_format);
+        assert_eq!(std::fs::read(&beside).unwrap(), newer_format);
+        // the file Go delivered in the folder used before, newer there: the one coming goes
+        // into the folder used now, and the newer file there is left as it is
+        let mut d = d;
+        let old_folder = folder.clone();
+        let new_folder = home.join("Other Packs");
+        d.places.insert(PLACE.into(), new_folder.clone());
+        let older = atlas_pack("island", "2026-11-17T08:00:00Z", t, &[]);
+        deliver(&d, &pack("Island - Better Maps.atlaspack", "island", key, &older), &older);
+        assert_eq!(std::fs::read(old_folder.join("Island - Better Maps.atlaspack")).unwrap(), e4);
+        assert_eq!(std::fs::read(new_folder.join("Island - Better Maps.atlaspack")).unwrap(), older);
         let _ = std::fs::remove_dir_all(&home);
     }
 

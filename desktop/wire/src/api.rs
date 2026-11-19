@@ -228,6 +228,14 @@ pub struct Pack {
     pub title: String,
     /// The site it was read from (`source.name`, else `source.importer.title`)
     pub source: String,
+    /// For a pack from no site (a map made in Atlas or by Atlas Map Maker), the app it was
+    /// made in: "Atlas"
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub made_in: String,
+    /// It carries the maker's own things (`mine`), in plain words: "With your own locations
+    /// and notes"
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub own_things: String,
     /// Its file's name and size
     pub file: String,
     pub size: u64,
