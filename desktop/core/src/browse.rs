@@ -1222,6 +1222,8 @@ pub fn game(ix: &Index, lib: &Library, key: &str) -> Result<Value> {
     v["magazines"] = json!(crate::magtext::issues_of(conn, lib, key, &platform, &title)?);
     // the videos about it (D146)
     v["videos"] = json!(crate::videos::of_game(lib, key, &platform, &title));
+    // its maps and guides, Atlas packs (D219)
+    v["maps"] = json!(crate::maps::of_game(ix, lib, key));
     // its place in the backlog (D157)
     v["backlog"] = json!(crate::backlog::of_game(lib, key));
     // how many cheats it has (D199)

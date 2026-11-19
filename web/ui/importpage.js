@@ -2,7 +2,7 @@
 // into the library, in one place. Games in folders you keep (the folders with games, scanned
 // where they are), games copied into the library from a folder (matched by the audit DATs,
 // named as they say, D53's bring-in) or one at a time (Add a game…), PC games, DATs, BIOS
-// files, documents, magazines and videos, and the imports made lately. The other pages' import
+// files, documents, magazines, videos and maps and guides, and the imports made lately. The other pages' import
 // buttons open this page at their section (`importFrom`), and files dropped where no page
 // takes them come here to be asked what they are (`dropToImport`).
 import { html, useState, useEffect } from "../lib/html.js";
@@ -19,6 +19,7 @@ import { importBios } from "./bios.js";
 import { attachDocs } from "./documents.js";
 import { importMagazines } from "./magazines.js";
 import { importVideos, addVideoLink } from "./videos.js";
+import { importMaps } from "./maps.js";
 import { importDats, starterDats, addRoot, refreshGames, scan } from "./games.js";
 import { Icon } from "./icons.js";
 import { argHash, useRouteArg } from "./panels.js";
@@ -388,6 +389,7 @@ const DROPPED = [
   ["docs", "Documents", "Manuals, guides and scans, each paired with its game.", "import-docs"],
   ["mags", "Magazines", "Issues (PDF, CBZ or CBR) into Magazines/, by magazine.", "import-mags"],
   ["videos", "Videos", "Walkthroughs, reviews and the like into Videos/, by kind.", "import-videos"],
+  ["maps", "Maps and guides", "Packs made by Atlas Importer (.atlaspack), each linked to its game.", "import-maps"],
   ["dats", "DATs", "Lists of games to audit your files against.", "settings-dats"],
   ["bios-dat", "A BIOS DAT", "A list of BIOS files to audit them against.", "import-bios"],
 ];
@@ -400,6 +402,7 @@ export function guessDropped(paths) {
   if (all(["dat", "xml"])) return "dats";
   if (all(["cbz", "cbr"])) return "mags";
   if (all(["mp4", "m4v", "mov", "webm", "mkv", "avi"])) return "videos";
+  if (all(["atlaspack"])) return "maps";
   if (all(["exe", "msi"])) return "pc";
   if (all(["pdf", "txt", "md", "htm", "html", "doc", "docx", "rtf"])) return "docs";
   return "games";
@@ -412,6 +415,7 @@ function startDropped(kind, paths) {
   if (kind === "docs") return attachDocs({ how: "files", paths });
   if (kind === "mags") return importMagazines(false, paths);
   if (kind === "videos") return importVideos(false, paths);
+  if (kind === "maps") return importMaps(false, paths);
   if (kind === "dats") { close(); return importDats(paths); }
   if (kind === "bios-dat") { close(); return importDats(paths, { "*": "bios" }); }
 }
@@ -499,6 +503,10 @@ export function ImportPage() {
         <button type="button" class="ghost" id="import-videos-folder" disabled=${off || !desk} onClick=${() => importVideos()}>A folder…</button>
         <button type="button" class="ghost" id="import-videos-files" disabled=${off || !desk} onClick=${() => importVideos(true)}>Files…</button>
         <button type="button" class="ghost" id="import-videos-link" disabled=${off} onClick=${addVideoLink}>A link…</button>
+      <//>
+      <${Card} id="import-maps" icon="map" title="Maps and guides" here=${at === "import-maps"} where="Packs of a game's maps, guides and wiki pages made by Atlas Importer (.atlaspack), into Maps and Guides, each linked to its game; Atlas opens them.">
+        <button type="button" class="ghost" id="import-maps-files" disabled=${off || !desk} onClick=${() => importMaps()}>Maps and guides…</button>
+        <button type="button" class="ghost" id="import-maps-folder" disabled=${off || !desk} onClick=${() => importMaps(true)}>A folder…</button>
       <//>
     </div>
     <section class="ls-section" id="import-recent">

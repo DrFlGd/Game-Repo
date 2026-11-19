@@ -1938,6 +1938,17 @@ html.drop-over .game-page, html.drop-over .meta-panel { outline: 2px dashed var(
 .shelf-page .video-player h2 { margin: 0; font-size: 16px; }
 .shelf-page .video-player p { margin: 4px 0 0; }
 .shelf-page .video-big { max-height: 46vh; }
+/* Maps and Guides (D219): a pack's maps with their small pictures, To review, its other copies */
+.maps-to-review { display: flex; gap: 10px; align-items: center; margin: 8px 16px 0; padding: 8px 12px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); font-size: 13.5px; }
+.maps-to-review > span { flex: 1; min-width: 0; }
+.ls-list li > .maps-map-pic { flex: none; width: 56px; height: 42px; object-fit: cover; border-radius: var(--radius-s); }
+span.maps-map-pic { display: flex; font-size: 16px; }
+.maps-map-text { display: grid; gap: 1px; }
+.maps-map-text .muted { font-size: 12.5px; }
+.maps-review { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); }
+.maps-review p { margin: 0; }
+.maps-file { font-size: 12px; overflow-wrap: anywhere; }
+.maps-item-to, .maps-item-state, .maps-item-error { display: block; font-size: 12.5px; }
 .doc-line .lib-line-main { gap: 1px; }
 .doc-line .doc-snippet { white-space: normal; }
 .docs-shelf { grid-template-columns: 230px minmax(0, 1fr); }

@@ -270,6 +270,17 @@ const MIGRATIONS: &[(&str, &str)] = &[
          CREATE INDEX patches_folder ON patches (folder);
          CREATE TABLE patch_folders (folder TEXT PRIMARY KEY, sig TEXT NOT NULL) STRICT;",
     ),
+    (
+        "atlas packs",
+        // D216: each pack file in the library's Maps and Guides folder (maps.rs), by its path
+        // there, with its description (the JSON) or why it can't be read; read again only
+        // when its size or time changes
+        "CREATE TABLE atlas_packs (
+            path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL,
+            pack_id TEXT, description TEXT, error TEXT
+         ) STRICT;
+         CREATE INDEX atlas_packs_id ON atlas_packs (pack_id);",
+    ),
 ];
 
 /// How many schema steps this build knows.

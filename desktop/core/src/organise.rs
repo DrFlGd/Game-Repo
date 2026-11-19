@@ -1695,7 +1695,10 @@ pub(crate) fn copy_file(from: &Path, to: &Path, cancel: &AtomicBool) -> io::Resu
 /// hashes the change recorded for it, or, with none recorded (an import's file, D133), by
 /// the CRC32 of the original as it was read for the copy, so it's read once.
 fn copy_checked(from: &Path, to: &Path, want: &Src, cancel: &AtomicBool) -> Result<()> {
-    let tmp = to.with_file_name(format!("{}.gamerepo-tmp", to.file_name().unwrap_or_default().to_string_lossy()));
+    // an Atlas pack is written under a name ending in .part, as the Atlas pack contract
+    // says every pack is, so nothing takes half of one for a pack (D218)
+    let name = to.file_name().unwrap_or_default().to_string_lossy();
+    let tmp = to.with_file_name(if crate::atlaspack::is_pack_name(&name) { format!("{name}.part") } else { format!("{name}.gamerepo-tmp") });
     let r = (|| -> Result<()> {
         if want.sha1.is_none() && want.crc32.is_empty() {
             let read = copy_hashed(from, &tmp, cancel).with_context(|| format!("couldn't copy {}", from.display()))?;
@@ -2155,6 +2158,9 @@ pub fn run(ix: &Index, lib: &Library, plan: &Plan, cancel: &AtomicBool, progress
     if plan.kind == "pc_remove" {
         crate::pcgames::after_remove(ix, lib, plan, false)?;
     }
+    if plan.kind.starts_with("maps_") {
+        crate::maps::after(ix, lib, plan, false)?;
+    }
     audit::match_files(conn)?;
     if plan.kind == "patch" && !stopped && failed.is_empty() {
         crate::patches::after(ix, lib, plan, false)?;
@@ -2365,6 +2371,9 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
     }
     if plan.kind == "patch" {
         crate::patches::after(ix, lib, &plan, true)?;
+    }
+    if plan.kind.starts_with("maps_") {
+        crate::maps::after(ix, lib, &plan, whole)?;
     }
     audit::match_files(conn)?;
     audit::changed(conn)?;

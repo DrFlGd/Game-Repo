@@ -2071,8 +2071,232 @@ async def cheats_page(pg, base, home, library):
     srv.shutdown()
 
 
+# two small real JPEGs (16 × 12, one colour each): a pack's cover and its maps' small pictures
+JPG_GREEN = base64.b64decode("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAMABADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAQX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCSAEl//9k=")
+JPG_BROWN = base64.b64decode("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAMABADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAT/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAABf/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AIQBRZ//2Q==")
+
+
+def atlas_pack(path, pack_id, title, version=7, updated="2026-11-10T10:00:00Z", game=None, site="Example Maps"):
+    """A pack as Atlas Importer writes it (the Atlas pack contract): a ZIP whose first entry is
+    its description, atlaspack.json, then (format 7) its small pictures under preview/ and its
+    data. Made-up games and sites only."""
+    d = {"format": "atlas-pack-file", "version": version, "packId": pack_id, "title": title, "packVersion": "1.0.0", "detail": "standard",
+         "exportedAt": "2026-11-12T08:00:00Z", "exportedBy": {"name": "Atlas Importer", "version": "0.23.0", "platform": "linux"},
+         "pack": {"id": pack_id, "title": title, "packVersion": "1.0.0", "created": "2026-11-01T09:00:00Z", "updated": updated},
+         "source": {"kind": "web-pages", "importer": {"id": "example-maps", "title": site}, "newestPageAt": updated},
+         "contents": {"maps": 2, "locations": 120, "guides": 14}, "files": 4, "bytes": 2048}
+    pictures = []
+    if version >= 7:
+        d["source"]["name"] = site
+        d["game"] = {"title": game or title, "system": "Game Boy"}
+        d["personalUse"] = True
+        d["cover"] = "preview/cover.jpg"
+        d["maps"] = [{"id": "map:world", "name": "The World", "width": 4096, "height": 3072, "locations": 100, "preview": "preview/map-1.jpg"},
+                     {"id": "map:caves", "name": "The Caves", "width": 2048, "height": 2048, "locations": 20, "preview": "preview/map-2.jpg"}]
+        d["guides"] = [{"title": "Walkthrough", "type": "guide", "pages": 12}, {"title": "The Valley Wiki", "type": "wiki", "pages": 30}]
+        pictures = [("preview/cover.jpg", JPG_GREEN), ("preview/map-1.jpg", JPG_BROWN), ("preview/map-2.jpg", JPG_GREEN)]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("atlaspack.json", json.dumps(d))
+        for name, b in pictures:
+            z.writestr(name, b)
+        z.writestr("data/pack.json", json.dumps({"id": pack_id}), compress_type=zipfile.ZIP_DEFLATED)
+    return path
+
+
+async def maps_page(pg, base, home, library):
+    """Maps and Guides (D214–D221): the packs Atlas Importer writes into the library's
+    Maps and Guides/No game yet folder are read; one whose game is certain is linked and
+    moved into its game's folder (Undo puts it back); one that isn't waits on To review, with
+    the closest games offered; one Game Repo can't read says why. Packs are linked to another
+    game and taken off one, imported (a newer file of a pack replacing the old), found when
+    the Importer writes one while the app is open, opened in Atlas and removed."""
+    gb = home / "GB"
+    gb.mkdir()
+    lantern, moss = make_fixtures.rom(81, 1024), make_fixtures.rom(82, 1024)
+    (gb / "Lantern Valley (World).gb").write_bytes(lantern)
+    (gb / "Moss Harbour (USA).gb").write_bytes(moss)
+    dat = home / "gb.dat"
+    dat.write_text(make_fixtures.logiqx("Nintendo - Game Boy", "20261001", [
+        ("Lantern Valley (World)", None, [make_fixtures.rom_xml("Lantern Valley (World).gb", lantern)]),
+        ("Moss Harbour (USA)", None, [make_fixtures.rom_xml("Moss Harbour (USA).gb", moss)]),
+    ]))
+    pick(gb, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.wait_for_selector("#import-maps")
+    cards = await pg.eval_on_selector_all("#import-maps button", "els => els.map(e => e.textContent.trim())")
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    pick(dat, base)
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await back_home(pg, base)
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    # what Atlas Importer has written: a pack of a game the library has, one whose game isn't
+    # certain, one of a format newer than this Game Repo reads, and one still being written
+    maps = library / "Maps and Guides"
+    no_game = maps / "No game yet"
+    a_name, b_name = "Lantern Valley - Example Maps.atlaspack", "Lantern Valley Deluxe - Example Maps.atlaspack"
+    atlas_pack(no_game / a_name, "lantern-valley-example-maps", "Lantern Valley")
+    atlas_pack(no_game / b_name, "lantern-valley-deluxe-example-maps", "Lantern Valley Deluxe")
+    atlas_pack(no_game / "Future Pack - Example Maps.atlaspack", "future-pack", "Future Pack", version=8)
+    (no_game / "Half Written - Example Maps.atlaspack.part").write_bytes(b"PK\x03\x04 not yet")
+    await pg.click('.sidebar a[href="#/maps"]')
+    said = await toast_text(pg, "Linked Lantern Valley", timeout=30000)
+    a_at = maps / "Lantern Valley" / a_name
+    await until(lambda: a_at.is_file(), 15)
+    await pg.wait_for_selector('#maps-items .lib-tile[data-id="lantern-valley-example-maps"] img', timeout=15000)
+    await pg.wait_for_function("() => [...document.querySelectorAll('#maps-items .lib-tile')].length === 3")
+    tiles = await pg.eval_on_selector_all("#maps-items .lib-tile", "els => els.map(e => [e.dataset.id, e.querySelector('.lib-tile-title').textContent, e.querySelector('.lib-badge')?.textContent, e.querySelector('.lib-tile-meta').textContent])")
+    groups = await pg.eval_on_selector_all("#maps-items .shelf-group-head h2", "els => els.map(e => e.textContent)")
+    review = await pg.inner_text("#maps-to-review")
+    menu = await pg.inner_text(".sidebar .nav-link.active .nav-label")
+    kept = json.loads((maps / "packs.json").read_text())
+    linked = kept.get("packs", {}).get("lantern-valley-example-maps", {})
+    future = next((t for t in tiles if t[0].startswith("file:")), [None] * 4)
+    await pg.wait_for_function("() => { const i = document.querySelector('#maps-items .lib-tile[data-id=\"lantern-valley-example-maps\"] img'); return i && i.complete && i.naturalWidth === 16; }", timeout=15000)
+    await pg.screenshot(path=str(out / "96-maps.png"))
+    check("Maps and Guides (under the Library, D219) reads the packs Atlas Importer wrote: one whose game's title is certain is linked and moved into its game's folder as a change (D218), shown with its own cover, grouped by game; one that isn't is on To review; a newer format says why; a .part file is left alone",
+          menu == "Maps and Guides" and "Linked Lantern Valley to Lantern Valley" in said and a_at.is_file() and not (no_game / a_name).exists()
+          and [g["key"] for g in linked.get("games", [])] == ["gb/Lantern Valley (World)"] and linked.get("file") == f"Lantern Valley/{a_name}"
+          and len(tiles) == 3 and "1 pack to review" in review and future[2] == "Can't be read" and "needs a newer Game Repo" in (future[3] or "") and "format 8" in (future[3] or "")
+          and "Lantern Valley" in groups and "No game yet" in groups and cards == ["Maps and guides…", "A folder…"],
+          (said, tiles, groups, review, linked, cards))
+    # the pack's panel: its maps with their small pictures, its guides and wikis with their page counts
+    await pg.click('#maps-items .lib-tile[data-id="lantern-valley-example-maps"]')
+    await pg.wait_for_selector("#maps-panel #maps-maps li")
+    await pg.wait_for_function("() => [...document.querySelectorAll('#maps-maps img')].filter(i => i.complete && i.naturalWidth === 16).length === 2", timeout=15000)
+    panel = await pg.inner_text("#maps-panel")
+    buttons = await pg.eval_on_selector_all("#maps-panel .lib-panel-actions button", "els => els.map(e => e.textContent.trim())")
+    await pg.screenshot(path=str(out / "97-maps-panel.png"))
+    check("a pack's panel lists its maps with their own small pictures, and its guides and wiki with their page counts, with Open in Atlas, Link…, Take off the game, Choose a picture…, Show in folder and Remove…",
+          "The World" in panel and "4096 × 3072" in panel and "The Caves" in panel and "Walkthrough" in panel and "12 pages" in panel and "The Valley Wiki" in panel and "30 pages" in panel
+          and "Example Maps" in panel and "For your own use" in panel
+          and buttons == ["Open in Atlas", "Link to another game…", "Take off the game", "Choose a picture…", "Show in folder", "Remove…"], (panel[:600], buttons))
+    # Undo puts it back in No game yet, where it waits on To review (not linked again on its own)
+    undone = await pg.evaluate("""async () => { const h = await window.__TAURI__.core.invoke('api', { cmd: 'change_history', args: {} });
+      const c = h.find((x) => x.kind === 'maps_link'); if (!c) return null;
+      const { job } = await window.__TAURI__.core.invoke('api', { cmd: 'change_undo', args: { id: c.id } });
+      for (;;) { const j = await window.__TAURI__.core.invoke('api', { cmd: 'job', args: { id: job } }); if (j.done) return j.error || c.label; await new Promise((r) => setTimeout(r, 200)); } }""")
+    await until(lambda: (no_game / a_name).is_file(), 15)
+    await pg.goto(base + "#/maps")
+    await pg.wait_for_function("() => /2 packs to review/.test(document.querySelector('#maps-to-review')?.textContent || '')", timeout=20000)
+    await asyncio.sleep(4)  # the folder watcher's settle time: the move back isn't linked again on its own
+    kept = json.loads((maps / "packs.json").read_text()).get("packs", {}).get("lantern-valley-example-maps", {})
+    check("Undo of the link puts the pack back in No game yet, where it waits on To review and isn't linked again on its own",
+          undone == "Linked Lantern Valley to Lantern Valley" and (no_game / a_name).is_file() and not (maps / "Lantern Valley").exists() and kept.get("games") in (None, []) and kept.get("by_hand") is True,
+          (undone, kept, sorted(p.relative_to(maps).as_posix() for p in maps.rglob("*") if p.is_file())))
+    # To review: the closest games offered, and Link
+    await pg.click('#maps-items .lib-tile[data-id="lantern-valley-deluxe-example-maps"]')
+    await pg.wait_for_selector("#maps-suggestions li", timeout=15000)
+    offered = await pg.eval_on_selector_all("#maps-suggestions li", "els => els.map(e => e.dataset.key)")
+    await pg.screenshot(path=str(out / "98-maps-review.png"))
+    await pg.click('#maps-suggestions li[data-key="gb/Lantern Valley (World)"] [data-action="link"]')
+    said = await toast_text(pg, "Linked Lantern Valley Deluxe")
+    b_at = maps / "Lantern Valley" / b_name
+    await until(lambda: b_at.is_file(), 15)
+    check("a pack on To review offers the closest games; Link links it and moves its file into the game's folder, with Undo",
+          offered and offered[0] == "gb/Lantern Valley (World)" and b_at.is_file() and "Undo" in said, (offered, said))
+    # linked to another game by hand, then taken off it: back to No game yet, the emptied folder gone
+    await pg.click('#maps-items .lib-tile[data-id="lantern-valley-example-maps"]')
+    await pg.click("#maps-panel-link")
+    await pg.fill("#shelf-game-search", "Moss Harbour")
+    await pg.wait_for_selector('#shelf-game-pick option[value="gb/Moss Harbour (USA)"]', timeout=15000)
+    await pg.select_option("#shelf-game-pick", "gb/Moss Harbour (USA)")
+    await pg.click("#shelf-game button[type=submit]")
+    await toast_text(pg, "Linked Lantern Valley to Moss Harbour")
+    moss_at = maps / "Moss Harbour" / a_name
+    await until(lambda: moss_at.is_file(), 15)
+    await pg.wait_for_selector('#maps-items .lib-tile[data-id="lantern-valley-example-maps"]', timeout=15000)
+    await pg.click('#maps-items .lib-tile[data-id="lantern-valley-example-maps"]')
+    await pg.wait_for_selector("#maps-panel-take-off")
+    await pg.click("#maps-panel-take-off")
+    await toast_text(pg, "Took Lantern Valley off its game")
+    await until(lambda: (no_game / a_name).is_file(), 15)
+    check("Link to a game… links a pack to the game picked and moves its file there; Take off the game moves it back to No game yet, and the game's emptied folder is removed",
+          (no_game / a_name).is_file() and not (maps / "Moss Harbour").exists(), sorted(p.relative_to(maps).as_posix() for p in maps.rglob("*") if p.is_file()))
+    # a game's page lists its packs, with Open in Atlas
+    await pg.goto(base + "#/game/gb/Lantern%20Valley%20(World)")
+    await pg.wait_for_selector("#game-maps li", timeout=15000)
+    game_line = await pg.inner_text("#game-maps")
+    check("a game's page lists its packs (Maps and guides), each with Open in Atlas", "Lantern Valley Deluxe" in game_line and "Open in Atlas" in game_line and "2 maps" in game_line, game_line)
+    # Import (D220): a pack of the library's game (format 6) and a newer file of a pack kept
+    downloads = home / "downloads"
+    d_from = atlas_pack(downloads / "moss harbour pack.atlaspack", "moss-harbour-example-maps", "Moss Harbour", version=6)
+    b_newer = atlas_pack(downloads / "Lantern Valley Deluxe - Example Maps.atlaspack", "lantern-valley-deluxe-example-maps", "Lantern Valley Deluxe", updated="2026-11-15T10:00:00Z")
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.wait_for_selector("#import-maps-files")
+    pick(d_from, base)
+    pick(b_newer, base)
+    await pg.click("#import-maps-files")
+    await pg.wait_for_selector("#maps-items li", timeout=20000)
+    items = await pg.eval_on_selector_all("#maps-items li", "els => els.map(e => [e.dataset.name, e.dataset.state, e.dataset.include, e.innerText])")
+    await pg.screenshot(path=str(out / "99-maps-import.png"))
+    await pg.click("#maps-import-dialog button[type=submit]")
+    await pg.wait_for_selector("#organise-totals", timeout=15000)
+    totals = await pg.inner_text("#organise-totals")
+    await pg.click("#maps-import-dialog button[type=submit]")
+    said = await toast_text(pg, "Imported 2 packs")
+    d_at = maps / "Moss Harbour" / "Moss Harbour - Example Maps.atlaspack"
+    await until(lambda: d_at.is_file(), 15)
+    aside = [p for p in library.rglob(".gamerepo-set-aside/**/*.atlaspack")]
+    check("Import maps and guides… reads each pack: a new one comes in under the contract's name and is linked to its game at once; a newer file of a pack kept replaces it, the old one set aside (D220)",
+          sorted((i[0], i[1], i[2]) for i in items) == [("Lantern Valley Deluxe - Example Maps.atlaspack", "newer", "yes"), ("moss harbour pack.atlaspack", "new", "yes")]
+          and "2 packs" in totals and d_at.is_file() and b_at.read_bytes() == b_newer.read_bytes() and len(aside) == 1 and d_from.is_file()
+          and "linked" in said, (items, totals, said, aside))
+    # Atlas Importer writes a pack while the app is open: found by the folder watcher, linked (D217)
+    await pg.click('.sidebar a[href="#/maps"]')
+    await pg.wait_for_selector('#maps-items .lib-tile[data-id="moss-harbour-example-maps"]', timeout=15000)
+    e_name = "Moss Harbour - Other Maps.atlaspack"
+    atlas_pack(no_game / e_name, "moss-harbour-other-maps", "Moss Harbour", site="Other Maps")
+    said = await toast_text(pg, "Linked 1 new pack", timeout=40000)
+    await until(lambda: (maps / "Moss Harbour" / e_name).is_file(), 15)
+    await pg.wait_for_selector('#maps-items .lib-tile[data-id="moss-harbour-other-maps"]', timeout=15000)
+    check("a pack Atlas Importer writes while the app is open is read and linked to its game (the folder watcher, D217)", (maps / "Moss Harbour" / e_name).is_file(), said)
+    # a pack moved by hand is found again by its packId, still linked (its card's picture read first)
+    await pg.wait_for_function("() => { const i = document.querySelector('#maps-items .lib-tile[data-id=\"moss-harbour-other-maps\"] img'); return i && i.complete && i.naturalWidth === 16; }", timeout=15000)
+    moved = maps / "Moss Harbour" / "renamed by hand.atlaspack"
+    (maps / "Moss Harbour" / e_name).rename(moved)
+    await asyncio.sleep(5)
+    await pg.goto(base + "#/maps")
+    await pg.wait_for_selector('#maps-items .lib-tile[data-id="moss-harbour-other-maps"]', timeout=15000)
+    kept = json.loads((maps / "packs.json").read_text()).get("packs", {}).get("moss-harbour-other-maps", {})
+    check("a pack renamed by hand is found again by its packId, and keeps its game", kept.get("file") == "Moss Harbour/renamed by hand.atlaspack" and kept.get("games", [{}])[0].get("key") == "gb/Moss Harbour (USA)", kept)
+    # Open in Atlas: the program set in Settings › Tools, started with the pack's path (D221)
+    if os.name != "nt":
+        opened = home / "atlas-opened.txt"
+        fake = home / "fake-atlas.sh"
+        fake.write_text(f"#!/bin/sh\nprintf '%s' \"$1\" > '{opened}'\n")
+        fake.chmod(0o755)
+        await pg.click('.sidebar a[href="#/settings"]')
+        await pg.wait_for_selector('#tools li[data-tool="atlas"]')
+        pick(fake, base)
+        await pg.click('#tools li[data-tool="atlas"] [data-action="choose"]')
+        await pg.wait_for_selector('#tools li[data-tool="atlas"][data-found="yes"]')
+        await pg.click('.sidebar a[href="#/maps"]')
+        await pg.click('#maps-items .lib-tile[data-id="lantern-valley-deluxe-example-maps"]')
+        await pg.click("#maps-panel-open")
+        await until(lambda: opened.is_file(), 10)
+        check("Open in Atlas starts the Atlas set in Settings › Tools with the pack's path", Path(opened.read_text()) == b_at, opened.read_text())
+    # Remove…: the pack Game Repo can't read set aside, with Undo
+    await pg.goto(base + "#/maps")
+    future_tile = '#maps-items .lib-tile[data-id^="file:"]'
+    await pg.wait_for_selector(future_tile, timeout=15000)
+    await pg.click(future_tile)
+    await pg.wait_for_selector("#maps-panel-error")
+    error_said = await pg.inner_text("#maps-panel-error")
+    await pg.click("#maps-panel-remove")
+    await pg.wait_for_selector("#organise-dialog #organise-totals")
+    await pg.click("#organise-dialog button[type=submit]")
+    await toast_text(pg, "Removed")
+    await pg.wait_for_selector(future_tile, state="detached", timeout=15000)
+    check("a pack that can't be read says why in its panel (a newer format, with what wrote it), and Remove… sets it aside",
+          "format 8" in error_said and "Atlas Importer" in error_said and not (no_game / "Future Pack - Example Maps.atlaspack").exists() and (no_game / "Half Written - Example Maps.atlaspack.part").is_file(), error_said)
+
+
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device), ("cheats", cheats_page), ("patches", patches_page), ("textures", textures_page), ("mods", mods_page)]
+             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device), ("cheats", cheats_page), ("patches", patches_page), ("textures", textures_page), ("mods", mods_page), ("maps", maps_page)]
 
 
 async def main():
@@ -2142,7 +2366,7 @@ async def main():
                 active = await pg.inner_text(".sidebar .nav-link.active .nav-label")
                 lead = await pg.inner_text("#audit-empty")
                 check("the menu's places open, with the pages still to come saying what they'll do",
-                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Cheats", "Patches", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Backlog", "Devices", "Export layouts", "History", "Settings", "Help", "About"]
+                      labels == ["Game Repo", "Home", "Library", "PC games", "Magazines", "Videos", "Maps and Guides", "Cheats", "Patches", "Import", "Audit", "BIOS files", "Metadata", "Documents", "Collections", "Backlog", "Devices", "Export layouts", "History", "Settings", "Help", "About"]
                       and audit == "Audit" and active == "Audit" and "DAT" in lead and "folders" in lead.lower(), (labels, audit, active, lead[:120]))
                 await pg.screenshot(path=str(out / "01-coming.png"))
 
@@ -2621,8 +2845,8 @@ async def main():
                 # D178: Get it… for each tool (a download on Windows; its page elsewhere, and for Tesseract)
                 get_buttons = await pg.evaluate("() => [...document.querySelectorAll('#tools li')].map((li) => { const b = li.querySelector('[data-action=get], [data-action=page]'); return [li.dataset.tool, b?.dataset.action, b?.textContent.trim()]; })")
                 tools_text = await pg.inner_text("#settings-tools")
-                check("Settings › Tools has Get it… (a checked download) or the download page for each tool, and no longer says nothing is downloaded (D178)",
-                      [b[0] for b in get_buttons] == ["dolphin-tool", "innoextract", "tesseract"] and all(b[1] in ("get", "page") and b[2] for b in get_buttons)
+                check("Settings › Tools has Get it… (a checked download) or the download page for each tool, and no longer says nothing is downloaded (D178); Atlas (D221) has neither, only where it is",
+                      [b[0] for b in get_buttons] == ["dolphin-tool", "innoextract", "tesseract", "atlas"] and all(b[1] in ("get", "page") and b[2] for b in get_buttons[:3]) and get_buttons[3][1] is None
                       and get_buttons[2][1] == "page" and "Nothing is downloaded" not in tools_text and "Get it" in tools_text, (get_buttons, tools_text[:200]))
                 if os.name == "nt":
                     # D178 on Windows: Get it… really downloads innoextract and dolphin-tool into the

@@ -7196,6 +7196,114 @@ details beside a pack (not designed), and a lighter copy of a pack for a small d
 scheduled). Nothing is fetched on account of a pack: the addresses in `source.pages` are
 never requested, for a picture, a title or anything else.
 
+### Maps and Guides notes, part 1: the section (built 2026-11-19)
+
+D214–D221 and D223, in `desktop/core/src/atlaspack.rs` (the reader), `desktop/core/src/maps.rs`
+(the folder, the record, matching, the changes, the page's data), `api.rs` (the commands, the
+job and the watcher), the CLI's `maps` and the page `web/ui/maps.js`:
+- `atlaspack.rs` is the stand-in for Atlas's `atlas-pack` crate (D215), with its surface:
+  `FORMAT`, `NEWEST` (7), `EXTENSION`, `read_description(path) -> Result<Description,
+  PackError>`, `read_preview(path, name)`, and `PackError`'s three sentences (`NotAPack`,
+  `Newer { version, by }`, `Damaged(what)`). The description is read from the front of the
+  file: the first local header must be `atlaspack.json` (stored or deflated, its CRC
+  checked, at most 4 MB), else the central directory is asked only to find that first
+  entry's size when the header has a data descriptor. `Description` keeps every field
+  optional and the whole JSON in `raw`; `newer()` compares `pack.updated`, then
+  `exportedAt`, as instants. A small picture is read only by a name the description gives,
+  under `preview/`, JPEG, at most 4 MB. The module says it's replaced by the crate once
+  Atlas tags a release.
+- `maps.rs`: the folder (`Maps and Guides/`, `No game yet/` made when the page first opens,
+  so the Importer can be pointed at it), `packs.json` (`Record`, keyed by `packId`: each
+  pack's `games` ({key, title, platform}), `picture`, `file`, `added`, `linked`, and two of
+  Game Repo's own, `by_hand` (its link was decided by hand, or an automatic one undone, so
+  it's never linked again on its own) and `left` (*Leave it in No game yet*, or taken off
+  its last game: off To review); unknown keys kept, written with `config::write_json`).
+  The index keeps each file's description (migration "atlas packs", `atlas_packs`: path,
+  size, time, `packId`, description or error), so `read_folder` reads only files whose size
+  or time changed, and a file gone from one place with one of the same size and time in
+  another is taken as moved without reading it again. `sync` makes the `State`: one `Pack`
+  for each `packId` (the newer file wins, the others are its `copies`), the files that
+  can't be read (with their sentences; a pack without a `packId` is "damaged: it has no
+  packId"), and the record brought up to date (a pack moved by hand gets its new `file`;
+  written only when it changed and the library is writable).
+- Matching (D218): `matches(ix, title, n)` finds the Library's games by their words (every
+  word, else any, so a pack titled with an edition still offers the game), one a system,
+  compared as videos' titles are (`variants::alike`, now `pub(crate)`); `sure` is the games
+  you have whose title is the pack's word for word, `game.system` only narrowing them. A
+  sure match is linked by `auto_link_plan`, one Organise change (kind `maps_link`, its
+  `dat` the packs and `auto`) moving each file into `folder_for(games)` (the first game's
+  title without its tags, made safe for Windows) and writing `packs.json` as a `text` step,
+  so Undo puts both back. `link`, `unlink` and their second-game form are the same change
+  by hand; a pack taken off its last game goes back to `No game yet`. `after` (called by
+  `organise::run` and `undo` for kinds starting `maps_`) removes the title folders a move
+  emptied and marks a pack whose link was undone `by_hand`. A move on the same drive is a
+  rename; to another drive `organise`'s copy now writes a pack under `<name>.part` (the
+  contract's "still being written") and renames it when whole.
+- Import (D220): `read_items` reads each `.atlaspack` picked (folders walked; files already
+  in the folder left out) into `Item`s, each new, newer (it `replaces` the kept file), the
+  same or older (not brought in, said why); a file that can't be read comes in with its
+  sentence. `import_plan` (kind `maps_import`) copies (hardlinked on the same drive, or
+  always copied, or moved) into `No game yet` under the contract's name when the file's
+  own isn't of that shape, and a newer file in place of the kept one, which is set aside
+  first. After it runs, `organise_run` links the sure matches as a second change
+  (`r.linked`), and the page's Undo undoes that first.
+- `api.rs`: `maps` (the page: every card with its games' details, `review` and
+  `suggestions` for a pack with no game, the files that can't be read, the folder, `atlas`),
+  `maps_sync` (a job, *Reading Maps and Guides*: `sync`, then the sure matches linked as a
+  change unless another change is running; read again up to five times while the watcher
+  says the folder changed meanwhile), `maps_items` (a job), `maps_plan`, `maps_link`
+  (`also` for a second game), `maps_unlink`, `maps_leave`, `maps_picture`, `maps_remove`
+  (a pack or another copy set aside, kind `maps_remove`), `maps_open`. The folder watcher
+  (D217): `ensure_maps_watch` watches the folder (not on a network drive, not in a library
+  that's read only, as the folders with games are watched) and starts `maps_sync` as an
+  `auto` job when it settles; `followAutoScans` (`games.js`) refreshes the page and says
+  what it linked, with Undo. A pack's small pictures are served as
+  `library://~atlas/<n>/<packId>/<its library path>` (n = 0 the cover, n ≥ 1 its n-th map),
+  found by `packId` where `packs.json` has it now (a card drawn before its pack moved still
+  finds it), read once into `<data>/thumbs/<library id>/atlas/<hash>.jpg` by
+  `preview_file`.
+- Open in Atlas (D221): `open_in_atlas` starts the program set in Settings › Tools (*atlas*,
+  a tool with no download and no version; never one found on the PATH, as another program
+  may be called atlas) with the pack's path; without one, the page opens the pack with the
+  system's program for `.atlaspack` files (`open_path`). On Windows, when no program is
+  registered for `.atlaspack` (`reg query HKCR\.atlaspack`), it says Atlas isn't installed.
+- The page (D219): `web/ui/maps.js` on the shelf, grouped by game, filtered by Is (linked,
+  To review, left with no game, can't be read, for your own use, has another copy), Game,
+  System, Site, Has (maps, guides, wiki pages) and Detail. A card: the picture chosen for
+  it, else the pack's cover, else a plain card with a map, guide or wiki mark (the chosen
+  picture first, unlike D219's order, so *Choose a picture…* shows on a pack with a cover
+  too; it's kept in the folder's hidden `.pictures/`, named by its hash). The panel: its
+  facts (site, counts, detail, size, *Read N days ago*, when it changed, *For your own
+  use*), the actions, To review's suggestions (*Link*, *Another game…*, *Leave it in No game
+  yet*), its games (each with *Take off*), its maps with their small pictures and sizes,
+  its guides and wikis with their page counts (a format 6 pack: its counts), its other
+  copies (*Another copy*, *Remove it…*), and its file, format and what wrote it. *Look
+  again* and *Show the folder* are under ⋯. A game's page has *Maps and guides*
+  (`browse::game`'s `maps`), each with *Open in Atlas*. The Import page has a *Maps and
+  guides* card (*Maps and guides…*, *A folder…*), and dropped `.atlaspack` files are taken
+  for packs. Help, About (DONE, NEXT, the library's layout) and Settings › Tools say so.
+- The CLI: `maps [list]`, `maps sync`, `maps import <paths> [--move] [--always-copy]
+  [--dry-run]`, `maps link <pack id> <game key> [--also] [--dry-run]`, `maps unlink <pack
+  id> [<game key>]`, `maps remove <path below the folder>...`.
+- For part 2 (D222), Game Repo Server takes `maps::linked(ix, lib)` (every pack linked to
+  a game: `Linked { pack_id, path, size, games, description }`, the folder read again
+  first) or `maps::packs_of(ix, lib, key)` (one game's).
+- Not in this part: guidebooks (`Guidebooks/` is passed over), packs on devices (part 2),
+  and the rest of D223. Undo of a link after `packs.json` was changed by another change
+  keeps the newer `packs.json` (as `videos.json` is kept), so the moved file goes back but
+  the record holds the later link until the folder is read again.
+- Tests: `core` `atlaspack` (a format 6 pack read from its front; format 7's names and
+  pictures; not a pack, a wrong first entry, format 8 with its sentence; a description over
+  4 MB; a first entry with a data descriptor; the newer of two files), `core` `maps`
+  (`packs_are_kept_found_again_and_linked_to_their_games`: format 6 and 7, `.part` files and
+  `Guidebooks/` left alone, format 8's sentence, the sure match linked and its file moved,
+  a pack moved by hand found again, two files of one pack (the other removed with Undo), a
+  picture read into the cache, a second game, another game, taken off to No game yet; `an_automatic_link_undone_goes_to_review_and_packs_are_imported`),
+  `tools` (Atlas only where it's set), and `desktop_page.py`'s `maps` part (packs written
+  as the Importer would, auto-linked with Undo, To review and Link, linked to another game
+  and taken off, the game's page, import with a newer file, the watcher, a pack renamed by
+  hand, Open in Atlas with a stand-in program, a pack that can't be read removed).
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -7460,7 +7568,7 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     Nexus Mods' API (D212, part 5) left out by Jerred on 2026-11-01.
 30. Maps and Guides, Game Repo's side of the Atlas pack contract (D214–D223, Jerred,
     2026-11-19): part 1, the section with a card for each pack, packs linked to games and
-    *Open in Atlas*; part 2, packs on Game Repo Go devices for Windows and Linux. Guidebooks,
+    *Open in Atlas*: built ("Maps and Guides notes, part 1"); part 2, packs on Game Repo Go devices for Windows and Linux. Guidebooks,
     starting Atlas on a device's game, your data beside a pack and Android wait for the
     contract (D223).
 31. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access

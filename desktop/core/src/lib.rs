@@ -31,6 +31,8 @@
 //! - [`sources`]: each source's answer kept apart, the pictures' variants, deleting metadata
 //! - [`pcmeta`]: a PC game's details, pictures and documents in the layout every game's has
 //! - [`variants`]: the custom DAT of each system's translations, hacks and prototypes, and their tags
+//! - [`atlaspack`]: reading an Atlas pack's description and small pictures (a stand-in for Atlas's crate)
+//! - [`maps`]: Maps and Guides, the Atlas packs kept in the library and linked to games
 //! - [`api`]: the commands the page calls
 //!
 //! The layout, the phases and every design decision are in docs/PLAN.md.
@@ -71,6 +73,8 @@ pub mod library;
 pub mod lock;
 pub mod magazines;
 pub mod magtext;
+pub mod atlaspack;
+pub mod maps;
 pub mod videos;
 pub mod makedat;
 pub mod meta;

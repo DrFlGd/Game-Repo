@@ -486,19 +486,21 @@ function ToolsSection() {
     }
   };
   const pick = async (t) => {
-    const p = await ctx.platform.library.pickFile(`Where is ${t.id}?`, ["exe"]);
+    // a program is an .exe on Windows; elsewhere any file (an AppImage, a script)
+    const windows = (ctx.platform?.info?.os || "windows") === "windows";
+    const p = await ctx.platform.library.pickFile(`Where is ${t.id}?`, windows ? ["exe"] : []);
     if (p) set(t.id, p);
   };
   return html`<section class="ls-section" id="settings-tools">
     <h2>Tools</h2>
-    <p class="muted">Game Repo reads and writes CHD, CSO and ZSO itself. For RVZ it uses Dolphin's own tool, and for GOG installers innoextract, found in the app's <code>tools</code> folder${r?.app_dir ? html` (<code>${r.app_dir}</code>)` : null}, on the PATH, or where you set it here. <em>Get it…</em> downloads a known release of dolphin-tool or innoextract into that folder and checks it (its SHA-256 is shown, and pinned once known); Tesseract has an installer of its own, so its button opens the download page.</p>
+    <p class="muted">Game Repo reads and writes CHD, CSO and ZSO itself. For RVZ it uses Dolphin's own tool, and for GOG installers innoextract, found in the app's <code>tools</code> folder${r?.app_dir ? html` (<code>${r.app_dir}</code>)` : null}, on the PATH, or where you set it here. <em>Get it…</em> downloads a known release of dolphin-tool or innoextract into that folder and checks it (its SHA-256 is shown, and pinned once known); Tesseract has an installer of its own, so its button opens the download page. Atlas, which shows the maps and guides in Maps and Guides, is only used from where you set it here; when it isn't set, Open in Atlas uses the program your computer opens <code>.atlaspack</code> files with.</p>
     ${error ? html`<p class="form-error" role="alert">${error}</p>` : null}
     ${r ? html`<ul class="ls-list change-list" id="tools">${r.tools.map((t) => html`<li key=${t.id} data-tool=${t.id} data-found=${t.path ? "yes" : "no"}>
       <span class="change-label"><span><b>${t.id}</b> <span class="muted">${t.what}</span></span>
         <span class="muted tool-where">${t.path ? `${t.path}${t.version ? ` · ${t.version}` : ""}` : "Not found"}</span>
         ${t.got?.sha256 ? html`<span class="muted tool-got">Downloaded ${t.got.version} · SHA-256 <code class="tool-sha">${t.got.sha256}</code></span>` : null}</span>
       ${t.get?.kind === "download" ? html`<button type="button" class="ghost" data-action="get" disabled=${!!getting} onClick=${() => get(t)}>${getting === t.id ? "Getting…" : t.path ? `Get ${t.get.version}…` : "Get it…"}</button>`
-        : html`<button type="button" class="ghost" data-action="page" onClick=${() => ctx.platform.openUrl(t.get?.url)}>Download page</button>`}
+        : t.get?.url ? html`<button type="button" class="ghost" data-action="page" onClick=${() => ctx.platform.openUrl(t.get.url)}>Download page</button>` : null}
       ${isDesktop() ? html`<button type="button" class="ghost" data-action="choose" onClick=${() => pick(t)}>Choose…</button>` : null}
       ${t.set ? html`<button type="button" class="ghost" data-action="clear" onClick=${() => set(t.id, null)}>Clear</button>` : null}
     </li>`)}</ul>
