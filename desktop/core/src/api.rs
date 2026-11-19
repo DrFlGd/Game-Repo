@@ -486,8 +486,14 @@ impl App {
                 return;
             }
             let on = app.clone();
-            // hidden folders (set aside, the pictures chosen) are left out by the watcher itself
-            let r = watch::watch(std::slice::from_ref(&dir), &dir.join(".gamerepo-set-aside"), watch::SETTLE, move |_| {
+            // hidden folders (set aside, the pictures chosen) are left out by the watcher itself;
+            // Atlas Importer writing a pack beside its place (`.atlas-importer.part`) is no
+            // change until it's renamed into place
+            let r = watch::watch(std::slice::from_ref(&dir), &dir.join(".gamerepo-set-aside"), watch::SETTLE, move |changed| {
+                let importer = |p: &PathBuf| p.file_name().is_some_and(|n| crate::atlaspack::is_importer_part(&n.to_string_lossy()));
+                if changed.as_ref().is_some_and(|c| !c.is_empty() && c.iter().all(importer)) {
+                    return;
+                }
                 if let Some(a) = on.upgrade() {
                     let _rt = handle.enter();
                     a.maps_changed_outside();
@@ -3423,7 +3429,7 @@ impl App {
                 j(blocking(Box::new(move || pending(Some(crate::maps::remove_plan(&lib, &paths)?)))).await?)
             }
             // Open in Atlas (D221): Atlas started with the pack's path, or the path for the
-            // page to open with the program the system opens packs with
+            // page to open with the program Windows opens packs with
             "maps_open" => {
                 let path = arg(&args, "path").map_err(e2s)?.to_string();
                 j(blocking(Box::new(move || crate::maps::open_in_atlas(&lib, &path))).await?)

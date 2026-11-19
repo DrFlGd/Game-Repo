@@ -6,10 +6,11 @@
 //! tags a release with it; its `docs/pack-file-format.md` is the reference for the format.
 //! [`read_header`] reads the description from the front of the file only, and
 //! [`read_preview`] one small picture the description lists, from the entries right behind
-//! it. A file that's wrong gets the crate's own sentence (not a pack file, a newer format
-//! naming the app that wrote it, a damaged description), shown as it is: Game Repo doesn't
-//! guess. Nothing in a pack is ever unpacked to disk by the names inside it, and no address
-//! in it is ever fetched.
+//! it. A file that's wrong is refused with the crate's [`Refusal`]: its sentence (not a pack
+//! file, a newer format naming the app that wrote it, a damaged description, a file that
+//! couldn't be opened), shown as it is, Game Repo doesn't guess; and its kind ([`kind_of`]),
+//! kept beside the sentence. Nothing in a pack is ever unpacked to disk by the names inside
+//! it, and no address in it is ever fetched.
 //!
 //! What's Game Repo's own here: [`Description`], the crate's `Header` as a card reads it,
 //! every field optional (a format 6 pack has no `game`, `maps`, `guides` or `cover`), so it
@@ -23,25 +24,37 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-pub use atlas_pack::{EXTENSION, FORMAT, VERSION};
+pub use atlas_pack::{Refusal, RefusalKind, EXTENSION, FORMAT, VERSION};
 
 /// A pack's description, read from the front of its file by Atlas's crate: refused, with
-/// the crate's sentence, when it isn't a pack file, needs a newer format than
-/// [`VERSION`], or is damaged.
-pub fn read_header(path: &Path) -> Result<Description, String> {
+/// the crate's [`Refusal`], when it isn't a pack file, needs a newer format than
+/// [`VERSION`], is damaged (a field every pack has is missing, or its `packId` can't be
+/// one), or can't be opened. The file is opened only for this one read.
+pub fn read_header(path: &Path) -> Result<Description, Refusal> {
     let h = atlas_pack::read_header(path)?;
-    Ok(Description::from_value(serde_json::to_value(&h).map_err(|e| format!("This pack file's description is damaged: {e}."))?))
+    Ok(Description::from_value(serde_json::to_value(&h).unwrap_or(Value::Null)))
 }
 
 /// One small picture of a pack (its cover or a map's) by the name its description gives,
 /// read by Atlas's crate: a safe `preview/<name>.jpg` name the description lists, right
 /// behind the description, a JPEG of at most 512 KB.
-pub fn read_preview(path: &Path, name: &str) -> Result<Vec<u8>, String> {
+pub fn read_preview(path: &Path, name: &str) -> Result<Vec<u8>, Refusal> {
     atlas_pack::read_preview(path, name)
 }
 
-/// The sentence for a description that has no `packId` (the crate takes an empty one).
-pub const NO_PACK_ID: &str = "This pack file's description is damaged: it has no packId.";
+/// A refusal's kind as a word for the index and the page: `not-a-pack-file`,
+/// `newer-format`, `damaged`, `cannot-open`, `no-such-picture` (`other` for a kind a newer
+/// crate adds).
+pub fn kind_of(r: &Refusal) -> &'static str {
+    match r.kind() {
+        RefusalKind::NotAPackFile => "not-a-pack-file",
+        RefusalKind::NewerFormat => "newer-format",
+        RefusalKind::Damaged => "damaged",
+        RefusalKind::CannotOpen => "cannot-open",
+        RefusalKind::NoSuchPicture => "no-such-picture",
+        _ => "other",
+    }
+}
 
 // ------------------------------------------------------------ the description
 
@@ -295,10 +308,20 @@ fn later(a: Option<&str>, b: Option<&str>) -> Ordering {
 }
 
 /// Whether a file's name says it's a pack: `<name>.atlaspack`, not one still being
-/// written (`.part`).
+/// written (`.part`, Atlas Importer's `.atlas-importer.part` among them).
 pub fn is_pack_name(name: &str) -> bool {
     let lower = name.to_lowercase();
     lower.ends_with(&format!(".{EXTENSION}")) && !lower.starts_with('.')
+}
+
+/// What Atlas Importer's unfinished file of a pack ends in, beside the pack it writes (the
+/// contract): never shown, read, moved or deleted by Game Repo, as another computer may be
+/// writing it. The Importer clears its own leftovers.
+pub const IMPORTER_PART: &str = ".atlas-importer.part";
+
+/// Whether a file is Atlas Importer's unfinished pack ([`IMPORTER_PART`]).
+pub fn is_importer_part(name: &str) -> bool {
+    name.to_lowercase().ends_with(IMPORTER_PART)
 }
 
 /// What a card shows of a description, as JSON for the page.
@@ -438,7 +461,9 @@ pub(crate) mod tests {
         let mut big = jpeg(7);
         big.resize(513 << 10, 0);
         write_pack(&q, &format7("marsh-maps", "Hollow Bog", "2026-11-17T08:30:00Z"), &[("preview/map-one.jpg", b"\x89PNG not a jpeg".to_vec()), ("preview/map-two.jpg", big)]);
-        assert_eq!(read_preview(&q, "preview/map-one.jpg").unwrap_err(), "The small picture in this pack file is not a JPEG picture.");
+        let e = read_preview(&q, "preview/map-one.jpg").unwrap_err();
+        assert_eq!((kind_of(&e), e.to_string().as_str()), ("damaged", "The small picture in this pack file is not a JPEG picture."));
+        assert_eq!(kind_of(&read_preview(&p, "preview/map-three.jpg").unwrap_err()), "no-such-picture");
         assert!(read_preview(&q, "preview/map-two.jpg").is_err());
         // a pack whose maps have no picture keeps a lower version, with the other new fields
         let mut six = format7("marsh-maps", "Hollow Bog", "2026-11-17T08:30:00Z");
@@ -468,33 +493,73 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// The crate's refusal as Game Repo keeps it: (kind, sentence).
+    fn refused(r: Result<Description, Refusal>) -> (&'static str, String) {
+        let e = r.unwrap_err();
+        (kind_of(&e), e.to_string())
+    }
+
     #[test]
-    fn a_file_that_isnt_a_pack_or_is_too_new_gets_the_crates_sentence() {
+    fn a_file_that_isnt_a_pack_or_is_too_new_gets_the_crates_sentence_and_kind() {
         let d = dir("wrong");
+        let not = ("not-a-pack-file", "This file is not an Atlas pack file.".to_string());
         let text = d.join("notes.atlaspack");
         std::fs::write(&text, b"just some text").unwrap();
-        assert_eq!(read_header(&text).unwrap_err(), "This file is not an Atlas pack file.");
+        assert_eq!(refused(read_header(&text)), not);
         std::fs::write(&text, b"").unwrap();
-        assert_eq!(read_header(&text).unwrap_err(), "This file is not an Atlas pack file.");
+        assert_eq!(refused(read_header(&text)), not);
         // another format
         let other = d.join("other.atlaspack");
         let mut wrong = format6("x", "X", "2026-01-01T00:00:00Z");
         wrong["format"] = json!("something-else");
         write_pack(&other, &wrong, &[]);
-        assert_eq!(read_header(&other).unwrap_err(), "This file is not an Atlas pack file.");
-        // version 8 is newer than the crate reads: the sentence names what wrote it
+        assert_eq!(refused(read_header(&other)), not);
+        // version 8 is newer than the crate reads: the sentence names what wrote it, and its
+        // advice names no app (the app reading it is the one to update), shown as it is
         let mut eight = format7("x", "X", "2026-01-01T00:00:00Z");
         eight["version"] = json!(8);
         write_pack(&other, &eight, &[]);
         assert_eq!(
-            read_header(&other).unwrap_err(),
-            "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 8). Install a newer version of Atlas to open it."
+            refused(read_header(&other)),
+            ("newer-format", "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 8). A newer version of this app is needed to open it.".to_string())
         );
-        // a description that's missing what every pack has
-        let mut damaged = format6("x", "X", "2026-01-01T00:00:00Z");
-        damaged.as_object_mut().unwrap().remove("images");
-        write_pack(&other, &damaged, &[]);
-        assert!(read_header(&other).unwrap_err().starts_with("This pack file's description is damaged:"));
+        // a description that's missing a field every pack has (the contract's answer 2): damaged
+        for field in ["format", "version", "packId", "title", "packVersion", "detail", "exportedAt", "exportedBy", "pack", "source", "contents", "images", "files", "bytes"] {
+            let mut damaged = format6("x", "X", "2026-01-01T00:00:00Z");
+            damaged.as_object_mut().unwrap().remove(field);
+            write_pack(&other, &damaged, &[]);
+            let (kind, said) = refused(read_header(&other));
+            // without format or version it isn't a pack file at all
+            let want = if matches!(field, "format" | "version") { "not-a-pack-file" } else { "damaged" };
+            assert_eq!(kind, want, "{field}: {said}");
+        }
+        for (part, field) in [("pack", "id"), ("pack", "title"), ("pack", "packVersion"), ("pack", "schemaVersion"), ("source", "kind")] {
+            let mut damaged = format6("x", "X", "2026-01-01T00:00:00Z");
+            damaged[part].as_object_mut().unwrap().remove(field);
+            write_pack(&other, &damaged, &[]);
+            let (kind, said) = refused(read_header(&other));
+            assert!(kind == "damaged" && said.starts_with("This pack file's description is damaged:"), "{part}.{field}: {said}");
+        }
+        // what may be absent is: the game, the site's name, personalUse, maps, guides, cover, mine
+        let mut lean = format6("x", "X", "2026-01-01T00:00:00Z");
+        lean["source"] = json!({ "kind": "web-pages" });
+        write_pack(&other, &lean, &[]);
+        let x = read_header(&other).unwrap();
+        assert_eq!((x.game_title(), x.source_name(), x.file_name().as_deref()), (Some("X"), None, Some("X.atlaspack")));
+        // a packId that can't be one (the contract's answer 3: 1 to 64 lower case letters,
+        // digits, - and _, from a letter or digit) is damaged, an empty one too
+        for id in ["", "Hollow-Bog", "-hollow", "hollow bog", "hollow.bog", &"a".repeat(65)] {
+            let mut bad = format6(id, "X", "2026-01-01T00:00:00Z");
+            bad["pack"]["id"] = json!("x");
+            write_pack(&other, &bad, &[]);
+            assert_eq!(refused(read_header(&other)), ("damaged", "This pack file names a game id that cannot be used.".to_string()), "{id:?}");
+        }
+        for id in ["x", "0-hollow_bog", &"a".repeat(64)] {
+            write_pack(&other, &format6(id, "X", "2026-01-01T00:00:00Z"), &[]);
+            assert_eq!(read_header(&other).unwrap().pack_id.as_deref(), Some(id));
+        }
+        // a file that isn't there can't be opened
+        assert_eq!(refused(read_header(&d.join("gone.atlaspack"))).0, "cannot-open");
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -509,5 +574,7 @@ pub(crate) mod tests {
         b.exported_at = a.exported_at.clone();
         assert_eq!(a.newer(&b), Ordering::Equal);
         assert!(is_pack_name("A - B.atlaspack") && is_pack_name("x.ATLASPACK") && !is_pack_name("A - B.atlaspack.part") && !is_pack_name("x.part"));
+        assert!(!is_pack_name("A - B.atlaspack.atlas-importer.part") && is_importer_part("A - B.atlaspack.atlas-importer.part") && is_importer_part("x.ATLAS-IMPORTER.PART"));
+        assert!(!is_importer_part("A - B.atlaspack.part") && !is_importer_part("A - B.atlaspack"));
     }
 }

@@ -308,6 +308,13 @@ impl App {
         }
         let me = Arc::downgrade(&app);
         app.queue.on_away(Box::new(move || me.upgrade().is_some_and(|a| a.find_again())));
+        // packs 0.5.72 put in the wrong folder on Linux go into Atlas's own
+        let me = Arc::downgrade(&app);
+        std::thread::spawn(move || {
+            if let Some(a) = me.upgrade() {
+                a.move_old_packs();
+            }
+        });
         app.queue.start();
         // saves synced every few minutes while Go's open (D186)
         let me = Arc::downgrade(&app);
@@ -429,11 +436,36 @@ impl App {
 
     /// Atlas's packs folder: the one set in Settings, else where the contract says.
     fn packs_folder(&self, home: &Path) -> PathBuf {
-        let s = self.settings();
-        if s.atlas_folder.is_empty() {
+        if self.packs_folder_usual(home) {
             packs::default_folder(home)
         } else {
-            PathBuf::from(&s.atlas_folder)
+            PathBuf::from(&self.settings().atlas_folder)
+        }
+    }
+
+    /// Whether Atlas's packs folder is the usual one: none set in Settings, or the one 0.5.72
+    /// guessed on Linux (`~/.local/share/Atlas/Packs`, not Atlas's), which is taken as it.
+    fn packs_folder_usual(&self, home: &Path) -> bool {
+        let s = self.settings();
+        s.atlas_folder.is_empty() || packs::old_default_folder(home).is_some_and(|old| Path::new(&s.atlas_folder) == old)
+    }
+
+    /// The packs Go delivered into 0.5.72's guess at Atlas's packs folder on Linux, moved
+    /// into the folder it uses now (D222, revised): once, as Go starts. Only the files in
+    /// its record that are as it put them.
+    fn move_old_packs(&self) {
+        if !self.packs_offered() {
+            return;
+        }
+        let home = self.home();
+        let Some(old) = packs::old_default_folder(&home) else { return };
+        if !packs::load(&self.data).delivered.iter().any(|e| e.folder == old) {
+            return;
+        }
+        match packs::move_from(&self.data, &old, &self.packs_folder(&home)) {
+            Ok(0) => {}
+            Ok(_) => self.changed("device"),
+            Err(e) => eprintln!("Game Repo Go: the packs in {} couldn't be moved into Atlas's packs folder: {e:#}", old.display()),
         }
     }
 
@@ -874,7 +906,7 @@ impl App {
             // Maps and guides for Atlas (D222): where the packs go, on Windows and Linux
             "atlas": self.packs_offered().then(|| {
                 let home = self.home();
-                json!({ "folder": self.packs_folder(&home), "usual": packs::default_folder(&home), "default": s.atlas_folder.is_empty(), "delivered": packs::load(&self.data).delivered.iter().filter(|e| e.there()).count() })
+                json!({ "folder": self.packs_folder(&home), "usual": packs::default_folder(&home), "default": self.packs_folder_usual(&home), "delivered": packs::load(&self.data).delivered.iter().filter(|e| e.there()).count() })
             }),
         })
     }

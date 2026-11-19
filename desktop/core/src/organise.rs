@@ -1627,8 +1627,20 @@ fn set_aside(lib: &Library, roots: &[Root], id: &str, src: &Src) -> Result<Strin
     if let Some(dir) = to.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::rename(from, &to).with_context(|| format!("couldn't set {} aside", from.display()))?;
+    rename_file(from, &to).with_context(|| format!("couldn't set {} aside", from.display()))?;
     Ok(to.display().to_string())
+}
+
+/// `std::fs::rename`; for an Atlas pack, tried again for about seven seconds while the drive
+/// refuses it as a held file's (the Atlas pack contract: Atlas or Atlas Importer may be
+/// reading it a moment, and some drives refuse a rename then).
+fn rename_file(from: &Path, to: &Path) -> io::Result<()> {
+    let pack = |p: &Path| p.file_name().is_some_and(|n| crate::atlaspack::is_pack_name(&n.to_string_lossy()));
+    if pack(from) || pack(to) {
+        gamerepo_device::packs::rename_patiently(from, to)
+    } else {
+        std::fs::rename(from, to)
+    }
 }
 
 /// The folders above `p` that aren't there yet (the ones writing it makes), deepest first.
@@ -1650,10 +1662,10 @@ fn rename(from: &Path, to: &Path) -> io::Result<()> {
     }
     if key(from) == key(to) && from != to {
         let tmp = from.with_file_name(format!("{}.gamerepo-rename", from.file_name().unwrap_or_default().to_string_lossy()));
-        std::fs::rename(from, &tmp)?;
-        return std::fs::rename(&tmp, to);
+        rename_file(from, &tmp)?;
+        return rename_file(&tmp, to);
     }
-    std::fs::rename(from, to)
+    rename_file(from, to)
 }
 
 /// A file at a step's target before the step writes it: the same as the source (a run
@@ -1714,7 +1726,7 @@ fn copy_checked(from: &Path, to: &Path, want: &Src, cancel: &AtomicBool) -> Resu
         if to.exists() {
             bail!("{} is there already", to.display());
         }
-        std::fs::rename(&tmp, to)?;
+        rename_file(&tmp, to)?;
         Ok(())
     })();
     if r.is_err() {
@@ -2296,7 +2308,7 @@ pub fn undo(ix: &Index, lib: &Library, id: &str, cancel: &AtomicBool, progress: 
                 let (orig, held) = (pair[0].as_str().unwrap_or(""), pair[1].as_str().unwrap_or(""));
                 if Path::new(held).exists() && !Path::new(orig).exists() {
                     make_parent(Path::new(orig))?;
-                    std::fs::rename(held, orig).with_context(|| format!("couldn't put {orig} back"))?;
+                    rename_file(Path::new(held), Path::new(orig)).with_context(|| format!("couldn't put {orig} back"))?;
                 } else if !Path::new(orig).exists() {
                     bail!("{orig} can't be put back: its set-aside copy is gone");
                 }

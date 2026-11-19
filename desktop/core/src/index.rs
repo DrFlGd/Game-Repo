@@ -287,6 +287,14 @@ const MIGRATIONS: &[(&str, &str)] = &[
         // Atlas's atlas-pack crate, whose sentences and fields differ a little
         "DELETE FROM atlas_packs;",
     ),
+    (
+        "atlas packs refused by kind",
+        // the crate at Atlas's commit 60b4666 refuses with a kind beside its sentence, a
+        // newer format's sentence names no app, and a packId that can't be one is damaged:
+        // every pack's description is read again, and the refusal's kind kept
+        "DELETE FROM atlas_packs;
+         ALTER TABLE atlas_packs ADD COLUMN error_kind TEXT;",
+    ),
 ];
 
 /// How many schema steps this build knows.

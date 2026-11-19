@@ -7097,6 +7097,15 @@ description only with every field a pack always has (`packVersion`, `detail`, `e
 picture only by a safe `preview/<name>.jpg` name the description lists, right behind the
 description, at most 512 KB (not 4 MB).
 
+Revised 2026-11-19 again ("Maps and Guides notes, part 4"): the pin is commit
+`60b466624c8601a2b23d26ed3c8c856a0e4999cc`. The crate refuses with a `Refusal` (a sentence
+and a kind: `NotAPackFile`, `NewerFormat`, `Damaged`, `CannotOpen`, `NoSuchPicture`); the
+newer-format sentence now names no app (*… in a newer format (version N). A newer version
+of this app is needed to open it.*), still shown as it is; and a description whose
+`packId` isn't 1 to 64 lower case letters, digits, `-` and `_` from a letter or digit is
+refused as damaged (*This pack file names a game id that cannot be used.*), so Game Repo's
+own "no packId" sentence is gone.
+
 **D216 The folder and the record.** Packs live in the library's `Maps and Guides/` folder,
 laid out as the contract says:
 ```
@@ -7119,7 +7128,10 @@ description, or why it can't be read), so only a file whose size or time changed
 again.
 - Every `.atlaspack` in the folder and the folders inside it is a pack, wherever it is and
   whatever it's named; a file whose name ends in `.part` is a pack still being written and
-  is left alone; hidden folders and `Guidebooks/` are skipped.
+  is left alone; hidden folders and `Guidebooks/` are skipped. (2026-11-19: Atlas
+  Importer's own unfinished file is `<name>.atlas-importer.part`, never shown, read, moved
+  or removed, and a title's folder holding one is never removed; "Maps and Guides notes,
+  part 4".)
 - A pack moved or renamed by hand is found again by its `packId`, and the record's file is
   updated.
 - Two files with the same `packId`: the one with the later `pack.updated` is the pack
@@ -7177,7 +7189,10 @@ to clean up).
 **D221 Open in Atlas.** On this computer Atlas reads packs where they lie, so *Open in
 Atlas* starts Atlas with the pack's path: the program set in Settings › Tools (*Atlas*),
 else the program Windows opens `.atlaspack` files with (Atlas registers the type). Without
-either, the button says Atlas isn't installed. There is no third copy.
+either, the button says Atlas isn't installed. There is no third copy. (Revised
+2026-11-19: Atlas takes exactly one argument, the pack's path, and only its Windows
+installer registers the type, so elsewhere, with no Atlas set, it says to set it in
+Settings › Tools.)
 
 **D222 Packs on devices (part 2).** Game Repo Server adds a game's linked packs to its
 plan as files of their own (`role` `pack`, with their size and SHA-1, hashed once and
@@ -7188,11 +7203,16 @@ is sent as it is. Game Repo Go, on Windows and Linux (the Steam Deck):
   packs folder: `%LOCALAPPDATA%\Atlas\Packs` on Windows; on Linux
   `$XDG_DATA_HOME/Atlas/Packs` (`~/.local/share/Atlas/Packs`) until Atlas block A9 fixes it
   (it can be changed there). Go may make the folder: Atlas finds what's there at its first
-  start.
+  start. Revised 2026-11-19: on Linux Atlas's packs folder is
+  `$XDG_DATA_HOME/atlas/packs` (`~/.local/share/atlas/packs`), all lower case, as Atlas's
+  block A1 built it (the contract's answer 5); 0.5.72's guess is another folder there, so
+  a saved setting of it is taken as the usual folder and the packs Go delivered into it are
+  moved ("Maps and Guides notes, part 4").
 - A game's page lists its packs with their sizes, each with a tick (all ticked at first);
   installing a game with the setting on brings its ticked packs.
 - A pack is downloaded and checked like a game's file, written into the packs folder under
-  a name ending in `.part`, and renamed to end in `.atlaspack`. Go's record of what it
+  a name ending in `.part`, and renamed to end in `.atlaspack` (a rename refused while a
+  file is held open tried again for about seven seconds, revised 2026-11-19). Go's record of what it
   delivered (`packId`, file name, size, SHA-1, game) lets it replace a newer file of the
   same pack over the old one, and remove the old file once the new one is in place when the
   name changed. Go touches only the pack files it delivered; any other file in the folder
@@ -7452,6 +7472,84 @@ is replaced by the crate (D215's revision):
   Atlas, which in Game Repo means a newer Game Repo (one with a newer crate); and the
   Importer clearing a `.part` left behind could meet one Game Repo is still writing in a
   move to another drive.
+
+### Maps and Guides notes, part 4: the contract's answers (built 2026-11-19)
+
+The Atlas project answered Game Repo's eight questions (contract rev 31, 2026-11-19) and
+merged blocks A1, A2, A4 and A5; the pack code hasn't changed since A1. What changed here:
+- The pin: `atlas-pack` at commit `60b466624c8601a2b23d26ed3c8c856a0e4999cc`
+  (`desktop/core/Cargo.toml`, `Cargo.lock`'s source line only, `THIRD_PARTY.md`).
+  `vendor.yml` names no commit (it vendors whatever the lock pins), so it's unchanged.
+- Refusals (answers 1–3): `atlaspack::read_header` and `read_preview` return the crate's
+  `Refusal`; Game Repo shows its sentence as it is (the newer-format one now names no app,
+  which settles part 3's first question) and keeps its kind beside it: `kind_of` gives
+  `not-a-pack-file`, `newer-format`, `damaged`, `cannot-open` or `no-such-picture`, kept in
+  the index (`atlas_packs.error_kind`, the index's step *atlas packs refused by kind*, which
+  also empties the table so every pack is read again with the new crate), in `Found`, an
+  import's `Item` and the page's unreadable files (`error_kind`). A file that can't be
+  opened (`cannot-open`: held by another program a moment) isn't remembered by its size and
+  time, so it's read again next time. The crate refuses a description without one of the
+  fields every pack has (answer 2's list) and a `packId` `is_pack_id` refuses, so Game
+  Repo's own *it has no packId* check and sentence are gone: such a pack is still shown as
+  damaged, in the crate's words. Packs in the tests carry every always-present field and
+  valid packIds; a test removes each such field in turn and tries ids that can't be one.
+- Atlas Importer's unfinished files (answer 4, A5's (1)): `<name>.atlas-importer.part`
+  (`atlaspack::IMPORTER_PART`, `is_importer_part`). Checked: the folder's walk reads only
+  `.atlaspack` names (so neither the sync, *Look again*, the import of a folder or a file
+  picked, nor *Remove…*, which takes only pack names, ever meets one); a link's or Undo's
+  moves and set-asides move pack files only; "remove an emptied title folder" (`after`)
+  and Undo's own folder clean-up remove only empty folders, so a title folder holding one
+  stays; the watcher ignores a settled change made only of such files; the automatic link
+  waits for a pack in `No game yet` that the Importer is writing again beside it; and
+  Game Repo Server never serves one (`files::library_allows`). Game Repo's own
+  cross-drive `.part` is safe (answer 4: the Importer clears only its own ending).
+- Atlas's packs folder on Linux (answer 5): `packs::default_folder` is
+  `$XDG_DATA_HOME/atlas/packs`, else `~/.local/share/atlas/packs`. `old_default_folder` is
+  0.5.72's `.../Atlas/Packs` (Linux only): a saved `atlas_folder` equal to it counts as the
+  usual folder (`packs_folder_usual`, Settings' *default*), and as Go starts
+  (`App::move_old_packs`, in a thread of its own) `packs::move_from` moves each pack in Go's
+  record that's in the old folder as Go put it into the folder Go uses now: a rename, else
+  a copy as `<name>.part` beside the new file renamed into place and the old one removed; a
+  name taken there by a file that isn't Go's gives `<name> (2).atlaspack`. Nothing else in
+  the old folder is touched, and the folder itself is left (it may be yours).
+- Renames tried again (A5's (3) and the answers' last note): `gamerepo_device::packs::patiently`
+  runs a rename (or a removal) again while it fails as a held file's (access denied, a
+  sharing or lock violation on Windows, a busy file) for about seven seconds (`PATIENCE`),
+  with sleeps from 50 ms doubling to 1 s; any other error returns at once, so tests don't
+  wait. Used by Go's delivery and replacement (`put_in_place`, the old file's removal, now
+  no longer able to fail a delivery once the new file is in) and the move above, and in the
+  core by `organise::rename_file` for a pack: a link's move and its Undo, the cross-drive
+  `.part` renamed into place, a pack set aside and put back.
+- Open in Atlas (A2): Atlas is started with the pack's path as its one argument (as before;
+  the page test now checks there's exactly one). Off Windows nothing registers
+  `.atlaspack`, so without Atlas set in Settings › Tools `open_in_atlas` says to set it
+  rather than handing the page a path for the system's opener.
+- Checked against the rest, nothing to change: Game Repo opens a pack only for each read
+  (the crate opens and closes it; Game Repo Server reads one only while sending it to a
+  device or hashing it); a pack can grow between versions (it's known by `packId`, and
+  Game Repo Server's SHA-1, kept by size and time, and Go's record follow the new file);
+  two files of one `packId` are told apart by `pack.updated`, then `exportedAt`, as the
+  Importer and Atlas do (answer 6), the other shown as *Another copy*; `NAME (2).atlaspack`
+  is fine (answer 6); removing a game from a device leaves its packs (answer 7).
+- Tests: `core` `atlaspack` (each kind with its sentence, the newer-format sentence as it
+  is, each always-present field missing, packIds that can and can't be), `core` `maps`
+  (the kinds on the page and read back from the index, a packId that can't be one;
+  `atlas_importers_unfinished_files_are_never_shown_read_moved_or_removed`: not on the
+  page or in the index, an automatic link waiting, a title folder kept, Remove… and import
+  refusing one, untouched throughout, Open in Atlas off Windows), `device` `packs` (the
+  lower-case folder and 0.5.72's, `the_packs_go_put_in_the_old_folder_are_moved_into_atlass_own`,
+  `a_rename_refused_while_a_file_is_held_is_tried_again_for_a_while`), `serve` `files`
+  (no importer part served) and `tests/client.rs`
+  (`go_on_linux_moves_the_packs_it_put_in_the_old_folder_into_atlass_own`: the old setting
+  taken as usual, Go's pack moved, another file left), `desktop_page.py` (Open in Atlas
+  with one argument, and asking for Atlas when it isn't set) and `client_page.py` (the
+  usual folder on Linux). Made-up packs only.
+- For the Atlas side: when the Importer replaces a pack where it lies while Game Repo is
+  moving it to its game's folder, the Importer's rename lands in the old place and Game
+  Repo sees two files of the pack (the newer kept, the other *Another copy* to remove);
+  rare, and handled, but a word in the contract on whether the Importer looks the pack up
+  again just before its rename would help. And does Atlas take a path ending in
+  `.ATLASPACK` (upper case) as a pack's, as Game Repo does?
 
 
 
@@ -7720,8 +7818,10 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     *Open in Atlas*: built ("Maps and Guides notes, part 1"); part 2, packs on Game Repo Go
     devices for Windows and Linux (*Maps and guides for Atlas*): built ("Maps and Guides
     notes, part 2"); part 3, packs read with Atlas's own `atlas-pack` crate, pinned to
-    commit 5b94dc0 of Atlas's main branch until a release tag: built ("Maps and Guides
-    notes, part 3"). Guidebooks,
+    a commit of Atlas's main branch until a release tag: built ("Maps and Guides
+    notes, part 3"); part 4, the contract's answers (the pin moved to 60b4666, refusals
+    with their kinds, Atlas's real packs folder on Linux, Atlas Importer's unfinished files
+    left alone, renames tried again): built ("Maps and Guides notes, part 4"). Guidebooks,
     starting Atlas on a device's game, your data beside a pack and Android wait for the
     contract (D223).
 31. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
