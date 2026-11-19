@@ -3,7 +3,7 @@
 // these are in desktop/core/src/api.rs.
 import { ui } from "./state.js";
 import { ctx } from "./context.js";
-import { api, toast, followJob, isDesktop, plural, size, loadIndex, baseName } from "./library.js";
+import { api, toast, followJob, isDesktop, plural, size, loadIndex, baseName, undoable } from "./library.js";
 
 /** The platforms the app knows ([{ id, name, dat, exts }]), read once. */
 export async function platforms() {
@@ -106,6 +106,13 @@ export function followAutoScans() {
   let first = true;
   const told = async (done) => {
     const r = done.result || {};
+    // Maps and Guides' folder read again (D217): the page shows it, and a sure match linked says so, with Undo
+    if (r.maps) {
+      ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
+      const l = r.maps.linked;
+      if (l?.id) undoable(`Linked ${plural(l.count, "new pack", "new packs")} in Maps and Guides to ${l.count === 1 ? "its game" : "their games"}.`, async () => (await import("./organise.js")).undoChange(l.id), 10000, [{ label: "Show", run: () => { location.hash = "#/maps"; } }]);
+      return;
+    }
     const parts = [r.added && `${r.added} new`, r.changed && `${r.changed} changed`, r.moved && `${r.moved} moved`, r.removed && `${r.removed} gone`].filter(Boolean);
     if (!parts.length) return;
     await refreshGames();
@@ -124,7 +131,7 @@ export function followAutoScans() {
           found = true;
           if (first) continue;
           if (j.done) told(j);
-          else followJob(j.id, "Scanning what changed").then(told);
+          else followJob(j.id, j.label === "Reading Maps and Guides" ? j.label : "Scanning what changed").then(told);
         }
         first = false;
         wait = found ? 2000 : Math.min(15000, Math.round(wait * 1.5));

@@ -36,7 +36,17 @@ pub const TOOLS: &[Tool] = &[
         names: &["tesseract"],
         what: "Reads the text in magazines' scanned pages, in place of Windows' own text recognition (on Linux and the Steam Deck, the only way). From github.com/tesseract-ocr.",
     },
+    // D221: the program Maps and Guides' Open in Atlas starts with a pack's path; never run
+    // to ask its version (it's an app with a window, not a tool), and nothing to download
+    Tool {
+        id: "atlas",
+        names: &["Atlas", "atlas"],
+        what: "Shows a pack's maps, guides and wiki pages (Open in Atlas, in Maps and Guides). When it isn't set here or found, the program that opens .atlaspack files is used.",
+    },
 ];
+
+/// The tools that are programs of their own, with a window: never run to ask their version.
+const APPS: &[&str] = &["atlas"];
 
 /// The paths set in Settings › Tools.
 static PATHS: RwLock<BTreeMap<String, PathBuf>> = RwLock::new(BTreeMap::new());
@@ -59,11 +69,16 @@ pub fn app_dir() -> Option<PathBuf> {
     std::env::current_exe().ok()?.parent().map(|d| d.join("tools"))
 }
 
-/// Where a tool is: the path set for it, the app's tools folder, then the PATH.
+/// Where a tool is: the path set for it, the app's tools folder, then the PATH (an app,
+/// Atlas, only the path set for it).
 pub fn find(id: &str) -> Option<PathBuf> {
     let set = PATHS.read().ok().and_then(|s| s.get(id).cloned());
     if let Some(p) = set.filter(|p| p.is_file()) {
         return Some(p);
+    }
+    // an app (Atlas) only where it's set: another program of its name may be on the PATH
+    if APPS.contains(&id) {
+        return None;
     }
     let tool = TOOLS.iter().find(|t| t.id == id)?;
     which(tool.names)
@@ -119,7 +134,7 @@ pub fn list() -> Value {
             json!({
                 "id": t.id, "what": t.what, "set": set.get(t.id).map(|p| p.display().to_string()),
                 "path": found.as_ref().map(|p| p.display().to_string()),
-                "version": found.as_ref().and_then(|p| version(p)),
+                "version": found.as_ref().filter(|_| !APPS.contains(&t.id)).and_then(|p| version(p)),
                 "get": get_info(t.id), "got": got,
             })
         })
@@ -181,6 +196,9 @@ pub fn download_for(id: &str) -> Option<&'static Download> {
 
 /// What *Get it…* does for a tool: `{ kind: "download", version, url }`, or `{ kind: "page", url }`.
 fn get_info(id: &str) -> Value {
+    if APPS.contains(&id) {
+        return Value::Null;
+    }
     match download_for(id) {
         Some(d) => json!({ "kind": "download", "version": d.version, "url": d.url, "pinned": !d.sha256.is_empty() }),
         None => json!({ "kind": "page", "url": page(id) }),
@@ -337,7 +355,7 @@ mod tests {
             assert!(!d.member.is_empty() && !d.tool.is_empty());
             assert!(TOOLS.iter().any(|t| t.id == d.tool));
         }
-        for t in TOOLS {
+        for t in TOOLS.iter().filter(|t| !APPS.contains(&t.id)) {
             let g = get_info(t.id);
             assert!(g["url"].as_str().is_some_and(|u| u.starts_with("https://")), "{g}");
         }

@@ -31,6 +31,7 @@ import { Icon } from "./icons.js";
 import { Inspector, argHash } from "./panels.js";
 import { isVideo, Video } from "./video.js";
 import { watch, videoFacts } from "./videos.js";
+import { GameMaps } from "./maps.js";
 import { variantDialog, undoVariants } from "./variants.js";
 import { addToBacklog, backlogDo, dayText } from "./backlog.js";
 import { GameSaves } from "./saves.js";
@@ -392,6 +393,7 @@ export function GamePage() {
         <button type="button" class="linkish" data-action="watch" title=${v.file ? "Watch it on the Videos page" : "Watch it in your browser"} disabled=${v.file && v.gone} onClick=${() => watch(v)}>${v.file ? Icon.video(14) : Icon.external(14)} ${v.title}</button>
         <span class="muted">${videoFacts(v)}</span></span></li>`)}</ul>
     </section>` : null}
+    <${GameMaps} g=${g} />
     ${g.set ? html`<section class="ls-section game-discs" id="game-discs"><h2>Discs</h2>
       <p class="muted" id="game-discs-line">${discsLine(g.set.discs)}. They're one game: a collection, Convert and an export take every disc.</p>
       <ul class="ls-list">${g.set.discs.map((d) => html`<li key=${d.key} data-disc=${d.disc} data-have=${d.have ? (d.partial ? "part" : "yes") : "no"}>

@@ -38,10 +38,10 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing PC games", add: "Importing a game", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", videos: "Importing videos", bios: "Importing BIOS files", metadata: "Deleting metadata", pc_remove: "Removing a PC game", video_remove: "Removing videos", magazine_move: "Moving magazine issues", cheats: "Bringing in cheats", patches: "Bringing in patches", patch: "Applying patches", textures: "Bringing in texture packs", textures_install: "Installing a texture pack", mods: "Bringing in mods", mods_install: "Installing mods", pc_put_back: "Putting a game back" })[kind] || "Organising";
+const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing PC games", add: "Importing a game", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", videos: "Importing videos", bios: "Importing BIOS files", metadata: "Deleting metadata", pc_remove: "Removing a PC game", video_remove: "Removing videos", magazine_move: "Moving magazine issues", cheats: "Bringing in cheats", patches: "Bringing in patches", patch: "Applying patches", textures: "Bringing in texture packs", textures_install: "Installing a texture pack", mods: "Bringing in mods", mods_install: "Installing mods", pc_put_back: "Putting a game back", maps_import: "Importing packs", maps_link: "Linking packs to games", maps_remove: "Removing packs" })[kind] || "Organising";
 
 /** The changes that bring files into the library (the Import page's Recent imports, D78). */
-export const IMPORT_KINDS = ["bring", "add", "import", "docs", "magazines", "videos", "bios"];
+export const IMPORT_KINDS = ["bring", "add", "import", "docs", "magazines", "videos", "bios", "maps_import"];
 
 /** How an import brings its files in (D79), the same three choices everywhere: "copy"
  *  (hardlinked on the same drive), "always" (a full copy) or "move"; and for games from
@@ -71,6 +71,7 @@ const COUNTS = {
   patches: ["game's patches", "games' patches", "bring in"], patch: ["patched copy", "patched copies", "make"],
   textures: ["game's texture packs", "games' texture packs", "bring in"], textures_install: ["texture pack", "texture packs", "install"],
   mods: ["game's mods", "games' mods", "bring in"], mods_install: ["file", "files", "install"], pc_put_back: ["file", "files", "put back"],
+  maps_import: ["pack", "packs", "import"], maps_link: ["pack", "packs", "move"], maps_remove: ["pack file", "pack files", "remove"],
 };
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
@@ -172,8 +173,11 @@ export async function runPlan(plan, more = null, { convert = false } = {}) {
     const converted = changes.length ? ` Converted ${plural(changes.reduce((a, c) => a + (c.games || 0), 0), "game", "games")} to ${formats}.` : "";
     const notConverted = r.converted?.left?.length ? ` ${plural(r.converted.left.length, "wasn't", "weren't")} converted: ${r.converted.left[0].why}` : "";
     // `more`: what's left to do afterwards, with its button (files no DAT knows to review)
-    const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}${warned}${art}${converted}${notConverted}${more ? ` ${more.text}` : ""}`;
+    // packs imported whose games were sure (D218): linked as a change of their own, undone first
+    const linked = r.linked?.id ? ` ${plural(r.linked.count, "pack was", "packs were")} linked to ${r.linked.count === 1 ? "its game" : "their games"}.` : "";
+    const text = `${plan.label}: ${r.done} of ${plural(r.ops, "step", "steps")} done${r.stopped ? " (stopped)" : ""}.${failed}${warned}${art}${converted}${notConverted}${linked}${more ? ` ${more.text}` : ""}`;
     const undo = async () => {
+      if (r.linked?.id) await undoChange(r.linked.id);
       for (const c of [...changes].reverse()) await undoChange(c.id);
       return undoChange(r.id);
     };

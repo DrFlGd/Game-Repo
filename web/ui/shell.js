@@ -22,6 +22,7 @@ import { Metadata } from "./metadata.js";
 import { Documents } from "./documents.js";
 import { Magazines } from "./magazines.js";
 import { Videos } from "./videos.js";
+import { Maps } from "./maps.js";
 import { Cheats } from "./cheats.js";
 import { Patches } from "./patches.js";
 import { Bios } from "./bios.js";
@@ -52,6 +53,7 @@ function Main() {
   if (route === "documents" && !blocked) return html`<${Documents} />`;
   if (route === "magazines" && !blocked) return html`<${Magazines} />`;
   if (route === "videos" && !blocked) return html`<${Videos} />`;
+  if (route === "maps" && !blocked) return html`<${Maps} />`;
   if (route === "cheats" && !blocked) return html`<${Cheats} />`;
   if (route === "patches" && !blocked) return html`<${Patches} />`;
   if (route === "bios" && !blocked) return html`<${Bios} />`;

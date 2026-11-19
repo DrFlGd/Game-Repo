@@ -9,7 +9,7 @@
 //!   gamerepo-cli organise, duplicates, convert, extract, history, undo, finish, set-aside empty, tools
 //!   gamerepo-cli systems, collections, collection, export, exports
 //!   gamerepo-cli pc, identify, sources, launchbox, steam, add
-//!   gamerepo-cli games, game, scrape, docs
+//!   gamerepo-cli games, game, scrape, docs, maps
 //!   gamerepo-cli serve-devices [status|pair|devices|remove|changed|stop]
 //!   gamerepo-cli device find|pair|unpair|systems|collections|games|game|add|remove|holdings|app
 //!   gamerepo-cli client-ui --ui <dir> --home <dir> [--data <dir>] [--port 8791] [--root <dir>]
@@ -223,6 +223,22 @@ under <dir>/config and <dir>/data instead of the app's own folders.
         [--always-copy] [--dry-run]
                              bring documents into the library, each with the game it's
                              paired with (shown first)
+  maps [list]                Maps and Guides: the Atlas packs, each with its games (or
+                             to review, with the closest games), and the files that
+                             can't be read, with why
+  maps sync                  read the Maps and Guides folder again and link the packs
+                             whose game is sure, as a change (undo puts it back)
+  maps import <file or folder>... [--move] [--always-copy] [--dry-run]
+                             bring Atlas packs into Maps and Guides/No game yet (a newer
+                             file of a pack kept replaces it), then link the sure ones
+  maps link <pack id> <game key> [--also] [--dry-run]
+                             link a pack to a game (--also: as well as its others), its
+                             file moved into the game's folder
+  maps unlink <pack id> [<game key>] [--dry-run]
+                             take a pack off a game (or every one): back to No game yet
+                             when it has none left
+  maps remove <path below Maps and Guides>... [--dry-run]
+                             set a pack's file (or another copy of one) aside
 
 Game Repo Server serves the library to paired devices on the home network; its data
 (index, certificate, devices) is kept in --data <dir> (by default its own folder).
@@ -345,7 +361,7 @@ async fn run() -> Result<()> {
         "client-ui" => devices::client_ui(a),
         "roots" | "scan" | "dat" | "audit" | "make-dat" | "platforms" | "organise" | "duplicates" | "history" | "undo" | "finish"
         | "set-aside" | "convert" | "extract" | "formats" | "tools" | "systems" | "collections" | "collection" | "export" | "exports" | "pc" | "identify"
-        | "sources" | "launchbox" | "steam" | "add" | "games" | "game" | "scrape" | "docs" | "layouts" | "layout" | "bios" | "library" => library_command(&cmd, a).await,
+        | "sources" | "launchbox" | "steam" | "add" | "games" | "game" | "scrape" | "docs" | "layouts" | "layout" | "bios" | "library" | "maps" => library_command(&cmd, a).await,
         other => bail!("unknown command {other} (gamerepo-cli --help lists them)"),
     }
 }
@@ -438,7 +454,7 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
     }
     let json_out = a.rest.iter().any(|x| x == "--json");
     a.rest.retain(|x| x != "--json");
-    let subs = matches!(cmd, "roots" | "dat" | "set-aside" | "systems" | "collection" | "export" | "pc" | "launchbox" | "steam" | "layout" | "bios")
+    let subs = matches!(cmd, "roots" | "dat" | "set-aside" | "systems" | "collection" | "export" | "pc" | "launchbox" | "steam" | "layout" | "bios" | "maps")
         || (matches!(cmd, "sources" | "docs") && a.rest.first().is_some_and(|x| matches!(x.as_str(), "key" | "check" | "read" | "import")))
         || (cmd == "games" && a.rest.first().is_some_and(|x| ["rename-folders", "delete-metadata", "sizes", "details-from"].contains(&x.as_str())));
     let sub = if subs && !a.rest.is_empty() { a.rest.remove(0) } else { String::new() };
@@ -1356,6 +1372,77 @@ async fn library_command(cmd: &str, mut a: Args) -> Result<()> {
             }
             Ok(())
         }
+        ("maps", "") | ("maps", "list") => {
+            let v = invoke(&app, "maps", json!({})).await?;
+            if json_out {
+                return print(&v);
+            }
+            for p in v["packs"].as_array().into_iter().flatten() {
+                let games: Vec<String> = p["games"].as_array().into_iter().flatten().map(|g| format!("{} ({})", g["title"].as_str().unwrap_or(""), g["key"].as_str().unwrap_or(""))).collect();
+                let status = if !games.is_empty() { games.join(", ") } else if p["review"] == true { "no game yet: to review".into() } else { "no game yet".into() };
+                println!("{}  {} - {}  [{status}]", p["id"].as_str().unwrap_or(""), p["game_title"].as_str().unwrap_or(""), p["source_name"].as_str().unwrap_or(""));
+                println!("    {}  {}", p["path"].as_str().unwrap_or(""), bytes(p["size"].as_u64().unwrap_or(0)));
+                for c in p["copies"].as_array().into_iter().flatten() {
+                    println!("    another copy: {}", c["path"].as_str().unwrap_or(""));
+                }
+                for s in p["suggestions"].as_array().into_iter().flatten().take(3) {
+                    println!("    perhaps {} ({}, {})", s["title"].as_str().unwrap_or(""), s["platform_name"].as_str().unwrap_or(""), s["key"].as_str().unwrap_or(""));
+                }
+            }
+            for f in v["unreadable"].as_array().into_iter().flatten() {
+                println!("{}  {}", f["path"].as_str().unwrap_or(""), f["error"].as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
+        ("maps", "sync") => print(&follow(&app, invoke(&app, "maps_sync", json!({})).await?).await?),
+        ("maps", "import") => {
+            let abs = |o: &String| std::path::absolute(o).map(|p| p.display().to_string()).unwrap_or(o.clone());
+            let has = |f: &str| a.rest.iter().any(|x| x == f);
+            let (mv, always_copy, dry) = (has("--move"), has("--always-copy"), has("--dry-run"));
+            let paths: Vec<String> = a.rest.iter().filter(|x| !x.starts_with("--")).map(abs).collect();
+            let r = follow(&app, invoke(&app, "maps_items", json!({ "paths": paths })).await?).await?;
+            let items = r["items"].as_array().cloned().unwrap_or_default();
+            if !json_out {
+                for it in &items {
+                    let said = match (it["error"].as_str(), it["state"].as_str().unwrap_or("")) {
+                        (Some(e), _) => e.to_string(),
+                        (None, "newer") => format!("newer than the one kept ({}), which it replaces", it["replaces"].as_str().unwrap_or("")),
+                        (None, "same") => "the library has it already".into(),
+                        (None, "older") => "the library has a newer file of it".into(),
+                        _ => format!("into No game yet as {}", it["to_name"].as_str().unwrap_or("")),
+                    };
+                    println!("  {}: {said}", it["name"].as_str().unwrap_or(""));
+                }
+            }
+            if items.iter().all(|i| i["include"] != true) {
+                println!("No packs to bring in.");
+                return Ok(());
+            }
+            let plan = invoke(&app, "maps_plan", json!({ "items": items, "mode": if mv { "move" } else { "copy" }, "always_copy": always_copy })).await?;
+            show_and_run(&app, plan, dry, json_out).await
+        }
+        ("maps", what @ ("link" | "unlink")) => {
+            let dry = a.rest.iter().any(|x| x == "--dry-run");
+            let also = a.rest.iter().any(|x| x == "--also");
+            let words: Vec<&String> = a.rest.iter().filter(|x| !x.starts_with("--")).collect();
+            let id = words.first().with_context(|| format!("maps {what} needs a pack's id (maps lists them)"))?;
+            let key = words.get(1);
+            if what == "link" && key.is_none() {
+                bail!("maps link needs the game's key (library --search shows them), after the pack's id");
+            }
+            let r = invoke(&app, &format!("maps_{what}"), json!({ "id": id, "key": key, "also": also })).await?;
+            if r["nothing"] == true {
+                println!("Nothing to change.");
+                return Ok(());
+            }
+            show_and_run(&app, r["plan"].clone(), dry, json_out).await
+        }
+        ("maps", "remove") => {
+            let dry = a.rest.iter().any(|x| x == "--dry-run");
+            let paths: Vec<&String> = a.rest.iter().filter(|x| !x.starts_with("--")).collect();
+            let r = invoke(&app, "maps_remove", json!({ "paths": paths })).await?;
+            show_and_run(&app, r["plan"].clone(), dry, json_out).await
+        }
         ("docs", "read") => print(&follow(&app, invoke(&app, "docs_read", json!({})).await?).await?),
         ("docs", "import") => {
             let abs = |o: &String| std::path::absolute(o).map(|p| p.display().to_string()).unwrap_or(o.clone());
@@ -1479,6 +1566,9 @@ async fn show_and_run(app: &Arc<App>, plan: Value, dry: bool, json_out: bool) ->
     }
     if let Some(art) = r["art"].as_array().filter(|a| !a.is_empty()) {
         println!("  artwork for {} games", art.len());
+    }
+    if r["linked"].is_object() {
+        println!("  {}: change {}", r["linked"]["label"].as_str().unwrap_or(""), r["linked"]["id"].as_str().unwrap_or(""));
     }
     Ok(())
 }

@@ -61,6 +61,8 @@ impl Job {
 
 /// The label of a scan's job (one at a time).
 const SCANNING: &str = "Scanning";
+/// The label of the job that reads Maps and Guides' folder and links the sure matches (D217).
+const MAPS_READING: &str = "Reading Maps and Guides";
 
 /// What the folder watcher saw change, waiting for a scan.
 #[derive(Default)]
@@ -107,6 +109,11 @@ pub struct App {
     watched: Mutex<Option<String>>,
     watcher: Mutex<Option<watch::Watcher>>,
     changed: Mutex<Option<Changed>>,
+    /// Maps and Guides' folder, watched while the app is open (D217), and the watcher
+    maps_watched: Mutex<Option<String>>,
+    maps_watcher: Mutex<Option<watch::Watcher>>,
+    /// the folder changed again while it was being read: read it once more after
+    maps_again: AtomicBool,
     /// off for the command line, which runs one command and ends
     watching: AtomicBool,
     /// the library.json the systems added by hand were last read from, and when it changed
@@ -154,6 +161,9 @@ impl App {
             watched: Mutex::new(None),
             watcher: Mutex::new(None),
             changed: Mutex::new(None),
+            maps_watched: Mutex::new(None),
+            maps_watcher: Mutex::new(None),
+            maps_again: AtomicBool::new(false),
             watching: AtomicBool::new(true),
             systems_read: Mutex::new(None),
             layout_sample: Mutex::new(None),
@@ -444,6 +454,97 @@ impl App {
         });
     }
 
+    /// Watch Maps and Guides' folder when the library is on a local drive (D217): a pack
+    /// Atlas Importer writes or changes there is read, and a sure match linked, once the
+    /// folder is quiet again.
+    fn ensure_maps_watch(self: &Arc<Self>) {
+        let want = (|| {
+            if !self.watching.load(Ordering::Relaxed) {
+                return None;
+            }
+            let lib = self.library.read().unwrap().clone()?;
+            if !self.config().scan.watch || lib.writable().is_err() {
+                return None;
+            }
+            let dir = crate::maps::folder(&lib);
+            dir.is_dir().then_some(dir)
+        })();
+        let key = want.as_ref().map(|d| d.display().to_string());
+        {
+            let mut w = lock(&self.maps_watched);
+            if *w == key {
+                return;
+            }
+            *w = key.clone();
+        }
+        *lock(&self.maps_watcher) = None;
+        let Some(dir) = want else { return };
+        let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+        let app = Arc::downgrade(self);
+        tokio::task::spawn_blocking(move || {
+            if watch::is_network(&dir) {
+                return;
+            }
+            let on = app.clone();
+            // hidden folders (set aside, the pictures chosen) are left out by the watcher itself
+            let r = watch::watch(std::slice::from_ref(&dir), &dir.join(".gamerepo-set-aside"), watch::SETTLE, move |_| {
+                if let Some(a) = on.upgrade() {
+                    let _rt = handle.enter();
+                    a.maps_changed_outside();
+                }
+            });
+            let Some(a) = app.upgrade() else { return };
+            match r {
+                Ok(w) if lock(&a.maps_watched).as_deref() == key.as_deref() => *lock(&a.maps_watcher) = Some(w),
+                Ok(_) => {}
+                Err(e) => eprintln!("can't watch Maps and Guides: {e}"),
+            }
+        });
+    }
+
+    fn maps_changed_outside(self: &Arc<Self>) {
+        if lock(&self.jobs).iter().any(|j| !j.done && j.label == MAPS_READING) {
+            self.maps_again.store(true, Ordering::Relaxed);
+            return;
+        }
+        if let Ok(lib) = self.library() {
+            self.start_maps_sync(lib, true);
+        }
+    }
+
+    /// Read Maps and Guides' folder as a job (D217): the packs that changed have their
+    /// descriptions read again, and the sure matches among the packs with no game are
+    /// linked, as one change with Undo (D218), unless a scan or another change is running.
+    /// `auto`: started by the app (the watcher), not the page.
+    fn start_maps_sync(self: &Arc<Self>, lib: Library, auto: bool) -> Value {
+        if let Some(j) = lock(&self.jobs).iter().find(|j| !j.done && j.label == MAPS_READING) {
+            return json!({ "job": j.id });
+        }
+        let data_dir = self.paths.data_dir.clone();
+        self.spawn_job_as(MAPS_READING, auto, move |app, jid, cancel| {
+            let ix = Self::job_index(&data_dir, &lib)?;
+            let mut r = json!({ "maps": {} });
+            // read again while the folder changed as it was read (the watcher said so meanwhile)
+            for _ in 0..5 {
+                app.maps_again.store(false, Ordering::Relaxed);
+                let state = crate::maps::sync(&ix, &lib)?;
+                r["maps"]["packs"] = json!(state.packs.len());
+                r["maps"]["unreadable"] = json!(state.unreadable.len());
+                if let Some(plan) = crate::maps::auto_link_plan(&ix, &lib)? {
+                    if let Ok(running) = app.begin_change(&plan.id) {
+                        let _running = running;
+                        let done = organise::run(&ix, &lib, &plan, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                        r["maps"]["linked"] = json!({ "id": done["id"], "label": plan.label, "count": plan.games });
+                    }
+                }
+                if !app.maps_again.load(Ordering::Relaxed) {
+                    break;
+                }
+            }
+            Ok(r)
+        })
+    }
+
     fn changed_outside(self: &Arc<Self>, paths: Option<Vec<PathBuf>>) {
         {
             let mut c = lock(&self.changed);
@@ -634,6 +735,10 @@ impl App {
         let j = |v: Value| Ok(Reply::Json(v));
         if !cmd.starts_with("job") {
             self.ensure_watch();
+            self.ensure_maps_watch();
+        }
+        if cmd.starts_with("maps") {
+            return self.maps_call(cmd, args).await;
         }
         if ["organise_", "change_", "naming", "convert_", "tools", "format"].iter().any(|p| cmd.starts_with(p)) {
             return self.organise_call(cmd, args).await;
@@ -1307,6 +1412,9 @@ impl App {
                     "pc_put_back" => "Putting a game back",
                     "video_remove" => "Removing videos",
                     "magazine_move" => "Moving magazine issues",
+                    "maps_import" => "Importing packs",
+                    "maps_link" => "Linking packs to games",
+                    "maps_remove" => "Removing packs",
                     "bios" => "Importing BIOS files",
                     "metadata" => "Deleting metadata",
                     "pc_remove" => "Removing a PC game",
@@ -1346,6 +1454,13 @@ impl App {
                                 scan::scan(&ix, &lib, &opts, &cancel, &mut |p| app.job_progress(&jid, p))?;
                             }
                             r["added"] = crate::addgame::results(&ix, &lib, &plan)?;
+                        }
+                        // the packs brought in, matched as D218 says: the sure ones linked, as a change of its own
+                        "maps_import" if !cancel.load(Ordering::Relaxed) => {
+                            if let Some(link) = crate::maps::auto_link_plan(&ix, &lib)? {
+                                let done = organise::run(&ix, &lib, &link, &cancel, &mut |p| app.job_progress(&jid, p))?;
+                                r["linked"] = json!({ "id": done["id"], "label": link.label, "count": link.games });
+                            }
                         }
                         // the documents (or magazines) brought in, listed and their text read for search
                         "docs" | "magazines" => {
@@ -3234,6 +3349,89 @@ impl App {
         }
     }
 
+    /// Maps and Guides (D214–D221): the page, reading the folder, importing, linking,
+    /// pictures, removing and Open in Atlas.
+    async fn maps_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
+        let j = |v: Value| Ok(Reply::Json(v));
+        let blocking = |f: Box<dyn FnOnce() -> Result<Value> + Send>| async move { tokio::task::spawn_blocking(f).await.map_err(|e| e.to_string())?.map_err(e2s) };
+        let data_dir = self.paths.data_dir.clone();
+        let lib = self.library()?;
+        // a plan made here waits for the page to run it (with Undo), or nothing changes
+        let pending = move |plan: Option<organise::Plan>| -> Result<Value> {
+            Ok(match plan {
+                Some(plan) => {
+                    organise::save_pending(&data_dir, &plan)?;
+                    json!({ "plan": plan.summary() })
+                }
+                None => json!({ "nothing": true }),
+            })
+        };
+        let id = || args["id"].as_str().map(String::from).ok_or_else(|| "missing id".to_string());
+        match cmd {
+            "maps" => j(self.with_index(move |ix| crate::maps::overview(ix, &lib)).await?),
+            "maps_sync" => j(self.start_maps_sync(lib, args["auto"].as_bool().unwrap_or(false))),
+            "maps_items" => {
+                // the packs in the files and folders picked, their descriptions read (a job)
+                let paths: Vec<PathBuf> = args["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).map(PathBuf::from).collect();
+                if paths.is_empty() {
+                    return Err("Choose the packs or a folder of them.".into());
+                }
+                let label = "Reading the packs";
+                self.not_running(label)?;
+                let data_dir = self.paths.data_dir.clone();
+                j(self.spawn_job(label, move |_, _, _| {
+                    let ix = Self::job_index(&data_dir, &lib)?;
+                    Ok(json!({ "items": crate::maps::read_items(&ix, &lib, &paths)? }))
+                }))
+            }
+            "maps_plan" => {
+                let items: Vec<crate::maps::Item> = serde_json::from_value(args["items"].clone()).map_err(|e| e.to_string())?;
+                let mode = args["mode"].as_str().unwrap_or("copy").to_string();
+                let always_copy = args["always_copy"].as_bool().unwrap_or(false);
+                j(blocking(Box::new(move || {
+                    let plan = crate::maps::import_plan(&lib, &items, &mode, always_copy)?;
+                    pending(Some(plan)).map(|v| v["plan"].clone())
+                }))
+                .await?)
+            }
+            // a pack linked to a game by hand: its only game, or `also` a second one
+            "maps_link" => {
+                let (id, key) = (id()?, arg(&args, "key").map_err(e2s)?.to_string());
+                let also = args["also"].as_bool().unwrap_or(false);
+                j(self.with_index(move |ix| pending(crate::maps::link(ix, &lib, &id, &key, also)?)).await?)
+            }
+            // taken off a game (or every one): back to No game yet when none is left
+            "maps_unlink" => {
+                let id = id()?;
+                let key = args["key"].as_str().map(String::from);
+                j(self.with_index(move |ix| pending(crate::maps::unlink(ix, &lib, &id, key.as_deref())?)).await?)
+            }
+            // left in No game yet (off the To review list), or put back on it
+            "maps_leave" => {
+                let id = id()?;
+                let left = args["left"].as_bool().unwrap_or(true);
+                j(blocking(Box::new(move || crate::maps::leave(&lib, &id, left))).await?)
+            }
+            "maps_picture" => {
+                let id = id()?;
+                let picture = args["picture"].as_str().filter(|p| !p.is_empty()).map(PathBuf::from);
+                j(blocking(Box::new(move || crate::maps::set_picture(&lib, &id, picture.as_deref()))).await?)
+            }
+            // pack files set aside (a pack, or another copy of one), planned for the preview and Undo
+            "maps_remove" => {
+                let paths: Vec<String> = args["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect();
+                j(blocking(Box::new(move || pending(Some(crate::maps::remove_plan(&lib, &paths)?)))).await?)
+            }
+            // Open in Atlas (D221): Atlas started with the pack's path, or the path for the
+            // page to open with the program the system opens packs with
+            "maps_open" => {
+                let path = arg(&args, "path").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || crate::maps::open_in_atlas(&lib, &path))).await?)
+            }
+            other => Err(format!("unknown command {other}")),
+        }
+    }
+
     /// Part of a file in the open library for an HTTP `Range` header ("bytes=a-b"):
     /// (status, bytes, Content-Range). Without one, the whole file (200).
     pub fn library_range(
@@ -3273,7 +3471,7 @@ impl App {
     /// or page, whose file (a JPEG, a plain SVG cover, a comic's PNG) differs from the issue's.
     pub fn served_name(&self, rel: &str) -> String {
         let bare = rel.trim_start_matches('/');
-        if bare.starts_with("~cover/") || bare.starts_with("~page/") || bare.starts_with("~first/") {
+        if bare.starts_with("~cover/") || bare.starts_with("~page/") || bare.starts_with("~first/") || bare.starts_with("~atlas/") {
             if let Ok(p) = self.served_path(rel) {
                 return p.to_string_lossy().into_owned();
             }
@@ -3303,6 +3501,14 @@ impl App {
         if let Some(rest) = rel.strip_prefix("~page/") {
             let (n, issue) = rest.split_once('/').ok_or_else(|| anyhow!("no issue"))?;
             return crate::magazines::page_file(&lib, &self.paths.data_dir, n.parse().unwrap_or(1), issue);
+        }
+        // ~atlas/<n>/<packId>/<pack's path>: an Atlas pack's cover (0) or its n-th map's small
+        // picture, read out of the pack into this computer's cache (D215); the pack found by
+        // its packId where packs.json says it is now, else at the path the page had
+        if let Some(rest) = rel.strip_prefix("~atlas/") {
+            let (n, rest) = rest.split_once('/').ok_or_else(|| anyhow!("no pack"))?;
+            let (id, pack) = rest.split_once('/').ok_or_else(|| anyhow!("no pack"))?;
+            return crate::maps::preview_file(&lib, &self.paths.data_dir, n.parse().map_err(|_| anyhow!("no such picture"))?, &percent_decode(id), pack);
         }
         lib.resolve(&rel)
     }

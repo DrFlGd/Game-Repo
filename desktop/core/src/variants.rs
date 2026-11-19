@@ -244,7 +244,7 @@ fn dice<T: std::hash::Hash + Eq>(a: &HashSet<T>, b: &HashSet<T>) -> f64 {
 /// How alike two titles' words are, 0 to 1: 1 the same title (its words run together, so
 /// "Fire Red" is "FireRed"); a DAT title the file's starts with ("Super Mario Bros. 3 -
 /// Mario Adventure") 0.8; else by the words, and the pairs of letters, they share.
-fn alike(file: &[String], dat: &[String]) -> f64 {
+pub(crate) fn alike(file: &[String], dat: &[String]) -> f64 {
     let (a, b) = (file.concat(), dat.concat());
     if a.is_empty() || b.is_empty() {
         return 0.0;
