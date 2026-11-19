@@ -170,7 +170,10 @@ pub fn rename_patiently(from: &Path, to: &Path) -> io::Result<()> {
 /// `new` by a file that isn't Go's gives `<name> (2).atlaspack`. The old folder is left
 /// as it is, emptied or not (it may be yours). How many were moved.
 pub fn move_from(data: &Path, old: &Path, new: &Path) -> Result<usize> {
-    if old == new {
+    // the same folder, or one a case-insensitive drive takes as the same (`Atlas/Packs` and
+    // `atlas/packs`): nothing to move
+    let same = |a: &Path, b: &Path| matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y);
+    if old == new || same(old, new) {
         return Ok(0);
     }
     change(data, |rec| {
@@ -475,7 +478,9 @@ mod tests {
     fn the_packs_go_put_in_the_old_folder_are_moved_into_atlass_own() {
         let (home, d) = device("move");
         let data = d.data.clone().unwrap();
-        let (old, new) = (home.join("share").join("Atlas").join("Packs"), home.join("share").join("atlas").join("packs"));
+        // (two folders apart, as on Linux; on a drive that ignores case, `Atlas/Packs` and
+        // `atlas/packs` are one folder, which `move_from` leaves alone)
+        let (old, new) = (home.join("old").join("Atlas").join("Packs"), home.join("share").join("atlas").join("packs"));
         let mut d = d;
         d.places.insert(PLACE.into(), old.clone());
         // 0.5.72 delivered two packs into the old folder; one was changed by hand since
