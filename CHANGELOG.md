@@ -92,6 +92,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.71 (2026-11-19)
+
 - **Maps and Guides.** A new page under the Library for the packs Atlas Importer makes of a game's maps, guides and wiki pages (`.atlaspack`). Point the Importer at the library's *Maps and Guides/No game yet* folder: each pack it writes is read, even while Game Repo is open, and when its game is certain it's linked to it and moved into that game's folder (with Undo); the others wait on *To review* with the closest games offered. A card shows the pack's own cover, its site, its counts and how long ago its pages were read; opening one lists its maps with their small pictures and its guides and wikis with their page counts, with *Open in Atlas*, *Link to a game…*, *Take off the game*, *Choose a picture…*, *Show in folder* and *Remove…*. *Import maps and guides…* (Import › Maps and guides, or drop the files) brings in packs you have, a newer file of a pack replacing the old one. A game's page lists its packs, and Settings › Tools says where Atlas is (D214–D221).
 - **Planned: Maps and Guides.** The plan now covers keeping Atlas's map and guide packs (`.atlaspack`) in a section of their own, each linked to its game with a card and *Open in Atlas*, and sending them to Game Repo Go devices for Atlas there (D214–D223).
 
