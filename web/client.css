@@ -388,4 +388,9 @@ progress { accent-color: var(--tool); height: 8px; }
 .go-pc-hand-mod h3 { font-size: 15px; margin: 0 0 4px; }
 .go-pc-hand-mod h3 .muted { font-size: 13px; font-weight: normal; }
 .go-pc-notes { margin: 4px 0; white-space: pre-wrap; }
+/* a game's packs of maps and guides for Atlas (D222) */
+.go-packs { margin: 12px 0; }
+.go-pack-list .check-row { align-items: flex-start; font-weight: normal; }
+.go-pack-list .check-row > input { margin-top: 3px; }
+.go-packs .go-file { word-break: break-all; }
 .go-pc-readme pre { white-space: pre-wrap; max-height: 320px; overflow: auto; font-size: 13px; }

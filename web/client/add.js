@@ -36,7 +36,9 @@ export function AddDialog({ keys }) {
       .catch((e) => setError(message(e)));
   }, []);
   const media = p ? p.kinds.filter((k) => ticked.has(k.kind)).reduce((a, k) => a + k.size, 0) : 0;
-  const total = p ? p.size + media : 0;
+  // their ticked packs of maps and guides for Atlas, with Maps and guides for Atlas on (D222)
+  const packs = p?.packs?.count ? p.packs : null;
+  const total = p ? p.size + media + (packs?.size || 0) : 0;
   const short = p && total > p.free;
   const n = keys.length;
   const flip = (k) => setTicked((t) => { const x = new Set(t); x.has(k) ? x.delete(k) : x.add(k); return x; });
@@ -68,13 +70,14 @@ export function AddDialog({ keys }) {
           : html`<p class="muted">The library has no pictures or manuals for ${n === 1 ? "this game" : "these games"}.</p>`}
       </div>
       <p class="go-add-sum" id="add-sum">
-        ${plural(n, "game")}: ${bytes(p.size)}${media ? ` with ${bytes(media)} of pictures and manuals` : ""}. <span class=${short ? "danger-text" : "muted"}>${bytes(p.free)} free on this device.</span>
+        ${plural(n, "game")}: ${bytes(p.size)}${media ? ` with ${bytes(media)} of pictures and manuals` : ""}${packs ? `${media ? ", and" : " with"} ${plural(packs.count, "pack")} of maps and guides for Atlas (${bytes(packs.size)})` : ""}. <span class=${short ? "danger-text" : "muted"}>${bytes(p.free)} free on this device.</span>
       </p>
       ${short ? html`<p class="warn-note" id="add-short">There isn't room for all of that. Leave out some pictures or manuals, add fewer games, or make room on this device first.</p>` : null}
       ${p.left?.length ? html`<div class="warn-note"><p>Some can't go:</p><ul>${p.left.slice(0, 8).map((l) => html`<li>${l.what}: ${l.why}</li>`)}</ul></div>` : null}
       ${p.notes?.map((t) => html`<p class="muted">${t}</p>`)}
       ${p.unpacking ? html`<p class="muted" id="add-unpacking">${p.unpacking === 1 ? "A PC game is" : `${plural(p.unpacking, "PC game")} are`} being unpacked in the library first, so ${p.unpacking === 1 ? "it waits" : "they wait"} in Downloads until that's done.</p>` : null}
       ${pc < n ? html`<p class="muted">Games go into ES-DE's folders one at a time. Each shows in ES-DE once all of its files are in, after ES-DE is restarted.</p>` : null}
+      ${packs ? html`<p class="muted" id="add-packs">The packs go in Atlas's packs folder, ${packs.folder}: those ticked on each game's page.</p>` : null}
       ${pc ? html`<p class="muted" id="add-pc">PC games go in ${folder || "the PC games folder"}, each in a folder of its own, with a shortcut ${info.kind === "windows" ? "in the Start menu" : "in Steam"}.</p>` : null}
     ` : null}
   <//>`;

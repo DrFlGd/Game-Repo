@@ -14,6 +14,7 @@ pub mod background;
 pub mod catalogue;
 pub mod client;
 pub mod installs;
+pub mod packs;
 pub mod pcfiles;
 pub mod pcgames;
 pub mod queue;
@@ -241,11 +242,33 @@ pub struct AddOptions {
     pub textures: Vec<String>,
     /// PC games with their ticked mods (D205)
     pub mods: bool,
+    /// Each game's packs of maps and guides, into Atlas's packs folder (place `atlas`, D222)
+    pub packs: bool,
+    /// Only the games' packs, for games the device has (a pack ticked on a game's page)
+    pub packs_only: bool,
+    /// The packs unticked on each game's page (its key, their `packId`s)
+    pub packs_left: Vec<(String, Vec<String>)>,
 }
 
 impl Default for AddOptions {
     fn default() -> Self {
-        Self { media: vec!["cover".into()], manuals: false, size: 0, collection: String::new(), bios: false, at_once: 3, media_only: false, adopt: vec![], steam_art: false, cheats: false, textures: vec![], mods: false }
+        Self {
+            media: vec!["cover".into()],
+            manuals: false,
+            size: 0,
+            collection: String::new(),
+            bios: false,
+            at_once: 3,
+            media_only: false,
+            adopt: vec![],
+            steam_art: false,
+            cheats: false,
+            textures: vec![],
+            mods: false,
+            packs: false,
+            packs_only: false,
+            packs_left: vec![],
+        }
     }
 }
 
@@ -265,6 +288,9 @@ impl AddOptions {
             cheats: self.cheats,
             textures: self.textures.clone(),
             mods: self.mods,
+            packs: self.packs || self.packs_only,
+            packs_only: self.packs_only,
+            packs_left: self.packs_left.iter().filter(|(k, _)| keys.contains(k)).cloned().collect(),
             ..Default::default()
         }
     }
@@ -299,10 +325,12 @@ pub struct Added {
     pub notes: Vec<String>,
 }
 
-/// The catalogue game's files (its own, and shared ones it needs) of a plan.
+/// The catalogue game's files (its own, and shared ones it needs) of a plan; not its packs
+/// for Atlas, which are Go's own record's (D222), so removing the game leaves them.
 fn files_of<'a>(plan: &'a Plan, key: &str, system: &str) -> Vec<&'a gamerepo_wire::File> {
     plan.files
         .iter()
+        .filter(|f| !packs::is_pack(f))
         .filter(|f| f.key == key || (f.key.is_empty() && (f.needed_by.iter().any(|k| k == key) || (f.needed_by.is_empty() && f.system == system))))
         .collect()
 }
@@ -328,8 +356,18 @@ pub fn to_fetch(d: &Device, plan: &Plan) -> Result<(Vec<usize>, usize)> {
     let had: HashSet<(String, String, String)> = rec.games.iter().flat_map(|g| &g.files).map(|f| (f.place.clone(), f.path.clone(), f.sha1.clone())).collect();
     let (mut todo, mut there) = (vec![], 0);
     for (i, f) in plan.files.iter().enumerate() {
+        // a pack for Atlas with packs turned off since the plan was made: not fetched
+        if packs::is_pack(f) && !d.places.contains_key(packs::PLACE) {
+            continue;
+        }
         let dest = d.at(&f.place, &f.path)?;
-        if f.sha1.as_ref().is_some_and(|h| had.contains(&(f.place.clone(), f.path.clone(), h.clone()))) && std::fs::metadata(&dest).is_ok_and(|m| m.len() == f.size) {
+        // a pack for Atlas: there as Go delivered it (D222), whatever it's named now
+        let had_it = if packs::is_pack(f) {
+            packs::there(d, f)
+        } else {
+            f.sha1.as_ref().is_some_and(|h| had.contains(&(f.place.clone(), f.path.clone(), h.clone()))) && std::fs::metadata(&dest).is_ok_and(|m| m.len() == f.size)
+        };
+        if had_it {
             there += 1;
         } else {
             todo.push(i);
@@ -338,14 +376,21 @@ pub fn to_fetch(d: &Device, plan: &Plan) -> Result<(Vec<usize>, usize)> {
     Ok((todo, there))
 }
 
-/// Where a file of a plan is kept while it comes.
+/// Where a file of a plan is kept while it comes: in its place's `.gamerepo-coming/`, or a
+/// pack for Atlas as `<name>.part` in the packs folder itself (D222).
 pub fn part_of(d: &Device, f: &gamerepo_wire::File) -> Result<PathBuf> {
+    if packs::is_pack(f) {
+        return packs::part_of(d, f);
+    }
     d.at(&f.place, &f.path)?;
     Ok(d.places[&f.place].join(COMING).join(&f.path))
 }
 
-/// A part's ETag, kept beside it.
-fn etag_of(part: &Path) -> PathBuf {
+/// A part's ETag: beside it, or for a pack in Go's own data folder (D222).
+fn etag_of(d: &Device, f: &gamerepo_wire::File, part: &Path) -> PathBuf {
+    if packs::is_pack(f) {
+        return packs::tag_of(d, part);
+    }
     part.with_extension(format!("{}.etag", part.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()))
 }
 
@@ -354,7 +399,7 @@ pub fn drop_parts(d: &Device, plan: &Plan) {
     for f in &plan.files {
         if let Ok(part) = part_of(d, f) {
             let _ = std::fs::remove_file(&part);
-            let _ = std::fs::remove_file(etag_of(&part));
+            let _ = std::fs::remove_file(etag_of(d, f, &part));
             tidy_coming(d, &f.place, &part);
         }
     }
@@ -424,8 +469,8 @@ pub fn add_planned(s: &Server, d: &Device, plan: &Plan, keys: &[String], o: &Add
     out.bytes = *fetched.lock().unwrap();
     let sha1s = sha1s.lock().unwrap().clone();
     let _writing = WRITING.lock().unwrap_or_else(|e| e.into_inner());
-    // every file in, each put in place
-    for &i in &todo {
+    // every file in, each put in place (the packs for Atlas last, D222)
+    for &i in todo.iter().filter(|&&i| !packs::is_pack(&plan.files[i])) {
         let f = &plan.files[i];
         let (dest, part) = (d.at(&f.place, &f.path)?, part_of(d, f)?);
         if let Some(parent) = dest.parent() {
@@ -435,8 +480,13 @@ pub fn add_planned(s: &Server, d: &Device, plan: &Plan, keys: &[String], o: &Add
             std::fs::remove_file(&dest)?;
         }
         std::fs::rename(&part, &dest)?;
-        let _ = std::fs::remove_file(etag_of(&part));
+        let _ = std::fs::remove_file(etag_of(d, f, &part));
         tidy_coming(d, &f.place, &part);
+    }
+    if o.packs_only {
+        put_packs(d, plan, &todo, &sha1s)?;
+        out.games = keys.len();
+        return Ok(out);
     }
     // the gamelists and the collection, merged with the device's own
     for l in &plan.lists {
@@ -532,7 +582,26 @@ pub fn add_planned(s: &Server, d: &Device, plan: &Plan, keys: &[String], o: &Add
         }
     }
     let _ = s.call::<serde_json::Value>("PUT", "/v1/device", Some(&d.holding()));
+    // the games' packs for Atlas, once the games are in (D222)
+    put_packs(d, plan, &todo, &sha1s)?;
     Ok(out)
+}
+
+/// A plan's packs for Atlas put in its packs folder (D222): those fetched renamed from
+/// their `.part`, those there already noted as the plan's games' too.
+fn put_packs(d: &Device, plan: &Plan, todo: &[usize], sha1s: &BTreeMap<usize, String>) -> Result<()> {
+    if !d.places.contains_key(packs::PLACE) {
+        return Ok(());
+    }
+    for (i, f) in plan.files.iter().enumerate().filter(|(_, f)| packs::is_pack(f)) {
+        if todo.contains(&i) {
+            let sha1 = sha1s.get(&i).cloned().or_else(|| f.sha1.clone()).unwrap_or_default();
+            packs::put_in_place(d, f, &part_of(d, f)?, &sha1).map_err(|e| anyhow!("{} couldn't be put in Atlas's packs folder: {e:#}", f.path))?;
+        } else {
+            packs::note_there(d, f)?;
+        }
+    }
+    Ok(())
 }
 
 /// Every path a file's path is in, and itself (`psx/Q.m3u/Q.m3u`: `psx`, `psx/Q.m3u`, `psx/Q.m3u/Q.m3u`).
@@ -557,16 +626,17 @@ fn encode(s: &str) -> String {
 /// game's every file is in: the bytes fetched and its SHA-1.
 fn fetch_one(s: &Server, d: &Device, f: &gamerepo_wire::File, watch: Watch) -> Result<(u64, String)> {
     let part = part_of(d, f)?;
+    let tag = etag_of(d, f, &part);
     // one that came whole before a pause is only checked
     let whole = f.size > 0 && std::fs::metadata(&part).is_ok_and(|m| m.len() == f.size);
-    let mut n = if whole { 0 } else { s.fetch_watched(&f.url, &part, None, watch)? };
+    let mut n = if whole { 0 } else { s.fetch_into(&f.url, &part, &tag, None, watch)? };
     let want = s.sha1_of(&f.url, Duration::from_secs(600))?;
     let mut got = sha1_file(&part)?;
     if got != want {
         // once more from the start (a resume of a file that changed in between)
         watch.take_back(std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0));
         let _ = std::fs::remove_file(&part);
-        n += s.fetch_watched(&f.url, &part, None, watch)?;
+        n += s.fetch_into(&f.url, &part, &tag, None, watch)?;
         got = sha1_file(&part)?;
         if got != s.sha1_of(&f.url, Duration::from_secs(600))? {
             let _ = std::fs::remove_file(&part);

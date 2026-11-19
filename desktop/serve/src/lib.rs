@@ -16,6 +16,7 @@ pub mod discovery;
 pub mod files;
 pub mod http;
 pub mod made;
+pub mod packs;
 pub mod plans;
 pub mod saves;
 pub mod tls;
@@ -826,6 +827,8 @@ fn game_details(ix: &Index, lib: &Library, key: &str) -> Result<Response> {
             "name": src.file_name().unwrap_or_default().to_string_lossy(), "title": d.title, "author": d.author, "version": d.version, "url": d.url, "notes": d.notes,
             "how": d.how, "on": d.on, "goes_in": gamerepo_core::mods::goes_in_itself(&d), "to_choose": d.fomod && d.choices.is_none(), "readme": gamerepo_core::mods::readme_text(&src),
         })).collect::<Vec<_>>()).unwrap_or_default(),
+        // its packs of maps and guides, for Atlas on a device (D222)
+        "packs": packs::of_game(ix, lib, key)?,
     })))
 }
 

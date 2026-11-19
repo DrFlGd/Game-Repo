@@ -281,6 +281,12 @@ const MIGRATIONS: &[(&str, &str)] = &[
          ) STRICT;
          CREATE INDEX atlas_packs_id ON atlas_packs (pack_id);",
     ),
+    (
+        "atlas packs read again",
+        // D215 revised: descriptions cached by 0.5.71's own reader are read again with
+        // Atlas's atlas-pack crate, whose sentences and fields differ a little
+        "DELETE FROM atlas_packs;",
+    ),
 ];
 
 /// How many schema steps this build knows.

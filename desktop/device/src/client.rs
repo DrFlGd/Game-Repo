@@ -333,10 +333,16 @@ impl Server {
     /// [`fetch`](Self::fetch), stopping with [`Stopped`] when `watch` says so and telling it
     /// the bytes as they come.
     pub fn fetch_watched(&self, url: &str, part: &Path, stop_at: Option<u64>, watch: Watch) -> Result<u64> {
+        let tag_path = part.with_extension(format!("{}.etag", part.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()));
+        self.fetch_into(url, part, &tag_path, stop_at, watch)
+    }
+
+    /// [`fetch_watched`](Self::fetch_watched) with the part's ETag kept at `tag_path` (a pack
+    /// for Atlas keeps it in Game Repo Go's own folder, not Atlas's, D222).
+    pub fn fetch_into(&self, url: &str, part: &Path, tag_path: &Path, stop_at: Option<u64>, watch: Watch) -> Result<u64> {
         if watch.stopped() {
             return Err(Stopped.into());
         }
-        let tag_path = part.with_extension(format!("{}.etag", part.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()));
         let have = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
         let tag = std::fs::read_to_string(&tag_path).ok();
         loop {
@@ -357,7 +363,10 @@ impl Server {
                         std::fs::create_dir_all(d)?;
                     }
                     if let Some(t) = head.header("etag") {
-                        std::fs::write(&tag_path, t)?;
+                        if let Some(d) = tag_path.parent() {
+                            std::fs::create_dir_all(d)?;
+                        }
+                        std::fs::write(tag_path, t)?;
                     }
                     let mut f = std::fs::OpenOptions::new().create(true).write(true).truncate(from == 0).append(from > 0).open(part)?;
                     let mut left = head.length;
@@ -399,7 +408,7 @@ impl Server {
                     // longer than the file is now: start again
                     let _ = std::fs::remove_file(part);
                     watch.take_back(have);
-                    return self.fetch_watched(url, part, stop_at, watch);
+                    return self.fetch_into(url, part, tag_path, stop_at, watch);
                 }
                 s => {
                     let body = read_body(&mut r, &head).unwrap_or_default();

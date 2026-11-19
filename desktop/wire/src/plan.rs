@@ -86,7 +86,8 @@ pub struct File {
     /// The catalogue's key of the game it's for (empty for what a system needs, such as its
     /// BIOS files, and for a set games share: see `needed_by`)
     pub key: String,
-    /// game | bios | device | playlist | manual | doc | bios-file | text, or a media kind (cover…)
+    /// game | bios | device | playlist | manual | doc | bios-file | text | cheat | texture |
+    /// pack, or a media kind (cover…)
     pub role: String,
     /// For a BIOS set or device: the games of the plan that need it (their catalogue keys),
     /// so it stays while one does
@@ -99,6 +100,10 @@ pub struct File {
     /// A PC game's file a mod gives, its name (the mod's file or folder in the library, D209)
     #[serde(skip_serializing_if = "String::is_empty")]
     pub from: String,
+    /// A pack of maps and guides for Atlas (role `pack`, place `atlas`, D222): its `packId`,
+    /// by which a newer file of it replaces the one a device has
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub pack: String,
     /// Where it's fetched from (`/v1/files/…`), with its SHA-1 at the same address with
     /// `?sha1` once it's known
     pub url: String,

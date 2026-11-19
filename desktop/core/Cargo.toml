@@ -9,6 +9,9 @@ name = "gamerepo_core"
 
 [dependencies]
 anyhow = "1"
+# Atlas's own reader of pack files (D215): pinned to the commit the Atlas pack contract
+# names (block A3, merged into Atlas's main branch) until Atlas tags a release with it
+atlas-pack = { git = "https://github.com/DrFlGd/Atlas", rev = "5b94dc04d87902442216b49ef255eb136f24f9f8" }
 gamerepo-steam = { path = "../steam" }
 gamerepo-wire = { path = "../wire" }
 # a card's saves synced as Game Repo Go syncs a device's (D189)

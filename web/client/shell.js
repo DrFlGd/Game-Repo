@@ -18,6 +18,7 @@ import { QueuePage, StartDialog } from "./queue.js";
 import { DevicePage, PendingRemoval, RemoveDialog, RoomDialog } from "./device.js";
 import { SettingsPage } from "./settings.js";
 import { BigBar, BigGame, ChooseDialog, Hints, MediaDialog, OptionsDialog, Shelves, useFocus } from "./big.js";
+import { PacksDialog } from "./packs.js";
 
 const PAGES = [
   ["library", "Library", Icon.gamepad],
@@ -84,6 +85,7 @@ function Dialogs({ dialog }) {
     case "options": return html`<${OptionsDialog} />`;
     case "choose": return html`<${ChooseDialog} select=${dialog.select} />`;
     case "media": return html`<${MediaDialog} title=${dialog.title} media=${dialog.media} files=${dialog.files} />`;
+    case "packs": return html`<${PacksDialog} gameKey=${dialog.key} title=${dialog.title} />`;
     default: return null;
   }
 }

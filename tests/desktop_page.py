@@ -2077,30 +2077,36 @@ JPG_BROWN = base64.b64decode("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg
 
 
 def atlas_pack(path, pack_id, title, version=7, updated="2026-11-10T10:00:00Z", game=None, site="Example Maps"):
-    """A pack as Atlas Importer writes it (the Atlas pack contract): a ZIP whose first entry is
-    its description, atlaspack.json, then (format 7) its small pictures under preview/ and its
-    data. Made-up games and sites only."""
+    """A pack as Atlas Importer writes it (the Atlas pack contract, and docs/pack-file-format.md in
+    Atlas's repository): a ZIP whose first entry is its description, atlaspack.json, then its
+    small pictures under preview/ and its data. As built in Atlas's block A3, only a pack with
+    small pictures is version 7; one of a lower version (6 here) still has the game, the site's
+    name, its maps and its one entry of pages, without pictures. Made-up games and sites only."""
     d = {"format": "atlas-pack-file", "version": version, "packId": pack_id, "title": title, "packVersion": "1.0.0", "detail": "standard",
          "exportedAt": "2026-11-12T08:00:00Z", "exportedBy": {"name": "Atlas Importer", "version": "0.23.0", "platform": "linux"},
-         "pack": {"id": pack_id, "title": title, "packVersion": "1.0.0", "created": "2026-11-01T09:00:00Z", "updated": updated},
+         "pack": {"id": pack_id, "title": title, "packVersion": "1.0.0", "schemaVersion": 2, "attribution": [], "created": "2026-11-01T09:00:00Z", "updated": updated},
          "source": {"kind": "web-pages", "importer": {"id": "example-maps", "title": site}, "newestPageAt": updated},
-         "contents": {"maps": 2, "locations": 120, "guides": 14}, "files": 4, "bytes": 2048}
+         "contents": {"maps": 2, "layers": 2, "locations": 120, "categories": 4, "regions": 0, "checklists": 0, "guides": 12},
+         "images": {"detail": "standard", "files": 2, "bytes": 1024, "layers": []}, "files": 4, "bytes": 2048}
     pictures = []
-    if version >= 7:
+    if version >= 6:
         d["source"]["name"] = site
         d["game"] = {"title": game or title, "system": "Game Boy"}
         d["personalUse"] = True
-        d["cover"] = "preview/cover.jpg"
-        d["maps"] = [{"id": "map:world", "name": "The World", "width": 4096, "height": 3072, "locations": 100, "preview": "preview/map-1.jpg"},
-                     {"id": "map:caves", "name": "The Caves", "width": 2048, "height": 2048, "locations": 20, "preview": "preview/map-2.jpg"}]
-        d["guides"] = [{"title": "Walkthrough", "type": "guide", "pages": 12}, {"title": "The Valley Wiki", "type": "wiki", "pages": 30}]
-        pictures = [("preview/cover.jpg", JPG_GREEN), ("preview/map-1.jpg", JPG_BROWN), ("preview/map-2.jpg", JPG_GREEN)]
+        d["maps"] = [{"id": "map:world", "name": "The World", "width": 4096, "height": 3072, "locations": 100},
+                     {"id": "map:caves", "name": "The Caves", "width": 2048, "height": 2048, "locations": 20}]
+        d["guides"] = [{"title": "Walkthrough", "type": "guide", "pages": 12}]
+    if version >= 7:
+        # the cover is the first map's picture (the first map that has one)
+        d["cover"] = "preview/map-1.jpg"
+        d["maps"][0]["preview"], d["maps"][1]["preview"] = "preview/map-1.jpg", "preview/map-2.jpg"
+        pictures = [("preview/map-1.jpg", JPG_GREEN), ("preview/map-2.jpg", JPG_BROWN)]
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as z:
-        z.writestr("atlaspack.json", json.dumps(d))
+        z.writestr("atlaspack.json", json.dumps(d), compress_type=zipfile.ZIP_DEFLATED)
         for name, b in pictures:
             z.writestr(name, b)
-        z.writestr("data/pack.json", json.dumps({"id": pack_id}), compress_type=zipfile.ZIP_DEFLATED)
+        z.writestr("manifest.json", json.dumps({"id": pack_id}), compress_type=zipfile.ZIP_DEFLATED)
     return path
 
 
@@ -2160,7 +2166,7 @@ async def maps_page(pg, base, home, library):
     check("Maps and Guides (under the Library, D219) reads the packs Atlas Importer wrote: one whose game's title is certain is linked and moved into its game's folder as a change (D218), shown with its own cover, grouped by game; one that isn't is on To review; a newer format says why; a .part file is left alone",
           menu == "Maps and Guides" and "Linked Lantern Valley to Lantern Valley" in said and a_at.is_file() and not (no_game / a_name).exists()
           and [g["key"] for g in linked.get("games", [])] == ["gb/Lantern Valley (World)"] and linked.get("file") == f"Lantern Valley/{a_name}"
-          and len(tiles) == 3 and "1 pack to review" in review and future[2] == "Can't be read" and "needs a newer Game Repo" in (future[3] or "") and "format 8" in (future[3] or "")
+          and len(tiles) == 3 and "1 pack to review" in review and future[2] == "Can't be read" and "in a newer format (version 8)" in (future[3] or "")
           and "Lantern Valley" in groups and "No game yet" in groups and cards == ["Maps and guides…", "A folder…"],
           (said, tiles, groups, review, linked, cards))
     # the pack's panel: its maps with their small pictures, its guides and wikis with their page counts
@@ -2170,8 +2176,8 @@ async def maps_page(pg, base, home, library):
     panel = await pg.inner_text("#maps-panel")
     buttons = await pg.eval_on_selector_all("#maps-panel .lib-panel-actions button", "els => els.map(e => e.textContent.trim())")
     await pg.screenshot(path=str(out / "97-maps-panel.png"))
-    check("a pack's panel lists its maps with their own small pictures, and its guides and wiki with their page counts, with Open in Atlas, Link…, Take off the game, Choose a picture…, Show in folder and Remove…",
-          "The World" in panel and "4096 × 3072" in panel and "The Caves" in panel and "Walkthrough" in panel and "12 pages" in panel and "The Valley Wiki" in panel and "30 pages" in panel
+    check("a pack's panel lists its maps with their own small pictures, and its guide with its page count, with Open in Atlas, Link…, Take off the game, Choose a picture…, Show in folder and Remove…",
+          "The World" in panel and "4096 × 3072" in panel and "The Caves" in panel and "Walkthrough" in panel and "12 pages" in panel
           and "Example Maps" in panel and "For your own use" in panel
           and buttons == ["Open in Atlas", "Link to another game…", "Take off the game", "Choose a picture…", "Show in folder", "Remove…"], (panel[:600], buttons))
     # Undo puts it back in No game yet, where it waits on To review (not linked again on its own)
@@ -2292,7 +2298,7 @@ async def maps_page(pg, base, home, library):
     await toast_text(pg, "Removed")
     await pg.wait_for_selector(future_tile, state="detached", timeout=15000)
     check("a pack that can't be read says why in its panel (a newer format, with what wrote it), and Remove… sets it aside",
-          "format 8" in error_said and "Atlas Importer" in error_said and not (no_game / "Future Pack - Example Maps.atlaspack").exists() and (no_game / "Half Written - Example Maps.atlaspack.part").is_file(), error_said)
+          "in a newer format (version 8)" in error_said and "Atlas Importer 0.23.0" in error_said and not (no_game / "Future Pack - Example Maps.atlaspack").exists() and (no_game / "Half Written - Example Maps.atlaspack.part").is_file(), error_said)
 
 
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
