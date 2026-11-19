@@ -93,6 +93,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.74 (2026-11-19)
+
 - **Maps made in Atlas in Maps and Guides.** Maps you make in Atlas and maps made by Atlas Map Maker come in named by their game alone (`My Game.atlaspack`), are linked to their games like any pack, and say *Made in Atlas* where a pack read from a site names its site, in Maps and Guides, on a game's page and in Game Repo Go. A pack that carries your own locations, notes or photos says so (*With your own locations and notes*), and is always kept, linked and sent to devices whole.
 - **Game Repo Go never puts an older pack over a newer one.** When Atlas on a device has written a pack again (a map you changed there) and the library's copy is older, Game Repo Go keeps the file on the device, says *Newer on this device: kept* on the game's page, doesn't download the library's copy again, and doesn't take the file out when you untick it. A newer pack from the library still replaces it. Bringing the newer file back to the library isn't done yet.
 - **Maps and Guides reads packs with Atlas 0.23.0's code**, the first Atlas release with it.
