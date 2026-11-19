@@ -7434,6 +7434,8 @@ is replaced by the crate (D215's revision):
   a test now holds it.
 - Trial T1 settled that Atlas writes no index file beside a pack; Game Repo Go still
   touches only the pack files it delivered.
+- Part 1 shipped in 0.5.71 with the stand-in reader, so the index's step *atlas packs read
+  again* empties `atlas_packs`, and every pack's description is read again with the crate.
 - Tests: `core` `atlaspack` (a pack from before block A3 falling back to its title, site
   and counts, and read back from the index the same; block A3's names and pictures, a
   picture that isn't a JPEG or is over 512 KB, a lower version with the new fields and no
