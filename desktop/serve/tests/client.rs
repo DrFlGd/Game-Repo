@@ -1413,6 +1413,7 @@ fn a_map_made_in_atlas_goes_whole_and_one_atlas_wrote_newer_on_the_device_is_kep
     };
     let pack_file = plan.files.iter().position(|f| f.role == "pack").unwrap();
     assert_eq!(plan.files[pack_file].sha1.as_deref(), Some(gamerepo_device::sha1_file(&kept).unwrap().as_str()));
+    assert_eq!((plan.files[pack_file].pack_updated.as_str(), plan.files[pack_file].pack_exported_at.as_str()), ("2026-11-18T08:00:00Z", "2026-11-18T08:05:00Z"), "the library's dates, for Go to compare before fetching");
     let (todo, _) = gamerepo_device::to_fetch(&app.device().unwrap(), &plan).unwrap();
     assert!(!todo.contains(&pack_file), "no download loop");
     let before = snapshot(&atlas);
@@ -1428,6 +1429,22 @@ fn a_map_made_in_atlas_goes_whole_and_one_atlas_wrote_newer_on_the_device_is_kep
     assert_eq!(names_in(&atlas), ["Alpha.atlaspack"]);
     let it = pack_item(&app);
     assert_eq!((it["here"].as_bool(), it["newer_here"].as_bool()), (Some(true), Some(false)), "{it}");
+    assert!(it.get("theirs").is_none(), "{it}");
+
+    // a copy Go didn't deliver (put there by hand), newer than the library's next one: Go's
+    // isn't fetched (Atlas would show the copy), nothing in the folder is replaced or removed,
+    // and the page says so (part 6, the contract's saving)
+    let by_hand = atlas.join("Alpha (mine).atlaspack");
+    write_made_pack(&by_hand, "alpha-my-island", "Alpha", "2026-11-22T09:00:00Z", "2026-11-22T09:00:00Z");
+    write_made_pack(&kept, "alpha-my-island", "Alpha", "2026-11-21T09:00:00Z", "2026-11-21T09:00:00Z");
+    // a later time, so the index reads it again even within the same second
+    std::fs::File::options().write(true).open(&kept).unwrap().set_modified(std::time::SystemTime::now() + Duration::from_secs(5)).unwrap();
+    let before = snapshot(&atlas);
+    call(&app, "packs_get", json!({ "key": ALPHA }));
+    queue_done(&app);
+    assert_eq!(snapshot(&atlas), before, "nothing fetched, nothing replaced");
+    let it = pack_item(&app);
+    assert_eq!((it["theirs"]["file"].as_str(), it["theirs"]["newer"].as_bool()), (Some("Alpha (mine).atlaspack"), Some(true)), "{it}");
     app.queue.quit();
     s.stop();
     let _ = std::fs::remove_dir_all(&dir);

@@ -489,6 +489,7 @@ impl App {
         let s = self.settings();
         let rec = packs::load(&self.data);
         let left = rec.left_out.get(key).cloned().unwrap_or_default();
+        let folder = self.packs_folder(&self.home());
         let items: Vec<Value> = details
             .and_then(|d| d["packs"].as_array())
             .into_iter()
@@ -501,10 +502,15 @@ impl App {
                 v["here"] = json!(here.is_some());
                 // newer on this device than the library's, so kept (D222 revised)
                 v["newer_here"] = json!(here.is_some_and(|e| e.newer_here));
+                // a copy Go didn't deliver, as new or newer, so Go's wasn't fetched
+                if let Some(t) = packs::theirs_here(&rec, &folder, id) {
+                    let file = t.path.strip_prefix(&folder).unwrap_or(&t.path).display().to_string();
+                    v["theirs"] = json!({ "file": file, "newer": t.newer });
+                }
                 v
             })
             .collect();
-        json!({ "offered": true, "on": s.atlas_packs, "folder": self.packs_folder(&self.home()), "items": items })
+        json!({ "offered": true, "on": s.atlas_packs, "folder": folder, "items": items })
     }
 
     /// A pack ticked or unticked on a game's page (D222): kept for the game; on a game the

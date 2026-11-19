@@ -361,9 +361,10 @@ pub fn to_fetch(d: &Device, plan: &Plan) -> Result<(Vec<usize>, usize)> {
             continue;
         }
         let dest = d.at(&f.place, &f.path)?;
-        // a pack for Atlas: there as Go delivered it (D222), whatever it's named now
+        // a pack for Atlas: there as Go delivered it (D222), whatever it's named now, or a
+        // copy Go didn't deliver there is as new or newer (looked for only now, as it'd come)
         let had_it = if packs::is_pack(f) {
-            packs::there(d, f)
+            packs::there(d, f) || packs::theirs_instead(d, f)
         } else {
             f.sha1.as_ref().is_some_and(|h| had.contains(&(f.place.clone(), f.path.clone(), h.clone()))) && std::fs::metadata(&dest).is_ok_and(|m| m.len() == f.size)
         };

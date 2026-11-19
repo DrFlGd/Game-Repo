@@ -51,7 +51,7 @@ export function Packs({ k, packs, onDevice, onChange }) {
     const r = await call("packs_get", { key: k });
     setSaid(r.queued?.length ? "Its packs are coming: see Downloads." : "Its packs are already in the queue.");
   });
-  const missing = packs.items.filter((p) => isTicked(p) && !p.here);
+  const missing = packs.items.filter((p) => isTicked(p) && !p.here && !p.theirs);
   return html`<section class="go-packs" id="go-game-packs" data-on=${packs.on ? "yes" : "no"}>
     <h2>Maps and guides for Atlas</h2>
     <p class="muted" id="go-game-packs-note">${packs.on
@@ -59,10 +59,11 @@ export function Packs({ k, packs, onDevice, onChange }) {
       : html`Turn on Maps and guides for Atlas in Settings for the ticked packs to come with the game. <button type="button" class="ghost compact" id="go-game-packs-settings" onClick=${() => { closeDialog(); open({ page: "settings" }); }}>Open Settings</button>`}</p>
     <ul class="go-sizes go-pack-list">${packs.items.map((p) => html`<li key=${p.pack_id} data-pack=${p.pack_id} data-here=${p.here ? "yes" : "no"}>
       <label class="check-row"><input type="checkbox" checked=${isTicked(p)} disabled=${!!busy} aria-label=${`Bring ${p.title}`} onChange=${(e) => tick(p, e.currentTarget.checked)} />
-        <span><strong>${p.title}</strong>${p.source ? html` <span class="muted">from ${p.source}</span>` : p.made_in ? html` <span class="muted" data-said="made-in">made in ${p.made_in}</span>` : null}
+        <span><strong>${p.title}</strong>${p.source ? html` <span class="muted">from ${p.source}</span>` : p.made_in ? html` <span class="muted" data-said="made-in">made in ${p.made_in}</span>` : p.sort === "app" ? html` <span class="muted" data-said="came-with-app">came with an app</span>` : null}
           ${holds(p) ? html`<br /><small class="muted">${holds(p)}</small>` : null}
           ${p.own_things ? html`<br /><small class="muted" data-said="mine">${p.own_things}</small>` : null}
           ${p.newer_here ? html`<br /><small class="muted" data-said="newer-here">Newer on this device: kept. Game Repo's copy is older, so it isn't put over it.</small>`
+            : p.theirs ? html`<br /><small class="muted" data-said="theirs">${p.theirs.newer ? "A newer copy" : "The same version"} is in Atlas's packs folder already (<span class="go-file">${p.theirs.file}</span>), one Game Repo Go didn't put there. Atlas shows that one, so Go leaves it as it is and doesn't download its own.</small>`
             : p.here ? html`<br /><small class="muted" data-said="here">In Atlas's packs folder</small>` : null}
           ${p.personal_use ? html`<br /><small class="muted" data-said="personal">For your own use only</small>` : null}
           ${p.error ? html`<br /><small class="muted" data-said="error">Game Repo can't read this pack (${p.error}); it's sent as it is.</small>` : null}</span></label>

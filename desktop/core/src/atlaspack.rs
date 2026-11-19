@@ -160,12 +160,46 @@ pub struct Description {
     pub guides: Vec<GuideInfo>,
     /// The person's own things it carries (`mine`), when it carries them
     pub mine: Option<Mine>,
-    /// `pack.writtenBy.name`: the app that wrote the pack's own files (Atlas for a map made
-    /// in it, Atlas Map Maker for one made there)
+    /// `pack.writtenBy.name`: the program that wrote the pack's own files (Atlas, Atlas
+    /// Importer, Atlas Map Maker…); only "Atlas Map Maker" tells a sort ([`Description::sort`])
     pub pack_written_by: Option<String>,
     /// The whole description as it was read
     #[serde(skip)]
     pub raw: Value,
+}
+
+/// `pack.writtenBy.name` of a pack made by Atlas Map Maker, exactly (the contract).
+pub const MAP_MAKER: &str = "Atlas Map Maker";
+
+/// The sorts of pack the contract tells apart ([`Description::sort`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sort {
+    /// Read from a site by Atlas Importer
+    Site,
+    /// A map made in an Atlas app (Atlas, or Atlas Importer)
+    MadeInAtlas,
+    /// A map made by Atlas Map Maker
+    MapMaker,
+    /// A pack that came with an app
+    App,
+}
+
+impl Sort {
+    /// Its one word, as the card, Game Repo Server and Go say it: the words of Atlas's
+    /// planned field (site, made-in-atlas, map-maker), and `app`.
+    pub fn word(self) -> &'static str {
+        match self {
+            Sort::Site => "site",
+            Sort::MadeInAtlas => "made-in-atlas",
+            Sort::MapMaker => "map-maker",
+            Sort::App => "app",
+        }
+    }
+
+    /// The sort a word names ([`Sort::word`]); None for any other word.
+    pub fn from_word(w: &str) -> Option<Sort> {
+        [Sort::Site, Sort::MadeInAtlas, Sort::MapMaker, Sort::App].into_iter().find(|s| s.word() == w.trim())
+    }
 }
 
 fn text(v: &Value, k: &str) -> Option<String> {
@@ -253,14 +287,61 @@ impl Description {
         self.source.name.as_deref().or(self.source.importer_title.as_deref())
     }
 
-    /// For a pack from no site (a map made in Atlas or by Atlas Map Maker: `source.kind`
-    /// isn't `web-pages` and it names no site), the app it was made in, for "Made in Atlas":
-    /// `pack.writtenBy.name`, else `exportedBy.name`. None for a pack read from a site.
-    pub fn made_in(&self) -> Option<&str> {
-        if self.source_name().is_some() || self.source.kind.as_deref() == Some("web-pages") {
-            return None;
+    /// The sort of pack it is, by the contract's rule (its answer of 2026-11-19, safe to build
+    /// on for every pack Atlas 0.23.0 writes): `source.kind` `web-pages` is a pack read from a
+    /// site; `pack.writtenBy.name` exactly "Atlas Map Maker" one made by Map Maker;
+    /// `source.kind` `unknown` with another writer a map made in an Atlas app (in Atlas, or
+    /// in Atlas Importer, whose packs say "Atlas Importer" there); `source.kind` `app` one that
+    /// came with an app. None: it doesn't say. Never by `pack.writtenBy.name` alone, nor by
+    /// `mine` (a pack exported by hand can carry your own things whatever its sort).
+    ///
+    /// Atlas plans an optional field that names the sort in one word ([`Sort::word`]); once
+    /// the contract gives its name, it's read here first ([`Sort::from_word`]) and this rule
+    /// stays for the files without it.
+    pub fn sort(&self) -> Option<Sort> {
+        let kind = self.source.kind.as_deref();
+        if kind == Some("web-pages") {
+            return Some(Sort::Site);
         }
-        self.pack_written_by.as_deref().or(self.exported_by.name.as_deref())
+        if self.pack_written_by.as_deref() == Some(MAP_MAKER) {
+            return Some(Sort::MapMaker);
+        }
+        match kind {
+            Some("unknown") => Some(Sort::MadeInAtlas),
+            Some("app") => Some(Sort::App),
+            _ => None,
+        }
+    }
+
+    /// The app a map was made in, for "Made in Atlas" ([`Description::sort`]): "Atlas" for
+    /// one made in an Atlas app (Atlas Importer's too), "Atlas Map Maker" for one made there.
+    /// None for any other sort.
+    pub fn made_in(&self) -> Option<&'static str> {
+        match self.sort()? {
+            Sort::MadeInAtlas => Some("Atlas"),
+            Sort::MapMaker => Some(MAP_MAKER),
+            Sort::Site | Sort::App => None,
+        }
+    }
+
+    /// The site it was read from, where a card names one: its name ([`source_name`]) for a
+    /// pack read from a site, or one that doesn't say its sort; never for another sort.
+    ///
+    /// [`source_name`]: Description::source_name
+    pub fn site(&self) -> Option<&str> {
+        match self.sort() {
+            Some(Sort::Site) | None => self.source_name(),
+            Some(_) => None,
+        }
+    }
+
+    /// Where it's from, in the words a card says it: the site's name, "Made in Atlas",
+    /// "Made in Atlas Map Maker" or "Came with an app". None when it doesn't say.
+    pub fn from_words(&self) -> Option<String> {
+        match self.sort() {
+            Some(Sort::App) => Some("Came with an app".into()),
+            _ => self.made_in().map(|m| format!("Made in {m}")).or_else(|| self.site().map(String::from)),
+        }
     }
 
     /// What a card says of the person's own things a pack carries (`mine`), as plain words:
@@ -351,6 +432,9 @@ pub fn card(d: &Description) -> Value {
         o.insert("source_name".into(), d.source_name().map(Value::from).unwrap_or(Value::Null));
         o.insert("written_by".into(), d.written_by().map(Value::from).unwrap_or(Value::Null));
         o.insert("made_in".into(), d.made_in().map(Value::from).unwrap_or(Value::Null));
+        o.insert("sort".into(), d.sort().map(|s| Value::from(s.word())).unwrap_or(Value::Null));
+        o.insert("site".into(), d.site().map(Value::from).unwrap_or(Value::Null));
+        o.insert("from".into(), d.from_words().map(Value::from).unwrap_or(Value::Null));
         o.insert("own_things".into(), d.own_things().map(Value::from).unwrap_or(Value::Null));
     }
     v
@@ -644,6 +728,7 @@ pub(crate) mod tests {
         assert_eq!(d.own_things().as_deref(), Some("With your own locations, types and notes"));
         let c = card(&d);
         assert_eq!((c["source_name"].clone(), c["made_in"].clone(), c["own_things"].clone()), (Value::Null, json!("Atlas"), json!("With your own locations, types and notes")));
+        assert_eq!((c["sort"].clone(), c["site"].clone(), c["from"].clone()), (json!("made-in-atlas"), Value::Null, json!("Made in Atlas")));
         assert_eq!(c["mine"]["notes"], 3);
         // one by Atlas Map Maker: made there, nothing of yours
         let mm = Description::from_value(made_by_map_maker("beta-map-maker", "Beta", "2026-11-18T08:30:00Z"));
@@ -661,6 +746,58 @@ pub(crate) mod tests {
         v["mine"] = json!({});
         assert_eq!(Description::from_value(v).own_things().as_deref(), Some("With your own things"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_sort_of_a_pack_is_told_by_the_contracts_rule() {
+        let sort = |d: &Description| (d.sort().map(Sort::word), d.made_in(), d.site().map(String::from), d.from_words());
+        let words = |s: &str| Some(s.to_string());
+        // read from a site: the site's name, whoever wrote it
+        let site = Description::from_value(format7("delta-example-maps", "Delta", "2026-11-18T08:30:00Z"));
+        assert_eq!(sort(&site), (Some("site"), None, words("Example Maps"), words("Example Maps")));
+        let mut v = format6("delta-example-maps", "Delta", "2026-11-18T08:30:00Z");
+        v["pack"]["writtenBy"] = json!({ "name": "Atlas" });
+        v["source"] = json!({ "kind": "web-pages" });
+        assert_eq!(sort(&Description::from_value(v)), (Some("site"), None, None, None), "a site's pack that names no site says nothing");
+        // a map made in Atlas
+        let atlas = Description::from_value(made_in_atlas("delta-my-map", "Delta", "2026-11-18T08:30:00Z"));
+        assert_eq!(sort(&atlas), (Some("made-in-atlas"), Some("Atlas"), None, words("Made in Atlas")));
+        // a map made in Atlas Importer: written by "Atlas Importer", from no site, made in Atlas
+        let mut v = made_in_atlas("delta-importer-map", "Delta", "2026-11-18T08:30:00Z");
+        v["exportedBy"] = json!({ "name": "Atlas Importer", "version": "0.23.0", "platform": "linux" });
+        v["pack"]["writtenBy"] = json!({ "name": "Atlas Importer", "version": "0.23.0" });
+        v.as_object_mut().unwrap().remove("mine");
+        let importer = Description::from_value(v.clone());
+        assert_eq!(sort(&importer), (Some("made-in-atlas"), Some("Atlas"), None, words("Made in Atlas")), "never Made in Atlas Importer");
+        assert_eq!(card(&importer)["from"], "Made in Atlas");
+        // one with a site's name all the same is still by its kind
+        v["source"] = json!({ "kind": "unknown", "name": "Example Maps" });
+        assert_eq!(sort(&Description::from_value(v)), (Some("made-in-atlas"), Some("Atlas"), None, words("Made in Atlas")));
+        // by Atlas Map Maker: its writer's name exactly, whatever the kind
+        let mm = Description::from_value(made_by_map_maker("beta-map-maker", "Beta", "2026-11-18T08:30:00Z"));
+        assert_eq!(sort(&mm), (Some("map-maker"), Some("Atlas Map Maker"), None, words("Made in Atlas Map Maker")));
+        let mut v = made_by_map_maker("beta-map-maker", "Beta", "2026-11-18T08:30:00Z");
+        v["pack"]["writtenBy"] = json!({ "name": "atlas map maker" });
+        assert_eq!(sort(&Description::from_value(v)).0, Some("made-in-atlas"), "only the exact name");
+        // came with an app: plain words, its own things or not (never by `mine`)
+        let mut v = made_in_atlas("gamma-guide", "Gamma", "2026-11-18T08:30:00Z");
+        v["source"] = json!({ "kind": "app", "name": "Gamma Companion" });
+        let app = Description::from_value(v);
+        assert_eq!(sort(&app), (Some("app"), None, None, words("Came with an app")));
+        assert_eq!(app.own_things().as_deref(), Some("With your own locations, types and notes"), "said on a line of its own");
+        assert_eq!((card(&app)["sort"].clone(), card(&app)["from"].clone()), (json!("app"), json!("Came with an app")));
+        // any other kind, or none: the site's name if it gives one, else nothing
+        let mut v = format6("old", "Old", "2026-11-18T08:30:00Z");
+        v["source"] = json!({ "kind": "something-new", "importer": { "id": "example-maps", "title": "Example Maps" } });
+        assert_eq!(sort(&Description::from_value(v.clone())), (None, None, words("Example Maps"), words("Example Maps")));
+        v.as_object_mut().unwrap().remove("source");
+        v["pack"]["writtenBy"] = json!({ "name": "Atlas" });
+        assert_eq!(sort(&Description::from_value(v)), (None, None, None, None), "not Made in Atlas by its writer alone");
+        // the one word of each sort, read back (for Atlas's planned field)
+        for s in [Sort::Site, Sort::MadeInAtlas, Sort::MapMaker, Sort::App] {
+            assert_eq!(Sort::from_word(s.word()), Some(s));
+        }
+        assert_eq!(Sort::from_word("atlas"), None);
     }
 
     #[test]

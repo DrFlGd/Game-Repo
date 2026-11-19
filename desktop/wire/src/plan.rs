@@ -104,6 +104,13 @@ pub struct File {
     /// by which a newer file of it replaces the one a device has
     #[serde(skip_serializing_if = "String::is_empty")]
     pub pack: String,
+    /// A pack's `pack.updated` and `exportedAt` (empty: not said), so a device can tell
+    /// before fetching it whether a copy of it it didn't deliver is the same version or newer
+    /// (`packs::newer`)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub pack_updated: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub pack_exported_at: String,
     /// Where it's fetched from (`/v1/files/…`), with its SHA-1 at the same address with
     /// `?sha1` once it's known
     pub url: String,

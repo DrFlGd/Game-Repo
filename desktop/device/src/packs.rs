@@ -30,8 +30,16 @@
 //! (a pack Atlas wrote again is expected now, and this one is older). Either can't be read
 //! as this pack: the rules from before, Go replaces only a file it delivered that's
 //! unchanged. Packs are always sent and put in place whole, `mine/` and all: Go reads
-//! nothing of a pack but its description. Carrying a newer file here back to the library
-//! is open in the contract, and not done.
+//! nothing of a pack but its description. A newer file here stays here: nothing travels
+//! back to the library (Jerred's decision of 2026-11-19, for now).
+//!
+//! A copy Go didn't deliver (the contract's saving, "Maps and Guides notes, part 6"): just
+//! before Go would fetch a pack it doesn't have here, [`theirs_instead`] reads the
+//! descriptions of the other `.atlaspack` files in the packs folder, as far as Atlas reads
+//! it, and when one of the same `packId` is as new as the library's or newer, Go's isn't
+//! fetched (Atlas would show that copy, not Go's); the record notes it ([`Theirs`]) so it
+//! isn't read again while it's unchanged, and the game's page says so. That copy is never
+//! replaced, moved or removed.
 
 use crate::Device;
 use anyhow::{bail, Result};
@@ -135,6 +143,126 @@ pub struct Record {
     pub delivered: Vec<Delivered>,
     /// The packs unticked on a game's page: by the game's key, their `packId`s
     pub left_out: BTreeMap<String, Vec<String>>,
+    /// Copies of packs in the packs folder that Go didn't deliver, as new as the library's or
+    /// newer, for which Go's own wasn't fetched
+    pub theirs: Vec<Theirs>,
+}
+
+/// A copy of a pack in Atlas's packs folder that Go didn't deliver (copied in by hand, or put
+/// there by Atlas or another app), found the same version as the library's or newer just
+/// before Go would have fetched its own ([`theirs_instead`]): Atlas shows the newer of two
+/// files of a pack, so Go's isn't fetched while this copy is there unchanged. The copy is
+/// never replaced, moved or removed.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Theirs {
+    pub pack_id: String,
+    /// The library's pack that wasn't fetched for it, by its `pack.updated` and `exportedAt`
+    /// as the plan gave them
+    pub updated: String,
+    pub exported_at: String,
+    /// The copy, with its size and when it was last changed (nanoseconds since 1970) as they
+    /// were when it was read: it's read again only once either changes
+    pub path: PathBuf,
+    pub size: u64,
+    pub modified: u64,
+    /// The copy is newer than the library's (else as new)
+    pub newer: bool,
+}
+
+impl Theirs {
+    /// Its copy is there as it was when it was read.
+    pub fn unchanged(&self) -> bool {
+        stamp(&self.path) == Some((self.size, self.modified))
+    }
+}
+
+/// A file's size and when it was last changed (nanoseconds since 1970).
+fn stamp(path: &Path) -> Option<(u64, u64)> {
+    let m = std::fs::metadata(path).ok().filter(|m| m.is_file())?;
+    let t = m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+    Some((m.len(), u64::try_from(t).unwrap_or(u64::MAX)))
+}
+
+/// How far down Atlas reads its packs folder for pack files (the contract): 4 folders down.
+pub const LOOK_DEPTH: usize = 4;
+/// How many pack files Atlas reads in its packs folder at most (the contract).
+pub const LOOK_MOST: usize = 1000;
+
+/// Whether a file's name is a pack's as Atlas reads it: `<name>.atlaspack`, never one still
+/// being written (`.part`, Atlas Importer's `.atlas-importer.part`) nor a hidden one.
+pub fn is_pack_name(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.ends_with(".atlaspack") && !lower.starts_with('.')
+}
+
+/// The pack files in a packs folder, as far as Atlas reads it ([`LOOK_DEPTH`] folders down,
+/// [`LOOK_MOST`] files), shallower folders first and each by name. Links are not followed.
+pub fn pack_files(folder: &Path) -> Vec<PathBuf> {
+    let mut out = vec![];
+    let mut dirs = std::collections::VecDeque::from([(folder.to_path_buf(), 0usize)]);
+    while let Some((dir, depth)) = dirs.pop_front() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let mut entries: Vec<(String, std::fs::FileType)> = rd.flatten().filter_map(|e| Some((e.file_name().to_string_lossy().into_owned(), e.file_type().ok()?))).collect();
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        for (name, kind) in entries {
+            if kind.is_dir() {
+                if depth < LOOK_DEPTH {
+                    dirs.push_back((dir.join(&name), depth + 1));
+                }
+            } else if kind.is_file() && is_pack_name(&name) {
+                out.push(dir.join(&name));
+                if out.len() >= LOOK_MOST {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Just before Go would fetch a pack it doesn't have here (the contract's saving, "Maps and
+/// Guides notes, part 6"): the packs folder read for a copy of the same `packId` that Go
+/// didn't deliver, and when one is the same version as the library's or newer (the plan's
+/// `pack.updated`, then `exportedAt`, by `gamerepo_wire::packs::newer`), Go's isn't fetched,
+/// as Atlas would show that copy and not Go's. Noted in the record ([`Theirs`]), so the folder
+/// isn't read again while that copy stays as it is and the library's doesn't change. Only the
+/// descriptions of `.atlaspack` files are read, as far as Atlas reads ([`pack_files`]); the
+/// copy is never replaced, moved or removed. A plan that doesn't give the pack's dates (an
+/// older server): Go fetches it as before. True when Go's is left out.
+pub fn theirs_instead(d: &Device, f: &File) -> bool {
+    let (Some(data), Some(folder)) = (&d.data, d.places.get(PLACE)) else { return false };
+    let date = |s: &str| Some(s.to_string()).filter(|s| !s.trim().is_empty());
+    let (updated, exported_at) = (date(&f.pack_updated), date(&f.pack_exported_at));
+    if f.pack.is_empty() || (updated.is_none() && exported_at.is_none()) {
+        return false;
+    }
+    let ours: Vec<PathBuf> = load(data).delivered.iter().map(Delivered::path).collect();
+    // the newest copy that isn't Go's, if it's as new as the library's or newer
+    let mut best: Option<(PathBuf, Option<String>, String)> = None;
+    for p in pack_files(folder).into_iter().filter(|p| !ours.contains(p)) {
+        let Some((id, u, e)) = dates(&p) else { continue };
+        let newer = |than: &(PathBuf, Option<String>, String)| gamerepo_wire::packs::newer(u.as_deref(), Some(&e), than.1.as_deref(), Some(&than.2)).is_gt();
+        if id == f.pack && best.as_ref().map_or(true, newer) {
+            best = Some((p, u, e));
+        }
+    }
+    let Some((path, u, e)) = best else { return false };
+    let vs = gamerepo_wire::packs::newer(u.as_deref(), Some(&e), updated.as_deref(), exported_at.as_deref());
+    let Some((size, modified)) = stamp(&path).filter(|_| vs.is_ge()) else { return false };
+    let t = Theirs { pack_id: f.pack.clone(), updated: f.pack_updated.clone(), exported_at: f.pack_exported_at.clone(), path, size, modified, newer: vs.is_gt() };
+    change(data, |rec| {
+        rec.theirs.retain(|x| x.pack_id != t.pack_id);
+        rec.theirs.push(t);
+        Ok(())
+    })
+    .is_ok()
+}
+
+/// The copy Go didn't deliver of a pack that's there instead of Go's ([`Theirs`]), while
+/// it's in the packs folder `folder`.
+pub fn theirs_here<'a>(rec: &'a Record, folder: &Path, pack: &str) -> Option<&'a Theirs> {
+    rec.theirs.iter().find(|t| t.pack_id == pack && t.path.starts_with(folder) && t.path.is_file())
 }
 
 static WRITING: Mutex<()> = Mutex::new(());
@@ -300,8 +428,13 @@ pub fn tag_of(d: &Device, part: &Path) -> PathBuf {
 /// its file there), or the library's file is one Go kept the file here over (it was older),
 /// so it's never fetched again and again.
 pub fn there(d: &Device, f: &File) -> bool {
-    let (Some(data), Some(folder), Some(sha1)) = (&d.data, d.places.get(PLACE), &f.sha1) else { return false };
-    load(data).delivered.iter().any(|e| e.pack_id == f.pack && &e.folder == folder && ((&e.sha1 == sha1 && e.there()) || (&e.kept_over == sha1 && e.here())))
+    let (Some(data), Some(folder)) = (&d.data, d.places.get(PLACE)) else { return false };
+    let rec = load(data);
+    let delivered = |sha1: &String| rec.delivered.iter().any(|e| e.pack_id == f.pack && &e.folder == folder && ((&e.sha1 == sha1 && e.there()) || (&e.kept_over == sha1 && e.here())));
+    // or a copy Go didn't deliver was as new as this one of the library's or newer, and is
+    // there as it was then
+    let theirs = || !(f.pack_updated.is_empty() && f.pack_exported_at.is_empty()) && rec.theirs.iter().any(|t| t.pack_id == f.pack && t.path.starts_with(folder) && t.updated == f.pack_updated && t.exported_at == f.pack_exported_at && t.unchanged());
+    f.sha1.as_ref().is_some_and(delivered) || theirs()
 }
 
 /// The games a plan's pack came with.
@@ -397,6 +530,7 @@ pub fn put_in_place(d: &Device, f: &File, part: &Path, sha1: &str) -> Result<Pat
             }
         }
         rec.delivered.retain(|e| e.pack_id != f.pack);
+        rec.theirs.retain(|t| t.pack_id != f.pack);
         rec.delivered.push(Delivered { pack_id: f.pack.clone(), file: name, folder: folder.clone(), size: f.size, sha1: sha1.to_string(), games, at: now(), ..Default::default() });
         Ok(dest)
     })
@@ -654,6 +788,117 @@ mod tests {
         assert_eq!((e.size, e.sha1.clone(), e.kept_over.as_str(), e.newer_here, e.games.clone()), (lib2.len() as u64, g2.sha1.clone().unwrap(), "", false, vec![key.to_string()]));
         assert!(there(&d, &g2) && !there(&d, &g1));
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// The contract's saving ("Maps and Guides notes, part 6"): just before Go would fetch a
+    /// pack, a copy of it in the packs folder that Go didn't deliver and that's as new as the
+    /// library's or newer means Go's isn't fetched (Atlas would show that copy); it's noted so
+    /// the folder isn't read again while the copy is unchanged, and the copy is never
+    /// replaced, moved or removed. Only `.atlaspack` files are read, as far down as Atlas reads.
+    #[test]
+    fn a_copy_go_didnt_deliver_as_new_or_newer_isnt_fetched_over_and_is_never_touched() {
+        let (home, d) = device("theirs");
+        let folder = d.places[PLACE].clone();
+        let data = d.data.clone().unwrap();
+        let key = "pc/island";
+        let coming = |bytes: &[u8], updated: &str, exported_at: &str| File { pack_updated: updated.into(), pack_exported_at: exported_at.into(), ..pack("Island.atlaspack", "island", key, bytes) };
+        let lib1 = atlas_pack("island", "2026-11-18T08:00:00Z", "2026-11-18T08:05:00Z", MINE);
+        let f1 = coming(&lib1, "2026-11-18T08:00:00Z", "2026-11-18T08:05:00Z");
+        // nothing in the folder: it's fetched
+        assert!(!there(&d, &f1) && !theirs_instead(&d, &f1));
+        // what doesn't count: a newer copy still being written (Go's or the Importer's), one
+        // five folders down (deeper than Atlas reads), another pack, a file that isn't a pack
+        let newer = atlas_pack("island", "2026-11-19T08:00:00Z", "2026-11-19T08:00:00Z", MINE);
+        std::fs::create_dir_all(folder.join("a/b/c/d/e")).unwrap();
+        std::fs::write(folder.join("Island.atlaspack.part"), &newer).unwrap();
+        std::fs::write(folder.join("Island.atlaspack.atlas-importer.part"), &newer).unwrap();
+        std::fs::write(folder.join("a/b/c/d/e/Island.atlaspack"), &newer).unwrap();
+        std::fs::write(folder.join("Other.atlaspack"), atlas_pack("other", "2026-11-19T08:00:00Z", "2026-11-19T08:00:00Z", &[])).unwrap();
+        std::fs::write(folder.join("Broken.atlaspack"), b"not a pack").unwrap();
+        // an older copy put there by hand doesn't count either
+        std::fs::write(folder.join("Island (old).atlaspack"), atlas_pack("island", "2026-11-17T08:00:00Z", "2026-11-17T08:00:00Z", &[])).unwrap();
+        assert!(!theirs_instead(&d, &f1));
+        assert!(load(&data).theirs.is_empty());
+        // the same version, four folders down (as deep as Atlas reads): Go's isn't fetched
+        let copy = folder.join("a/b/c/d/My Island.atlaspack");
+        std::fs::write(&copy, &lib1).unwrap();
+        assert!(theirs_instead(&d, &f1));
+        let t = load(&data).theirs[0].clone();
+        assert_eq!((t.pack_id.as_str(), t.path.clone(), t.updated.as_str(), t.newer), ("island", copy.clone(), "2026-11-18T08:00:00Z", false));
+        // the library's SHA-1 isn't needed (a plan may not have it yet): its dates say which it is
+        assert!(there(&d, &File { sha1: None, ..f1.clone() }));
+        // noted: the next sync takes it as there without reading the folder again
+        assert!(there(&d, &f1));
+        let rec = load(&data);
+        assert_eq!(theirs_here(&rec, &folder, "island").map(|t| t.path.clone()), Some(copy.clone()));
+        assert!(rec.delivered.is_empty(), "nothing delivered");
+        // a plan that doesn't give the pack's dates (an older server): fetched as before
+        let undated = File { pack_updated: String::new(), pack_exported_at: String::new(), ..f1.clone() };
+        assert!(!theirs_instead(&d, &undated));
+        // the copy changed (a different size): read again; still as new or newer, still left out
+        let v2 = atlas_pack("island", "2026-11-18T09:00:00Z", "2026-11-18T09:00:00Z", &[MINE[0]]);
+        std::fs::write(&copy, &v2).unwrap();
+        assert!(!there(&d, &f1), "changed: looked at again");
+        assert!(theirs_instead(&d, &f1) && load(&data).theirs[0].newer, "newer now");
+        assert!(there(&d, &f1));
+        // the library's newer than the copy: Go's comes, beside it, and the copy is untouched
+        let lib2 = atlas_pack("island", "2026-11-20T08:00:00Z", "2026-11-20T08:00:00Z", MINE);
+        let f2 = coming(&lib2, "2026-11-20T08:00:00Z", "2026-11-20T08:00:00Z");
+        assert!(!there(&d, &f2) && !theirs_instead(&d, &f2));
+        let at = deliver(&d, &f2, &lib2);
+        assert_eq!(at, folder.join("Island.atlaspack"));
+        assert_eq!(std::fs::read(&copy).unwrap(), v2, "never replaced");
+        assert!(load(&data).theirs.is_empty(), "Go's own is the one noted now");
+        // Atlas writes Go's own file again, newer than the library's next: that's Go's, never
+        // taken as a copy it didn't deliver (the rule of part 5 keeps it instead)
+        let lib3 = atlas_pack("island", "2026-11-21T08:00:00Z", "2026-11-21T08:00:00Z", MINE);
+        let f3 = coming(&lib3, "2026-11-21T08:00:00Z", "2026-11-21T08:00:00Z");
+        std::fs::write(&at, atlas_pack("island", "2026-11-22T08:00:00Z", "2026-11-22T08:00:00Z", &[])).unwrap();
+        assert!(!there(&d, &f3) && !theirs_instead(&d, &f3));
+        // a copy by hand in the folder itself, newer than the library's, with the name Go
+        // would give: Go's own is left there; and once that copy's gone, Go's is fetched
+        std::fs::remove_file(&at).unwrap();
+        let by_hand = atlas_pack("island", "2026-11-23T08:00:00Z", "2026-11-23T08:00:00Z", &[]);
+        std::fs::write(&at, &by_hand).unwrap();
+        let rec = load(&data);
+        assert_eq!(rec.delivered[0].path(), at, "Go's record still names it");
+        assert!(!theirs_instead(&d, &f3), "Go's file's name: Go's own (part 5 compares it)");
+        std::fs::remove_file(&copy).unwrap();
+        std::fs::remove_file(&at).unwrap();
+        change(&data, |r| {
+            r.delivered.clear();
+            Ok(())
+        })
+        .unwrap();
+        std::fs::write(&at, &by_hand).unwrap();
+        assert!(theirs_instead(&d, &f3) && there(&d, &f3));
+        assert!(!take_off(&data, key, "island").unwrap());
+        assert_eq!(std::fs::read(&at).unwrap(), by_hand, "never removed by an untick");
+        std::fs::remove_file(&at).unwrap();
+        assert!(!there(&d, &f3) && !theirs_instead(&d, &f3), "gone: Go's is fetched");
+        assert!(theirs_here(&load(&data), &folder, "island").is_none());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Atlas reads its packs folder 4 folders down and 1,000 pack files at most; so does Go
+    /// when it looks for copies it didn't deliver.
+    #[test]
+    fn go_looks_for_copies_as_far_as_atlas_reads() {
+        let dir = std::env::temp_dir().join(format!("gamerepo-device-packs-look-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("1/2/3/4/5")).unwrap();
+        for (n, p) in ["A.atlaspack", "1/B.ATLASPACK", "1/2/3/4/C.atlaspack", "1/2/3/4/5/D.atlaspack", "E.atlaspack.part", "F.atlaspack.atlas-importer.part", ".G.atlaspack", "H.zip"].iter().enumerate() {
+            std::fs::write(dir.join(p), [n as u8]).unwrap();
+        }
+        let found: Vec<String> = pack_files(&dir).iter().map(|p| p.strip_prefix(&dir).unwrap().to_string_lossy().replace('\\', "/")).collect();
+        assert_eq!(found, ["A.atlaspack", "1/B.ATLASPACK", "1/2/3/4/C.atlaspack"]);
+        let many = dir.join("many");
+        std::fs::create_dir_all(&many).unwrap();
+        for i in 0..LOOK_MOST + 5 {
+            std::fs::write(many.join(format!("{i:04}.atlaspack")), b"").unwrap();
+        }
+        assert_eq!(pack_files(&many).len(), LOOK_MOST);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The same `pack.updated` is decided by `exportedAt`, whatever the files are named; both
