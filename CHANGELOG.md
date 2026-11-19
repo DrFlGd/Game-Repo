@@ -93,6 +93,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.72 (2026-11-19)
+
 - **Maps and guides for Atlas on Game Repo Go.** On Windows, Linux and the Steam Deck, Game Repo Go can bring a game's packs of maps and guides into Atlas's packs folder with it. Turn on *Maps and guides for Atlas* in Settings (it's off at first, as packs can be large); the folder is where Atlas looks for packs and can be changed. A game's page lists its packs with their sizes, each ticked: the ticked ones come when the game is installed, ticking one later on a game you have brings it, and unticking one takes it out again. A newer pack replaces the old one. Game Repo Go only changes pack files it put there itself, and removing a game leaves its packs. Not on Android yet.
 - **Maps and Guides reads packs with Atlas's own code.** Packs are read by the code Atlas itself reads them with, so both read a pack the same way; a pack Game Repo can't read shows Atlas's own sentence for why (D215).
 
