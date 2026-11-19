@@ -91,6 +91,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+- **Planned: Maps and Guides.** The plan now covers keeping Atlas's map and guide packs (`.atlaspack`) in a section of their own, each linked to its game with a card and *Open in Atlas*, and sending them to Game Repo Go devices for Atlas there (D214–D223).
+
 ## 0.5.70 (2026-11-01)
 
 - **Mods on installed games are done.** About now lists them with what's been built. Nexus Mods' own downloads are left out: a mod from Nexus comes in as any download does, and its FOMOD installer is still read.
