@@ -93,6 +93,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.73 (2026-11-19)
+
 - **Game Repo Go on Linux and the Steam Deck puts packs where Atlas looks.** Atlas's packs folder there is `~/.local/share/atlas/packs`, all lower case, not the `~/.local/share/Atlas/Packs` 0.5.72 used: Go now uses Atlas's own folder, takes a saved setting of the old one as the usual folder, and moves the packs it already delivered there into Atlas's folder the next time it starts (only the packs it put there itself; anything else in the old folder stays).
 - **Maps and Guides leaves Atlas Importer's unfinished files alone.** A pack the Importer is still writing (a file ending in `.atlas-importer.part`) is never shown, read, moved or removed, a game's folder holding one is never removed, and a pack the Importer is writing again is linked to its game only once it's in.
 - **Packs that can't be read say why in Atlas's own words.** A pack in a newer format says *A newer version of this app is needed to open it*; a pack whose id isn't one Atlas accepts, or whose description lacks something every pack has, shows as damaged; and a pack that couldn't be opened a moment (held by another program) is read again next time rather than remembered as broken. Every pack is read again once with Atlas's newer code.
