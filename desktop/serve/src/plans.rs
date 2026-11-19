@@ -430,6 +430,26 @@ fn textures(ix: &Index, lib: &Library, unpacker: &Unpacker, hashes: &Hashes, ask
 
 /// The plan for `ask`. Err(why) when a game asked for isn't in the catalogue.
 pub fn plan(ix: &Index, lib: &Library, data: &Path, maker: &Maker, unpacker: &Unpacker, hashes: &Hashes, ask: &PlanAsk) -> Result<std::result::Result<Plan, String>> {
+    // only the games' packs of maps and guides, for games the device has (D222)
+    if ask.packs_only {
+        for k in &ask.games {
+            if catalogue::keys_of(ix, k)?.is_none() {
+                return Ok(Err(format!("There's no game {k} here now (it may have gone): fetch the list again.")));
+            }
+        }
+        let mut p = Plan { ready: true, ..Default::default() };
+        crate::packs::add(ix, lib, hashes, ask, &ask.games, &mut p)?;
+        return Ok(Ok(p));
+    }
+    let mut plan = plan_games(ix, lib, data, maker, unpacker, hashes, ask)?;
+    // the games' packs of maps and guides for Atlas, for a device that asks (D222)
+    if let (Ok(p), true) = (plan.as_mut(), ask.packs && !ask.media_only) {
+        crate::packs::add(ix, lib, hashes, ask, &ask.games, p)?;
+    }
+    Ok(plan)
+}
+
+fn plan_games(ix: &Index, lib: &Library, data: &Path, maker: &Maker, unpacker: &Unpacker, hashes: &Hashes, ask: &PlanAsk) -> Result<std::result::Result<Plan, String>> {
     let (pc, games): (Vec<&String>, Vec<&String>) = ask.games.iter().partition(|k| k.strip_prefix(PC).is_some_and(|r| r.starts_with('/')));
     let mut plan = if games.is_empty() {
         Plan { ready: true, ..Default::default() }

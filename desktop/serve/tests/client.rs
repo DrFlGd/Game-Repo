@@ -1147,3 +1147,164 @@ fn the_devices_page_sees_what_a_device_holds_and_its_changes_wait_for_the_next_c
     s.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A pack of maps and guides as Atlas Importer writes one (synthetic: a made-up game and
+/// site): its description first, then a tile.
+fn write_pack(path: &Path, id: &str, title: &str, site: &str, updated: &str) {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    // as docs/pack-file-format.md in Atlas's repository has it; no small picture, so below version 7
+    let description = json!({
+        "format": "atlas-pack-file", "version": 6, "packId": id, "title": title, "packVersion": "1.0.0", "detail": "standard",
+        "exportedAt": updated, "exportedBy": { "name": "Atlas Importer", "version": "0.22.0", "platform": "linux" },
+        "pack": { "id": id, "title": title, "packVersion": "1.0.0", "schemaVersion": 2, "attribution": [], "updated": updated },
+        "game": { "title": title, "system": "Saltbox 64" },
+        "source": { "kind": "web-pages", "name": site, "pages": [{ "url": "https://maps.example/a-page" }] },
+        "contents": { "maps": 1, "locations": 120, "guides": 12 },
+        "maps": [{ "id": "map:one", "name": "The Marsh", "width": 1024, "height": 1024, "locations": 120 }],
+        // one entry of pages (as built): a wiki for a wiki's site, else a guide
+        "guides": [{ "title": "Walkthrough", "type": if site.contains("Wiki") { "wiki" } else { "guide" }, "pages": 12 }],
+        "images": { "detail": "standard", "files": 1, "bytes": 40960, "layers": [] },
+        "files": 1, "bytes": 40960,
+        "personalUse": true,
+    });
+    let mut z = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+    z.start_file("atlaspack.json", SimpleFileOptions::default()).unwrap();
+    z.write_all(description.to_string().as_bytes()).unwrap();
+    z.start_file("images/tile-0-0.png", SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored)).unwrap();
+    z.write_all(&bytes(id.len() as u32 + updated.len() as u32, 40 * 1024)).unwrap();
+    z.finish().unwrap();
+}
+
+fn names_in(dir: &Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir).map(|r| r.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+    v.sort();
+    v
+}
+
+/// D222: a game's linked packs in the server's plan (role `pack`) and on its page; Game Repo
+/// Go with *Maps and guides for Atlas* off brings none; on, its ticked packs come into
+/// Atlas's packs folder whole (`.part`, then renamed), a pack ticked later comes on its own,
+/// a newer file of a pack under another name replaces the old one, removing the game leaves
+/// them, and nothing else in the folder is touched.
+#[test]
+fn a_games_packs_of_maps_and_guides_go_into_atlass_packs_folder() {
+    use gamerepo_core::{browse, index::Index, library::Library, maps, organise};
+    let dir = temp("go-packs");
+    let lib = library(&dir);
+    let l = Library::open(&lib).unwrap();
+    let ix = Index::open(&dir.join("game-repo-index.sqlite"), &l.id().unwrap()).unwrap();
+    browse::refresh(&ix, &l).unwrap();
+    let no_game = maps::folder(&l).join(maps::NO_GAME);
+    write_pack(&no_game.join("Alpha - Example Maps.atlaspack"), "alpha-example-maps", "Alpha", "Example Maps", "2026-11-17T08:30:00Z");
+    write_pack(&no_game.join("Alpha - Example Wiki.atlaspack"), "alpha-example-wiki", "Alpha", "Example Wiki", "2026-11-17T08:30:00Z");
+    maps::sync(&ix, &l).unwrap();
+    for id in ["alpha-example-maps", "alpha-example-wiki"] {
+        let plan = maps::link(&ix, &l, id, ALPHA, false).unwrap().unwrap();
+        let r = organise::run(&ix, &l, &plan, &std::sync::atomic::AtomicBool::new(false), &mut |_| {}).unwrap();
+        assert!(r["failed"].as_array().unwrap().is_empty(), "{r}");
+        maps::after(&ix, &l, &plan, false).unwrap();
+    }
+    let kept = maps::folder(&l).join("Alpha");
+    assert_eq!(names_in(&kept), ["Alpha - Example Maps.atlaspack", "Alpha - Example Wiki.atlaspack"]);
+
+    let s = start(&lib, &dir.join("server"));
+    // the server's plan has them as files of their own when they're asked for, with their packIds
+    let server = paired(&s);
+    let ask = |packs: bool| gamerepo_wire::api::PlanAsk { games: vec![ALPHA.into()], packs, ..Default::default() };
+    let plan: gamerepo_wire::Plan = server.call("POST", "/v1/plans", Some(&ask(true))).unwrap();
+    let mut packs: Vec<(String, String, String, u64)> = plan.files.iter().filter(|f| f.role == "pack").map(|f| (f.place.clone(), f.path.clone(), f.pack.clone(), f.size)).collect();
+    packs.sort();
+    assert_eq!(
+        packs.iter().map(|p| (p.0.as_str(), p.1.as_str(), p.2.as_str())).collect::<Vec<_>>(),
+        [("atlas", "Alpha - Example Maps.atlaspack", "alpha-example-maps"), ("atlas", "Alpha - Example Wiki.atlaspack", "alpha-example-wiki")],
+        "{plan:?}"
+    );
+    assert_eq!(packs[0].3, std::fs::metadata(kept.join("Alpha - Example Maps.atlaspack")).unwrap().len());
+    let url = &plan.files.iter().find(|f| f.pack == "alpha-example-maps").unwrap().url;
+    assert_eq!(server.sha1_of(url, Duration::from_secs(60)).unwrap(), gamerepo_device::sha1_file(&kept.join("Alpha - Example Maps.atlaspack")).unwrap(), "checked like a game's file");
+    let plan: gamerepo_wire::Plan = server.call("POST", "/v1/plans", Some(&ask(false))).unwrap();
+    assert!(plan.files.iter().all(|f| f.role != "pack"), "not unless the device asks");
+    // the game's page lists them
+    let g: Value = server.get(&format!("/v1/games/{}", ALPHA.replace(' ', "%20"))).unwrap();
+    let listed = g["packs"].as_array().unwrap();
+    assert_eq!(listed.len(), 2, "{g}");
+    let maps_pack = listed.iter().find(|p| p["pack_id"] == "alpha-example-maps").unwrap();
+    assert_eq!(
+        (maps_pack["title"].as_str(), maps_pack["source"].as_str(), maps_pack["maps"].as_u64(), maps_pack["guide_pages"].as_u64(), maps_pack["wiki_pages"].as_u64(), maps_pack["personal_use"].as_bool()),
+        (Some("Alpha"), Some("Example Maps"), Some(1), Some(12), Some(0), Some(true)),
+        "{maps_pack}"
+    );
+    let wiki_pack = listed.iter().find(|p| p["pack_id"] == "alpha-example-wiki").unwrap();
+    assert_eq!((wiki_pack["guide_pages"].as_u64(), wiki_pack["wiki_pages"].as_u64()), (Some(0), Some(12)), "{wiki_pack}");
+
+    let d = a_device(&dir);
+    let app = open_app(&dir, &d.home);
+    let atlas = dir.join("Atlas Packs");
+    call(&app, "set_settings", json!({ "media": [], "atlas_folder": atlas }));
+    pair(&app, &s);
+    // off at first: nothing goes to Atlas
+    let st = call(&app, "status", json!({}));
+    assert_eq!(st["atlas"]["folder"].as_str(), atlas.to_str(), "{st}");
+    let page = call(&app, "game", json!({ "key": ALPHA }));
+    assert_eq!((page["packs"]["offered"].as_bool(), page["packs"]["on"].as_bool(), page["packs"]["items"].as_array().unwrap().len()), (Some(true), Some(false), 2), "{page}");
+    assert!(page["packs"]["items"].as_array().unwrap().iter().all(|p| p["ticked"] == true && p["here"] == false));
+    call(&app, "add", json!({ "keys": [ALPHA] }));
+    queue_done(&app);
+    assert_eq!(item(&call(&app, "queue", json!({})), ALPHA)["state"], "done");
+    assert!(!atlas.exists(), "Maps and guides for Atlas off: nothing delivered");
+
+    // on, one pack unticked: the game added again brings only its ticked pack
+    call(&app, "set_settings", json!({ "atlas_packs": true }));
+    call(&app, "pack_tick", json!({ "key": ALPHA, "pack": "alpha-example-wiki", "on": false }));
+    call(&app, "remove", json!({ "asks": [{ "key": ALPHA }] }));
+    call(&app, "add", json!({ "keys": [ALPHA] }));
+    queue_done(&app);
+    assert_eq!(names_in(&atlas), ["Alpha - Example Maps.atlaspack"], "made by Go, whole, and only what's ticked");
+    assert_eq!(std::fs::read(atlas.join("Alpha - Example Maps.atlaspack")).unwrap(), std::fs::read(kept.join("Alpha - Example Maps.atlaspack")).unwrap());
+    assert!(files_under(&dir.join("go").join("packs-coming")).is_empty(), "no ETag left behind");
+    assert!(!d.record().games.iter().flat_map(|g| &g.files).any(|f| f.role == "pack"), "not the game's files: removing it leaves its packs");
+    // Atlas's own files and yours beside a pack
+    std::fs::write(atlas.join("atlas-index.db"), b"Atlas's own").unwrap();
+    std::fs::write(atlas.join("Alpha - Example Maps.atlasdata"), b"your notes").unwrap();
+
+    // ticked later on the game it has: it comes on its own
+    let v = call(&app, "pack_tick", json!({ "key": ALPHA, "pack": "alpha-example-wiki", "on": true }));
+    assert!(v["queued"].as_array().is_some_and(|q| q.len() == 1), "{v}");
+    queue_done(&app);
+    assert_eq!(names_in(&atlas), ["Alpha - Example Maps.atlasdata", "Alpha - Example Maps.atlaspack", "Alpha - Example Wiki.atlaspack", "atlas-index.db"]);
+    assert!(call(&app, "game", json!({ "key": ALPHA }))["packs"]["items"].as_array().unwrap().iter().all(|p| p["ticked"] == true && p["here"] == true));
+    // unticked: taken out of the folder, as Go put it there
+    let v = call(&app, "pack_tick", json!({ "key": ALPHA, "pack": "alpha-example-wiki", "on": false }));
+    assert_eq!(v["removed"], true, "{v}");
+    assert!(!atlas.join("Alpha - Example Wiki.atlaspack").exists());
+    call(&app, "pack_tick", json!({ "key": ALPHA, "pack": "alpha-example-wiki", "on": true }));
+    queue_done(&app);
+    assert!(atlas.join("Alpha - Example Wiki.atlaspack").is_file());
+
+    // the Importer writes a newer file of a pack under another name: it replaces the old one
+    std::fs::remove_file(kept.join("Alpha - Example Maps.atlaspack")).unwrap();
+    write_pack(&kept.join("Alpha - Better Maps.atlaspack"), "alpha-example-maps", "Alpha", "Better Maps", "2026-11-19T08:30:00Z");
+    call(&app, "packs_get", json!({ "key": ALPHA }));
+    queue_done(&app);
+    assert_eq!(names_in(&atlas), ["Alpha - Better Maps.atlaspack", "Alpha - Example Maps.atlasdata", "Alpha - Example Wiki.atlaspack", "atlas-index.db"]);
+    assert_eq!(std::fs::read(atlas.join("Alpha - Better Maps.atlaspack")).unwrap(), std::fs::read(kept.join("Alpha - Better Maps.atlaspack")).unwrap());
+    assert_eq!(std::fs::read(atlas.join("atlas-index.db")).unwrap(), b"Atlas's own");
+    assert_eq!(std::fs::read(atlas.join("Alpha - Example Maps.atlasdata")).unwrap(), b"your notes");
+    // nothing new: nothing fetched
+    let before = snapshot(&atlas);
+    call(&app, "packs_get", json!({ "key": ALPHA }));
+    queue_done(&app);
+    assert_eq!(snapshot(&atlas), before);
+
+    // the game removed from the device: its packs stay (an open point of the contract)
+    call(&app, "remove", json!({ "asks": [{ "key": ALPHA }] }));
+    assert_eq!(snapshot(&atlas), before);
+    // unticked on a game the device doesn't have: kept as it is
+    call(&app, "pack_tick", json!({ "key": ALPHA, "pack": "alpha-example-wiki", "on": false }));
+    assert_eq!(snapshot(&atlas), before);
+    app.queue.quit();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}

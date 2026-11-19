@@ -8,6 +8,7 @@
 use crate::background;
 use crate::catalogue::{self, Catalogue};
 use crate::installs;
+use crate::packs;
 use crate::pcgames;
 use crate::queue::{self, Ctx, Queue};
 use crate::removing::{self, Ask as RemoveAsk};
@@ -120,6 +121,11 @@ pub struct Settings {
     pub textures: bool,
     /// PC games installed with their ticked mods over them (D205)
     pub mods: bool,
+    /// Maps and guides for Atlas (D222): each game's ticked packs put in Atlas's packs folder
+    /// with it, off at first as packs can be large; Windows and Linux only
+    pub atlas_packs: bool,
+    /// Atlas's packs folder, when it isn't where the contract says (empty: there)
+    pub atlas_folder: String,
 }
 
 impl Default for Settings {
@@ -147,6 +153,8 @@ impl Default for Settings {
             cheats: true,
             textures: false,
             mods: true,
+            atlas_packs: false,
+            atlas_folder: String::new(),
             retroarch: String::new(),
             save_folders: BTreeMap::new(),
             background_saves: true,
@@ -400,6 +408,10 @@ impl App {
                 }
             }
         }
+        // Atlas's packs folder (D222), with Maps and guides for Atlas on
+        if s.atlas_packs && self.packs_offered() {
+            d.places.insert(packs::PLACE.into(), self.packs_folder(&d.home));
+        }
         d.data = Some(self.data.clone());
         Ok(d)
     }
@@ -407,6 +419,92 @@ impl App {
     /// Whether PC games can go on this device (Windows and Linux, not Android, D110).
     fn pc(&self) -> bool {
         self.kind != "android"
+    }
+
+    /// Whether packs of maps and guides go to Atlas on this device (D222): on Windows and
+    /// Linux; on Android not until the Atlas pack contract's trial T2 says how.
+    fn packs_offered(&self) -> bool {
+        self.kind != "android" && !cfg!(target_os = "android")
+    }
+
+    /// Atlas's packs folder: the one set in Settings, else where the contract says.
+    fn packs_folder(&self, home: &Path) -> PathBuf {
+        let s = self.settings();
+        if s.atlas_folder.is_empty() {
+            packs::default_folder(home)
+        } else {
+            PathBuf::from(&s.atlas_folder)
+        }
+    }
+
+    /// The user's folder, for where Atlas's packs folder usually is: the device's, else the
+    /// first place ES-DE is looked for.
+    fn home(&self) -> PathBuf {
+        match self.device() {
+            Ok(d) => d.home,
+            Err(_) => self.homes.lock().unwrap_or_else(|e| e.into_inner()).first().cloned().unwrap_or_default(),
+        }
+    }
+
+    /// A game's packs for its page (D222): each as the library lists it, ticked or not on
+    /// this device, and whether Go put it in Atlas's packs folder; with whether packs go to
+    /// Atlas here at all, and where.
+    fn packs_view(&self, key: &str, details: Option<&Value>) -> Value {
+        if !self.packs_offered() {
+            return json!({ "offered": false });
+        }
+        let s = self.settings();
+        let rec = packs::load(&self.data);
+        let left = rec.left_out.get(key).cloned().unwrap_or_default();
+        let items: Vec<Value> = details
+            .and_then(|d| d["packs"].as_array())
+            .into_iter()
+            .flatten()
+            .map(|p| {
+                let id = p["pack_id"].as_str().unwrap_or("");
+                let mut v = p.clone();
+                v["ticked"] = json!(!left.iter().any(|x| x == id));
+                v["here"] = json!(rec.delivered.iter().any(|e| e.pack_id == id && e.there()));
+                v
+            })
+            .collect();
+        json!({ "offered": true, "on": s.atlas_packs, "folder": self.packs_folder(&self.home()), "items": items })
+    }
+
+    /// A pack ticked or unticked on a game's page (D222): kept for the game; on a game the
+    /// device has, with Maps and guides for Atlas on, a pack ticked comes now (in Downloads)
+    /// and one unticked is taken out of Atlas's packs folder, if Go put it there.
+    fn pack_tick(&self, key: &str, pack: &str, on: bool) -> Result<Value> {
+        if !self.packs_offered() {
+            bail!("Maps and guides for Atlas aren't offered on this device yet.");
+        }
+        packs::set_ticked(&self.data, key, pack, on)?;
+        let mut v = json!({});
+        if self.settings().atlas_packs && self.keys_on_device().contains(key) {
+            if on {
+                v["queued"] = json!(self.get_packs(key)?);
+            } else {
+                v["removed"] = json!(packs::take_off(&self.data, key, pack)?);
+            }
+        }
+        self.changed("device");
+        Ok(v)
+    }
+
+    /// A game's ticked packs brought to this device, for a game it has (D222): in Downloads.
+    fn get_packs(&self, key: &str) -> Result<Vec<u64>> {
+        if !self.settings().atlas_packs || !self.packs_offered() {
+            bail!("Turn on Maps and guides for Atlas in Settings first.");
+        }
+        let g = self.catalogue.game(key);
+        let item = queue::Item {
+            key: key.to_string(),
+            title: g.as_ref().map(|g| g.title.clone()).unwrap_or_else(|| key.to_string()),
+            system: g.as_ref().map(|g| g.system.clone()).unwrap_or_else(|| key.split('/').next().unwrap_or("").to_string()),
+            packs_only: true,
+            ..Default::default()
+        };
+        Ok(self.queue.add(vec![item]))
     }
 
     fn options(&self) -> AddOptions {
@@ -429,6 +527,9 @@ impl App {
         options.cheats = device.places.contains_key("cheats");
         options.textures = device.places.keys().filter_map(|k| k.strip_prefix("textures-")).map(String::from).collect();
         options.mods = self.settings().mods;
+        // the games' ticked packs for Atlas (D222)
+        options.packs = device.places.contains_key(packs::PLACE);
+        options.packs_left = packs::left_out(&self.data);
         Ok(Ctx { server, device, options })
     }
 
@@ -491,8 +592,12 @@ impl App {
                 let key: String = arg(args, "key")?;
                 let game = self.catalogue.game(&key);
                 let details = self.catalogue.details(self.server().as_ref(), &key).unwrap_or(None);
-                json!({ "game": game, "details": details, "on_device": self.keys_on_device().contains(&key) })
+                let packs = self.packs_view(&key, details.as_ref());
+                json!({ "game": game, "details": details, "on_device": self.keys_on_device().contains(&key), "packs": packs })
             }
+            // a game's packs of maps and guides for Atlas (D222)
+            "pack_tick" => self.pack_tick(&arg::<String>(args, "key")?, &arg::<String>(args, "pack")?, arg::<bool>(args, "on")?)?,
+            "packs_get" => json!({ "queued": self.get_packs(&arg::<String>(args, "key")?)? }),
             "picture" => {
                 let (key, kind): (String, String) = (arg(args, "key")?, arg::<Option<String>>(args, "kind")?.unwrap_or_else(|| "cover".into()));
                 let size = args.get("size").and_then(Value::as_u64).unwrap_or(256) as u32;
@@ -674,6 +779,13 @@ impl App {
                 if !new.pc_games.is_empty() && !Path::new(&new.pc_games).is_absolute() {
                     bail!("{} isn't a whole folder path (such as {}).", new.pc_games, pcgames::default_folder(Path::new("/home/deck")).display());
                 }
+                // Atlas's packs folder: Go may make it, so only its path is checked (D222)
+                if !new.atlas_folder.is_empty() && !Path::new(&new.atlas_folder).is_absolute() {
+                    bail!("{} isn't a whole folder path (such as {}).", new.atlas_folder, packs::default_folder(&self.home()).display());
+                }
+                if new.atlas_packs && !self.packs_offered() {
+                    bail!("Maps and guides for Atlas aren't offered on this device yet.");
+                }
                 if !["usual", "always", "never"].contains(&new.full_screen.as_str()) {
                     bail!("Full screen is usual, always or never, not {}.", new.full_screen);
                 }
@@ -759,6 +871,11 @@ impl App {
             "catalogue": { "games": games, "synced": self.catalogue.meta("synced").and_then(|v| v.parse::<i64>().ok()) },
             "pictures": { "kept": pictures, "size": picture_bytes },
             "pc": self.device().ok().and_then(|d| d.places.get("pc").cloned()).map(|f| json!({ "folder": f, "default": s.pc_games.is_empty() })),
+            // Maps and guides for Atlas (D222): where the packs go, on Windows and Linux
+            "atlas": self.packs_offered().then(|| {
+                let home = self.home();
+                json!({ "folder": self.packs_folder(&home), "usual": packs::default_folder(&home), "default": s.atlas_folder.is_empty(), "delivered": packs::load(&self.data).delivered.iter().filter(|e| e.there()).count() })
+            }),
         })
     }
 
@@ -1310,10 +1427,14 @@ impl App {
         if let Some(m) = args.get("manuals").and_then(Value::as_bool) {
             o.manuals = m;
         }
+        let d = self.device()?;
+        // the games' ticked packs for Atlas too (D222)
+        o.packs = d.places.contains_key(packs::PLACE);
+        o.packs_left = packs::left_out(&self.data);
         let plan: Plan = s.call("POST", "/v1/plans", Some(&o.ask(keys)))?;
         let media_kind = |role: &str| role == gamerepo_wire::MANUAL.0 || gamerepo_wire::MEDIA.iter().any(|(k, _, _)| *k == role);
-        let games: u64 = plan.files.iter().filter(|f| !media_kind(&f.role)).map(|f| f.size).sum();
-        let d = self.device()?;
+        let games: u64 = plan.files.iter().filter(|f| !media_kind(&f.role) && !packs::is_pack(f)).map(|f| f.size).sum();
+        let pack_files: Vec<&gamerepo_wire::File> = plan.files.iter().filter(|f| packs::is_pack(f)).collect();
         let (todo, _) = crate::to_fetch(&d, &plan)?;
         let to_fetch: u64 = todo.iter().map(|&i| plan.files[i].size).sum();
         let names: HashMap<&str, &str> = gamerepo_wire::MEDIA.iter().chain([&gamerepo_wire::MANUAL]).map(|(k, n, _)| (*k, *n)).collect();
@@ -1328,7 +1449,8 @@ impl App {
         // a PC game being unpacked on the library: its size as the list has it
         let waiting: u64 = plan.waiting.iter().filter_map(|k| self.catalogue.game(k)).map(|g| g.size).sum();
         let (games, to_fetch) = (games + waiting, to_fetch + waiting);
-        Ok(json!({ "games": keys.len(), "size": games, "kinds": kinds, "to_fetch": to_fetch, "free": free, "left": plan.left, "notes": plan.notes, "unpacking": plan.waiting.len() }))
+        let packs = json!({ "count": pack_files.len(), "size": pack_files.iter().map(|f| f.size).sum::<u64>(), "folder": d.places.get(packs::PLACE) });
+        Ok(json!({ "games": keys.len(), "size": games, "kinds": kinds, "to_fetch": to_fetch, "free": free, "left": plan.left, "notes": plan.notes, "unpacking": plan.waiting.len(), "packs": packs }))
     }
 
     /// Games put in the queue with the media kinds chosen, which are remembered (C22): to
