@@ -208,9 +208,9 @@ pub fn read_folder(ix: &Index, lib: &Library) -> Result<Vec<Found>> {
                 let was = if kept.contains_key(rel) { None } else { moved.remove(&(*size as i64, *mtime)) };
                 let (d, e) = match was {
                     Some((d, e)) => (d.as_deref().and_then(|t| serde_json::from_str::<Value>(t).ok()).map(Description::from_value), e),
-                    None => match atlaspack::read_description(&dir.join(rel)) {
+                    None => match atlaspack::read_header(&dir.join(rel)) {
                         Ok(d) => (Some(d), None),
-                        Err(e) => (None, Some(e.to_string())),
+                        Err(e) => (None, Some(e)),
                     },
                 };
                 tx.execute(
@@ -222,7 +222,7 @@ pub fn read_folder(ix: &Index, lib: &Library) -> Result<Vec<Found>> {
         };
         // a description with no packId can't be kept by it: said, as a damaged one is
         let error = match (&description, error) {
-            (Some(d), None) if d.pack_id.is_none() => Some(atlaspack::PackError::Damaged("it has no packId".into()).to_string()),
+            (Some(d), None) if d.pack_id.is_none() => Some(atlaspack::NO_PACK_ID.to_string()),
             (_, e) => e,
         };
         let description = description.filter(|d| d.pack_id.is_some());
@@ -728,7 +728,7 @@ pub fn read_items(ix: &Index, lib: &Library, paths: &[PathBuf]) -> Result<Vec<It
         }
         let size = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
         let mut it = Item { path: p.display().to_string(), name: name.clone(), size, state: "new".into(), include: true, ..Default::default() };
-        match atlaspack::read_description(&p) {
+        match atlaspack::read_header(&p) {
             Ok(d) => {
                 it.pack_id = d.pack_id.clone();
                 it.title = d.game_title().map(String::from);
@@ -753,7 +753,7 @@ pub fn read_items(ix: &Index, lib: &Library, paths: &[PathBuf]) -> Result<Vec<It
                 }
             }
             Err(e) => {
-                it.error = Some(e.to_string());
+                it.error = Some(e);
                 it.to_name = name.clone();
             }
         }
@@ -894,9 +894,9 @@ pub fn preview_file(lib: &Library, data_dir: &Path, n: usize, id: &str, rel: &st
     if at.is_file() {
         return Ok(at);
     }
-    let d = atlaspack::read_description(&p)?;
+    let d = atlaspack::read_header(&p).map_err(anyhow::Error::msg)?;
     let name = if n == 0 { d.cover.clone() } else { d.maps.get(n - 1).and_then(|m| m.preview.clone()) }.ok_or_else(|| anyhow!("That pack has no such picture."))?;
-    let bytes = atlaspack::read_preview(&p, &name)?;
+    let bytes = atlaspack::read_preview(&p, &name).map_err(anyhow::Error::msg)?;
     std::fs::create_dir_all(&cache)?;
     let tmp = cache.join(format!("{id}.jpg.part"));
     std::fs::write(&tmp, &bytes)?;
@@ -1068,7 +1068,7 @@ pub fn overview(ix: &Index, lib: &Library) -> Result<Value> {
             x
         }).collect::<Vec<_>>(),
         "folder": lib.relative(&base),
-        "newest": atlaspack::NEWEST,
+        "newest": atlaspack::VERSION,
         "atlas": crate::tools::find("atlas").map(|p| p.display().to_string()),
     }))
 }
@@ -1164,7 +1164,8 @@ mod tests {
         assert_eq!(state.packs.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["delta-example-maps", "zeta-example-maps"], "the .part and the guidebooks passed over");
         let mut sentences: Vec<String> = state.unreadable.iter().map(|f| f.error.clone().unwrap()).collect();
         sentences.sort();
-        assert_eq!(sentences, ["This isn't a pack file.", "This pack needs a newer Game Repo: it's format 8, written by Atlas Importer 0.22.0; this Game Repo reads up to format 7."]);
+        // the crate's own sentences, as they are
+        assert_eq!(sentences, ["This file is not an Atlas pack file.", "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 8). Install a newer version of Atlas to open it."]);
         let r = read_record(&lib);
         assert_eq!(r.packs["zeta-example-maps"].file.as_deref(), Some("No game yet/Zeta - Example Maps.atlaspack"));
         assert!(r.packs.values().all(|k| k.games.is_empty() && !k.added.is_empty()));
@@ -1186,7 +1187,7 @@ mod tests {
         assert_eq!(zeta["review"], true);
         assert_eq!(zeta["suggestions"][0]["key"], "gb/Zeta (Japan)");
         let card = page["packs"].as_array().unwrap().iter().find(|p| p["id"] == "delta-example-maps").unwrap().clone();
-        assert_eq!((card["cover_n"].clone(), card["maps"][1]["n"].clone(), card["kinds"].clone()), (json!(0), json!(2), json!(["map", "guide", "wiki"])));
+        assert_eq!((card["cover_n"].clone(), card["maps"][1]["n"].clone(), card["maps"][2]["n"].clone(), card["kinds"].clone()), (json!(0), json!(2), Value::Null, json!(["map", "wiki"])));
         assert_eq!(card["games"][0]["platform_name"], crate::browse::system_name("gb"));
         assert_eq!(page["unreadable"].as_array().unwrap().len(), 2);
         // a game's page lists its packs
@@ -1280,7 +1281,7 @@ mod tests {
         let p = packs_of(&ix, &lib, "gb/Delta (World)").unwrap();
         assert_eq!(p.len(), 1);
         assert_eq!((p[0].pack_id.as_str(), &p[0].path, p[0].size), ("delta-example-maps", &file, std::fs::metadata(&file).unwrap().len()));
-        assert!(p[0].error.as_deref().is_some_and(|e| e.contains("format 8")), "{:?}", p[0].error);
+        assert!(p[0].error.as_deref().is_some_and(|e| e.contains("newer format (version 8)")), "{:?}", p[0].error);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1299,7 +1300,7 @@ mod tests {
         assert_eq!(items.len(), 3);
         assert_eq!(by("export-1234.atlaspack").to_name, "Beta - Example Maps.atlaspack", "named as the contract says");
         assert_eq!(by("Delta - Example Maps.atlaspack").to_name, "Delta - Example Maps.atlaspack");
-        assert_eq!((by("broken.atlaspack").error.as_deref(), by("broken.atlaspack").include), (Some("This isn't a pack file."), true));
+        assert_eq!((by("broken.atlaspack").error.as_deref(), by("broken.atlaspack").include), (Some("This file is not an Atlas pack file."), true));
         let plan = import_plan(&lib, &items, "copy", true).unwrap();
         assert_eq!((plan.kind.as_str(), plan.label.as_str()), ("maps_import", "Imported 3 packs"));
         run(&ix, &lib, &plan);
@@ -1358,6 +1359,96 @@ mod tests {
         leave(&lib, "beta-other-site", false).unwrap();
         let raw = read_json_object(&base.join(RECORD));
         assert_eq!((raw["fromLater"].clone(), raw["packs"]["beta-other-site"]["note"].clone()), (json!(1), json!("mine")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The pack files below the folder outside any folder whose name begins with a dot (where
+    /// Atlas Importer looks: it skips those, D216), and those inside one, `.part` files too.
+    fn where_packs_are(base: &Path) -> (Vec<String>, Vec<String>) {
+        let (mut plain, mut dotted) = (vec![], vec![]);
+        let mut stack = vec![base.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                    continue;
+                }
+                let rel = p.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/");
+                let lower = rel.to_lowercase();
+                if lower.ends_with(".atlaspack") || lower.ends_with(".atlaspack.part") {
+                    if rel.split('/').any(|c| c.starts_with('.')) { dotted.push(rel) } else { plain.push(rel) }
+                }
+            }
+        }
+        plain.sort();
+        dotted.sort();
+        (plain, dotted)
+    }
+
+    #[test]
+    fn a_pack_set_aside_is_never_where_atlas_importer_looks() {
+        // the contract (as built in block A3): the Importer reads every pack file in the folder
+        // but those in a folder whose name begins with a dot, and knows a pack by its packId,
+        // so a copy Game Repo sets aside must be in such a folder or it may be updated in
+        // place of the pack. Remove…, Another copy, an import replacing an older file and a
+        // link's Undo all leave only the packs themselves in plain folders.
+        let (dir, lib, ix) = crate::collection::tests::fixture("maps-aside");
+        let base = folder(&lib);
+        let no_game = base.join(NO_GAME);
+        write_pack(&no_game.join("Delta - Example Maps.atlaspack"), &format7("delta-example-maps", "Delta", "2026-11-17T08:30:00Z"), &[]);
+        write_pack(&no_game.join("Zeta - Example Maps.atlaspack"), &format6("zeta-example-maps", "Zeta", "2026-11-10T08:30:00Z"), &[]);
+        sync(&ix, &lib).unwrap();
+        let r1 = run(&ix, &lib, &auto_link_plan(&ix, &lib).unwrap().unwrap());
+        assert_eq!(where_packs_are(&base), (vec!["Delta/Delta - Example Maps.atlaspack".to_string(), "No game yet/Zeta - Example Maps.atlaspack".to_string()], vec![]));
+        // another copy of Delta, removed: set aside below the folder, in a dot folder
+        write_pack(&no_game.join("Delta (old).atlaspack"), &format7("delta-example-maps", "Delta", "2026-11-01T08:30:00Z"), &[]);
+        let copy = sync(&ix, &lib).unwrap().pack("delta-example-maps").unwrap().copies[0].rel.clone();
+        let r2 = run(&ix, &lib, &remove_plan(&lib, &[copy]).unwrap());
+        // Zeta itself removed
+        let r3 = run(&ix, &lib, &remove_plan(&lib, &["No game yet/Zeta - Example Maps.atlaspack".to_string()]).unwrap());
+        // a newer file of Delta imported: the kept one set aside
+        let newer = dir.join("newer");
+        write_pack(&newer.join("Delta - Example Maps.atlaspack"), &format7("delta-example-maps", "Delta", "2026-11-18T08:30:00Z"), &[]);
+        let items = read_items(&ix, &lib, &[newer.clone()]).unwrap();
+        let r4 = run(&ix, &lib, &import_plan(&lib, &items, "copy", true).unwrap());
+        let (plain, dotted) = where_packs_are(&base);
+        assert_eq!(plain, ["Delta/Delta - Example Maps.atlaspack"], "only the pack itself where the Importer looks");
+        assert_eq!(dotted.len(), 3, "{dotted:?}");
+        assert!(dotted.iter().all(|d| d.starts_with(&format!("{}/", organise::SET_ASIDE))), "{dotted:?}");
+        // and Game Repo sees what the Importer sees: one file of each pack, no copies
+        let state = sync(&ix, &lib).unwrap();
+        assert_eq!((state.packs.len(), state.packs[0].copies.len(), state.unreadable.len()), (1, 0, 0));
+        // Undo of each puts the files back where they were, and nothing is left in a plain folder but packs
+        undo(&ix, &lib, r4["id"].as_str().unwrap());
+        undo(&ix, &lib, r3["id"].as_str().unwrap());
+        undo(&ix, &lib, r2["id"].as_str().unwrap());
+        undo(&ix, &lib, r1["id"].as_str().unwrap());
+        let (plain, _) = where_packs_are(&base);
+        assert_eq!(plain, ["No game yet/Delta (old).atlaspack", "No game yet/Delta - Example Maps.atlaspack", "No game yet/Zeta - Example Maps.atlaspack"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_cover_is_the_first_map_with_a_picture_and_pages_of_a_type_not_known_are_a_guide() {
+        // as built in block A3: `cover` is the first map that has a small picture, not always
+        // the first map; `guides` holds one entry, whose type a reader may not know
+        let (dir, lib, ix) = crate::collection::tests::fixture("maps-cover");
+        let base = folder(&lib);
+        let mut v = format7("delta-example-maps", "Delta", "2026-11-17T08:30:00Z");
+        v["maps"][0].as_object_mut().unwrap().remove("preview");
+        v["cover"] = json!("preview/map-two.jpg");
+        v["guides"] = json!([{ "title": "Delta Atlas", "type": "atlas-of-the-future", "pages": 12 }]);
+        write_pack(&base.join(NO_GAME).join("Delta - Example Maps.atlaspack"), &v, &[("preview/map-two.jpg", jpeg(4))]);
+        let page = overview(&ix, &lib).unwrap();
+        let card = page["packs"][0].clone();
+        assert_eq!((card["cover_n"].clone(), card["maps"][0]["n"].clone(), card["maps"][1]["n"].clone()), (json!(0), Value::Null, json!(2)), "{card}");
+        assert_eq!((card["kinds"].clone(), card["guides"][0]["kind"].clone(), card["guides"][0]["pages"].clone()), (json!(["map", "guide"]), json!("other"), json!(12)));
+        let data = dir.join("data");
+        let rel = lib.relative(&base.join(NO_GAME).join("Delta - Example Maps.atlaspack")).unwrap();
+        assert_eq!(std::fs::read(preview_file(&lib, &data, 0, "delta-example-maps", &rel).unwrap()).unwrap(), jpeg(4), "the cover is the second map's picture");
+        assert_eq!(std::fs::read(preview_file(&lib, &data, 2, "delta-example-maps", &rel).unwrap()).unwrap(), jpeg(4));
+        assert!(preview_file(&lib, &data, 1, "delta-example-maps", &rel).is_err(), "the first map has none");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

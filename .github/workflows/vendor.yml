@@ -5,6 +5,10 @@ name: Vendor crates
 # only; not the window's) and pushes them, with a matching
 # Cargo.lock, to the "crates-vendor" branch. Build offline with:
 #   cargo build --offline --config <branch>/vendor-config.toml
+# Git dependencies are vendored too: Atlas's atlas-pack crate (gamerepo-core's, pinned to a
+# commit of https://github.com/DrFlGd/Atlas) gets its own [source."git+…"] section in
+# vendor-config.toml, replaced by the vendored copy, so an offline build never asks GitHub.
+# Moving it to another commit or tag changes core's Cargo.toml, which starts this again.
 on:
   push:
     branches: [main]
@@ -45,6 +49,8 @@ jobs:
           cargo install cargo-vendor-filterer --locked 2>&1 | tail -2 | tee -a ../out/vendor.log
           cargo vendor-filterer --platform=x86_64-unknown-linux-gnu --versioned-dirs ../out/vendor > ../out/vendor-config.toml 2>> ../out/vendor.log || { tail -30 ../out/vendor.log; exit 1; }
           cp Cargo.lock ../out/Cargo.lock
+          # the git dependency's source is replaced by the vendored copy too
+          grep -q 'git = "https://github.com/DrFlGd/Atlas"' ../out/vendor-config.toml || { echo "vendor-config.toml has no section for Atlas's git source"; cat ../out/vendor-config.toml; exit 1; }
           sed "s|directory = .*|directory = \"$PWD/../out/vendor\"|" ../out/vendor-config.toml > /tmp/vc.toml && cargo build --offline --config /tmp/vc.toml -p gamerepo-cli 2>&1 | tail -5 | tee -a ../out/vendor.log
           du -sh ../out/vendor | tee -a ../out/vendor.log
       - name: Push to crates-vendor

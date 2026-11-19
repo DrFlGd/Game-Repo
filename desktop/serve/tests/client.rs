@@ -1154,15 +1154,19 @@ fn write_pack(path: &Path, id: &str, title: &str, site: &str, updated: &str) {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    // as docs/pack-file-format.md in Atlas's repository has it; no small picture, so below version 7
     let description = json!({
-        "format": "atlas-pack-file", "version": 7, "packId": id, "title": title,
-        "exportedAt": updated, "exportedBy": { "name": "Atlas Importer", "version": "0.22.0" },
-        "pack": { "id": id, "title": title, "updated": updated },
+        "format": "atlas-pack-file", "version": 6, "packId": id, "title": title, "packVersion": "1.0.0", "detail": "standard",
+        "exportedAt": updated, "exportedBy": { "name": "Atlas Importer", "version": "0.22.0", "platform": "linux" },
+        "pack": { "id": id, "title": title, "packVersion": "1.0.0", "schemaVersion": 2, "attribution": [], "updated": updated },
         "game": { "title": title, "system": "Saltbox 64" },
         "source": { "kind": "web-pages", "name": site, "pages": [{ "url": "https://maps.example/a-page" }] },
-        "contents": { "maps": 1, "locations": 120 },
-        "maps": [{ "id": "map:one", "name": "The Marsh", "locations": 120 }],
-        "guides": [{ "title": "Walkthrough", "type": "guide", "pages": 12 }, { "title": "The Wiki", "type": "wiki", "pages": 30 }],
+        "contents": { "maps": 1, "locations": 120, "guides": 12 },
+        "maps": [{ "id": "map:one", "name": "The Marsh", "width": 1024, "height": 1024, "locations": 120 }],
+        // one entry of pages (as built): a wiki for a wiki's site, else a guide
+        "guides": [{ "title": "Walkthrough", "type": if site.contains("Wiki") { "wiki" } else { "guide" }, "pages": 12 }],
+        "images": { "detail": "standard", "files": 1, "bytes": 40960, "layers": [] },
+        "files": 1, "bytes": 40960,
         "personalUse": true,
     });
     let mut z = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
@@ -1229,9 +1233,11 @@ fn a_games_packs_of_maps_and_guides_go_into_atlass_packs_folder() {
     let maps_pack = listed.iter().find(|p| p["pack_id"] == "alpha-example-maps").unwrap();
     assert_eq!(
         (maps_pack["title"].as_str(), maps_pack["source"].as_str(), maps_pack["maps"].as_u64(), maps_pack["guide_pages"].as_u64(), maps_pack["wiki_pages"].as_u64(), maps_pack["personal_use"].as_bool()),
-        (Some("Alpha"), Some("Example Maps"), Some(1), Some(12), Some(30), Some(true)),
+        (Some("Alpha"), Some("Example Maps"), Some(1), Some(12), Some(0), Some(true)),
         "{maps_pack}"
     );
+    let wiki_pack = listed.iter().find(|p| p["pack_id"] == "alpha-example-wiki").unwrap();
+    assert_eq!((wiki_pack["guide_pages"].as_u64(), wiki_pack["wiki_pages"].as_u64()), (Some(0), Some(12)), "{wiki_pack}");
 
     let d = a_device(&dir);
     let app = open_app(&dir, &d.home);

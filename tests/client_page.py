@@ -291,19 +291,21 @@ def add_pc_game():
 
 def atlas_packs():
     """Two packs of maps and guides as Atlas Importer writes them (the Atlas pack contract,
-    format 7), linked in the library to Beta, which the device has, and to Echo, which it
+    as Atlas's block A3 built it), linked in the library to Beta, which the device has, and to Echo, which it
     hasn't (D214-D222). Made-up games and sites only."""
     import zipfile
     made = {}
     for pack_id, title, key in (("beta-example-maps", "Beta", "gb/Beta (Europe)"), ("echo-example-maps", "Echo", "nes/Echo (USA)")):
-        d = {"format": "atlas-pack-file", "version": 7, "packId": pack_id, "title": f"{title} - Example Maps", "packVersion": "1.0.0", "detail": "standard",
+        # as docs/pack-file-format.md in Atlas's repository has it; no small pictures, so version 6
+        d = {"format": "atlas-pack-file", "version": 6, "packId": pack_id, "title": f"{title} - Example Maps", "packVersion": "1.0.0", "detail": "standard",
              "exportedAt": "2026-11-12T08:00:00Z", "exportedBy": {"name": "Atlas Importer", "version": "0.23.0", "platform": "linux"},
-             "pack": {"id": pack_id, "title": f"{title} - Example Maps", "packVersion": "1.0.0", "created": "2026-11-01T09:00:00Z", "updated": "2026-11-10T10:00:00Z"},
+             "pack": {"id": pack_id, "title": f"{title} - Example Maps", "packVersion": "1.0.0", "schemaVersion": 2, "attribution": [], "created": "2026-11-01T09:00:00Z", "updated": "2026-11-10T10:00:00Z"},
+             "images": {"detail": "standard", "files": 1, "bytes": 4096, "layers": []},
              "source": {"kind": "web-pages", "name": "Example Maps", "importer": {"id": "example-maps", "title": "Example Maps"}, "newestPageAt": "2026-11-10T10:00:00Z"},
              "game": {"title": title, "system": "Game Boy" if key.startswith("gb/") else "NES"}, "personalUse": True,
              "contents": {"maps": 2, "locations": 120, "guides": 2}, "files": 2, "bytes": 4096,
              "maps": [{"id": "map:world", "name": "The World", "width": 1024, "height": 768, "locations": 100}, {"id": "map:caves", "name": "The Caves", "width": 512, "height": 512, "locations": 20}],
-             "guides": [{"title": "Walkthrough", "type": "guide", "pages": 12}, {"title": "The Wiki", "type": "wiki", "pages": 30}]}
+             "guides": [{"title": "The Wiki", "type": "wiki", "pages": 30}]}
         path = lib / "Maps and Guides" / "No game yet" / f"{title} - Example Maps.atlaspack"
         path.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(path, "w") as z:
@@ -988,7 +990,7 @@ async def main():
             ticked = await pg.is_checked(f"{beta_pack} input")
             on = await pg.get_attribute("#go-game-packs", "data-on")
             check("a game's page lists its packs of maps and guides with their sizes, ticked, and says the setting is off",
-                  ticked and on == "no" and "Beta from Example Maps" in listed and "2 maps" in listed and "12 guide pages" in listed and "30 wiki pages" in listed
+                  ticked and on == "no" and "Beta from Example Maps" in listed and "2 maps" in listed and "30 wiki pages" in listed and "guide page" not in listed
                   and " KB" in listed and "Turn on Maps and guides for Atlas" in listed and not await pg.query_selector("#go-game-packs-get"), listed)
             check("with the setting off, no pack is put in Atlas's packs folder", sorted(p.name for p in atlas.iterdir()) == sorted(theirs), sorted(p.name for p in atlas.iterdir()))
             await pg.click("#go-game-packs-settings")

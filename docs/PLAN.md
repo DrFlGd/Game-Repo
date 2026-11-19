@@ -7083,6 +7083,20 @@ Nothing inside a pack is unpacked to disk by its own names: a preview is cached 
 name of Game Repo's own (the pack's file, size and time hashed) in the computer's cache,
 not the library.
 
+Revised 2026-11-19 ("Maps and Guides notes, part 3"): Atlas published the crate in block
+A3, and the contract now says Game Repo needn't wait for a release: `atlas-pack` is a git
+dependency of `gamerepo-core` pinned to commit `5b94dc04d87902442216b49ef255eb136f24f9f8`
+of Atlas's main branch, moved to a release tag when Atlas makes one. `atlaspack.rs` is now a
+thin layer over it, and the stand-in's surface above is history. The crate's names are
+`read_header` and `read_preview`, `FORMAT`, `VERSION` (7) and `EXTENSION`; its errors are
+its own sentences (*This file is not an Atlas pack file.*, *This pack file was made by
+<app> <version> in a newer format (version N). Install a newer version of Atlas to open
+it.*, *This pack file's description is damaged: <what>.*), shown as they are; it takes a
+description only with every field a pack always has (`packVersion`, `detail`, `exportedBy`,
+`pack`, `source`, `contents`, `images`, `files`, `bytes`), `version` 1 or more, and a small
+picture only by a safe `preview/<name>.jpg` name the description lists, right behind the
+description, at most 512 KB (not 4 MB).
+
 **D216 The folder and the record.** Packs live in the library's `Maps and Guides/` folder,
 laid out as the contract says:
 ```
@@ -7372,6 +7386,71 @@ D222, in `desktop/serve/src/packs.rs` (the server's side), `desktop/device/src/p
   taking it out, Download…'s sum, the big screen's panel, hidden on Android). Made-up packs
   only.
 
+### Maps and Guides notes, part 3: Atlas's own pack code (built 2026-11-19)
+
+The contract changed on 2026-11-19: Atlas's block A3 is merged, with its `atlas-pack` crate
+and `docs/pack-file-format.md`, and Game Repo may take the crate before an Atlas release, as
+a git dependency pinned to a commit of Atlas's main branch. So the stand-in reader (D215)
+is replaced by the crate (D215's revision):
+- `desktop/core/Cargo.toml`: `atlas-pack = { git = "https://github.com/DrFlGd/Atlas", rev =
+  "5b94dc04d87902442216b49ef255eb136f24f9f8" }`, only in the core (Game Repo Server and Go
+  read no pack themselves: the server takes `maps::linked`, and Go copies files it doesn't
+  open). `Cargo.lock` takes `zip` 9.7.1 (the crate asks for 9.5.1 or later, with
+  `deflate-flate2-zlib-rs`); flate2 keeps C zlib wherever the core has it, so TorrentZips'
+  bytes don't change. Game Repo Go's APK and AppImage don't have the core; CI fetches the
+  crate from GitHub as it fetches crates.io (the Windows app, and `gamerepo-cli` for the
+  tests in every job), and `vendor.yml` vendors it for offline builds (its
+  `[source."git+…"]` section in `vendor-config.toml`, checked there). The pinned commit
+  moves to a release tag when Atlas tags one.
+- `atlaspack.rs`: `read_header(path) -> Result<Description, String>` and
+  `read_preview(path, name) -> Result<Vec<u8>, String>` call the crate's and pass its
+  sentences on as they are (Game Repo shows the sentence, it doesn't guess); `FORMAT`,
+  `VERSION` and `EXTENSION` are the crate's. `Description` stays Game Repo's view of the
+  crate's `Header` (made from it as JSON, every field optional, the JSON what the index
+  keeps), so a card, the import review and the server read the same fields as before; with
+  `newer`, the contract's file name, `is_pack_name` and `card`. The stand-in's own ZIP
+  reading (local headers, data descriptors, the central directory, CRC32) and its error
+  type are gone, with the tests that tested only them. A description with an empty
+  `packId` (the crate takes one) is Game Repo's *This pack file's description is damaged:
+  it has no packId.* in the crate's words.
+- As built in block A3, followed: `guides` holds one entry at most, and a type the crate
+  doesn't know is read as `other`, shown as a guide (on the page, a card's kinds and the
+  server's guide pages); `cover` is the first map that has a small picture, so a card's
+  cover is found by the name `cover` gives, never taken to be the first map's; nothing is
+  keyed on `version` (only a pack with small pictures is version 7, and one without keeps a
+  lower number with the other new fields: its maps and pages are shown, its cover and map
+  pictures absent); a small picture is at most 512 KB, at most 1,024 listed, read only by a
+  safe name the description lists (the crate's checks); `source.name` is the site's name or
+  its host name, `game.title` the title the packs were put under, as before.
+- Set aside, never where the Importer looks: the Importer reads only pack files, skips
+  folders whose names begin with a dot, and knows a pack by its `packId`, so a copy Game
+  Repo sets aside must be outside `Maps and Guides/` or in a dot folder. Checked: *Remove…*,
+  *Another copy*'s *Remove it…* and an import replacing an older file set the file aside
+  into `Maps and Guides/.gamerepo-set-aside/<change>/` (organise's `set_aside` for a file of
+  a folder that isn't a folder with games: at its top), a dot folder; a link and its Undo
+  are renames, and a move to another drive is written beside its target as `<name>.part`
+  (the contract's own "still being written") and renamed; other temporary names end in
+  `.gamerepo-tmp` or `.gamerepo-rename`, which aren't pack files. Nothing needed changing;
+  a test now holds it.
+- Trial T1 settled that Atlas writes no index file beside a pack; Game Repo Go still
+  touches only the pack files it delivered.
+- Tests: `core` `atlaspack` (a pack from before block A3 falling back to its title, site
+  and counts, and read back from the index the same; block A3's names and pictures, a
+  picture that isn't a JPEG or is over 512 KB, a lower version with the new fields and no
+  pictures; a guide type it doesn't know and a name that isn't safe; the crate's sentences
+  for not a pack, another format, version 8 and a damaged description; the newer of two
+  files), `core` `maps` (the crate's sentences on the page,
+  `a_pack_set_aside_is_never_where_atlas_importer_looks`: Remove…, another copy, an import
+  replacing an older file, then their Undo, with only the packs themselves outside dot
+  folders; `the_cover_is_the_first_map_with_a_picture_and_pages_of_a_type_not_known_are_a_guide`),
+  `serve` `tests/client.rs` (a guide pack and a wiki pack), and `desktop_page.py`'s and
+  `client_page.py`'s packs, all now written as `docs/pack-file-format.md` says (every field
+  a pack always has, one entry of pages, version 7 only with pictures). Made-up packs only.
+- For the Atlas side: the crate's sentence for a newer format says to install a newer
+  Atlas, which in Game Repo means a newer Game Repo (one with a newer crate); and the
+  Importer clearing a `.part` left behind could meet one Game Repo is still writing in a
+  move to another drive.
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -7638,7 +7717,9 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     2026-11-19): part 1, the section with a card for each pack, packs linked to games and
     *Open in Atlas*: built ("Maps and Guides notes, part 1"); part 2, packs on Game Repo Go
     devices for Windows and Linux (*Maps and guides for Atlas*): built ("Maps and Guides
-    notes, part 2"). Guidebooks,
+    notes, part 2"); part 3, packs read with Atlas's own `atlas-pack` crate, pinned to
+    commit 5b94dc0 of Atlas's main branch until a release tag: built ("Maps and Guides
+    notes, part 3"). Guidebooks,
     starting Atlas on a device's game, your data beside a pack and Android wait for the
     contract (D223).
 31. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
