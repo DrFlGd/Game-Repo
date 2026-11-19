@@ -1308,3 +1308,38 @@ fn a_games_packs_of_maps_and_guides_go_into_atlass_packs_folder() {
     s.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// D222, revised 2026-11-19: 0.5.72 guessed Atlas's packs folder on Linux as
+/// `~/.local/share/Atlas/Packs`, and Atlas's is `~/.local/share/atlas/packs` (the contract's
+/// answer 5). A saved setting of the old folder is taken as the usual one, and the packs Go
+/// delivered there are moved into Atlas's own as it starts; nothing else in the old folder
+/// is touched.
+#[cfg(target_os = "linux")]
+#[test]
+fn go_on_linux_moves_the_packs_it_put_in_the_old_folder_into_atlass_own() {
+    let dir = temp("go-packs-moved");
+    let home = a_device(&dir).home;
+    let (old, new) = (home.join(".local/share/Atlas/Packs"), home.join(".local/share/atlas/packs"));
+    let data = dir.join("go");
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(old.join("Alpha - Example Maps.atlaspack"), b"PK alpha").unwrap();
+    std::fs::write(old.join("Someone Else - Other Maps.atlaspack"), b"PK not Go's").unwrap();
+    std::fs::write(data.join("settings.json"), json!({ "atlas_packs": true, "atlas_folder": old }).to_string()).unwrap();
+    let delivered = json!({ "pack_id": "alpha-example-maps", "file": "Alpha - Example Maps.atlaspack", "folder": old, "size": 8, "sha1": "a1", "games": [ALPHA], "at": 1 });
+    std::fs::write(data.join("packs.json"), json!({ "delivered": [delivered] }).to_string()).unwrap();
+    let app = open_app(&dir, &home);
+    until("the pack moved", 30, || new.join("Alpha - Example Maps.atlaspack").is_file(), || format!("{:?} {:?}", names_in(&old), names_in(&new)));
+    assert_eq!(std::fs::read(new.join("Alpha - Example Maps.atlaspack")).unwrap(), b"PK alpha");
+    assert_eq!(names_in(&old), ["Someone Else - Other Maps.atlaspack"], "only Go's own moved");
+    let st = call(&app, "status", json!({}));
+    assert_eq!((st["atlas"]["folder"].as_str(), st["atlas"]["usual"].as_str(), st["atlas"]["default"].as_bool(), st["atlas"]["delivered"].as_u64()), (new.to_str(), new.to_str(), Some(true), Some(1)), "{st}");
+    let rec: Value = serde_json::from_slice(&std::fs::read(data.join("packs.json")).unwrap()).unwrap();
+    assert_eq!(rec["delivered"][0]["folder"].as_str(), new.to_str(), "{rec}");
+    // a folder set by hand that isn't the old guess stays as it is
+    let mine = dir.join("My Atlas Packs");
+    call(&app, "set_settings", json!({ "atlas_folder": mine }));
+    let st = call(&app, "status", json!({}));
+    assert_eq!((st["atlas"]["folder"].as_str(), st["atlas"]["default"].as_bool()), (mine.to_str(), Some(false)), "{st}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -25,7 +25,8 @@ fn hidden(rel: &Path) -> bool {
 /// `_library/games/…/media|docs/` and `_library/docs/`, and anything outside `_library/`
 /// that isn't hidden.
 fn library_allows(rel: &Path) -> bool {
-    if hidden(rel) {
+    // nor Atlas Importer's unfinished pack, which nothing but the Importer reads (the contract)
+    if hidden(rel) || rel.file_name().is_some_and(|n| gamerepo_core::atlaspack::is_importer_part(&n.to_string_lossy())) {
         return false;
     }
     let mut parts = rel.components().map(|c| c.as_os_str().to_string_lossy().to_lowercase());
@@ -139,6 +140,7 @@ mod tests {
             // a game's pack of maps and guides (D222), not the pictures chosen for packs
             ("Maps and Guides/Delta/Delta - Example Maps.atlaspack", true),
             ("Maps and Guides/.pictures/ab12.png", false),
+            ("Maps and Guides/Delta/Delta - Example Maps.atlaspack.atlas-importer.part", false),
             ("_library/library.json", false),
             ("_library/journal/x.json", false),
             ("_library/dats/gb/a.dat", false),

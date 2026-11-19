@@ -977,7 +977,7 @@ async def main():
             await pg.wait_for_selector("#set-atlas #set-atlas-folder", timeout=20000)
             usual = Path(await pg.input_value("#set-atlas-folder input"))
             was_on = await pg.is_checked("#set-atlas-on")
-            where = phone / "AppData" / "Local" / "Atlas" / "Packs" if sys.platform == "win32" else phone / ".local" / "share" / "Atlas" / "Packs"
+            where = phone / "AppData" / "Local" / "Atlas" / "Packs" if sys.platform == "win32" else phone / ".local" / "share" / "atlas" / "packs"
             check("Settings has Maps and guides for Atlas, off at first, with Atlas's packs folder where the contract says", not was_on and usual == where, (was_on, usual))
             await pg.fill("#set-atlas-folder input", str(atlas))
             await pg.click("#set-atlas-folder button:has-text('Save')")

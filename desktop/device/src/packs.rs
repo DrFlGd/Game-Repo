@@ -11,14 +11,21 @@
 //! Atlas's or yours. Removing a game leaves its packs (taking them off is an open point of
 //! the contract). The packs a game's page unticks are kept here too (`left_out`). Not on
 //! Android until the contract's trial T2 is settled.
+//!
+//! A rename into place, or over the old file of a pack, that a drive refuses because a file
+//! is held open is tried again for about seven seconds ([`patiently`], as the contract
+//! asks); Atlas opens a pack only for each read. Atlas Importer's unfinished files
+//! (`.atlas-importer.part`) are never Go's: it touches only the files in its record.
 
 use crate::Device;
 use anyhow::{bail, Result};
 use gamerepo_wire::File;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// The device's place for packs: Atlas's packs folder.
 pub const PLACE: &str = "atlas";
@@ -86,19 +93,117 @@ fn change<T>(data: &Path, f: impl FnOnce(&mut Record) -> Result<T>) -> Result<T>
     Ok(out)
 }
 
-/// Atlas's packs folder where it usually is (the contract): `%LOCALAPPDATA%\Atlas\Packs` on
-/// Windows, `$XDG_DATA_HOME/Atlas/Packs` (`~/.local/share/Atlas/Packs`) on Linux until
-/// Atlas's block A9 fixes it. `home` is the user's folder (the environment's folders are
-/// taken only when they're that user's, so a stand-in home keeps to itself).
-pub fn default_folder(home: &Path) -> PathBuf {
+/// The user's data folder Atlas's packs folder is in: `%LOCALAPPDATA%` on Windows,
+/// `$XDG_DATA_HOME` (`~/.local/share`) on Linux. `home` is the user's folder (the
+/// environment's folders are taken only when they're that user's, so a stand-in home keeps
+/// to itself).
+fn data_home(home: &Path) -> PathBuf {
     let own = |var: &str| std::env::var_os(var).map(PathBuf::from).is_some_and(|p| p == home);
     let from = |var: &str| std::env::var_os(var).map(PathBuf::from).filter(|p| p.is_absolute());
-    let base = if cfg!(windows) {
+    if cfg!(windows) {
         from("LOCALAPPDATA").filter(|_| own("USERPROFILE")).unwrap_or_else(|| home.join("AppData").join("Local"))
     } else {
         from("XDG_DATA_HOME").filter(|_| own("HOME")).unwrap_or_else(|| home.join(".local").join("share"))
-    };
-    base.join("Atlas").join("Packs")
+    }
+}
+
+/// Atlas's packs folder where it is (the contract's answer 5, as Atlas's block A1 built
+/// it): `%LOCALAPPDATA%\Atlas\Packs` on Windows; `$XDG_DATA_HOME/atlas/packs`
+/// (`~/.local/share/atlas/packs`), all lower case, on Linux.
+pub fn default_folder(home: &Path) -> PathBuf {
+    let base = data_home(home);
+    if cfg!(windows) {
+        base.join("Atlas").join("Packs")
+    } else {
+        base.join("atlas").join("packs")
+    }
+}
+
+/// Where 0.5.72 guessed Atlas's packs folder was on Linux, `$XDG_DATA_HOME/Atlas/Packs`: a
+/// folder Atlas doesn't look in. None on Windows, where the guess was right. A saved
+/// setting of this folder is taken as the usual one, and the packs Go delivered there are
+/// moved ([`move_from`]).
+pub fn old_default_folder(home: &Path) -> Option<PathBuf> {
+    (!cfg!(windows)).then(|| data_home(home).join("Atlas").join("Packs"))
+}
+
+/// How long a rename a drive refuses while a file is held open is tried again: about seven
+/// seconds, as the contract asks of every app that writes a pack.
+pub const PATIENCE: Duration = Duration::from_secs(7);
+
+/// Whether an error is one a drive gives while a file is held open (Windows' sharing and
+/// lock violations, access denied; a busy file elsewhere): worth trying again. A file
+/// that's gone, a name that's taken or another drive isn't.
+pub fn held(e: &io::Error) -> bool {
+    matches!(e.kind(), io::ErrorKind::PermissionDenied | io::ErrorKind::ResourceBusy) || (cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33)))
+}
+
+/// `f` (a rename, a removal) tried again while it fails as a held file does ([`held`]), for
+/// about [`PATIENCE`], with short sleeps between; any other result at once.
+pub fn patiently<T>(mut f: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    patiently_for(PATIENCE, &mut f)
+}
+
+fn patiently_for<T>(patience: Duration, f: &mut dyn FnMut() -> io::Result<T>) -> io::Result<T> {
+    let start = Instant::now();
+    let mut wait = Duration::from_millis(50);
+    loop {
+        match f() {
+            Err(e) if held(&e) && start.elapsed() + wait <= patience => {
+                std::thread::sleep(wait);
+                wait = (wait * 2).min(Duration::from_secs(1));
+            }
+            r => return r,
+        }
+    }
+}
+
+/// `std::fs::rename`, tried again for a while when the drive refuses it as a held file's.
+pub fn rename_patiently(from: &Path, to: &Path) -> io::Result<()> {
+    patiently(|| std::fs::rename(from, to))
+}
+
+/// The packs Go delivered into `old` (0.5.72's wrong guess at Atlas's packs folder on
+/// Linux), moved into `new`, the folder Go uses now: renamed, or, when that can't be done
+/// (another drive), copied as `<name>.part` beside the new file and renamed, then the old
+/// removed. Only the files in Go's record that are there as it put them; a name taken in
+/// `new` by a file that isn't Go's gives `<name> (2).atlaspack`. The old folder is left
+/// as it is, emptied or not (it may be yours). How many were moved.
+pub fn move_from(data: &Path, old: &Path, new: &Path) -> Result<usize> {
+    if old == new {
+        return Ok(0);
+    }
+    change(data, |rec| {
+        let mut moved = 0;
+        for i in 0..rec.delivered.len() {
+            let e = rec.delivered[i].clone();
+            if e.folder != old || !e.there() {
+                continue;
+            }
+            std::fs::create_dir_all(new)?;
+            let name = free_name(new, &e.file, |_| false);
+            let dest = new.join(&name);
+            if let Err(err) = rename_patiently(&e.path(), &dest) {
+                if held(&err) {
+                    continue;
+                }
+                let part = new.join(format!("{name}{PART}"));
+                let whole = |n: u64| if n == e.size { Ok(()) } else { Err(io::Error::other("the copy isn't whole")) };
+                let copied = std::fs::copy(e.path(), &part).and_then(whole).and_then(|_| rename_patiently(&part, &dest));
+                if copied.is_err() {
+                    let _ = std::fs::remove_file(&part);
+                    continue;
+                }
+                // the copy is in: the old file goes (if it can't now, it's left beside, and
+                // the record has the new one)
+                let _ = patiently(|| std::fs::remove_file(e.path()));
+            }
+            rec.delivered[i].folder = new.to_path_buf();
+            rec.delivered[i].file = name;
+            moved += 1;
+        }
+        Ok(moved)
+    })
 }
 
 /// A plan's file that's a pack for Atlas.
@@ -174,13 +279,15 @@ pub fn put_in_place(d: &Device, f: &File, part: &Path, sha1: &str) -> Result<Pat
         let name = free_name(&folder, &f.path, mine);
         let dest = folder.join(&name);
         std::fs::create_dir_all(&folder)?;
-        std::fs::rename(part, &dest)?;
+        // over the old file Atlas may be reading a moment: tried again for a while
+        rename_patiently(part, &dest)?;
         let _ = std::fs::remove_file(tag_of(d, part));
         let mut games = games_of(f);
         if let Some(e) = &old_entry {
             // the old file under another name (or in the folder used before), once the new one's in
+            // (one that still can't be removed is left beside it: the new one is in and noted)
             if (e.folder != folder || e.file != name) && e.there() {
-                std::fs::remove_file(e.path())?;
+                let _ = patiently(|| std::fs::remove_file(e.path()));
             }
             for g in &e.games {
                 if !games.contains(g) {
@@ -354,11 +461,89 @@ mod tests {
     fn atlass_packs_folder_is_where_the_contract_says() {
         let home = Path::new("/home/someone-else");
         let f = default_folder(home);
-        assert!(f.ends_with(Path::new("Atlas").join("Packs")), "{f:?}");
         if cfg!(windows) {
             assert_eq!(f, home.join("AppData").join("Local").join("Atlas").join("Packs"));
+            assert_eq!(old_default_folder(home), None, "0.5.72's guess was right on Windows");
         } else {
-            assert_eq!(f, home.join(".local").join("share").join("Atlas").join("Packs"));
+            // all lower case, as Atlas's block A1 built it (the contract's answer 5)
+            assert_eq!(f, home.join(".local").join("share").join("atlas").join("packs"));
+            assert_eq!(old_default_folder(home), Some(home.join(".local").join("share").join("Atlas").join("Packs")));
         }
+    }
+
+    #[test]
+    fn the_packs_go_put_in_the_old_folder_are_moved_into_atlass_own() {
+        let (home, d) = device("move");
+        let data = d.data.clone().unwrap();
+        let (old, new) = (home.join("share").join("Atlas").join("Packs"), home.join("share").join("atlas").join("packs"));
+        let mut d = d;
+        d.places.insert(PLACE.into(), old.clone());
+        // 0.5.72 delivered two packs into the old folder; one was changed by hand since
+        let delta = pack("Delta - Example Maps.atlaspack", "delta-example-maps", "gb/Delta (World)", b"delta");
+        let beta = pack("Beta - Example Maps.atlaspack", "beta-example-maps", "gb/Beta (Japan)", b"beta");
+        deliver(&d, &delta, b"delta");
+        deliver(&d, &beta, b"beta");
+        std::fs::write(old.join("Beta - Example Maps.atlaspack"), b"beta, changed by hand").unwrap();
+        // and files that aren't Go's: yours, and an unfinished one of Atlas Importer's
+        std::fs::write(old.join("Mine.atlaspack"), b"yours").unwrap();
+        std::fs::write(old.join("Zeta - Example Maps.atlaspack.atlas-importer.part"), b"half").unwrap();
+        // a file of Delta's name already in the new folder that Go didn't put there
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(new.join("Delta - Example Maps.atlaspack"), b"copied in by hand").unwrap();
+
+        assert_eq!(move_from(&data, &old, &new).unwrap(), 1);
+        assert_eq!(names(&new), ["Delta - Example Maps (2).atlaspack", "Delta - Example Maps.atlaspack"]);
+        assert_eq!(std::fs::read(new.join("Delta - Example Maps (2).atlaspack")).unwrap(), b"delta");
+        assert_eq!(std::fs::read(new.join("Delta - Example Maps.atlaspack")).unwrap(), b"copied in by hand");
+        // only Go's own, as it put them: the rest stays where it is, the folder too
+        assert_eq!(names(&old), ["Beta - Example Maps.atlaspack", "Mine.atlaspack", "Zeta - Example Maps.atlaspack.atlas-importer.part"]);
+        assert_eq!(std::fs::read(old.join("Zeta - Example Maps.atlaspack.atlas-importer.part")).unwrap(), b"half");
+        let rec = load(&data);
+        let moved = rec.delivered.iter().find(|e| e.pack_id == "delta-example-maps").unwrap();
+        assert_eq!((moved.folder.clone(), moved.file.as_str(), moved.games.clone()), (new.clone(), "Delta - Example Maps (2).atlaspack", vec!["gb/Delta (World)".to_string()]));
+        assert!(moved.there());
+        assert_eq!(rec.delivered.iter().find(|e| e.pack_id == "beta-example-maps").unwrap().folder, old);
+        // the next run has nothing more to move, and the same folder twice is nothing
+        assert_eq!(move_from(&data, &old, &new).unwrap(), 0);
+        assert_eq!(move_from(&data, &new, &new).unwrap(), 0);
+        // a newer file of the moved pack, delivered into the new folder, goes over it there
+        d.places.insert(PLACE.into(), new.clone());
+        let newer = pack("Delta - Example Maps.atlaspack", "delta-example-maps", "gb/Delta (World)", b"delta, newer");
+        deliver(&d, &newer, b"delta, newer");
+        assert_eq!(std::fs::read(new.join("Delta - Example Maps (2).atlaspack")).unwrap(), b"delta, newer");
+        assert_eq!(names(&new), ["Delta - Example Maps (2).atlaspack", "Delta - Example Maps.atlaspack"]);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_rename_refused_while_a_file_is_held_is_tried_again_for_a_while() {
+        let busy = || io::Error::new(io::ErrorKind::PermissionDenied, "held open");
+        // refused twice, then done: two short sleeps
+        let mut tries = 0;
+        let started = Instant::now();
+        let r = patiently(|| {
+            tries += 1;
+            if tries < 3 { Err(busy()) } else { Ok(tries) }
+        });
+        assert_eq!(r.unwrap(), 3);
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        // a file that's gone, or a name that's taken, isn't tried again
+        for kind in [io::ErrorKind::NotFound, io::ErrorKind::AlreadyExists] {
+            let mut tries = 0;
+            let r: io::Result<()> = patiently(|| {
+                tries += 1;
+                Err(io::Error::new(kind, "no"))
+            });
+            assert_eq!((r.unwrap_err().kind(), tries), (kind, 1));
+        }
+        // held all along: given up once the time's up
+        let mut tries = 0;
+        let started = Instant::now();
+        let r: io::Result<()> = patiently_for(Duration::from_millis(300), &mut || {
+            tries += 1;
+            Err(busy())
+        });
+        assert!(r.is_err() && tries >= 3 && started.elapsed() < Duration::from_secs(1), "{tries} {:?}", started.elapsed());
+        assert!(PATIENCE >= Duration::from_secs(5) && PATIENCE <= Duration::from_secs(10));
     }
 }

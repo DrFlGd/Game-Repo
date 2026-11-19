@@ -69,7 +69,8 @@ export const packFacts = (p) => [p.source_name, ...packCounts(p), DETAIL[p.detai
 /** How old its pages are (`source.newestPageAt`), and when it last changed (`pack.updated`). */
 const ageLine = (p) => [p.source?.newest_page_at ? `Read ${howLong(p.source.newest_page_at)}` : null, p.updated ? `changed ${day(p.updated)}` : null].filter(Boolean).join(", ");
 
-/** Open in Atlas (D221): the program set in Settings › Tools, else the one the computer opens packs with. */
+/** Open in Atlas (D221): the program set in Settings › Tools, started with the pack's path alone; else, on Windows, the one
+ *  Windows opens packs with (elsewhere the backend says to set Atlas in Settings › Tools). */
 export async function openInAtlas(p) {
   try {
     const r = await api("maps_open", { path: p.path });

@@ -135,8 +135,10 @@ pub struct Found {
     /// Milliseconds since 1970
     pub mtime: i64,
     pub description: Option<Description>,
-    /// The sentence when it can't be read (D215)
+    /// The sentence when it can't be read (D215): the crate's, shown as it is
     pub error: Option<String>,
+    /// Its kind (`atlaspack::kind_of`): not-a-pack-file, newer-format, damaged, cannot-open
+    pub error_kind: Option<String>,
 }
 
 impl Found {
@@ -150,7 +152,8 @@ fn mtime_of(m: &std::fs::Metadata) -> i64 {
 }
 
 /// Every pack file below `dir`: (path below it, size, time). Hidden folders, `Guidebooks/`
-/// and files still being written (`.part`) are passed over.
+/// and files still being written (`.part`, Atlas Importer's `.atlas-importer.part` among
+/// them: never read, moved or removed) are passed over.
 fn walk(dir: &Path) -> Vec<(String, u64, i64)> {
     let mut out = vec![];
     let mut stack = vec![(dir.to_path_buf(), String::new())];
@@ -183,12 +186,13 @@ pub fn read_folder(ix: &Index, lib: &Library) -> Result<Vec<Found>> {
     let dir = folder(lib);
     let files = walk(&dir);
     let conn = ix.conn();
-    let mut kept: HashMap<String, (i64, i64, Option<String>, Option<String>)> = HashMap::new();
+    type Row = (Option<String>, Option<String>, Option<String>);
+    let mut kept: HashMap<String, (i64, i64, Row)> = HashMap::new();
     {
-        let mut q = conn.prepare("SELECT path, size, mtime, description, error FROM atlas_packs")?;
+        let mut q = conn.prepare("SELECT path, size, mtime, description, error, error_kind FROM atlas_packs")?;
         let mut rows = q.query([])?;
         while let Some(r) = rows.next()? {
-            kept.insert(r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?));
+            kept.insert(r.get(0)?, (r.get(1)?, r.get(2)?, (r.get(3)?, r.get(4)?, r.get(5)?)));
         }
     }
     let tx = conn.unchecked_transaction()?;
@@ -196,37 +200,40 @@ pub fn read_folder(ix: &Index, lib: &Library) -> Result<Vec<Found>> {
     let here: HashSet<&str> = files.iter().map(|f| f.0.as_str()).collect();
     // a file gone from one place and one of its size and time come in another: moved (by a
     // change, or by hand), so its description is the one read before
-    let mut moved: HashMap<(i64, i64), (Option<String>, Option<String>)> = HashMap::new();
-    for (gone, (s, m, d, e)) in kept.iter().filter(|(k, _)| !here.contains(k.as_str())) {
+    let mut moved: HashMap<(i64, i64), Row> = HashMap::new();
+    for (gone, (s, m, row)) in kept.iter().filter(|(k, _)| !here.contains(k.as_str())) {
         tx.execute("DELETE FROM atlas_packs WHERE path = ?1", [gone])?;
-        moved.insert((*s, *m), (d.clone(), e.clone()));
+        moved.insert((*s, *m), row.clone());
     }
+    let parse = |d: &Option<String>| d.as_deref().and_then(|t| serde_json::from_str::<Value>(t).ok()).map(Description::from_value);
     for (rel, size, mtime) in &files {
-        let (description, error) = match kept.get(rel) {
-            Some((s, m, d, e)) if *s == *size as i64 && *m == *mtime => (d.as_deref().and_then(|t| serde_json::from_str::<Value>(t).ok()).map(Description::from_value), e.clone()),
+        let (description, error, error_kind) = match kept.get(rel) {
+            Some((s, m, row)) if *s == *size as i64 && *m == *mtime => (parse(&row.0), row.1.clone(), row.2.clone()),
             _ => {
                 let was = if kept.contains_key(rel) { None } else { moved.remove(&(*size as i64, *mtime)) };
-                let (d, e) = match was {
-                    Some((d, e)) => (d.as_deref().and_then(|t| serde_json::from_str::<Value>(t).ok()).map(Description::from_value), e),
+                let (d, e, k) = match was {
+                    Some(row) => (parse(&row.0), row.1, row.2),
                     None => match atlaspack::read_header(&dir.join(rel)) {
-                        Ok(d) => (Some(d), None),
-                        Err(e) => (None, Some(e)),
+                        Ok(d) => (Some(d), None, None),
+                        Err(r) => (None, Some(r.to_string()), Some(atlaspack::kind_of(&r).to_string())),
                     },
                 };
-                tx.execute(
-                    "INSERT OR REPLACE INTO atlas_packs (path, size, mtime, pack_id, description, error) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![rel, *size as i64, mtime, d.as_ref().and_then(|d| d.pack_id.clone()), d.as_ref().map(|d| d.raw.to_string()), e],
-                )?;
-                (d, e)
+                // a file that couldn't be opened (held by another program a moment) is read
+                // again next time, not remembered by its size and time
+                if k.as_deref() == Some("cannot-open") {
+                    tx.execute("DELETE FROM atlas_packs WHERE path = ?1", [rel])?;
+                } else {
+                    tx.execute(
+                        "INSERT OR REPLACE INTO atlas_packs (path, size, mtime, pack_id, description, error, error_kind) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        params![rel, *size as i64, mtime, d.as_ref().and_then(|d| d.pack_id.clone()), d.as_ref().map(|d| d.raw.to_string()), e, k],
+                    )?;
+                }
+                (d, e, k)
             }
         };
-        // a description with no packId can't be kept by it: said, as a damaged one is
-        let error = match (&description, error) {
-            (Some(d), None) if d.pack_id.is_none() => Some(atlaspack::NO_PACK_ID.to_string()),
-            (_, e) => e,
-        };
-        let description = description.filter(|d| d.pack_id.is_some());
-        out.push(Found { rel: rel.clone(), size: *size, mtime: *mtime, description, error });
+        // the crate refuses a description without a packId that can be one, so every pack
+        // read has one; a file that has none is one that can't be read
+        out.push(Found { rel: rel.clone(), size: *size, mtime: *mtime, description: description.filter(|d| d.pack_id.is_some()), error, error_kind });
     }
     tx.commit()?;
     Ok(out)
@@ -556,7 +563,10 @@ pub fn auto_link_plan(ix: &Index, lib: &Library) -> Result<Option<Plan>> {
         return Ok(None);
     }
     let state = sync(ix, lib)?;
-    let waiting: Vec<&Pack> = state.packs.iter().filter(|p| p.kept.games.is_empty() && !p.kept.by_hand && !p.kept.left && in_no_game(&p.file.rel)).collect();
+    // a pack Atlas Importer is writing again beside it waits until it's in (the next read)
+    let base = folder(lib);
+    let writing = |rel: &str| base.join(format!("{rel}{}", atlaspack::IMPORTER_PART)).exists();
+    let waiting: Vec<&Pack> = state.packs.iter().filter(|p| p.kept.games.is_empty() && !p.kept.by_hand && !p.kept.left && in_no_game(&p.file.rel) && !writing(&p.file.rel)).collect();
     if waiting.is_empty() {
         return Ok(None);
     }
@@ -689,6 +699,8 @@ pub struct Item {
     pub version: Option<u64>,
     /// The sentence when it can't be read (it's brought in all the same)
     pub error: Option<String>,
+    /// Its kind (`atlaspack::kind_of`)
+    pub error_kind: Option<String>,
     /// The name it's given in `No game yet`
     pub to_name: String,
     /// new | newer (than the one kept, which it replaces) | same | older
@@ -753,7 +765,8 @@ pub fn read_items(ix: &Index, lib: &Library, paths: &[PathBuf]) -> Result<Vec<It
                 }
             }
             Err(e) => {
-                it.error = Some(e);
+                it.error = Some(e.to_string());
+                it.error_kind = Some(atlaspack::kind_of(&e).into());
                 it.to_name = name.clone();
             }
         }
@@ -894,9 +907,9 @@ pub fn preview_file(lib: &Library, data_dir: &Path, n: usize, id: &str, rel: &st
     if at.is_file() {
         return Ok(at);
     }
-    let d = atlaspack::read_header(&p).map_err(anyhow::Error::msg)?;
+    let d = atlaspack::read_header(&p)?;
     let name = if n == 0 { d.cover.clone() } else { d.maps.get(n - 1).and_then(|m| m.preview.clone()) }.ok_or_else(|| anyhow!("That pack has no such picture."))?;
-    let bytes = atlaspack::read_preview(&p, &name).map_err(anyhow::Error::msg)?;
+    let bytes = atlaspack::read_preview(&p, &name)?;
     std::fs::create_dir_all(&cache)?;
     let tmp = cache.join(format!("{id}.jpg.part"));
     std::fs::write(&tmp, &bytes)?;
@@ -904,32 +917,39 @@ pub fn preview_file(lib: &Library, data_dir: &Path, n: usize, id: &str, rel: &st
     Ok(at)
 }
 
-/// *Open in Atlas* (D221): Atlas started with the pack's path, the program set in Settings
-/// › Tools first (never one found on the PATH: another program may be called atlas); else
-/// the program the system opens `.atlaspack` files with, which the page opens it with
-/// (`open_with`). Without either, it says so.
+/// *Open in Atlas* (D221): Atlas started with the pack's path as its one argument (Atlas
+/// takes exactly that, block A2; a second start hands the path to the Atlas running), the
+/// program set in Settings › Tools first (never one found on the PATH: another program may
+/// be called atlas); else, on Windows, the program it opens `.atlaspack` files with (Atlas's
+/// installer registers the type), which the page opens it with (`open_with`). Elsewhere no
+/// program is registered for packs, so without Atlas set it says so.
 pub fn open_in_atlas(lib: &Library, rel: &str) -> Result<Value> {
     let p = pack_path(lib, rel)?;
     if let Some(atlas) = crate::tools::find("atlas") {
         crate::tools::command(&atlas).arg(&p).spawn().with_context(|| format!("couldn't start {}", atlas.display()))?;
         return Ok(json!({ "opened": atlas.display().to_string() }));
     }
-    if cfg!(windows) && !registered() {
+    if !cfg!(windows) {
+        bail!("{}", NO_ATLAS_HERE);
+    }
+    if !registered() {
         bail!("Atlas isn't installed on this computer (nothing opens .atlaspack files): install it, or set where it is in Settings › Tools.");
     }
     Ok(json!({ "open_with": p.display().to_string() }))
 }
 
-/// Whether Windows has a program for `.atlaspack` files (Atlas registers the type).
+/// Open in Atlas without Atlas set, where nothing is registered for packs (not Windows).
+const NO_ATLAS_HERE: &str = "Set where Atlas is in Settings › Tools: on this system no program is registered for .atlaspack files, so Game Repo starts Atlas itself.";
+
+/// Whether Windows has a program for `.atlaspack` files (Atlas's installer registers the type).
+#[cfg(windows)]
 fn registered() -> bool {
-    #[cfg(windows)]
-    {
-        crate::tools::command(Path::new("reg")).args(["query", r"HKCR\.atlaspack"]).output().is_ok_and(|o| o.status.success())
-    }
-    #[cfg(not(windows))]
-    {
-        true
-    }
+    crate::tools::command(Path::new("reg")).args(["query", r"HKCR\.atlaspack"]).output().is_ok_and(|o| o.status.success())
+}
+
+#[cfg(not(windows))]
+fn registered() -> bool {
+    false
 }
 
 // ------------------------------------------------------------ the page, a game's, and the server's
@@ -956,7 +976,7 @@ fn file_json(lib: &Library, f: &Found) -> Value {
     let d = f.description.as_ref();
     json!({
         "path": lib.relative(&folder(lib).join(&f.rel)), "file": f.rel, "size": f.size, "modified": iso_ms(f.mtime),
-        "updated": d.and_then(|d| d.updated.clone()), "exported_at": d.and_then(|d| d.exported_at.clone()), "error": f.error,
+        "updated": d.and_then(|d| d.updated.clone()), "exported_at": d.and_then(|d| d.exported_at.clone()), "error": f.error, "error_kind": f.error_kind,
     })
 }
 
@@ -1157,21 +1177,34 @@ mod tests {
         eight["version"] = json!(8);
         write_pack(&no_game.join("Epsilon - Example Maps.atlaspack"), &eight, &[]);
         std::fs::write(no_game.join("notes.atlaspack"), b"some notes").unwrap();
+        // a packId that can't be one (upper case, a space): damaged, by the crate's check
+        write_pack(&no_game.join("Theta - Example Maps.atlaspack"), &format6("Theta Maps", "Theta", "2026-11-10T08:30:00Z"), &[]);
         // a title's guidebooks aren't read yet (D223)
         write_pack(&base.join("Delta").join(GUIDEBOOKS).join("guide.atlaspack"), &format6("guidebook", "Delta", "2026-11-10T08:30:00Z"), &[]);
 
         let state = sync(&ix, &lib).unwrap();
         assert_eq!(state.packs.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["delta-example-maps", "zeta-example-maps"], "the .part and the guidebooks passed over");
-        let mut sentences: Vec<String> = state.unreadable.iter().map(|f| f.error.clone().unwrap()).collect();
-        sentences.sort();
-        // the crate's own sentences, as they are
-        assert_eq!(sentences, ["This file is not an Atlas pack file.", "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 8). Install a newer version of Atlas to open it."]);
+        let said = |state: &State| {
+            let mut v: Vec<(String, String)> = state.unreadable.iter().map(|f| (f.error_kind.clone().unwrap(), f.error.clone().unwrap())).collect();
+            v.sort();
+            v
+        };
+        // the crate's own sentences, as they are, with their kinds
+        let sentences = vec![
+            ("damaged".to_string(), "This pack file names a game id that cannot be used.".to_string()),
+            ("newer-format".to_string(), "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 8). A newer version of this app is needed to open it.".to_string()),
+            ("not-a-pack-file".to_string(), "This file is not an Atlas pack file.".to_string()),
+        ];
+        assert_eq!(said(&state), sentences);
+        // read back from the index the same
+        assert_eq!(said(&sync(&ix, &lib).unwrap()), sentences);
+        assert_eq!(overview(&ix, &lib).unwrap()["unreadable"].as_array().map(|u| u.iter().filter(|f| f["error_kind"] == "newer-format").count()), Some(1));
         let r = read_record(&lib);
         assert_eq!(r.packs["zeta-example-maps"].file.as_deref(), Some("No game yet/Zeta - Example Maps.atlaspack"));
         assert!(r.packs.values().all(|k| k.games.is_empty() && !k.added.is_empty()));
         // read again only when a file changes: the index has them
         let n: i64 = ix.conn().query_row("SELECT COUNT(*) FROM atlas_packs", [], |r| r.get(0)).unwrap();
-        assert_eq!(n, 4);
+        assert_eq!(n, 5);
 
         // the sure match (Delta, which you have) is linked and its file moved into its game's folder, as one change
         let plan = auto_link_plan(&ix, &lib).unwrap().unwrap();
@@ -1189,7 +1222,7 @@ mod tests {
         let card = page["packs"].as_array().unwrap().iter().find(|p| p["id"] == "delta-example-maps").unwrap().clone();
         assert_eq!((card["cover_n"].clone(), card["maps"][1]["n"].clone(), card["maps"][2]["n"].clone(), card["kinds"].clone()), (json!(0), json!(2), Value::Null, json!(["map", "wiki"])));
         assert_eq!(card["games"][0]["platform_name"], crate::browse::system_name("gb"));
-        assert_eq!(page["unreadable"].as_array().unwrap().len(), 2);
+        assert_eq!(page["unreadable"].as_array().unwrap().len(), 3);
         // a game's page lists its packs
         assert_eq!(of_game(&ix, &lib, "gb/Delta (World)").len(), 1);
         assert_eq!(packs_of(&ix, &lib, "gb/Delta (World)").unwrap()[0].path, moved);
@@ -1449,6 +1482,71 @@ mod tests {
         assert_eq!(std::fs::read(preview_file(&lib, &data, 0, "delta-example-maps", &rel).unwrap()).unwrap(), jpeg(4), "the cover is the second map's picture");
         assert_eq!(std::fs::read(preview_file(&lib, &data, 2, "delta-example-maps", &rel).unwrap()).unwrap(), jpeg(4));
         assert!(preview_file(&lib, &data, 1, "delta-example-maps", &rel).is_err(), "the first map has none");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn atlas_importers_unfinished_files_are_never_shown_read_moved_or_removed() {
+        // the contract: while Atlas Importer writes a pack, its unfinished file lies beside
+        // the target as `<name>.atlas-importer.part`; Game Repo never shows, reads, moves or
+        // deletes one, and a title folder holding one is never removed
+        let (dir, lib, ix) = crate::collection::tests::fixture("maps-importer");
+        let base = folder(&lib);
+        let no_game = base.join(NO_GAME);
+        write_pack(&no_game.join("Delta - Example Maps.atlaspack"), &format7("delta-example-maps", "Delta", "2026-11-17T08:30:00Z"), &[]);
+        sync(&ix, &lib).unwrap();
+        run(&ix, &lib, &auto_link_plan(&ix, &lib).unwrap().unwrap());
+        // the Importer writes Delta again where Game Repo put it, Gamma again beside the one
+        // it wrote before, and Alpha for the first time
+        let delta_part = base.join("Delta").join(format!("Delta - Example Maps.atlaspack{}", atlaspack::IMPORTER_PART));
+        let gamma = no_game.join("Gamma - Example Maps.atlaspack");
+        let gamma_part = no_game.join(format!("Gamma - Example Maps.atlaspack{}", atlaspack::IMPORTER_PART));
+        let alpha_part = no_game.join(format!("Alpha - Example Maps.atlaspack{}", atlaspack::IMPORTER_PART));
+        write_pack(&gamma, &format6("gamma-example-maps", "Gamma", "2026-11-10T08:30:00Z"), &[]);
+        write_pack(&delta_part, &format7("delta-example-maps", "Delta", "2026-11-19T08:30:00Z"), &[]);
+        write_pack(&gamma_part, &format6("gamma-example-maps", "Gamma", "2026-11-19T08:30:00Z"), &[]);
+        write_pack(&alpha_part, &format6("alpha-example-maps", "Alpha", "2026-11-19T08:30:00Z"), &[]);
+        let parts = [delta_part.clone(), gamma_part.clone(), alpha_part.clone()];
+        let stamp = |p: &Path| (std::fs::read(p).unwrap(), std::fs::metadata(p).unwrap().modified().unwrap());
+        let before: Vec<_> = parts.iter().map(|p| stamp(p)).collect();
+        let untouched = || assert_eq!(parts.iter().map(|p| stamp(p)).collect::<Vec<_>>(), before, "the Importer's files are as it left them");
+
+        // not shown or read: neither on the page nor in the index
+        let state = sync(&ix, &lib).unwrap();
+        assert_eq!(state.packs.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["delta-example-maps", "gamma-example-maps"]);
+        assert!(state.packs.iter().all(|p| p.copies.is_empty()) && state.unreadable.is_empty());
+        let n: i64 = ix.conn().query_row("SELECT COUNT(*) FROM atlas_packs WHERE path LIKE '%.atlas-importer.part'", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
+        assert!(!overview(&ix, &lib).unwrap().to_string().contains("atlas-importer"));
+        // Gamma, a sure match, waits while the Importer writes it again beside it
+        assert!(auto_link_plan(&ix, &lib).unwrap().is_none());
+        // Delta taken off its game: the pack goes back to No game yet, its title's folder stays,
+        // as it holds the Importer's file; Undo puts the pack back beside it
+        let r = run(&ix, &lib, &unlink(&ix, &lib, "delta-example-maps", None).unwrap().unwrap());
+        assert!(no_game.join("Delta - Example Maps.atlaspack").is_file() && base.join("Delta").is_dir());
+        untouched();
+        undo(&ix, &lib, r["id"].as_str().unwrap());
+        assert!(base.join("Delta").join("Delta - Example Maps.atlaspack").is_file());
+        // Remove… never takes one
+        assert!(remove_plan(&lib, &[format!("Delta/Delta - Example Maps.atlaspack{}", atlaspack::IMPORTER_PART)]).is_err());
+        // an import passes one over, picked or in a folder picked
+        let inbox = dir.join("inbox");
+        write_pack(&inbox.join(format!("Beta - Example Maps.atlaspack{}", atlaspack::IMPORTER_PART)), &format6("beta-example-maps", "Beta", "2026-11-19T08:30:00Z"), &[]);
+        assert!(read_items(&ix, &lib, &[inbox.clone()]).unwrap().is_empty());
+        assert!(read_items(&ix, &lib, &[inbox.join(format!("Beta - Example Maps.atlaspack{}", atlaspack::IMPORTER_PART))]).unwrap().is_empty());
+        untouched();
+        // the Importer renames Gamma's into place: read, and now linked
+        std::fs::rename(&gamma_part, &gamma).unwrap();
+        let state = sync(&ix, &lib).unwrap();
+        assert_eq!(state.pack("gamma-example-maps").unwrap().description().updated.as_deref(), Some("2026-11-19T08:30:00Z"));
+        run(&ix, &lib, &auto_link_plan(&ix, &lib).unwrap().unwrap());
+        assert!(base.join("Gamma").join("Gamma - Example Maps.atlaspack").is_file());
+        assert_eq!((stamp(&delta_part), stamp(&alpha_part)), (before[0].clone(), before[2].clone()));
+        // Open in Atlas off Windows with no Atlas set: nothing is registered for packs there
+        // (only Atlas's installer for Windows registers them), so it says to set Atlas
+        let rel = lib.relative(&base.join("Gamma").join("Gamma - Example Maps.atlaspack")).unwrap();
+        if !cfg!(windows) && crate::tools::find("atlas").is_none() {
+            assert_eq!(open_in_atlas(&lib, &rel).unwrap_err().to_string(), NO_ATLAS_HERE);
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -2269,12 +2269,23 @@ async def maps_page(pg, base, home, library):
     await pg.wait_for_selector('#maps-items .lib-tile[data-id="moss-harbour-other-maps"]', timeout=15000)
     kept = json.loads((maps / "packs.json").read_text()).get("packs", {}).get("moss-harbour-other-maps", {})
     check("a pack renamed by hand is found again by its packId, and keeps its game", kept.get("file") == "Moss Harbour/renamed by hand.atlaspack" and kept.get("games", [{}])[0].get("key") == "gb/Moss Harbour (USA)", kept)
-    # Open in Atlas: the program set in Settings › Tools, started with the pack's path (D221)
+    # Open in Atlas: the program set in Settings › Tools, started with the pack's path alone,
+    # its one argument (D221; Atlas's block A2); off Windows no program is registered for
+    # packs, so without Atlas set it says to set it
     if os.name != "nt":
         opened = home / "atlas-opened.txt"
         fake = home / "fake-atlas.sh"
-        fake.write_text(f"#!/bin/sh\nprintf '%s' \"$1\" > '{opened}'\n")
+        fake.write_text(f"#!/bin/sh\nprintf '%s|%s' \"$#\" \"$1\" > '{opened}'\n")
         fake.chmod(0o755)
+        await pg.click('#maps-items .lib-tile[data-id="lantern-valley-deluxe-example-maps"]')
+        before = len(errors)
+        await pg.click("#maps-panel-open")
+        await pg.wait_for_function("() => (document.querySelector('#toast')?.textContent || '').includes('Settings › Tools')", timeout=10000)
+        said = await pg.inner_text("#toast")
+        # the backend's refusal is this check's answer, not an error of the page
+        await asyncio.sleep(0.5)
+        errors[before:] = [e for e in errors[before:] if not ("status of 400" in e and "/invoke/api" in e)]
+        check("Open in Atlas with no Atlas set says to set where it is in Settings › Tools (no program is registered for packs off Windows)", "Set where Atlas is in Settings › Tools" in said and not opened.exists(), said)
         await pg.click('.sidebar a[href="#/settings"]')
         await pg.wait_for_selector('#tools li[data-tool="atlas"]')
         pick(fake, base)
@@ -2284,7 +2295,8 @@ async def maps_page(pg, base, home, library):
         await pg.click('#maps-items .lib-tile[data-id="lantern-valley-deluxe-example-maps"]')
         await pg.click("#maps-panel-open")
         await until(lambda: opened.is_file(), 10)
-        check("Open in Atlas starts the Atlas set in Settings › Tools with the pack's path", Path(opened.read_text()) == b_at, opened.read_text())
+        argc, _, first = opened.read_text().partition("|")
+        check("Open in Atlas starts the Atlas set in Settings › Tools with the pack's path as its one argument", argc == "1" and Path(first) == b_at, opened.read_text())
     # Remove…: the pack Game Repo can't read set aside, with Undo
     await pg.goto(base + "#/maps")
     future_tile = '#maps-items .lib-tile[data-id^="file:"]'

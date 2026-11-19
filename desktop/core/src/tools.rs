@@ -41,7 +41,7 @@ pub const TOOLS: &[Tool] = &[
     Tool {
         id: "atlas",
         names: &["Atlas", "atlas"],
-        what: "Shows a pack's maps, guides and wiki pages (Open in Atlas, in Maps and Guides). When it isn't set here or found, the program that opens .atlaspack files is used.",
+        what: "Shows a pack's maps, guides and wiki pages (Open in Atlas, in Maps and Guides), started with the pack's path. When it isn't set here, the program Windows opens .atlaspack files with is used (Atlas's installer registers them).",
     },
 ];
 
