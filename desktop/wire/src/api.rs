@@ -226,12 +226,17 @@ pub struct Pack {
     pub pack_id: String,
     /// The game's title it's for, else the pack's own title, else its file's name
     pub title: String,
-    /// The site it was read from (`source.name`, else `source.importer.title`)
+    /// The site it was read from (`source.name`, else `source.importer.title`), for a pack
+    /// read from a site (or one that doesn't say its sort)
     pub source: String,
-    /// For a pack from no site (a map made in Atlas or by Atlas Map Maker), the app it was
-    /// made in: "Atlas"
+    /// For a map made in an Atlas app or by Atlas Map Maker, the app it was made in: "Atlas"
+    /// (Atlas Importer's maps too) or "Atlas Map Maker"
     #[serde(skip_serializing_if = "String::is_empty")]
     pub made_in: String,
+    /// The sort of pack, by the contract's rule, in one word: site | made-in-atlas |
+    /// map-maker | app (one that came with an app); empty when it doesn't say
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub sort: String,
     /// It carries the maker's own things (`mine`), in plain words: "With your own locations
     /// and notes"
     #[serde(skip_serializing_if = "String::is_empty")]

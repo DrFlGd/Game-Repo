@@ -4,7 +4,9 @@
 //! /v1/games/<key>`'s `packs`) and added to its plan as files of their own when the device
 //! asks for them (`PlanAsk::packs`): role `pack`, place `atlas` (Atlas's packs folder,
 //! which the device knows), its file's name, size and SHA-1 (read once and remembered by
-//! size and time, as every file is), and its `packId`. A pack Game Repo can't read (a
+//! size and time, as every file is), its `packId`, and its `pack.updated` and `exportedAt`
+//! (so Go can leave out a pack when Atlas's folder holds a copy it didn't deliver that's as
+//! new or newer, "Maps and Guides notes, part 6"). A pack Game Repo can't read (a
 //! newer format) is sent as it is. Packs go to paired devices only, as every file does,
 //! and are never in an export to a folder or card.
 
@@ -48,8 +50,9 @@ pub fn info(p: &Linked) -> Pack {
     Pack {
         pack_id: p.pack_id.clone(),
         title: d.game_title().map(String::from).unwrap_or(stem),
-        source: d.source_name().unwrap_or_default().to_string(),
+        source: d.site().unwrap_or_default().to_string(),
         made_in: d.made_in().unwrap_or_default().to_string(),
+        sort: d.sort().map(|s| s.word().to_string()).unwrap_or_default(),
         own_things: d.own_things().unwrap_or_default(),
         file,
         size: p.size,
@@ -118,6 +121,8 @@ pub fn add(ix: &Index, lib: &Library, hashes: &Hashes, ask: &PlanAsk, keys: &[St
                 key: key.clone(),
                 role: ROLE.into(),
                 pack: p.pack_id.clone(),
+                pack_updated: p.description.updated.clone().unwrap_or_default(),
+                pack_exported_at: p.description.exported_at.clone().unwrap_or_default(),
                 url,
                 ..Default::default()
             });
@@ -125,4 +130,42 @@ pub fn add(ix: &Index, lib: &Library, hashes: &Hashes, ask: &PlanAsk, keys: &[St
     }
     hashes.want(hash);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gamerepo_core::atlaspack::Description;
+    use serde_json::json;
+
+    /// A made-up pack's description, from `source` and its writer (`pack.writtenBy.name`).
+    fn linked(id: &str, source: serde_json::Value, written_by: &str) -> Linked {
+        let description = Description::from_value(json!({
+            "format": "atlas-pack-file", "version": 5, "packId": id, "title": "Delta", "packVersion": "1.0.0",
+            "exportedAt": "2026-11-18T08:05:00Z", "exportedBy": { "name": written_by, "version": "0.23.0", "platform": "linux" },
+            "pack": { "id": id, "title": "Delta", "updated": "2026-11-18T08:00:00Z", "writtenBy": { "name": written_by, "version": "0.23.0" } },
+            "game": { "title": "Delta" }, "source": source,
+        }));
+        Linked { pack_id: id.into(), path: format!("Delta/{id}.atlaspack").into(), size: 1, games: vec![], description, error: None }
+    }
+
+    /// The sort of a pack as Game Repo Server tells a device, by the contract's rule: a map
+    /// made in Atlas Importer is made in Atlas, never "Atlas Importer"; a pack that came with
+    /// an app names no site and no app it was made in.
+    #[test]
+    fn a_device_is_told_the_sort_of_a_pack_by_the_contracts_rule() {
+        let said = |p: &Linked| {
+            let i = info(p);
+            (i.source, i.made_in, i.sort)
+        };
+        let s = |x: &str| x.to_string();
+        assert_eq!(said(&linked("delta-importer-map", json!({ "kind": "unknown" }), "Atlas Importer")), (s(""), s("Atlas"), s("made-in-atlas")));
+        assert_eq!(said(&linked("delta-atlas-map", json!({ "kind": "unknown" }), "Atlas")), (s(""), s("Atlas"), s("made-in-atlas")));
+        assert_eq!(said(&linked("delta-map-maker", json!({ "kind": "unknown" }), "Atlas Map Maker")), (s(""), s("Atlas Map Maker"), s("map-maker")));
+        assert_eq!(said(&linked("delta-app", json!({ "kind": "app", "name": "Delta Companion" }), "Atlas")), (s(""), s(""), s("app")));
+        assert_eq!(said(&linked("delta-example-maps", json!({ "kind": "web-pages", "name": "Example Maps" }), "Atlas Importer")), (s("Example Maps"), s(""), s("site")));
+        assert_eq!(said(&linked("delta-old", json!({ "importer": { "id": "example-maps", "title": "Example Maps" } }), "Atlas")), (s("Example Maps"), s(""), s("")));
+        let j = serde_json::to_value(info(&linked("delta-app", json!({ "kind": "app" }), "Atlas"))).unwrap();
+        assert_eq!((j["sort"].as_str(), j.get("made_in")), (Some("app"), None), "{j}");
+    }
 }

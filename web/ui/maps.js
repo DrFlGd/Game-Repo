@@ -63,8 +63,8 @@ export function packCounts(p) {
   ].filter(Boolean);
 }
 
-/** Where a pack is from: its site, or for a map made in Atlas or Atlas Map Maker (no site), "Made in Atlas". */
-export const packFrom = (p) => p.source_name || (p.made_in ? `Made in ${p.made_in}` : null);
+/** Where a pack is from, by the contract's rule (`Description::from_words`): its site, "Made in Atlas", "Made in Atlas Map Maker" or "Came with an app". */
+export const packFrom = (p) => p.from || null;
 
 /** What's said under a pack's title: where it's from, its counts, detail and size. */
 export const packFacts = (p) => [packFrom(p), ...packCounts(p), DETAIL[p.detail] ? `${DETAIL[p.detail]} detail` : null, size(p.size)].filter(Boolean).join(" · ");
@@ -178,7 +178,7 @@ function ImportDialog({ paths }) {
       <ul class="ls-list pc-items" id="maps-items">${items.map((it) => html`<li key=${it.path} class="pc-item" data-name=${it.name} data-state=${it.state} data-include=${it.include ? "yes" : "no"}>
         <label class="check-row pc-item-include"><input type="checkbox" data-action="include" aria-label=${`Import ${it.name}`} checked=${it.include} disabled=${it.state === "same" || it.state === "older"} onChange=${(e) => set(it.path, { include: e.target.checked })} /></label>
         <div class="pc-item-main">
-          <span class="pc-item-name" title=${it.path}>${it.title || it.name} <span class="muted">${[it.source || (it.made_in ? `Made in ${it.made_in}` : null), it.own_things, size(it.size)].filter(Boolean).join(" · ")}</span></span>
+          <span class="pc-item-name" title=${it.path}>${it.title || it.name} <span class="muted">${[it.from, it.own_things, size(it.size)].filter(Boolean).join(" · ")}</span></span>
           ${it.to_name && it.to_name !== it.name ? html`<span class="muted maps-item-to">Named ${it.to_name}</span>` : null}
           ${it.error ? html`<span class="warn-note maps-item-error">${it.error} It's brought in all the same, and read once Game Repo can.</span>` : null}
           ${STATE[it.state] ? html`<span class="muted maps-item-state">${STATE[it.state]}</span>` : null}

@@ -695,9 +695,13 @@ pub struct Item {
     pub size: u64,
     pub pack_id: Option<String>,
     pub title: Option<String>,
+    /// The site it was read from (`atlaspack::Description::site`)
     pub source: Option<String>,
-    /// For a pack from no site, the app it was made in ("Atlas")
+    /// For a map made in Atlas or by Atlas Map Maker, the app it was made in ("Atlas")
     pub made_in: Option<String>,
+    /// Where it's from, as a card says it: the site's name, "Made in Atlas", "Came with an
+    /// app" (`atlaspack::Description::from_words`)
+    pub from: Option<String>,
     /// "With your own locations and notes", when it carries the maker's own things
     pub own_things: Option<String>,
     pub version: Option<u64>,
@@ -748,8 +752,9 @@ pub fn read_items(ix: &Index, lib: &Library, paths: &[PathBuf]) -> Result<Vec<It
             Ok(d) => {
                 it.pack_id = d.pack_id.clone();
                 it.title = d.game_title().map(String::from);
-                it.source = d.source_name().map(String::from);
+                it.source = d.site().map(String::from);
                 it.made_in = d.made_in().map(String::from);
+                it.from = d.from_words();
                 it.own_things = d.own_things();
                 it.version = Some(d.version);
                 it.to_name = if named_as_contract(&name) { name.clone() } else { d.file_name().map(|n| safe_name(&n)).unwrap_or_else(|| name.clone()) };
@@ -1417,8 +1422,9 @@ mod tests {
         let by = |n: &str| items.iter().find(|i| i.name == n).cloned().unwrap();
         let made = by("export-77.atlaspack");
         assert_eq!((made.to_name.as_str(), made.source.as_deref(), made.made_in.as_deref()), ("Delta.atlaspack", None, Some("Atlas")), "named by its game alone");
-        assert_eq!(made.own_things.as_deref(), Some("With your own locations, types and notes"));
+        assert_eq!((made.own_things.as_deref(), made.from.as_deref()), (Some("With your own locations, types and notes"), Some("Made in Atlas")));
         let mm = by("Beta.atlaspack");
+        assert_eq!(mm.from.as_deref(), Some("Made in Atlas Map Maker"));
         assert_eq!((mm.to_name.as_str(), mm.made_in.as_deref(), mm.own_things.as_deref()), ("Beta.atlaspack", Some("Atlas Map Maker"), None));
         // copied (never hardlinked here), then matched by the game's title and linked
         let plan = import_plan(&lib, &items, "copy", true).unwrap();
@@ -1435,7 +1441,8 @@ mod tests {
         let delta = card("delta-my-map");
         assert_eq!((delta["source_name"].clone(), delta["made_in"].clone(), delta["own_things"].clone()), (Value::Null, json!("Atlas"), json!("With your own locations, types and notes")), "{delta}");
         assert_eq!((delta["file"].as_str(), delta["games"][0]["title"].as_str()), (Some("Delta/Delta.atlaspack"), Some("Delta")), "{delta}");
-        assert_eq!(card("beta-map-maker")["made_in"], "Atlas Map Maker");
+        assert_eq!((delta["sort"].as_str(), delta["from"].as_str()), (Some("made-in-atlas"), Some("Made in Atlas")), "{delta}");
+        assert_eq!((card("beta-map-maker")["made_in"].as_str(), card("beta-map-maker")["from"].as_str()), (Some("Atlas Map Maker"), Some("Made in Atlas Map Maker")));
         // Game Repo Server takes it as it is, for a device
         let linked = linked(&ix, &lib).unwrap();
         let l = linked.iter().find(|l| l.pack_id == "delta-my-map").unwrap();

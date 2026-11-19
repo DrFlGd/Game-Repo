@@ -7237,8 +7237,12 @@ and the library's SHA-1 it was kept over, so it's not fetched again); the game's
 *Newer on this device: kept*, and unticking never takes it out. The one coming newer: it
 replaces the file there, even one written again since Go delivered it (a pack Atlas rewrote
 is expected now). Either one that can't be read as the pack: the rules above (Go replaces
-only a file it delivered, unchanged). Carrying a newer file on a device back to the library
-is open in the contract, and not built.
+only a file it delivered, unchanged). Revised again 2026-11-19 ("Maps and Guides notes, part
+6"): a newer file on a device stays there and nothing travels back to the library (Jerred's
+decision, for now; the contract says first if that changes). And before Go fetches a pack it
+doesn't have, a copy of it in the packs folder that Go didn't deliver, as new as the
+library's or newer, means Go's isn't fetched (Atlas would show that copy); that copy is never
+replaced, moved or removed.
 
 **D223 What's left out for now.** Guidebooks (the `Guidebooks/` folder under a title, their
 text, and the guidebook pack Game Repo would make with the crate's writer: draft, block A8),
@@ -7247,7 +7251,8 @@ starting Atlas in the background on a device's game (`--show-pack`, `--show-game
 (block A10), handing a pack to Atlas on Android (trial T2), a small file of Game Repo's
 details beside a pack (not designed), and a lighter copy of a pack for a small device (not
 scheduled). Nothing is fetched on account of a pack: the addresses in `source.pages` are
-never requested, for a picture, a title or anything else.
+never requested, for a picture, a title or anything else. A newer pack on a device is never carried back
+to the library (Jerred, 2026-11-19: nothing to build, for now).
 
 ### Maps and Guides notes, part 1: the section (built 2026-11-19)
 
@@ -7589,7 +7594,8 @@ new rule for Go. What changed here:
   `No game yet` as `GAME TITLE.atlaspack`; its description names no site (`source.kind`
   `unknown`, no `source.name`, no importer) and says who wrote it in `pack.writtenBy`.
   `Description::made_in` is `pack.writtenBy.name`, else `exportedBy.name`, for a pack that
-  names no site and isn't `web-pages`; the card, the panel, the import review, a game's page,
+  names no site and isn't `web-pages` (replaced in part 6 by the contract's rule for the sort
+  of a pack); the card, the panel, the import review, a game's page,
   the Site filter, Game Repo Server's game details (`api::Pack.made_in`) and Go's page say
   *Made in Atlas* (or *Made in Atlas Map Maker*) where a site's name would be. The import
   names such a file `<game title>.atlaspack` (`file_name` already left the site out when
@@ -7634,7 +7640,8 @@ new rule for Go. What changed here:
   put an older pack over a newer one; it's unchanged. A file of the pack's name that Go
   didn't deliver is still never written over, nor compared.
 - Not built, open in the contract: carrying a newer file on a device back to the library.
-  The record keeps `newer_here` for when it's agreed.
+  The record keeps `newer_here` for when it's agreed. (Settled in part 6: nothing travels
+  back, Jerred's decision.)
 - Also: `atlas_importers_unfinished_files_are_never_shown_read_moved_or_removed` could fail
   when the Importer's file renamed into place had the same size and time as the one it
   replaced (the index remembers a file by both); the test now gives it a later time.
@@ -7664,6 +7671,79 @@ new rule for Go. What changed here:
   own build may write a made map's manifest as "Atlas Importer"), or will the description
   say which of the three sorts a pack is? And when Go keeps a newer file on a device, is
   there anything Atlas wants Go to do with the library's older copy beyond leaving it?
+
+### Maps and Guides notes, part 6: the sort of a pack and copies Go didn't deliver (built 2026-11-19)
+
+The contract's entries after rev 33 (rev 35, 2026-11-19) answer part 5's questions; Atlas
+didn't change and the tag stays `v0.23.0`. What changed here:
+- The sort of a pack, by Atlas's rule (its answer 1, safe to build on for 0.23.0's packs):
+  `source.kind` `web-pages` is a pack read from a site; `pack.writtenBy.name` exactly
+  "Atlas Map Maker" one made by Map Maker; `source.kind` `unknown` with another writer a map
+  made in an Atlas app (Atlas Importer writes its own maps' manifests as "Atlas Importer",
+  so `writtenBy` alone can't say it); `source.kind` `app` a pack that came with an app.
+  Never by `writtenBy` alone, and never by `mine` (a pack exported by hand can carry your
+  own things whatever its sort). In `atlaspack.rs`: `Sort` (`Site`, `MadeInAtlas`,
+  `MapMaker`, `App`, each with its one `word`: site, made-in-atlas, map-maker, app) and
+  `Description::sort`, the rule in one place, in the order above (a pack that's
+  `web-pages` is a site's whoever wrote it); `made_in` is now "Atlas" or "Atlas Map Maker"
+  from the sort (never "Atlas Importer", and no longer `exportedBy.name`); `site` is the
+  site's name only for a site's pack or one whose sort isn't said; `from_words` is what a
+  card says: the site's name, *Made in Atlas*, *Made in Atlas Map Maker* or *Came with an
+  app*, nothing for any other kind with no site's name. The card JSON gains `sort`, `site`
+  and `from`; the desktop page (cards, panel, Site filter and column, a game's page, via
+  `packFrom`) and the import review (`maps::Item.from`) show `from`. Game Repo Server's
+  `api::Pack` gains `sort` (its one word), `source` is `site`, and `made_in` follows the
+  rule; Go's page says *from <site>*, *made in Atlas*, *made in Atlas Map Maker* or *came
+  with an app*. *With your own …* stays a line of its own. `file_name` still names a pack
+  by `source_name` (the contract's naming). Atlas plans an optional field naming the sort
+  in one word (site, made-in-atlas or map-maker; its name to be announced in the contract
+  first): `Description::sort` is where it's read first, with `Sort::from_word`, the rule
+  staying for files without it.
+- Copies Go didn't deliver (answer 3, the saving Go may make): built, in
+  `gamerepo-device`'s `packs.rs`. Game Repo Server's plan gives each pack's
+  `pack.updated` and `exportedAt` (`gamerepo_wire::File.pack_updated`,
+  `pack_exported_at`). In `to_fetch`, a pack Go doesn't have here (`packs::there` false)
+  is looked for once more just before it would be fetched: `theirs_instead` lists the
+  packs folder's `.atlaspack` files as far as Atlas reads (`pack_files`: 4 folders down,
+  1,000 files, shallower folders first, by name; never a `.part` or
+  `.atlas-importer.part`, a hidden name or a link), leaves out the files in Go's record,
+  reads each one's description with Atlas's crate, and takes the newest of the same
+  `packId`; when it's as new as the library's or newer (`gamerepo_wire::packs::newer`, the
+  plan's dates), Go's isn't fetched. The record notes it (`Record.theirs`: the pack, the
+  library's dates, the copy's path, size and time it was last changed, and whether it's
+  newer), and `there` takes the plan's pack as here while the library's dates are the same
+  and the copy is unchanged, so the folder isn't read again on every sync and there's no
+  download loop; a copy that changes or goes, or a library file that changes, is looked
+  at again. A plan without the dates (an older server) fetches as before. The copy is never
+  replaced, moved or removed (`take_off` touches only Go's own), and a delivery clears the
+  note. The game's page says *A newer copy* (or *The same version*) *is in Atlas's packs
+  folder already (<file>), one Game Repo Go didn't put there. Atlas shows that one, so Go
+  leaves it as it is and doesn't download its own.*, and doesn't offer to download it.
+- Jerred's decision (answer 2, 2026-11-19 12:15): a pack changed on a device stays on the
+  device for now. When Go keeps a newer file there, it leaves it, and leaves the library's
+  older copy as it is; nothing travels back into the library, by itself or on a press.
+  Nothing to build; the contract will say first if that changes. D222 and D223 now say so,
+  and carrying a newer pack back is no longer listed as work waiting for the contract.
+- Tests: `core` `atlaspack`
+  (`the_sort_of_a_pack_is_told_by_the_contracts_rule`: a site's pack, one that names no
+  site, made in Atlas, made in Atlas Importer (*Made in Atlas*, never *Atlas Importer*),
+  one with a site's name and kind `unknown`, Map Maker by its exact name only, a pack that
+  came with an app (its own things on their own line), other kinds, a writer alone, each
+  word read back), `core` `maps` (the import review's and the card's `from` and `sort`),
+  `serve` `packs` (`a_device_is_told_the_sort_of_a_pack_by_the_contracts_rule`: the
+  server's `source`, `made_in` and `sort` for each sort), `serve` `tests/client.rs` (the
+  plan's pack dates; a newer copy put in the packs folder by hand means the library's next
+  file isn't fetched, nothing there changes, and the page's `theirs`), `device` `packs`
+  (`a_copy_go_didnt_deliver_as_new_or_newer_isnt_fetched_over_and_is_never_touched`:
+  `.part` and `.atlas-importer.part` files, one five folders down, another pack, a file
+  that isn't a pack and an older copy not counted; the same version four folders down
+  counted and noted, taken as there without the SHA-1, an undated plan fetched, the copy
+  changed and read again, a newer library file delivered beside it, Go's own file never
+  taken as another's, never removed by an untick, gone and then fetched;
+  `go_looks_for_copies_as_far_as_atlas_reads`: the depth, the names and the 1,000 files).
+  Made-up packs only.
+- Nothing asked of the Atlas side now; when the one-word field is announced, its name goes
+  into `Description::sort`.
 
 
 
@@ -7938,8 +8018,11 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     left alone, renames tried again): built ("Maps and Guides notes, part 4"); part 5, Atlas
     0.23.0 by its tag, maps made in Atlas (packs from no site, the maker's own things) and
     Go never putting an older pack over a newer one (D222 revised): built ("Maps and Guides
-    notes, part 5"). Guidebooks, starting Atlas on a device's game, your data beside a pack,
-    carrying a newer pack on a device back, and Android wait for the contract (D223).
+    notes, part 5"); part 6, the sort of a pack by the contract's rule and Go leaving out a
+    pack when a copy it didn't deliver is as new or newer: built ("Maps and Guides notes,
+    part 6"). A newer pack on a device stays there (Jerred, 2026-11-19: nothing travels
+    back). Guidebooks, starting Atlas on a device's game, your data beside a pack, and
+    Android wait for the contract (D223).
 31. Not picked yet (Jerred chooses the next): the rest of 9d (the server on Unraid, access
     away from home over Tailscale, pairing by QR code, downloads on Wi-Fi only),
     Android games (APKs), and GOG installers on devices
