@@ -1,0 +1,9 @@
+Game Repo Go's pages on http://127.0.0.1:63185/ (ES-DE looked for in D:\a\_temp\go-page\phone, the client's folder D:\a\_temp\go-page\go-data)
+pair {"address":"127.0.0.1:63183","code":"000000"}: That isn't the code Game Repo shows.
+/invoke/api: An established connection was aborted by the software in your host machine. (os error 10053)
+/invoke/api: An established connection was aborted by the software in your host machine. (os error 10053)
+/invoke/api: An established connection was aborted by the software in your host machine. (os error 10053)
+/invoke/api: An established connection was aborted by the software in your host machine. (os error 10053)
+/picture/nes/Echo%20(USA)/cover: An established connection was aborted by the software in your host machine. (os error 10053)
+/picture/gb/Alpha%20(USA)/cover: An established connection was aborted by the software in your host machine. (os error 10053)
+/picture/gb/Beta%20(Europe)/cover: An established connection was aborted by the software in your host machine. (os error 10053)
