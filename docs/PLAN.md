@@ -7839,6 +7839,97 @@ ask, followed unless he says otherwise:
   for `.atlaspack` (and a desktop entry that takes `%F`), the contract can name it, and Go
   would ask `xdg-mime query default <type>` for the desktop entry and read its `Exec`.
 
+### Maps and Guides notes, part 8: maps and guides on their own on Game Repo Go (D225–D229, built 2026-11-20)
+
+The contract's revision 38 (Jerred, 2026-11-19): Game Repo Go offers every pack the library
+holds, not only a game's, so maps of a game installed some other way (Steam's, say) can go
+to Atlas too. Claude's defaults for the rest, followed unless he says otherwise.
+
+**D225 Maps and guides, a page of Game Repo Go's own.**
+- On Windows and Linux (the Steam Deck included), beside the games: *Maps and guides* in the
+  menu after *Library* (the classic view's side or bottom bar, and a tab of the big screen's,
+  where L1/R1 go through it). Not on Android: trial T2 of the contract, which says how a
+  pack reaches Atlas there, is still open (the page leaves it out by the shell's kind, the
+  backend by `packs_offered`, as for a game's packs, D222).
+- Every pack the library holds, linked to a game or not (in `No game yet`), grouped under a
+  title: the library's title of the first game it's linked to, else the `game.title` its
+  description names, else its folder's name (`No game yet` for a pack with neither). The
+  groups in order of that title, the packs in a group by their own title. A search box
+  matches every word against the pack's title, the group's, where it's from, its system and
+  its games' titles; Esc clears it.
+- Each pack: its picture (its own cover, else the one chosen for it in Game Repo, else a map
+  icon), its title, where it's from (as a game's page says it), its system, its size, what
+  it holds, the maker's own things and *For your own use only* as on a game's page, and where
+  it stands here: *In Atlas's packs folder* (with the games of this device that have it
+  ticked), *Installed on its own*, *Newer on this device: kept*, a copy Go didn't put there
+  (part 6), *Coming: see Downloads*, *The library has a newer copy*. *Install · size* when
+  it isn't here; *Keep on its own* when it's here only for a game; *Remove* when it's
+  installed on its own; *Show in Atlas* (by its packId, D224's rules) when it's here.
+- The setting *Maps and guides for Atlas* doesn't gate it: that setting brings each game's
+  ticked packs with the game, and Install is an ask of its own (the page says so when the
+  setting is off). The packs folder is the one Settings names, as for a game's packs.
+- The library's list is kept on the device (`packs-library.json`), so the page shows it with
+  the library away, saying from when, with *Try again*. A library on a Game Repo too old for
+  the list is named as such.
+
+**D226 Game Repo Server's routes for packs on their own.**
+- `GET /v1/packs`: every pack in the library's Maps and Guides section that Game Repo can
+  read (`maps::sync`, as the section reads them), as `PackList { items: [LibraryPack],
+  unreadable }` (`gamerepo_wire::api`): the pack as a game's list gives it (`Pack`), with
+  `exported_at`, the group's title, its system, its games (`PackGame`: catalogue key, title,
+  system) and its cover's address. One the server can't read (damaged, a refused format) is
+  left out and counted, never offered on its own; a game linked to it still gets it as
+  before. Only the file the section lists is offered (another copy of a packId isn't).
+- `GET`/`HEAD /v1/packs/<packId>/file`: the file, with ranges, resume, `?sha1` and the
+  download slots, through the same code as `/v1/files` (`send_file`, moved out of
+  `files_route`). `GET /v1/packs/<packId>/cover?size=128|256|512`: the cover the section
+  shows (`maps::preview_file`), else the picture chosen for it, as a JPEG; the address
+  carries a mark of the file (`?v=`, its path, size, time and picture) so a changed cover is
+  fetched again. An unknown or malformed packId is a 404.
+- Planning: `PlanAsk.pack_ids` (with no games) plans just those packs (`packs::add_alone`),
+  each a file placed `atlas` with role `pack`, its dates and `game` (the group's title), as a
+  game's packs are planned (D222). No new switch on the desktop: the routes are part of
+  *Serve to devices*.
+
+**D227 Installed on its own: one file, kept whatever happens to the games.**
+- Go's record (`packs.json`) gains `alone`, the packIds put there on its own. Install adds a
+  Downloads item keyed `pack:<packId>` (`queue::Item.pack`), packs only, which plans the
+  pack by id and puts it in place by the usual rules (part 5 and 6: a `.part` then renamed,
+  never an older one over a newer, a copy Go didn't deliver left as it is and Go's left out),
+  then marks it alone. A pack already there for a game is the same file: one entry in
+  `delivered`, marked alone too, nothing fetched (*Keep on its own*).
+- A game's pack unticked, or the game removed: the file stays while it's alone
+  (`packs::take_off`). The game's page says *Installed on its own* beside its tick.
+
+**D228 Remove.** The pack is no longer kept on its own (always), and its file is taken out
+of Atlas's packs folder only when it's Go's and as Go put it: kept, and said so, when a game
+this device has still has it ticked (*… on this device has it ticked*), when Atlas changed it
+since (kept over the library's, or its SHA-1 changed), or when the copy there isn't Go's.
+What's coming of it in Downloads is cancelled. `packs::remove_alone`, its answer
+`removed`, `kept_for` (with the games), `changed`, `not_gos` or `gone`.
+
+**D229 Newer copies.** After each read of the library (`start_sync`), a pack kept on its own
+whose library copy is newer than the file here (`pack.updated`, then `exportedAt`, by
+`gamerepo_wire::packs::newer`) comes again through Downloads and is put in place by the usual
+rules, so never an older one over a newer one, and one Atlas wrote again here isn't touched.
+A pack that's here only for a game still comes again only when the game is downloaded again
+(as before, D222). No Wi-Fi-only rule: Go has none yet, and these go through the same queue.
+
+Tests: `serve` `client`
+(`maps_and_guides_on_their_own_are_listed_by_game_installed_and_taken_off_without_a_game`:
+the list grouped by the library's game and by `game.title`, an unreadable pack counted and
+left out, the cover, the file with a range and `?sha1`, a 404; then Go with the setting off:
+Install, one file shared with a game's, unticking and removing the game keep it, Remove kept
+for a game that has it ticked, then removed; Show in Atlas by packId; a newer library copy
+fetched after a read, Atlas's newer one here left as it is and Remove saying it changed; the
+list kept for when the library is away); `device` `packs`
+(`a_pack_on_its_own_is_one_file_with_a_games_and_stays_while_a_game_here_wants_it`,
+`the_librarys_copy_is_fetched_again_only_when_its_newer_than_the_file_here`);
+`client_page.py` 13d (in the menu on Windows and Linux, not on Android; grouped by the
+library's game and by `game.title`; the search; Install into Atlas's packs folder with the
+setting off; the game downloaded and removed, the pack left; Remove takes it off; a tab of
+the big screen's). Made-up packs only, not Atlas itself.
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -7985,7 +8076,7 @@ ask, followed unless he says otherwise:
   another device. Taken as asked; Phase 5b ("Phase 5b design", BIOS files), with D41
   proposed.
 
-D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D225). D224 is in "Maps and Guides notes, part 7" (2026-11-19), Claude's default for Jerred's ask (*Show in Atlas* on Game Repo Go, Atlas 0.24.0's tag), followed unless he says otherwise. D214–D223 are in "Maps and Guides: Atlas packs" (2026-11-19), Claude's defaults for building Game Repo's side of the Atlas pack contract, Jerred's ask, followed unless he says otherwise. D207–D213 are in "Mods on installed games, putting a game back, FOMOD and Nexus Mods" (2026-11-01), Claude's defaults for Jerred's ask, followed unless he says otherwise. D197–D206 are in "Cheats and patches" (2026-10-31), Claude's defaults for Jerred's ask (D201, a patched game kept as a variant, his choice on the card), followed unless he says otherwise. D196 is in "Save sync notes, part 9: Switch, Wii U and PlayStation 3 emulators" (2026-10-31), Claude's defaults for the emulators Jerred's go-ahead asked for. D195 is in "Save sync notes, part 8: saves not matched" (2026-10-31), Claude's default for D183's last step, built as Jerred's go-ahead on the remaining save sync work asked. D192–D194 are in "Save sync notes, part 4: emulators of their own" (2026-10-26), Jerred's ask (PPSSPP, Dolphin, ARMSX2 and the other popular emulators, folders set in Go) with Claude's defaults for the rest, followed unless he says otherwise. D180–D191 are in "Save sync and the Devices page" (2026-10-26), Claude's defaults for Jerred's ask, D190 (phones over USB) his choice of Claude's recommendation, the rest followed unless he says otherwise. D179 is in "Setting up Tailscale on the Steam Deck" (2026-10-24), Jerred's agreement to Claude's suggestion, revised and built on 2026-10-25 as he asked (the installer in the app, Game Repo's own since the community script has no licence), with Claude's defaults for the details. D177–D178 are in "The October 2026 review's fixes, convert on import and tool downloads" (2026-10-24): Jerred's asks, with his choice to download and verify the tools (Tesseract's page), the rest Claude's defaults, followed unless he says otherwise. D174–D176 are in "Games on several discs as one" (2026-10-23), Jerred's ask with his choice of a CHD per disc and a playlist, and Claude's defaults for the rest, followed unless he says otherwise. D172–D173 are in "Updating every system's DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D168–D171 are in "Set aside in History, PC games as a shelf, the Documents grid, a collection's systems" (2026-10-23), Claude's defaults for Jerred's list, followed unless he says otherwise. D165–D167 are in "Adding a system, PlayStation 5 and Redump's own DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
+D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D230). D225–D229 are in "Maps and Guides notes, part 8" (2026-11-20), Claude's defaults for the contract's revision 38 (maps and guides on their own on Game Repo Go, Jerred's ask), followed unless he says otherwise. D224 is in "Maps and Guides notes, part 7" (2026-11-19), Claude's default for Jerred's ask (*Show in Atlas* on Game Repo Go, Atlas 0.24.0's tag), followed unless he says otherwise. D214–D223 are in "Maps and Guides: Atlas packs" (2026-11-19), Claude's defaults for building Game Repo's side of the Atlas pack contract, Jerred's ask, followed unless he says otherwise. D207–D213 are in "Mods on installed games, putting a game back, FOMOD and Nexus Mods" (2026-11-01), Claude's defaults for Jerred's ask, followed unless he says otherwise. D197–D206 are in "Cheats and patches" (2026-10-31), Claude's defaults for Jerred's ask (D201, a patched game kept as a variant, his choice on the card), followed unless he says otherwise. D196 is in "Save sync notes, part 9: Switch, Wii U and PlayStation 3 emulators" (2026-10-31), Claude's defaults for the emulators Jerred's go-ahead asked for. D195 is in "Save sync notes, part 8: saves not matched" (2026-10-31), Claude's default for D183's last step, built as Jerred's go-ahead on the remaining save sync work asked. D192–D194 are in "Save sync notes, part 4: emulators of their own" (2026-10-26), Jerred's ask (PPSSPP, Dolphin, ARMSX2 and the other popular emulators, folders set in Go) with Claude's defaults for the rest, followed unless he says otherwise. D180–D191 are in "Save sync and the Devices page" (2026-10-26), Claude's defaults for Jerred's ask, D190 (phones over USB) his choice of Claude's recommendation, the rest followed unless he says otherwise. D179 is in "Setting up Tailscale on the Steam Deck" (2026-10-24), Jerred's agreement to Claude's suggestion, revised and built on 2026-10-25 as he asked (the installer in the app, Game Repo's own since the community script has no licence), with Claude's defaults for the details. D177–D178 are in "The October 2026 review's fixes, convert on import and tool downloads" (2026-10-24): Jerred's asks, with his choice to download and verify the tools (Tesseract's page), the rest Claude's defaults, followed unless he says otherwise. D174–D176 are in "Games on several discs as one" (2026-10-23), Jerred's ask with his choice of a CHD per disc and a playlist, and Claude's defaults for the rest, followed unless he says otherwise. D172–D173 are in "Updating every system's DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D168–D171 are in "Set aside in History, PC games as a shelf, the Documents grid, a collection's systems" (2026-10-23), Claude's defaults for Jerred's list, followed unless he says otherwise. D165–D167 are in "Adding a system, PlayStation 5 and Redump's own DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
 ---
 
@@ -8115,7 +8206,9 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     notes, part 5"); part 6, the sort of a pack by the contract's rule and Go leaving out a
     pack when a copy it didn't deliver is as new or newer: built ("Maps and Guides notes,
     part 6"); part 7, Atlas 0.24.0 by its tag and *Show in Atlas* on Game Repo Go (D224):
-    built ("Maps and Guides notes, part 7"). A newer pack on a device stays there (Jerred,
+    built ("Maps and Guides notes, part 7"); part 8, every pack in the library on Game
+    Repo Go's own *Maps and guides* page, installed on its own (D225–D229, the contract's
+    revision 38): built ("Maps and Guides notes, part 8"). A newer pack on a device stays there (Jerred,
     2026-11-19: nothing travels back). Guidebooks, starting Atlas by itself beside a device's
     game (`--background`, trial T3), your data beside a pack, and Android wait for the
     contract (D223, D224).

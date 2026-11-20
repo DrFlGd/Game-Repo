@@ -215,6 +215,11 @@ pub struct PlanAsk {
     /// game's page
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub packs_left: Vec<(String, Vec<String>)>,
+    /// Packs of maps and guides asked for on their own, by their `packId`s, with no game
+    /// (Game Repo Go's Maps and guides, D225): each into Atlas's packs folder (place
+    /// `atlas`), its plan's file with no game's key. Only with `games` empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub pack_ids: Vec<String>,
 }
 
 /// A pack of a game's maps and guides for Atlas (D222), as `GET /v1/games/<key>` lists it
@@ -262,6 +267,58 @@ pub struct Pack {
     /// the Atlas on the device may be newer
     #[serde(skip_serializing_if = "String::is_empty")]
     pub error: String,
+}
+
+/// `GET /v1/packs` (D225): every pack of maps and guides the library holds that Game Repo can
+/// read, linked to a game or not (`No game yet` too), for Game Repo Go's Maps and guides,
+/// where each can be put in Atlas's packs folder on its own.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct PackList {
+    pub items: Vec<LibraryPack>,
+    /// Pack files Game Repo can't read (damaged, or a newer format), left out of the list:
+    /// one linked to a game still goes with the game as it is (D222)
+    pub unreadable: u64,
+}
+
+/// A pack the library holds, as `GET /v1/packs` lists it: what a game's page shows of it
+/// (`Pack`), and what it's grouped and found by.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct LibraryPack {
+    #[serde(flatten)]
+    pub pack: Pack,
+    /// When its file was written (`exportedAt`), beside `pack.updated` (`pack.updated`):
+    /// which of two files of a pack is newer goes by both (`packs::newer`)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub exported_at: String,
+    /// The title it's grouped under: the library's title of the game it's linked to, else
+    /// the game its description names (`game.title`), else its folder's name (`No game yet`)
+    pub group: String,
+    /// The system it's for, in words, when known: its game's, else its description's
+    /// (`game.system`)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub system: String,
+    /// The library's games it's linked to
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub games: Vec<PackGame>,
+    /// Where its picture is fetched (`/v1/packs/<packId>/cover?v=<mark>`, the mark changing
+    /// with its file); empty: it has none
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub cover: String,
+}
+
+/// A game a pack is linked to in the library.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct PackGame {
+    /// The catalogue's key (empty: the game isn't one the server gives devices, such as one
+    /// the library has only some files of)
+    pub key: String,
+    /// Its title in the library
+    pub title: String,
+    /// Its system, in words
+    pub system: String,
 }
 
 /// A media kind's size for the games asked for, asked for or not (C13, D88), so a device

@@ -3,7 +3,7 @@
 // hints along the bottom, saying what the focused thing does; the Library as shelves of box
 // fronts, one per system, a system's every game a grid (the classic view's, larger); a game's
 // page with its picture large behind it; Options (☰) and the lists (a <select>) as panels
-// from the right, as every dialog is. Downloads, On this device and Settings are the classic
+// from the right, as every dialog is. Maps and guides, Downloads, On this device and Settings are the classic
 // view's pages, made larger (client.css). Touch works on all of it, for phones, where the
 // tabs go along the bottom instead.
 import { html, useState, useEffect, useRef } from "../lib/html.js";
@@ -18,13 +18,17 @@ import { LIBRARY_ORDERS } from "./library.js";
 import { DEVICE_ORDERS } from "./device.js";
 import { focusFirst, show } from "./keys.js";
 import { ShowInAtlas, showPacks } from "./packs.js";
+import { showMaps } from "./maps.js";
 
 export const TABS = [
   ["library", "Library", Icon.gamepad],
+  ["maps", "Maps and guides", Icon.map],
   ["queue", "Downloads", Icon.download],
   ["device", "On this device", Icon.monitor],
   ["settings", "Settings", Icon.cog],
 ];
+/** The tabs shown: Maps and guides only where packs go to Atlas (D225). */
+const tabs = (status = go.get().status) => TABS.filter(([p]) => p !== "maps" || showMaps(status));
 const tabOf = (page) => (page === "game" || page === "games" ? "library" : page);
 const SHELF = 15;   // games on a shelf before its All
 
@@ -34,8 +38,9 @@ const SHELF = 15;   // games on a shelf before its All
  *  the route follows on "hashchange", after a second quick press). */
 export function page(by) {
   const now = tabOf(routeOf(location.hash).page);
-  const here = TABS.findIndex(([p]) => p === now);
-  const next = TABS[Math.max(0, Math.min(TABS.length - 1, here + by))][0];
+  const all = tabs();
+  const here = all.findIndex(([p]) => p === now);
+  const next = all[Math.max(0, Math.min(all.length - 1, here + by))][0];
   if (next !== now) open({ page: next });
 }
 
@@ -73,12 +78,13 @@ export function BigBar({ route, status }) {
   const pct = busy && q.size ? Math.floor((q.done * 100) / q.size) : 0;
   const free = status?.device?.free;
   const name = TABS.find(([p]) => p === here)?.[1] || "";
+  const shown = tabs(status);
   return html`<header class="go-big-bar" id="go-big-bar">
     <a class="go-big-brand" href="#library" tabindex="-1">Game Repo Go</a>
     <span class="go-big-here">${name}</span>
     <nav class="go-tabs" aria-label="Pages">
       <button type="button" class="go-pad go-pad-shoulder" tabindex="-1" title="The page before" onClick=${() => page(-1)}>L1</button>
-      ${TABS.map(([p, label, icon]) => html`<a class="go-tab" href=${`#${p}`} id=${`go-nav-${p}`} tabindex="-1" aria-current=${here === p ? "page" : null}>
+      ${shown.map(([p, label, icon]) => html`<a class="go-tab" href=${`#${p}`} id=${`go-nav-${p}`} tabindex="-1" aria-current=${here === p ? "page" : null}>
         ${icon(22)}<span>${label}</span>${p === "queue" && n ? html`<span class="go-nav-n" aria-label=${q.left ? `${n} to come` : `${n} queued`}>${n}</span>` : null}</a>`)}
       <button type="button" class="go-pad go-pad-shoulder" tabindex="-1" title="The page after" onClick=${() => page(1)}>R1</button>
     </nav>

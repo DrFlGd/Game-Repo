@@ -1484,3 +1484,207 @@ fn go_on_linux_moves_the_packs_it_put_in_the_old_folder_into_atlass_own() {
     assert_eq!((st["atlas"]["folder"].as_str(), st["atlas"]["default"].as_bool()), (mine.to_str(), Some(false)), "{st}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A pack with a small picture as its cover (format 7; synthetic): its description, then the
+/// picture right behind it, as Atlas writes one.
+fn write_pack_with_cover(path: &Path, id: &str, game: &str, updated: &str, cover: &[u8]) {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let description = json!({
+        "format": "atlas-pack-file", "version": 7, "packId": id, "title": game, "packVersion": "1.0.0", "detail": "overview",
+        "exportedAt": updated, "exportedBy": { "name": "Atlas Importer", "version": "0.24.0", "platform": "linux" },
+        "pack": { "id": id, "title": game, "packVersion": "1.0.0", "schemaVersion": 2, "attribution": [], "updated": updated },
+        "game": { "title": game, "system": "Saltbox 64" },
+        "source": { "kind": "web-pages", "name": "Example Maps" },
+        "contents": { "maps": 1, "locations": 3 },
+        "cover": "preview/cover.jpg",
+        "maps": [{ "id": "map:one", "name": "The Pier", "width": 512, "height": 512, "locations": 3, "preview": "preview/cover.jpg" }],
+        "images": { "detail": "overview", "files": 1, "bytes": 64, "layers": [] },
+        "files": 2, "bytes": 64 + cover.len(),
+    });
+    let mut z = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+    let stored = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    z.start_file("atlaspack.json", SimpleFileOptions::default()).unwrap();
+    z.write_all(description.to_string().as_bytes()).unwrap();
+    z.start_file("preview/cover.jpg", stored).unwrap();
+    z.write_all(cover).unwrap();
+    z.start_file("images/tile-0-0.png", stored).unwrap();
+    z.write_all(&[7u8; 64]).unwrap();
+    z.finish().unwrap();
+}
+
+/// D225, Maps and guides on their own: Game Repo Server lists every pack the library can read
+/// (linked to a game or not; one it can't read counted and left out), grouped by the library's
+/// title of its game, else the game its description names; sends one by its packId as every
+/// file is sent (resumed, its SHA-1) and its picture; and plans packs alone. Game Repo Go,
+/// with Maps and guides for Atlas off, installs a pack on its own through its queue, keeps one
+/// file of a pack a game brings too, keeps it while a game here has it ticked, leaves it when
+/// the game is removed, takes it out once nothing here wants it, fetches a newer library copy
+/// after a read of the library but never over a newer file Atlas wrote here, shows it in
+/// Atlas by its packId, and shows the list kept with the library away.
+#[test]
+fn maps_and_guides_on_their_own_are_listed_by_game_installed_and_taken_off_without_a_game() {
+    use gamerepo_core::{browse, index::Index, library::Library, maps, organise};
+    let dir = temp("go-packs-alone");
+    let lib = library(&dir);
+    let l = Library::open(&lib).unwrap();
+    let ix = Index::open(&dir.join("game-repo-index.sqlite"), &l.id().unwrap()).unwrap();
+    browse::refresh(&ix, &l).unwrap();
+    let no_game = maps::folder(&l).join(maps::NO_GAME);
+    // linked to Alpha, its own game's title another; one for a game the library hasn't (a
+    // Steam game, say), with a picture; and a file that isn't a pack
+    write_pack(&no_game.join("Alpha Remastered - Example Maps.atlaspack"), "alpha-example-maps", "Alpha Remastered", "Example Maps", "2026-11-17T08:30:00Z");
+    let cover = { let mut b = vec![0xFF, 0xD8, 0xFF, 0xE0, 0, 16, b'J', b'F', b'I', b'F', 0]; b.extend(bytes(9, 300)); b.extend([0xFF, 0xD9]); b };
+    let foxtrot = no_game.join("Foxtrot Racer - Example Maps.atlaspack");
+    write_pack_with_cover(&foxtrot, "foxtrot-example-maps", "Foxtrot Racer", "2026-11-17T08:30:00Z", &cover);
+    std::fs::write(no_game.join("Broken.atlaspack"), b"not a pack at all").unwrap();
+    maps::sync(&ix, &l).unwrap();
+    let plan = maps::link(&ix, &l, "alpha-example-maps", ALPHA, false).unwrap().unwrap();
+    let r = organise::run(&ix, &l, &plan, &std::sync::atomic::AtomicBool::new(false), &mut |_| {}).unwrap();
+    assert!(r["failed"].as_array().unwrap().is_empty(), "{r}");
+    maps::after(&ix, &l, &plan, false).unwrap();
+    let alpha_file = maps::folder(&l).join("Alpha").join("Alpha Remastered - Example Maps.atlaspack");
+    assert!(alpha_file.is_file());
+
+    let s = start(&lib, &dir.join("server"));
+    let server = paired(&s);
+    // the list: every pack it can read, grouped by game
+    let list: gamerepo_wire::api::PackList = server.get("/v1/packs").unwrap();
+    let alpha_title = server.get::<Value>(&format!("/v1/games/{}", ALPHA.replace(' ', "%20"))).unwrap()["game"]["title"].as_str().unwrap().to_string();
+    assert_eq!(list.unreadable, 1, "{list:?}");
+    let ids: Vec<&str> = list.items.iter().map(|p| p.pack.pack_id.as_str()).collect();
+    assert_eq!(ids, ["alpha-example-maps", "foxtrot-example-maps"], "in order of the title they're grouped under");
+    let (a, f) = (&list.items[0], &list.items[1]);
+    assert_eq!((a.group.as_str(), a.pack.title.as_str(), a.games.len(), a.games[0].key.as_str(), a.games[0].title.as_str()), (alpha_title.as_str(), "Alpha Remastered", 1, ALPHA, alpha_title.as_str()), "the library's title of its game: {a:?}");
+    assert_eq!((a.pack.source.as_str(), a.pack.sort.as_str(), a.pack.updated.as_str(), a.exported_at.as_str(), a.cover.as_str()), ("Example Maps", "site", "2026-11-17T08:30:00Z", "2026-11-17T08:30:00Z", ""), "{a:?}");
+    assert_eq!(a.pack.size, std::fs::metadata(&alpha_file).unwrap().len());
+    assert!(!a.system.is_empty(), "its game's system: {a:?}");
+    assert_eq!((f.group.as_str(), f.system.as_str(), f.games.len()), ("Foxtrot Racer", "Saltbox 64", 0), "no game in the library: by the game its description names: {f:?}");
+    assert!(f.cover.starts_with("/v1/packs/foxtrot-example-maps/cover?v="), "{f:?}");
+    // its picture
+    let (head, mut body) = server.open_request("GET", "/v1/packs/foxtrot-example-maps/cover?size=256").unwrap();
+    let mut got = vec![0u8; head.length as usize];
+    std::io::Read::read_exact(&mut body, &mut got).unwrap();
+    assert_eq!((head.status, got), (200, cover.clone()));
+    assert_eq!(server.open_request("GET", "/v1/packs/alpha-example-maps/cover").unwrap().0.status, 404, "no picture");
+    // its file by its packId, resumed as any file is, with its SHA-1
+    let url = "/v1/packs/foxtrot-example-maps/file";
+    let part = dir.join("fetched.part");
+    let tag = dir.join("fetched.etag");
+    let first = server.fetch_into(url, &part, &tag, Some(1000), gamerepo_device::Watch::default()).unwrap();
+    assert_eq!(first, 1000);
+    server.fetch_into(url, &part, &tag, None, gamerepo_device::Watch::default()).unwrap();
+    assert_eq!(std::fs::read(&part).unwrap(), std::fs::read(&foxtrot).unwrap(), "resumed whole");
+    assert_eq!(server.sha1_of(url, Duration::from_secs(60)).unwrap(), gamerepo_device::sha1_file(&foxtrot).unwrap());
+    assert_eq!(status_of(&server.get::<Value>("/v1/packs/no-such-pack/file").unwrap_err()), 404);
+    // a plan of packs alone: no game's key, fetched by packId, the library's dates
+    let ask = gamerepo_wire::api::PlanAsk { pack_ids: vec!["foxtrot-example-maps".into(), "gone-pack".into()], packs: true, packs_only: true, ..Default::default() };
+    let plan: gamerepo_wire::Plan = server.call("POST", "/v1/plans", Some(&ask)).unwrap();
+    assert_eq!(plan.files.len(), 1, "{plan:?}");
+    let pf = &plan.files[0];
+    assert_eq!((pf.place.as_str(), pf.role.as_str(), pf.path.as_str(), pf.key.as_str(), pf.pack.as_str(), pf.url.as_str(), pf.pack_updated.as_str()), ("atlas", "pack", "Foxtrot Racer - Example Maps.atlaspack", "", "foxtrot-example-maps", url, "2026-11-17T08:30:00Z"));
+    assert_eq!(plan.left.len(), 1, "a pack the library hasn't is said: {plan:?}");
+
+    // Game Repo Go, Maps and guides for Atlas off: the category works all the same
+    let d = a_device(&dir);
+    let app = open_app(&dir, &d.home);
+    let atlas = dir.join("Atlas Packs");
+    call(&app, "set_settings", json!({ "media": [], "atlas_folder": atlas }));
+    pair(&app, &s);
+    let page = call(&app, "packs_library", json!({}));
+    let item_of = |page: &Value, id: &str| page["items"].as_array().unwrap().iter().find(|p| p["pack_id"] == id).cloned().unwrap_or_else(|| panic!("{id} in {page}"));
+    assert_eq!((page["offered"].as_bool(), page["on"].as_bool(), page["unreadable"].as_u64(), page["offline"].as_bool()), (Some(true), Some(false), Some(1), Some(false)), "{page}");
+    let fx = item_of(&page, "foxtrot-example-maps");
+    assert_eq!((fx["group"].as_str(), fx["here"].as_bool(), fx["alone"].as_bool()), (Some("Foxtrot Racer"), Some(false), Some(false)), "{fx}");
+    let picture = fx["picture"].as_str().unwrap().to_string();
+    let shown = call(&app, "picture", json!({ "key": "~pack/foxtrot-example-maps", "kind": picture }));
+    assert!(shown.as_str().is_some_and(|s| s.starts_with("data:image/jpeg;base64,")), "its picture through Go's own: {shown}");
+
+    // installed on its own, through the queue
+    let v = call(&app, "pack_install", json!({ "pack": "foxtrot-example-maps" }));
+    assert_eq!(v["queued"].as_array().map(Vec::len), Some(1), "{v}");
+    queue_done(&app);
+    assert_eq!(item(&call(&app, "queue", json!({})), "pack:foxtrot-example-maps")["state"], "done");
+    assert_eq!(names_in(&atlas), ["Foxtrot Racer - Example Maps.atlaspack"]);
+    assert_eq!(std::fs::read(atlas.join("Foxtrot Racer - Example Maps.atlaspack")).unwrap(), std::fs::read(&foxtrot).unwrap());
+    assert!(files_under(&dir.join("go").join("packs-coming")).is_empty(), "no ETag left behind");
+    let fx = item_of(&call(&app, "packs_library", json!({})), "foxtrot-example-maps");
+    assert_eq!((fx["here"].as_bool(), fx["alone"].as_bool(), fx["coming"].as_bool()), (Some(true), Some(true), Some(false)), "{fx}");
+
+    // a game's pack installed on its own, then the game with its packs: one file, never two
+    call(&app, "pack_install", json!({ "pack": "alpha-example-maps" }));
+    queue_done(&app);
+    call(&app, "set_settings", json!({ "atlas_packs": true }));
+    call(&app, "add", json!({ "keys": [ALPHA] }));
+    queue_done(&app);
+    assert_eq!(names_in(&atlas), ["Alpha Remastered - Example Maps.atlaspack", "Foxtrot Racer - Example Maps.atlaspack"]);
+    let al = item_of(&call(&app, "packs_library", json!({})), "alpha-example-maps");
+    assert_eq!((al["alone"].as_bool(), al["with"].as_array().map(Vec::len)), (Some(true), Some(1)), "{al}");
+    // unticked on the game's page: it stays, being on its own too
+    let v = call(&app, "pack_tick", json!({ "key": ALPHA, "pack": "alpha-example-maps", "on": false }));
+    assert_eq!(v["removed"], false, "{v}");
+    assert!(atlas.join("Alpha Remastered - Example Maps.atlaspack").is_file());
+    call(&app, "pack_tick", json!({ "key": ALPHA, "pack": "alpha-example-maps", "on": true }));
+    queue_done(&app);
+    // taken off on its own while the game here has it ticked: the file stays, the flag goes
+    let v = call(&app, "pack_remove", json!({ "pack": "alpha-example-maps" }));
+    assert_eq!((v["result"].as_str(), v["games"][0].as_str()), (Some("kept_for"), Some(alpha_title.as_str())), "{v}");
+    assert!(atlas.join("Alpha Remastered - Example Maps.atlaspack").is_file());
+    assert_eq!(item_of(&call(&app, "packs_library", json!({})), "alpha-example-maps")["alone"], false);
+    // on its own again; the game removed from the device leaves it; then taken off, it goes
+    call(&app, "pack_install", json!({ "pack": "alpha-example-maps" }));
+    queue_done(&app);
+    let before = snapshot(&atlas);
+    call(&app, "remove", json!({ "asks": [{ "key": ALPHA }] }));
+    assert_eq!(snapshot(&atlas), before, "removing a game leaves a pack on its own");
+    let v = call(&app, "pack_remove", json!({ "pack": "alpha-example-maps" }));
+    assert_eq!(v["result"], "removed", "{v}");
+    assert_eq!(names_in(&atlas), ["Foxtrot Racer - Example Maps.atlaspack"]);
+
+    // Show in Atlas by its packId
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let prog = dir.join("atlas-stand-in");
+        let said = dir.join("atlas-args.txt");
+        std::fs::write(&prog, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}.part'\nmv '{0}.part' '{0}'\n", said.display())).unwrap();
+        std::fs::set_permissions(&prog, std::fs::Permissions::from_mode(0o755)).unwrap();
+        call(&app, "set_settings", json!({ "atlas_program": prog }));
+        let v = call(&app, "atlas_show", json!({ "pack": "foxtrot-example-maps" }));
+        assert_eq!(v["title"], "Foxtrot Racer", "{v}");
+        until("Atlas started", 20, || said.is_file(), || "no arguments written".into());
+        assert_eq!(std::fs::read_to_string(&said).unwrap().lines().collect::<Vec<_>>(), ["--show-pack", "foxtrot-example-maps"]);
+        assert!(app.call("atlas_show", &json!({ "pack": "alpha-example-maps" })).is_err(), "not in Atlas's packs folder here");
+    }
+
+    // the library's copy newer: fetched again after a read of the library, over Go's own
+    write_pack_with_cover(&foxtrot, "foxtrot-example-maps", "Foxtrot Racer", "2026-11-19T08:30:00Z", &cover);
+    std::fs::File::options().write(true).open(&foxtrot).unwrap().set_modified(std::time::SystemTime::now() + Duration::from_secs(5)).unwrap();
+    call(&app, "sync", json!({}));
+    synced(&app);
+    until("the newer copy fetched", 60, || std::fs::read(atlas.join("Foxtrot Racer - Example Maps.atlaspack")).ok() == std::fs::read(&foxtrot).ok(), || call(&app, "queue", json!({})).to_string());
+    queue_done(&app);
+    assert_eq!(names_in(&atlas), ["Foxtrot Racer - Example Maps.atlaspack"]);
+    // Atlas writes it again here, newer than the library's: a read of the library fetches
+    // nothing, and taking it off leaves Atlas's file
+    let on_device = atlas.join("Foxtrot Racer - Example Maps.atlaspack");
+    write_pack_with_cover(&on_device, "foxtrot-example-maps", "Foxtrot Racer", "2026-11-20T08:30:00Z", &cover);
+    let atlas_wrote = std::fs::read(&on_device).unwrap();
+    let done_before = call(&app, "queue", json!({}))["items"].as_array().unwrap().len();
+    call(&app, "sync", json!({}));
+    synced(&app);
+    queue_done(&app);
+    assert_eq!(call(&app, "queue", json!({}))["items"].as_array().unwrap().len(), done_before, "nothing queued");
+    assert_eq!(std::fs::read(&on_device).unwrap(), atlas_wrote);
+    let v = call(&app, "pack_remove", json!({ "pack": "foxtrot-example-maps" }));
+    assert_eq!(v["result"], "changed", "{v}");
+    assert_eq!(std::fs::read(&on_device).unwrap(), atlas_wrote, "not Go's to remove");
+
+    // the library away: the list kept from the last time
+    app.queue.quit();
+    s.stop();
+    let page = call(&app, "packs_library", json!({}));
+    assert_eq!((page["offline"].as_bool(), page["items"].as_array().map(Vec::len)), (Some(true), Some(2)), "{page}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -698,6 +698,26 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
             })
         }
         ("GET", p) if p.starts_with("/v1/games/") => ok(game_details(ix, lib, &p["/v1/games/".len()..])?),
+        // every pack of maps and guides the library holds, and one by its packId (D225)
+        ("GET", "/v1/packs") => ok(Response::json(200, &packs::library(ix, lib)?)),
+        (_, p) if p.starts_with("/v1/packs/") && (m == "GET" || m == "HEAD") => {
+            let rest = &p["/v1/packs/".len()..];
+            let (id, what) = rest.split_once('/').unwrap_or((rest, ""));
+            match what {
+                "file" => match packs::file_of(ix, lib, id)? {
+                    Some(path) => send_file(sh, req, &device, path, None),
+                    None => ok(Response::problem(404, "The library has no pack of maps and guides by this id now: look at the list again.")),
+                },
+                "cover" => {
+                    let size: u32 = req.param("size").and_then(|s| s.parse().ok()).unwrap_or(256);
+                    ok(match packs::cover(ix, lib, &sh.data, id, size)? {
+                        Some(at) => files::send(req, &at, "image/jpeg").with("Cache-Control", "max-age=3600"),
+                        None => Response::problem(404, "That pack has no picture."),
+                    })
+                }
+                _ => ok(Response::problem(404, "There's nothing here.")),
+            }
+        }
         ("GET", p) if p.starts_with("/v1/pictures/") => ok(picture(sh, ix, req, &p["/v1/pictures/".len()..])?),
         ("POST", "/v1/identify") => {
             let found: Vec<api::Found> = match body(req) {
@@ -768,6 +788,14 @@ fn files_route(sh: &Arc<Shared>, req: &Request, device: &Device) -> Result<(Resp
             _ => return Ok((Response::problem(404, "That file isn't one the server gives, or isn't in the library now: ask for the plan again."), None)),
         }
     };
+    send_file(sh, req, device, path, sha1)
+}
+
+/// A file a device may fetch, sent as every file is (D95): its SHA-1 with `?sha1` (waited for
+/// while it's read), else the file, whole or from a range, at most four at once per device.
+fn send_file(sh: &Arc<Shared>, req: &Request, device: &Device, path: PathBuf, sha1: Option<String>) -> Result<(Response, Option<Slot>)> {
+    let wait = Duration::from_secs(20);
+    let pending = || Response::json(202, &json!({ "pending": true })).with("Retry-After", "2");
     if req.has_param("sha1") {
         let h = match sha1 {
             Some(h) => Some(h),

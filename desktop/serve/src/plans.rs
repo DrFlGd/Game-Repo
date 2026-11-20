@@ -430,6 +430,12 @@ fn textures(ix: &Index, lib: &Library, unpacker: &Unpacker, hashes: &Hashes, ask
 
 /// The plan for `ask`. Err(why) when a game asked for isn't in the catalogue.
 pub fn plan(ix: &Index, lib: &Library, data: &Path, maker: &Maker, unpacker: &Unpacker, hashes: &Hashes, ask: &PlanAsk) -> Result<std::result::Result<Plan, String>> {
+    // packs of maps and guides on their own, by their packIds, with no game (D225)
+    if !ask.pack_ids.is_empty() && ask.games.is_empty() {
+        let mut p = Plan { ready: true, ..Default::default() };
+        crate::packs::add_alone(ix, lib, hashes, &ask.pack_ids, &mut p)?;
+        return Ok(Ok(p));
+    }
     // only the games' packs of maps and guides, for games the device has (D222)
     if ask.packs_only {
         for k in &ask.games {

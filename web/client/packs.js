@@ -4,7 +4,8 @@
 // brings it, and unticking one takes it out again, if Game Repo Go put it there. A pack
 // whose file on this device is newer than the library's (Atlas changed it here) is kept and
 // said so. *Show in Atlas* starts Atlas on the game when one of its packs is in Atlas's
-// packs folder here (D224). Windows and Linux only: not offered on Android yet.
+// packs folder here (D224). A pack installed on its own from Maps and guides (D225) stays when
+// it's unticked here. Windows and Linux only: not offered on Android yet.
 import { html, useEffect, useState } from "../lib/html.js";
 import { call, info } from "./backend.js";
 import { closeDialog, open, say } from "./state.js";
@@ -88,6 +89,7 @@ export function Packs({ k, packs, onDevice, onChange, atlasButton = true }) {
           ${p.newer_here ? html`<br /><small class="muted" data-said="newer-here">Newer on this device: kept. Game Repo's copy is older, so it isn't put over it.</small>`
             : p.theirs ? html`<br /><small class="muted" data-said="theirs">${p.theirs.newer ? "A newer copy" : "The same version"} is in Atlas's packs folder already (<span class="go-file">${p.theirs.file}</span>), one Game Repo Go didn't put there. Atlas shows that one, so Go leaves it as it is and doesn't download its own.</small>`
             : p.here ? html`<br /><small class="muted" data-said="here">In Atlas's packs folder</small>` : null}
+          ${p.alone ? html`<br /><small class="muted" data-said="alone">Installed on its own too, from Maps and guides: it stays when unticked here.</small>` : null}
           ${p.personal_use ? html`<br /><small class="muted" data-said="personal">For your own use only</small>` : null}
           ${p.error ? html`<br /><small class="muted" data-said="error">Game Repo can't read this pack (${p.error}); it's sent as it is.</small>` : null}</span></label>
       <span class="muted">${bytes(p.size)}</span></li>`)}</ul>

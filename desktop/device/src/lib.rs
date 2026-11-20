@@ -291,6 +291,9 @@ pub struct AddOptions {
     pub packs_only: bool,
     /// The packs unticked on each game's page (its key, their `packId`s)
     pub packs_left: Vec<(String, Vec<String>)>,
+    /// Packs asked for on their own by their `packId`s, with no game (Maps and guides, D225):
+    /// put in Atlas's packs folder and kept there on their own
+    pub pack_ids: Vec<String>,
 }
 
 impl Default for AddOptions {
@@ -311,6 +314,7 @@ impl Default for AddOptions {
             packs: false,
             packs_only: false,
             packs_left: vec![],
+            pack_ids: vec![],
         }
     }
 }
@@ -334,6 +338,7 @@ impl AddOptions {
             packs: self.packs || self.packs_only,
             packs_only: self.packs_only,
             packs_left: self.packs_left.iter().filter(|(k, _)| keys.contains(k)).cloned().collect(),
+            pack_ids: if keys.is_empty() { self.pack_ids.clone() } else { vec![] },
             ..Default::default()
         }
     }
@@ -529,6 +534,13 @@ pub fn add_planned(s: &Server, d: &Device, plan: &Plan, keys: &[String], o: &Add
     }
     if o.packs_only {
         put_packs(d, plan, &todo, &sha1s)?;
+        // packs on their own (D225): kept there on their own once they're there
+        if !o.pack_ids.is_empty() {
+            if let Some(data) = &d.data {
+                let ids: Vec<String> = plan.files.iter().filter(|f| packs::is_pack(f) && o.pack_ids.contains(&f.pack)).map(|f| f.pack.clone()).collect();
+                packs::set_alone(data, &ids)?;
+            }
+        }
         out.games = keys.len();
         return Ok(out);
     }
