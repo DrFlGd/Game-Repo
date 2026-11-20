@@ -294,6 +294,8 @@ pub struct AddOptions {
     /// Packs asked for on their own by their `packId`s, with no game (Maps and guides, D225):
     /// put in Atlas's packs folder and kept there on their own
     pub pack_ids: Vec<String>,
+    /// The guidebooks unticked in each game's pack of guidebooks (its key, their ids, D238)
+    pub guidebooks_left: Vec<(String, Vec<String>)>,
 }
 
 impl Default for AddOptions {
@@ -315,6 +317,7 @@ impl Default for AddOptions {
             packs_only: false,
             packs_left: vec![],
             pack_ids: vec![],
+            guidebooks_left: vec![],
         }
     }
 }
@@ -339,6 +342,7 @@ impl AddOptions {
             packs_only: self.packs_only,
             packs_left: self.packs_left.iter().filter(|(k, _)| keys.contains(k)).cloned().collect(),
             pack_ids: if keys.is_empty() { self.pack_ids.clone() } else { vec![] },
+            guidebooks_left: self.guidebooks_left.iter().filter(|(k, _)| keys.contains(k)).cloned().collect(),
             ..Default::default()
         }
     }

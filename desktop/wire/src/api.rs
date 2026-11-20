@@ -220,6 +220,11 @@ pub struct PlanAsk {
     /// `atlas`), its plan's file with no game's key. Only with `games` empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub pack_ids: Vec<String>,
+    /// The guidebooks a device left out of a game's pack of guidebooks (D237): the game's key,
+    /// and their ids (`Guidebook::id`), unticked on the game's page. The pack sent has the
+    /// others.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub guidebooks_left: Vec<(String, Vec<String>)>,
 }
 
 /// A pack of a game's maps and guides for Atlas (D222), as `GET /v1/games/<key>` lists it
@@ -268,6 +273,30 @@ pub struct Pack {
     /// the Atlas on the device may be newer
     #[serde(skip_serializing_if = "String::is_empty")]
     pub error: String,
+    /// For a game's pack of guidebooks (sort `guidebooks`, D237), each guidebook the library
+    /// holds for it, with its size, for a tick of its own on the game's page
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub guidebooks: Vec<Guidebook>,
+}
+
+/// A guidebook in a game's pack of guidebooks (D237): a published guide in one file.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Guidebook {
+    /// Its id in the game's set: its file's name in the library
+    pub id: String,
+    pub title: String,
+    /// pdf | cbz | cbr (a CBR goes to Atlas made a CBZ)
+    pub kind: String,
+    pub pages: u64,
+    /// Its file's size
+    pub size: u64,
+    /// Its text is read, so Atlas can search it
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub text: bool,
+    /// Why it can't go to Atlas (the contract's bounds); it's left out of the pack
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub cannot_go: String,
 }
 
 /// `GET /v1/packs` (D225): every pack of maps and guides the library holds that Game Repo can

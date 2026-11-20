@@ -6,7 +6,8 @@
 // (Steam's, say) can go to Atlas too; Remove takes it out again, unless a game this device
 // has still has it ticked, Atlas changed it here, or it isn't Game Repo Go's. Show in Atlas
 // starts Atlas with it. Windows and Linux only, as a game's packs are (not on Android until
-// the Atlas pack contract's trial T2 says how).
+// the Atlas pack contract's trial T2 says how). A game's pack of guidebooks is listed with its
+// game's packs, said as guidebooks (D238).
 import { html, useEffect, useRef, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
@@ -30,7 +31,7 @@ function Cover({ p }) {
   useEffect(() => setBad(false), [p.picture]);
   return html`<span class="go-pack-cover" aria-hidden="true">${p.picture && !bad
     ? html`<img src=${pictureUrl(`~pack/${p.pack_id}`, p.picture, 256)} alt="" decoding="async" draggable="false" onError=${() => setBad(true)} />`
-    : Icon.map(30)}</span>`;
+    : p.sort === "guidebooks" ? Icon.book(30) : Icon.map(30)}</span>`;
 }
 
 /** Where a pack stands on this device, in a line. */

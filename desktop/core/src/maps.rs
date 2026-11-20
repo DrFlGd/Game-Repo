@@ -50,7 +50,7 @@ pub const FOLDER: &str = "Maps and Guides";
 pub const NO_GAME: &str = "No game yet";
 /// Game Repo's record of the packs, in the folder.
 pub const RECORD: &str = "packs.json";
-/// A title's guidebooks (D223: not read yet), passed over.
+/// A title's guidebooks (`guidebooks.rs`, D232), passed over by the packs' walk.
 pub const GUIDEBOOKS: &str = "Guidebooks";
 /// The pictures chosen for packs (hidden, so passed over).
 const PICTURES: &str = ".pictures";
@@ -405,7 +405,7 @@ pub fn sure(found: &[Match], system: Option<&str>) -> Vec<Match> {
 
 // ------------------------------------------------------------ changes: linking, importing, removing
 
-fn folder_src(lib: &Library, rel: &str) -> Src {
+pub(crate) fn folder_src(lib: &Library, rel: &str) -> Src {
     let base = folder(lib);
     let path = base.join(rel);
     Src {
@@ -420,7 +420,7 @@ fn folder_src(lib: &Library, rel: &str) -> Src {
     }
 }
 
-fn plan_of(lib: &Library, kind: &str, mode: &str, title: String, label: String, ops: Vec<Op>, n: usize, dat: Value) -> Plan {
+pub(crate) fn plan_of(lib: &Library, kind: &str, mode: &str, title: String, label: String, ops: Vec<Op>, n: usize, dat: Value) -> Plan {
     Plan {
         id: organise::new_id(),
         created: now(),
@@ -474,7 +474,7 @@ pub fn folder_for(games: &[PackGame]) -> String {
 }
 
 /// A free name for `name` in `dir` (below the folder): itself, else "<stem> (2).atlaspack"…
-fn free_name(base: &Path, dir: &str, name: &str, taken: &mut HashSet<String>, own: Option<&str>) -> String {
+pub(crate) fn free_name(base: &Path, dir: &str, name: &str, taken: &mut HashSet<String>, own: Option<&str>) -> String {
     let (stem, ext) = match name.rsplit_once('.') {
         Some((s, e)) => (s.to_string(), format!(".{e}")),
         None => (name.to_string(), String::new()),
@@ -1199,7 +1199,7 @@ mod tests {
         std::fs::write(no_game.join("notes.atlaspack"), b"some notes").unwrap();
         // a packId that can't be one (upper case, a space): damaged, by the crate's check
         write_pack(&no_game.join("Theta - Example Maps.atlaspack"), &format6("Theta Maps", "Theta", "2026-11-10T08:30:00Z"), &[]);
-        // a title's guidebooks aren't read yet (D223)
+        // a title's guidebooks are guidebooks.rs's (D232), not packs: even a pack file there is passed over
         write_pack(&base.join("Delta").join(GUIDEBOOKS).join("guide.atlaspack"), &format6("guidebook", "Delta", "2026-11-10T08:30:00Z"), &[]);
 
         let state = sync(&ix, &lib).unwrap();

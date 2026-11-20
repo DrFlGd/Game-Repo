@@ -74,6 +74,7 @@ pub fn info(p: &Linked) -> Pack {
         updated: d.updated.clone().unwrap_or_default(),
         personal_use: d.personal_use,
         error: p.error.clone().unwrap_or_default(),
+        guidebooks: vec![],
     }
 }
 
@@ -184,7 +185,7 @@ fn chosen_picture(lib: &Library, p: &maps::Pack) -> Option<String> {
 
 /// A Library key's game as a pack's (D225): its catalogue key when the server gives it,
 /// and its title and system as the library has them.
-fn game_of(ix: &Index, g: &maps::PackGame) -> Result<PackGame> {
+pub(crate) fn game_of(ix: &Index, g: &maps::PackGame) -> Result<PackGame> {
     let key = catalogue::game_for(ix, &g.key)?;
     let served = match &key {
         Some(k) => catalogue::game(ix, k)?,

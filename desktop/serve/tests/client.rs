@@ -1699,3 +1699,168 @@ fn maps_and_guides_on_their_own_are_listed_by_game_installed_and_taken_off_witho
     assert_eq!((page["offline"].as_bool(), page["items"].as_array().map(Vec::len)), (Some(true), Some(2)), "{page}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A PDF of `pages` blank pages, written by hand (its cross-reference table at the offsets).
+fn tiny_pdf(path: &Path, pages: usize) {
+    let mut objs: Vec<String> = vec!["<< /Type /Catalog /Pages 2 0 R >>".into()];
+    let kids: Vec<String> = (0..pages).map(|n| format!("{} 0 R", n + 3)).collect();
+    objs.push(format!("<< /Type /Pages /Kids [{}] /Count {pages} >>", kids.join(" ")));
+    for _ in 0..pages {
+        objs.push("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".into());
+    }
+    let mut out = b"%PDF-1.4\n".to_vec();
+    let mut at = vec![];
+    for (n, o) in objs.iter().enumerate() {
+        at.push(out.len());
+        out.extend(format!("{} 0 obj\n{o}\nendobj\n", n + 1).as_bytes());
+    }
+    let xref = out.len();
+    out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
+    for a in at {
+        out.extend(format!("{a:010} 00000 n \n").as_bytes());
+    }
+    out.extend(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes());
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, out).unwrap();
+}
+
+/// A RAR 4 archive of stored files, byte by byte (no free tool writes RAR).
+fn tiny_cbr(path: &Path, files: &[(&str, &[u8])]) {
+    let crc16 = |b: &[u8]| (crc32fast_hash(b) & 0xFFFF) as u16;
+    let mut out: Vec<u8> = b"Rar!\x1a\x07\x00".to_vec();
+    let main = [0x73u8, 0, 0, 13, 0, 0, 0, 0, 0, 0, 0];
+    out.extend(crc16(&main).to_le_bytes());
+    out.extend(main);
+    for (name, data) in files {
+        let mut h: Vec<u8> = vec![0x74];
+        h.extend(0x8000u16.to_le_bytes());
+        h.extend(((32 + name.len()) as u16).to_le_bytes());
+        h.extend((data.len() as u32).to_le_bytes());
+        h.extend((data.len() as u32).to_le_bytes());
+        h.push(2);
+        h.extend(crc32fast_hash(data).to_le_bytes());
+        h.extend(0x5A21_0000u32.to_le_bytes());
+        h.push(29);
+        h.push(0x30);
+        h.extend((name.len() as u16).to_le_bytes());
+        h.extend(0x20u32.to_le_bytes());
+        h.extend(name.as_bytes());
+        out.extend(crc16(&h).to_le_bytes());
+        out.extend(&h);
+        out.extend(*data);
+    }
+    out.extend([0xC4, 0x3D, 0x7B, 0x00, 0x40, 0x07, 0x00]);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, out).unwrap();
+}
+
+/// CRC-32 (IEEE), bit by bit.
+fn crc32fast_hash(b: &[u8]) -> u32 {
+    let mut c = 0xFFFF_FFFFu32;
+    for &x in b {
+        c ^= x as u32;
+        for _ in 0..8 {
+            c = if c & 1 != 0 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 };
+        }
+    }
+    !c
+}
+
+/// The guidebooks in a pack file, by Atlas's crate (through the core's reader): (title, pages).
+fn guidebooks_in(path: &Path) -> Vec<(String, u64)> {
+    let d = gamerepo_core::atlaspack::read_header(path).unwrap();
+    assert_eq!(d.version, 8);
+    d.raw["guidebooks"].as_array().unwrap().iter().map(|g| (g["title"].as_str().unwrap().to_string(), g["pages"].as_u64().unwrap())).collect()
+}
+
+/// D236–D238: a game's guidebooks (`Maps and Guides/<title>/Guidebooks/`) go to Atlas in a pack
+/// of their own, made by the server with Atlas's crate (a CBR made a CBZ) and kept: listed on
+/// the game's page with each guidebook's size and a tick, brought with the game, made again
+/// with only the ticked ones (newer, so it replaces the one there), taken out when none is
+/// ticked, and listed on Maps and guides grouped under the game.
+#[test]
+fn a_games_guidebooks_go_to_atlas_in_a_pack_of_their_own_with_a_tick_each() {
+    use gamerepo_core::{browse, guidebooks as gb, index::Index, library::Library, maps};
+    let dir = temp("go-guidebooks");
+    let lib = library(&dir);
+    let l = Library::open(&lib).unwrap();
+    let ix = Index::open(&dir.join("game-repo-index.sqlite"), &l.id().unwrap()).unwrap();
+    browse::refresh(&ix, &l).unwrap();
+    let gbs = maps::folder(&l).join("Alpha").join(maps::GUIDEBOOKS);
+    tiny_pdf(&gbs.join("Alpha Official Guide.pdf"), 3);
+    let jpeg = |seed: u8| -> Vec<u8> { [0xFF, 0xD8, 0xFF, 0xE0].iter().copied().chain((0..200u8).map(|i| i.wrapping_mul(seed))).chain([0xFF, 0xD9]).collect() };
+    tiny_cbr(&gbs.join("Alpha Art.cbr"), &[("2.jpg", &jpeg(2)), ("1.jpg", &jpeg(1))]);
+    gb::link(&ix, &l, "Alpha", Some(ALPHA)).unwrap();
+    let pack_id = gb::pack_id_for(ALPHA);
+
+    let s = start(&lib, &dir.join("server"));
+    let server = paired(&s);
+    // the game's page lists the pack of guidebooks with its packs, each guidebook with its size
+    let g: Value = server.get(&format!("/v1/games/{}", ALPHA.replace(' ', "%20"))).unwrap();
+    let p = g["packs"].as_array().unwrap().iter().find(|p| p["sort"] == "guidebooks").unwrap_or_else(|| panic!("{g}")).clone();
+    assert_eq!((p["pack_id"].as_str(), p["file"].as_str()), (Some(pack_id.as_str()), Some("Alpha - Guidebooks.atlaspack")), "{p}");
+    let listed: Vec<(&str, &str, u64, u64)> = p["guidebooks"].as_array().unwrap().iter().map(|g| (g["id"].as_str().unwrap(), g["kind"].as_str().unwrap(), g["pages"].as_u64().unwrap(), g["size"].as_u64().unwrap())).collect();
+    assert_eq!(listed, [("Alpha Art.cbr", "cbr", 2, std::fs::metadata(gbs.join("Alpha Art.cbr")).unwrap().len()), ("Alpha Official Guide.pdf", "pdf", 3, std::fs::metadata(gbs.join("Alpha Official Guide.pdf")).unwrap().len())]);
+    // a plan asks for it to be made: not ready at first, then made, with its SHA-1 and dates
+    let ask = gamerepo_wire::api::PlanAsk { games: vec![ALPHA.into()], packs: true, packs_only: true, ..Default::default() };
+    let first: gamerepo_wire::Plan = server.call("POST", "/v1/plans", Some(&ask)).unwrap();
+    let last = std::cell::RefCell::new(first);
+    until("the pack of guidebooks made", 60, || {
+        *last.borrow_mut() = server.call("POST", "/v1/plans", Some(&ask)).unwrap();
+        last.borrow().ready
+    }, || format!("{:?}", last.borrow()));
+    let plan = last.into_inner();
+    let f = plan.files.iter().find(|f| f.pack == pack_id).unwrap();
+    assert!(f.sha1.is_some() && !f.pack_updated.is_empty() && f.place == "atlas" && f.role == "pack", "{f:?}");
+    // the library is untouched: the pack is made in the server's data folder
+    assert_eq!(names_in(&gbs), ["Alpha Art.cbr", "Alpha Official Guide.pdf"]);
+    assert!(dir.join("server").join("guidebooks").join(&pack_id).is_dir());
+    // Maps and guides lists it grouped under the game
+    let list: gamerepo_wire::api::PackList = server.get("/v1/packs").unwrap();
+    let lp = list.items.iter().find(|i| i.pack.pack_id == pack_id).unwrap();
+    assert_eq!((lp.group.as_str(), lp.pack.sort.as_str(), lp.pack.guidebooks.len()), ("Alpha", "guidebooks", 2));
+    // on its own, by its id: the whole set
+    let alone: gamerepo_wire::Plan = server.call("POST", "/v1/plans", Some(&gamerepo_wire::api::PlanAsk { pack_ids: vec![pack_id.clone()], ..Default::default() })).unwrap();
+    assert_eq!(alone.files.iter().filter(|f| f.pack == pack_id).count(), 1, "{alone:?}");
+
+    // Go: the game brought with its guidebooks
+    let d = a_device(&dir);
+    let app = open_app(&dir, &d.home);
+    let atlas = dir.join("Atlas Packs");
+    call(&app, "set_settings", json!({ "media": [], "atlas_folder": atlas, "atlas_packs": true }));
+    pair(&app, &s);
+    let page = call(&app, "game", json!({ "key": ALPHA }));
+    let gp = page["packs"]["items"].as_array().unwrap().iter().find(|p| p["pack_id"] == pack_id).unwrap().clone();
+    assert!(gp["guidebooks"].as_array().unwrap().iter().all(|g| g["ticked"] == true), "{gp}");
+    call(&app, "add", json!({ "keys": [ALPHA] }));
+    queue_done(&app);
+    let there = atlas.join("Alpha - Guidebooks.atlaspack");
+    assert_eq!(guidebooks_in(&there), [("Alpha Art".to_string(), 2), ("Alpha Official Guide".to_string(), 3)]);
+    let first = gamerepo_core::atlaspack::read_header(&there).unwrap();
+
+    // one unticked: the pack comes again with the other, newer, in place of the one there
+    let v = call(&app, "guidebook_tick", json!({ "key": ALPHA, "pack": pack_id, "guidebook": "Alpha Art.cbr", "on": false }));
+    assert!(v["queued"].as_array().is_some_and(|q| q.len() == 1), "{v}");
+    queue_done(&app);
+    assert_eq!(guidebooks_in(&there), [("Alpha Official Guide".to_string(), 3)]);
+    let second = gamerepo_core::atlaspack::read_header(&there).unwrap();
+    assert_eq!(second.newer(&first), std::cmp::Ordering::Greater);
+    assert_eq!(names_in(&atlas), ["Alpha - Guidebooks.atlaspack"]);
+    let page = call(&app, "game", json!({ "key": ALPHA }));
+    let gp = page["packs"]["items"].as_array().unwrap().iter().find(|p| p["pack_id"] == pack_id).unwrap().clone();
+    assert_eq!(gp["guidebooks"].as_array().unwrap().iter().map(|g| g["ticked"].as_bool().unwrap()).collect::<Vec<_>>(), [false, true]);
+    // ticked again: both again, newer still (made again, never the first one, older than the one there)
+    call(&app, "guidebook_tick", json!({ "key": ALPHA, "pack": pack_id, "guidebook": "Alpha Art.cbr", "on": true }));
+    queue_done(&app);
+    assert_eq!(guidebooks_in(&there).len(), 2);
+    assert_eq!(gamerepo_core::atlaspack::read_header(&there).unwrap().newer(&second), std::cmp::Ordering::Greater);
+    // none ticked: the pack is taken out, as Go put it there
+    call(&app, "guidebook_tick", json!({ "key": ALPHA, "pack": pack_id, "guidebook": "Alpha Art.cbr", "on": false }));
+    queue_done(&app);
+    let v = call(&app, "guidebook_tick", json!({ "key": ALPHA, "pack": pack_id, "guidebook": "Alpha Official Guide.pdf", "on": false }));
+    assert_eq!(v["removed"], true, "{v}");
+    assert!(!there.exists());
+    app.queue.quit();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}

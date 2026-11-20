@@ -38,10 +38,10 @@ export const CONVERT_FORMATS = {
   zip: ["ZIP", "A ZIP for each game, written the TorrentZip way."],
 };
 
-const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing PC games", add: "Importing a game", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", videos: "Importing videos", bios: "Importing BIOS files", metadata: "Deleting metadata", pc_remove: "Removing a PC game", video_remove: "Removing videos", magazine_move: "Moving magazine issues", cheats: "Bringing in cheats", patches: "Bringing in patches", patch: "Applying patches", textures: "Bringing in texture packs", textures_install: "Installing a texture pack", mods: "Bringing in mods", mods_install: "Installing mods", pc_put_back: "Putting a game back", maps_import: "Importing packs", maps_link: "Linking packs to games", maps_remove: "Removing packs" })[kind] || "Organising";
+const verb = (kind) => ({ folders: "Renaming games' library folders", aside: "Setting aside duplicates", convert: "Converting", extract: "Unpacking", export: "Exporting", import: "Importing PC games", add: "Importing a game", bring: "Importing games", docs: "Importing documents", magazines: "Importing magazines", videos: "Importing videos", bios: "Importing BIOS files", metadata: "Deleting metadata", pc_remove: "Removing a PC game", video_remove: "Removing videos", magazine_move: "Moving magazine issues", cheats: "Bringing in cheats", patches: "Bringing in patches", patch: "Applying patches", textures: "Bringing in texture packs", textures_install: "Installing a texture pack", mods: "Bringing in mods", mods_install: "Installing mods", pc_put_back: "Putting a game back", maps_import: "Importing packs", maps_link: "Linking packs to games", maps_remove: "Removing packs", maps_guidebooks_import: "Importing guidebooks", maps_guidebooks_remove: "Removing guidebooks" })[kind] || "Organising";
 
 /** The changes that bring files into the library (the Import page's Recent imports, D78). */
-export const IMPORT_KINDS = ["bring", "add", "import", "docs", "magazines", "videos", "bios", "maps_import"];
+export const IMPORT_KINDS = ["bring", "add", "import", "docs", "magazines", "videos", "bios", "maps_import", "maps_guidebooks_import"];
 
 /** How an import brings its files in (D79), the same three choices everywhere: "copy"
  *  (hardlinked on the same drive), "always" (a full copy) or "move"; and for games from
@@ -72,6 +72,7 @@ const COUNTS = {
   textures: ["game's texture packs", "games' texture packs", "bring in"], textures_install: ["texture pack", "texture packs", "install"],
   mods: ["game's mods", "games' mods", "bring in"], mods_install: ["file", "files", "install"], pc_put_back: ["file", "files", "put back"],
   maps_import: ["pack", "packs", "import"], maps_link: ["pack", "packs", "move"], maps_remove: ["pack file", "pack files", "remove"],
+  maps_guidebooks_import: ["guidebook", "guidebooks", "import"], maps_guidebooks_remove: ["guidebook", "guidebooks", "remove"],
 };
 
 /** Open the Organise… dialog for a DAT: `{ dat, platform, platformName }`. */
