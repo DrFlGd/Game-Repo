@@ -95,6 +95,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.78 (2026-11-20)
+
 - **Game Repo Go puts packs where Atlas reads them, wherever you chose that in Atlas.** When you choose another packs folder in Atlas's settings (Atlas 0.25.0 and later), Game Repo Go uses it too, unless you set a folder in Game Repo Go's own Settings, and follows a change made in Atlas while it runs. Settings › Maps and guides for Atlas says which folder is used and why (*Set in Atlas*, *Set here*, or Atlas's usual folder), and warns when a folder set here isn't the one Atlas reads. When the folder changes, the packs Game Repo Go put in the old one move with it (only its own, and never beside a newer copy of the same pack already there). A folder chosen in Atlas that isn't there, on a drive that isn't connected, is never made: packs wait until it's back.
 - **Packs say their own sort.** A pack written by Atlas 0.25.0 or later says itself whether it was read from a site, made in Atlas, made by Atlas Map Maker or is a pack of guidebooks, and Maps and Guides, Game Repo Go and a game's page now go by what it says. Maps and Guides has a *Sort of pack* filter (and grouping), and Game Repo Go's *Maps and guides* page a filter for the sorts the library has.
 - **Packs of guidebooks are read.** Maps and Guides and Game Repo Go read packs with Atlas 0.25.0's code, which reads format 8, so a pack of guidebooks is listed as *Guidebooks* rather than as one that needs a newer Game Repo. Every pack is read again once with the newer code.
