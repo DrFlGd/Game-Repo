@@ -506,6 +506,14 @@ impl App {
                 let id = p["pack_id"].as_str().unwrap_or("");
                 let mut v = p.clone();
                 v["ticked"] = json!(!left.iter().any(|x| x == id));
+                // a game's pack of guidebooks: each guidebook ticked or not (D238)
+                if let Some(list) = v.get_mut("guidebooks").and_then(Value::as_array_mut) {
+                    let off = rec.guidebooks_left.get(key).cloned().unwrap_or_default();
+                    for g in list.iter_mut() {
+                        let gid = g["id"].as_str().unwrap_or("").to_string();
+                        g["ticked"] = json!(!off.contains(&gid));
+                    }
+                }
                 let here = rec.delivered.iter().find(|e| e.pack_id == id && e.here());
                 v["here"] = json!(here.is_some());
                 // newer on this device than the library's, so kept (D222 revised)
@@ -720,6 +728,42 @@ impl App {
         Ok(v)
     }
 
+    /// A guidebook ticked or unticked in a game's pack of guidebooks (D238): kept for the game;
+    /// on a game the device has, with Maps and guides for Atlas on and the pack ticked, the
+    /// pack comes again with the guidebooks ticked (in Downloads), newer, in place of the one
+    /// here. With none ticked, the pack is as good as unticked: taken out, as Go put it.
+    fn guidebook_tick(&self, key: &str, pack: &str, guidebook: &str, on: bool) -> Result<Value> {
+        if !self.packs_offered() {
+            bail!("Maps and guides for Atlas aren't offered on this device yet.");
+        }
+        packs::set_guidebook_ticked(&self.data, key, guidebook, on)?;
+        let details = self.catalogue.details(self.server().as_ref(), key).unwrap_or(None);
+        let all: Vec<String> = details
+            .as_ref()
+            .and_then(|d| d["packs"].as_array())
+            .into_iter()
+            .flatten()
+            .filter(|p| p["pack_id"] == pack)
+            .flat_map(|p| p["guidebooks"].as_array().cloned().unwrap_or_default())
+            .filter(|g| g["cannot_go"].as_str().unwrap_or("").is_empty())
+            .filter_map(|g| g["id"].as_str().map(String::from))
+            .collect();
+        let rec = packs::load(&self.data);
+        let off = rec.guidebooks_left.get(key).cloned().unwrap_or_default();
+        let none = !all.is_empty() && all.iter().all(|g| off.contains(g));
+        let pack_on = !rec.left_out.get(key).is_some_and(|l| l.iter().any(|x| x == pack));
+        let mut v = json!({});
+        if self.settings().atlas_packs && self.keys_on_device().contains(key) && pack_on {
+            if none {
+                v["removed"] = json!(packs::take_off(&self.data, key, pack)?);
+            } else {
+                v["queued"] = json!(self.get_packs(key)?);
+            }
+        }
+        self.changed("device");
+        Ok(v)
+    }
+
     /// A game's ticked packs brought to this device, for a game it has (D222): in Downloads.
     fn get_packs(&self, key: &str) -> Result<Vec<u64>> {
         if !self.settings().atlas_packs || !self.packs_offered() {
@@ -759,6 +803,7 @@ impl App {
         // the games' ticked packs for Atlas (D222)
         options.packs = device.places.contains_key(packs::PLACE);
         options.packs_left = packs::left_out(&self.data);
+        options.guidebooks_left = packs::guidebooks_left(&self.data);
         // packs on their own go to Atlas's packs folder whatever the setting says (D225)
         let packs_folder = self.packs_offered().then(|| self.packs_folder(&device.home));
         Ok(Ctx { server, device, options, packs_folder })
@@ -827,6 +872,7 @@ impl App {
                 json!({ "game": game, "details": details, "on_device": self.keys_on_device().contains(&key), "packs": packs })
             }
             // a game's packs of maps and guides for Atlas (D222)
+            "guidebook_tick" => self.guidebook_tick(&arg::<String>(args, "key")?, &arg::<String>(args, "pack")?, &arg::<String>(args, "guidebook")?, arg::<bool>(args, "on")?)?,
             "pack_tick" => self.pack_tick(&arg::<String>(args, "key")?, &arg::<String>(args, "pack")?, arg::<bool>(args, "on")?)?,
             "packs_get" => json!({ "queued": self.get_packs(&arg::<String>(args, "key")?)? }),
             // Show in Atlas (D224)
@@ -1678,6 +1724,7 @@ impl App {
         // the games' ticked packs for Atlas too (D222)
         o.packs = d.places.contains_key(packs::PLACE);
         o.packs_left = packs::left_out(&self.data);
+        o.guidebooks_left = packs::guidebooks_left(&self.data);
         let plan: Plan = s.call("POST", "/v1/plans", Some(&o.ask(keys)))?;
         let media_kind = |role: &str| role == gamerepo_wire::MANUAL.0 || gamerepo_wire::MEDIA.iter().any(|(k, _, _)| *k == role);
         let games: u64 = plan.files.iter().filter(|f| !media_kind(&f.role) && !packs::is_pack(f)).map(|f| f.size).sum();

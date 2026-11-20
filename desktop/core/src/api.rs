@@ -746,6 +746,9 @@ impl App {
         if cmd.starts_with("maps") {
             return self.maps_call(cmd, args).await;
         }
+        if cmd.starts_with("guidebooks") {
+            return self.guidebooks_call(cmd, args).await;
+        }
         if ["organise_", "change_", "naming", "convert_", "tools", "format"].iter().any(|p| cmd.starts_with(p)) {
             return self.organise_call(cmd, args).await;
         }
@@ -1421,6 +1424,8 @@ impl App {
                     "maps_import" => "Importing packs",
                     "maps_link" => "Linking packs to games",
                     "maps_remove" => "Removing packs",
+                    "maps_guidebooks_import" => "Importing guidebooks",
+                    "maps_guidebooks_remove" => "Removing guidebooks",
                     "bios" => "Importing BIOS files",
                     "metadata" => "Deleting metadata",
                     "pc_remove" => "Removing a PC game",
@@ -3433,6 +3438,66 @@ impl App {
             "maps_open" => {
                 let path = arg(&args, "path").map_err(e2s)?.to_string();
                 j(blocking(Box::new(move || crate::maps::open_in_atlas(&lib, &path))).await?)
+            }
+            other => Err(format!("unknown command {other}")),
+        }
+    }
+
+    /// Guidebooks ("Maps and Guides notes, part 10", D232–D240): the page's list, importing
+    /// them to a game, removing, a title, a folder's game, and their text read.
+    async fn guidebooks_call(self: &Arc<Self>, cmd: &str, args: Value) -> Result<Reply, String> {
+        let j = |v: Value| Ok(Reply::Json(v));
+        let blocking = |f: Box<dyn FnOnce() -> Result<Value> + Send>| async move { tokio::task::spawn_blocking(f).await.map_err(|e| e.to_string())?.map_err(e2s) };
+        let data_dir = self.paths.data_dir.clone();
+        let lib = self.library()?;
+        let pending = {
+            let data_dir = data_dir.clone();
+            move |plan: organise::Plan| -> Result<Value> {
+                organise::save_pending(&data_dir, &plan)?;
+                Ok(json!({ "plan": plan.summary() }))
+            }
+        };
+        let rels = || -> Vec<String> { args["rels"].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect() };
+        match cmd {
+            "guidebooks" => j(self.with_index(move |ix| crate::guidebooks::overview(ix, &lib)).await?),
+            // files picked (or a folder of them) brought into a game's folder, with Undo
+            "guidebooks_import" => {
+                let paths: Vec<PathBuf> = args["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).map(PathBuf::from).collect();
+                let key = arg(&args, "key").map_err(e2s)?.to_string();
+                let mode = args["mode"].as_str().unwrap_or("copy").to_string();
+                let always_copy = args["always_copy"].as_bool().unwrap_or(false);
+                j(self.with_index(move |ix| pending(crate::guidebooks::import_plan(ix, &lib, &paths, &key, &mode, always_copy)?)).await?)
+            }
+            "guidebooks_remove" => {
+                let rels = rels();
+                j(blocking(Box::new(move || pending(crate::guidebooks::remove_plan(&lib, &rels)?))).await?)
+            }
+            "guidebooks_title" => {
+                let rel = arg(&args, "rel").map_err(e2s)?.to_string();
+                let title = args["title"].as_str().unwrap_or("").to_string();
+                j(blocking(Box::new(move || crate::guidebooks::set_title(&lib, &rel, &title))).await?)
+            }
+            // a title folder's guidebooks linked to a game by hand, or (no key) found again
+            "guidebooks_link" => {
+                let folder = arg(&args, "folder").map_err(e2s)?.to_string();
+                let key = args["key"].as_str().filter(|k| !k.is_empty()).map(String::from);
+                j(self.with_index(move |ix| crate::guidebooks::link(ix, &lib, &folder, key.as_deref())).await?)
+            }
+            // their text read page by page, as the magazines' is (a job): those picked, or every
+            // one not read yet
+            "guidebooks_read" => {
+                lib.writable().map_err(e2s)?;
+                let rels = rels();
+                let again = args["again"].as_bool().unwrap_or(false);
+                let label = "Reading guidebooks' text";
+                self.not_running(label)?;
+                j(self.spawn_job_as(label, args["auto"].as_bool().unwrap_or(false), move |app, jid, cancel| {
+                    crate::guidebooks::read_texts(&lib, (!rels.is_empty()).then_some(rels.as_slice()), again, &cancel, &mut |p| app.job_progress(&jid, p))
+                }))
+            }
+            "guidebooks_text" => {
+                let rel = arg(&args, "rel").map_err(e2s)?.to_string();
+                j(blocking(Box::new(move || crate::guidebooks::text_of(&lib, &rel))).await?)
             }
             other => Err(format!("unknown command {other}")),
         }

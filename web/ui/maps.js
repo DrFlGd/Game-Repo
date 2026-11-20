@@ -21,6 +21,7 @@ import { gameHash, systemColour } from "./browse.js";
 import { useDroppedFiles } from "./documents.js";
 import { Icon } from "./icons.js";
 import { Shelf, useShelfState, Pic, PanelActions, askGame, byName } from "./shelf.js";
+import { guidebookItem, guidebookTile, guidebookFacts, GuidebookPanel, guidebookActions, importGuidebooks } from "./guidebooks.js";
 
 const err = (e) => e.message || String(e);
 const again = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
@@ -28,8 +29,8 @@ const fail = (e) => toast(err(e), 8000);
 
 /** What a pack is to the page: linked to a game, on To review, or left with no game. */
 const STATUS = { linked: "Linked to a game", review: "To review", nogame: "Left with no game", unreadable: "Can't be read" };
-const status = (p) => (p.unreadable ? "unreadable" : p.games?.length ? "linked" : p.left ? "nogame" : "review");
-const KIND = { map: "Maps", guide: "Guides", wiki: "Wiki pages" };
+const status = (p) => (p.unreadable ? "unreadable" : p.games?.length ? "linked" : p.left || p.guidebook ? "nogame" : "review");
+const KIND = { map: "Maps", guide: "Guides", wiki: "Wiki pages", guidebook: "Guidebooks" };
 const DETAIL = { overview: "Overview", standard: "Standard", full: "Full" };
 
 /** How long ago an instant was, in plain words: "today", "3 days ago", "2 months ago". */
@@ -298,7 +299,9 @@ export function Maps() {
   const [st, set] = useShelfState("maps", { sort: "title", group: "game" });
   // files dropped here are imported, as packs (D78)
   useDroppedFiles(() => "maps");
-  const reload = () => api("maps").then((d) => { setData(d); setError(""); }).catch((e) => setError(err(e)));
+  // with the guidebooks (D233), each a card of its own among the packs
+  const reload = () => Promise.all([api("maps"), api("guidebooks").catch(() => ({ guidebooks: [] }))])
+    .then(([d, gb]) => { setData({ ...d, guidebooks: gb.guidebooks || [] }); setError(""); }).catch((e) => setError(err(e)));
   useEffect(() => {
     if (!s.library) return;
     reload();
@@ -324,6 +327,7 @@ export function Maps() {
   const packs = useMemo(() => [
     ...(data?.packs || []),
     ...(data?.unreadable || []).map((f) => ({ ...f, unreadable: true, title: f.name, games: [], kinds: [] })),
+    ...(data?.guidebooks || []).map(guidebookItem),
   ], [data]);
   const names = useMemo(() => {
     const m = { system: new Map(), game: new Map() };
@@ -339,6 +343,8 @@ export function Maps() {
     { id: "detail", name: "Detail", of: (p) => [p.detail], label: (d) => DETAIL[d] || d },
   ];
   const actions = (list) => {
+    if (list.length && list.every((p) => p.guidebook)) return guidebookActions(list, off);
+    list = list.filter((p) => !p.guidebook);
     const one = list.length === 1 ? list[0] : null;
     const pack = one && !one.unreadable ? one : null;
     const desk = isDesktop();
@@ -358,6 +364,7 @@ export function Maps() {
   const review = packs.filter((p) => status(p) === "review");
   const more = () => [
     ...(packs.length ? [{ id: "maps-import-more", label: "Import maps and guides…", icon: "inbox", disabled: off || !isDesktop(), run: () => importFrom("import-maps", () => importMaps()) }] : []),
+    { id: "maps-import-guidebooks", label: "Import guidebooks…", icon: "book", disabled: off || !isDesktop(), run: () => importGuidebooks() },
     { id: "maps-look-again", label: "Look again", icon: "refresh", disabled: off || reading, run: () => look(true) },
     { id: "maps-show-folder", label: "Show the folder", icon: "folder", disabled: !isDesktop() || !data?.folder, run: () => ctx.platform.library.openPath(`${s.library.path}/${data.folder}`) },
   ];
@@ -376,10 +383,10 @@ export function Maps() {
   return html`<${Shelf} page="maps" noun=${["pack", "packs"]} title="Maps and Guides" items=${data ? packs : null} error=${error} st=${st} set=${set}
     fields=${fields} groups=${GROUPS} sorts=${SORTS} ratio="4 / 3" columns=${COLUMNS} cols=${COLS}
     text=${(p) => [p.title, p.name, p.game_title, p.source_name, ...(p.games || []).map((g) => g.title), ...(p.maps || []).map((m) => m.name), ...(p.guides || []).map((g) => g.title)].join(" ")}
-    tile=${(p) => ({ pics: pics(p, 512), none: noPic(p), badge: { text: p.unreadable ? "Can't be read" : p.games?.length ? p.games[0].platform_name : STATUS[status(p)], colour: systemColour(p.games?.[0]?.platform || "maps") }, title: p.title || p.name, meta: p.unreadable ? p.error : [gameTitle(p) !== p.title ? gameTitle(p) : null, packFrom(p), packCounts(p)[0]].filter(Boolean).join(" · "), missing: p.unreadable })}
-    line=${(p) => ({ pics: pics(p, 256), none: noPic(p), badge: { text: p.games?.length ? p.games.map((g) => g.title).slice(0, 2).join(", ") : STATUS[status(p)] }, title: p.title || p.name, meta: p.unreadable ? p.error : [packFacts(p), ageLine(p)].filter(Boolean).join(" · "), missing: p.unreadable })}
-    actions=${actions} onOpen=${(p) => !p.unreadable && openInAtlas(p)} top=${top} primary=${packs.length ? null : primary} more=${more} moreTitle="Import, look again, tile size" empty=${empty}
-    panel=${(p) => html`<${PackPanel} p=${p} off=${off} actions=${actions([p]).filter((a) => ["open", "link", "take-off", "picture", "show", "remove"].includes(a.id))} />`} />`;
+    tile=${(p) => p.guidebook ? guidebookTile(p) : ({ pics: pics(p, 512), none: noPic(p), badge: { text: p.unreadable ? "Can't be read" : p.games?.length ? p.games[0].platform_name : STATUS[status(p)], colour: systemColour(p.games?.[0]?.platform || "maps") }, title: p.title || p.name, meta: p.unreadable ? p.error : [gameTitle(p) !== p.title ? gameTitle(p) : null, packFrom(p), packCounts(p)[0]].filter(Boolean).join(" · "), missing: p.unreadable })}
+    line=${(p) => p.guidebook ? { ...guidebookTile(p), meta: guidebookFacts(p) } : ({ pics: pics(p, 256), none: noPic(p), badge: { text: p.games?.length ? p.games.map((g) => g.title).slice(0, 2).join(", ") : STATUS[status(p)] }, title: p.title || p.name, meta: p.unreadable ? p.error : [packFacts(p), ageLine(p)].filter(Boolean).join(" · "), missing: p.unreadable })}
+    actions=${actions} onOpen=${(p) => p.guidebook ? isDesktop() && ctx.platform.library.openPath(`${s.library.path}/${p.path}`) : !p.unreadable && openInAtlas(p)} top=${top} primary=${packs.length ? null : primary} more=${more} moreTitle="Import, look again, tile size" empty=${empty}
+    panel=${(p) => p.guidebook ? html`<${GuidebookPanel} g=${p} off=${off} />` : html`<${PackPanel} p=${p} off=${off} actions=${actions([p]).filter((a) => ["open", "link", "take-off", "picture", "show", "remove"].includes(a.id))} />`} />`;
 }
 
 /** A game's packs on its page (D219): each with Open in Atlas. */

@@ -316,6 +316,41 @@ def atlas_pack_file(path, pack_id, title, key, updated="2026-11-10T10:00:00Z", m
     return path
 
 
+def guidebooks_for(folder):
+    """Two guidebooks, published guides as one file each (D232): a PDF of two pages with its
+    own text, and a CBZ of three pictures. Made-up games only."""
+    import io
+    import zipfile
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", None, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    kids = []
+    for t in ("Beta: the walkthrough", "Beta: every secret"):
+        stream = f"BT /F1 14 Tf 30 400 Td ({t}) Tj ET".encode()
+        objs.append(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
+        objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 595] /Contents %d 0 R /Resources << /Font << /F1 3 0 R >> >> >>" % len(objs))
+        kids.append(len(objs))
+    objs[1] = b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(b"%d 0 R" % k for k in kids), len(kids))
+    pdf, at = bytearray(b"%PDF-1.4\n"), []
+    for i, o in enumerate(objs, 1):
+        at.append(len(pdf))
+        pdf += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    xref = len(pdf)
+    pdf += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % x for x in at)
+    pdf += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "Beta Official Guide.pdf").write_bytes(bytes(pdf))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n in (1, 2, 3):
+            z.writestr(f"{n:02}.png", png(4, 4, (40 * n, 90, 200)))
+    (folder / "Beta Art Book.cbz").write_bytes(buf.getvalue())
+
+
+def guidebooks_in(path):
+    """The guidebooks a pack of guidebooks holds, by their files' names in it."""
+    import zipfile
+    with zipfile.ZipFile(path) as z:
+        return sorted(n.split("/", 1)[1] for n in z.namelist() if n.startswith("guidebooks/") and n.endswith((".pdf", ".cbz")))
+
 def atlas_stand_in(folder):
     """A stand-in for Atlas's program (D224) that writes down the arguments it was started
     with, a line each, into atlas-args.txt beside it: a shell script, or a .cmd on Windows."""
@@ -1138,6 +1173,54 @@ async def main():
             await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); delete l.view; localStorage.setItem('go-look', JSON.stringify(l)); }")
             check("the big screen's game page has Maps and guides…, the same list as a panel, and Show in Atlas beside it",
                   panel_ticked is False and big_show and not panel_show, (panel_ticked, big_show, panel_show))
+            # 13b2. a game's guidebooks (D232-D238): a pack of their own for the game, made by
+            # the server, listed with its packs, each guidebook with its size and a tick; the pack
+            # brought into Atlas's packs folder, made again with only the ticked ones when one is
+            # unticked, and taken out when none is
+            await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); delete l.view; localStorage.setItem('go-look', JSON.stringify(l)); }")
+            beta_folder = next(p.parent for p in (lib / "Maps and Guides").rglob("Beta - Example Maps.atlaspack"))
+            guidebooks_for(beta_folder / "Guidebooks")
+            run("serve-devices", "changed", "--data", data)
+            gb_pack = '#go-game-packs li[data-pack^="guidebooks-"]'
+            await pg.goto(beta_page)
+            await pg.reload()
+            await pg.wait_for_selector(f"{gb_pack} .go-guidebooks li", timeout=20000)
+            gb_listed = await pg.inner_text(gb_pack)
+            gb_ticks = await pg.eval_on_selector_all(f"{gb_pack} .go-guidebooks li", "els => els.map(e => [e.dataset.guidebook, e.querySelector('input').checked])")
+            await shot(pg, "17d-phone-game-guidebooks")
+            check("a game's guidebooks are listed with its packs, as a pack of their own, each guidebook with its size and ticked",
+                  "Beta - Guidebooks" in gb_listed and "2 guidebooks" in gb_listed and "Beta Official Guide" in gb_listed and "PDF · 2 pages" in gb_listed and "CBZ · 3 pages" in gb_listed
+                  and gb_ticks == [["Beta Art Book.cbz", True], ["Beta Official Guide.pdf", True]], (gb_listed, gb_ticks))
+            await pg.wait_for_selector("#go-game-packs-get", timeout=20000)
+            await pg.click("#go-game-packs-get")
+            gb_there = atlas / "Beta - Guidebooks.atlaspack"
+            for _ in range(120):
+                if gb_there.is_file() and not list(atlas.glob("*.part")):
+                    break
+                await asyncio.sleep(0.5)
+            first_gb = guidebooks_in(gb_there) if gb_there.is_file() else []
+            check("Download its ticked pack brings the game's guidebooks into Atlas's packs folder, in one pack made by the server",
+                  len(first_gb) == 2 and any(n.endswith(".pdf") for n in first_gb) and any(n.endswith(".cbz") for n in first_gb), first_gb)
+            await pg.reload()
+            await pg.wait_for_selector(f'{gb_pack}[data-here="yes"]', timeout=20000)
+            await pg.click(f'{gb_pack} li[data-guidebook="Beta Art Book.cbz"] input')
+            await pg.wait_for_selector("#go-game-packs-said", timeout=20000)
+            gb_said = await pg.inner_text("#go-game-packs-said")
+            second_gb = first_gb
+            for _ in range(120):
+                await asyncio.sleep(0.5)
+                if gb_there.is_file() and not list(atlas.glob("*.part")):
+                    second_gb = guidebooks_in(gb_there)
+                    if len(second_gb) == 1:
+                        break
+            check("unticking a guidebook brings the pack again with only the ticked ones, in place of the one there",
+                  "coming again" in gb_said and len(second_gb) == 1 and second_gb[0].endswith(".pdf") and len([p for p in atlas.iterdir() if "Guidebooks" in p.name]) == 1, (gb_said, second_gb))
+            await pg.reload()
+            await pg.wait_for_selector(f'{gb_pack} li[data-guidebook="Beta Official Guide.pdf"] input:not([disabled])', timeout=20000)
+            await pg.click(f'{gb_pack} li[data-guidebook="Beta Official Guide.pdf"] input')
+            await settled(pg, "() => /no guidebook is ticked/.test(document.querySelector('#go-game-packs-said')?.textContent || '')", 20000)
+            gb_none = await pg.inner_text("#go-game-packs-said")
+            check("with no guidebook ticked, the pack is taken out of Atlas's packs folder", "taken out" in gb_none and not gb_there.exists(), gb_none)
             # Android: not offered yet (the page hides it)
             shell(kind="android")
             await pg.goto(beta_page)
@@ -1257,11 +1340,13 @@ async def main():
             await pg.wait_for_selector(echo_pack, timeout=20000)
             big_tab = await pg.get_attribute(".go-big-bar #go-nav-maps", "aria-current")
             big_rows = await pg.eval_on_selector_all("#go-maps li.go-pack", "els => els.length")
+            gb_row = await pg.eval_on_selector_all('#go-maps li.go-pack[data-pack^="guidebooks-"]', "els => els.map(e => e.innerText)")
             await shot(pg, "17f-phone-big-maps")
             await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); delete l.view; localStorage.setItem('go-look', JSON.stringify(l)); }")
             await pg.goto(B + "#library")
             await pg.reload()
-            check("the big screen has Maps and guides as a tab of its own, with the same list", big_tab == "page" and big_rows == 3, (big_tab, big_rows))
+            check("the big screen has Maps and guides as a tab of its own, with the same list (Beta's guidebooks a pack of their own in it)",
+                  big_tab == "page" and big_rows == 4 and len(gb_row) == 1 and "Beta - Guidebooks" in gb_row[0] and "2 guidebooks" in gb_row[0], (big_tab, big_rows, gb_row))
 
             # 13c. PC games (D110-D112), on Windows and Linux: a system of their own, put in the
             # PC games folder Settings names, each game in its folder with a shortcut (in the

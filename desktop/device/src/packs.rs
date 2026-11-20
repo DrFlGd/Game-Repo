@@ -160,6 +160,10 @@ pub struct Record {
     /// their `packId`s: kept there whatever the games here do
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub alone: Vec<String>,
+    /// The guidebooks unticked in a game's pack of guidebooks (D238): by the game's key, their
+    /// ids (their files' names in the library)
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub guidebooks_left: BTreeMap<String, Vec<String>>,
 }
 
 impl Record {
@@ -602,6 +606,25 @@ pub fn note_there(d: &Device, f: &File) -> Result<()> {
 /// The packs unticked on each game's page, for a plan (`PlanAsk::packs_left`).
 pub fn left_out(data: &Path) -> Vec<(String, Vec<String>)> {
     load(data).left_out.into_iter().filter(|(_, v)| !v.is_empty()).collect()
+}
+
+/// The guidebooks unticked in each game's pack of guidebooks, for a plan
+/// (`PlanAsk::guidebooks_left`, D238).
+pub fn guidebooks_left(data: &Path) -> Vec<(String, Vec<String>)> {
+    load(data).guidebooks_left.into_iter().filter(|(_, v)| !v.is_empty()).collect()
+}
+
+/// A guidebook ticked or unticked in a game's pack of guidebooks (D238).
+pub fn set_guidebook_ticked(data: &Path, key: &str, guidebook: &str, on: bool) -> Result<()> {
+    change(data, |rec| {
+        let v = rec.guidebooks_left.entry(key.to_string()).or_default();
+        v.retain(|g| g != guidebook);
+        if !on {
+            v.push(guidebook.to_string());
+        }
+        rec.guidebooks_left.retain(|_, v| !v.is_empty());
+        Ok(())
+    })
 }
 
 /// A pack ticked or unticked on a game's page.
