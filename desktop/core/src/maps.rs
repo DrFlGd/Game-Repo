@@ -50,7 +50,7 @@ pub const FOLDER: &str = "Maps and Guides";
 pub const NO_GAME: &str = "No game yet";
 /// Game Repo's record of the packs, in the folder.
 pub const RECORD: &str = "packs.json";
-/// A title's guidebooks (D223: not read yet), passed over.
+/// A title's guidebooks (`guidebooks.rs`, D232), passed over by the packs' walk.
 pub const GUIDEBOOKS: &str = "Guidebooks";
 /// The pictures chosen for packs (hidden, so passed over).
 const PICTURES: &str = ".pictures";
@@ -180,11 +180,20 @@ fn walk(dir: &Path) -> Vec<(String, u64, i64)> {
     out
 }
 
+/// The index's note of the release of Atlas's crate its descriptions were read with.
+const READER_KEY: &str = "atlas_packs_reader";
+
 /// The pack files in the folder, each one's description from the index while its size
-/// and time are the same, else read again (and the index kept in step).
+/// and time are the same, else read again (and the index kept in step); every one read
+/// again once after the crate's release changes ([`atlaspack::READER`]).
 pub fn read_folder(ix: &Index, lib: &Library) -> Result<Vec<Found>> {
     let dir = folder(lib);
     let files = walk(&dir);
+    // read with another release of Atlas's crate before: every pack is read again once
+    if ix.meta(READER_KEY)?.as_deref() != Some(atlaspack::READER) {
+        ix.conn().execute("DELETE FROM atlas_packs", [])?;
+        ix.set_meta(READER_KEY, atlaspack::READER)?;
+    }
     let conn = ix.conn();
     type Row = (Option<String>, Option<String>, Option<String>);
     let mut kept: HashMap<String, (i64, i64, Row)> = HashMap::new();
@@ -396,7 +405,7 @@ pub fn sure(found: &[Match], system: Option<&str>) -> Vec<Match> {
 
 // ------------------------------------------------------------ changes: linking, importing, removing
 
-fn folder_src(lib: &Library, rel: &str) -> Src {
+pub(crate) fn folder_src(lib: &Library, rel: &str) -> Src {
     let base = folder(lib);
     let path = base.join(rel);
     Src {
@@ -411,7 +420,7 @@ fn folder_src(lib: &Library, rel: &str) -> Src {
     }
 }
 
-fn plan_of(lib: &Library, kind: &str, mode: &str, title: String, label: String, ops: Vec<Op>, n: usize, dat: Value) -> Plan {
+pub(crate) fn plan_of(lib: &Library, kind: &str, mode: &str, title: String, label: String, ops: Vec<Op>, n: usize, dat: Value) -> Plan {
     Plan {
         id: organise::new_id(),
         created: now(),
@@ -465,7 +474,7 @@ pub fn folder_for(games: &[PackGame]) -> String {
 }
 
 /// A free name for `name` in `dir` (below the folder): itself, else "<stem> (2).atlaspack"…
-fn free_name(base: &Path, dir: &str, name: &str, taken: &mut HashSet<String>, own: Option<&str>) -> String {
+pub(crate) fn free_name(base: &Path, dir: &str, name: &str, taken: &mut HashSet<String>, own: Option<&str>) -> String {
     let (stem, ext) = match name.rsplit_once('.') {
         Some((s, e)) => (s.to_string(), format!(".{e}")),
         None => (name.to_string(), String::new()),
@@ -1155,7 +1164,7 @@ pub fn packs_of(ix: &Index, lib: &Library, key: &str) -> Result<Vec<Linked>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::atlaspack::tests::{format6, format7, jpeg, made_by_map_maker, made_in_atlas, mine_entries, write_pack, write_pack_with};
+    use crate::atlaspack::tests::{format6, format7, guidebook_pack, jpeg, made_by_map_maker, made_in_atlas, mine_entries, write_pack, write_pack_with};
     use std::sync::atomic::AtomicBool;
 
     fn run(ix: &Index, lib: &Library, plan: &Plan) -> Value {
@@ -1184,13 +1193,13 @@ mod tests {
         write_pack(&delta, &format7("delta-example-maps", "Delta", "2026-11-17T08:30:00Z"), &[("preview/map-one.jpg", jpeg(3)), ("preview/map-two.jpg", jpeg(4))]);
         write_pack(&no_game.join("Zeta - Example Maps.atlaspack"), &format6("zeta-example-maps", "Zeta", "2026-11-10T08:30:00Z"), &[]);
         write_pack(&no_game.join("Beta - Example Maps.atlaspack.part"), &format6("beta-example-maps", "Beta", "2026-11-10T08:30:00Z"), &[]);
-        let mut eight = format7("future", "Epsilon", "2026-11-10T08:30:00Z");
-        eight["version"] = json!(8);
-        write_pack(&no_game.join("Epsilon - Example Maps.atlaspack"), &eight, &[]);
+        let mut nine = format7("future", "Epsilon", "2026-11-10T08:30:00Z");
+        nine["version"] = json!(9);
+        write_pack(&no_game.join("Epsilon - Example Maps.atlaspack"), &nine, &[]);
         std::fs::write(no_game.join("notes.atlaspack"), b"some notes").unwrap();
         // a packId that can't be one (upper case, a space): damaged, by the crate's check
         write_pack(&no_game.join("Theta - Example Maps.atlaspack"), &format6("Theta Maps", "Theta", "2026-11-10T08:30:00Z"), &[]);
-        // a title's guidebooks aren't read yet (D223)
+        // a title's guidebooks are guidebooks.rs's (D232), not packs: even a pack file there is passed over
         write_pack(&base.join("Delta").join(GUIDEBOOKS).join("guide.atlaspack"), &format6("guidebook", "Delta", "2026-11-10T08:30:00Z"), &[]);
 
         let state = sync(&ix, &lib).unwrap();
@@ -1203,7 +1212,7 @@ mod tests {
         // the crate's own sentences, as they are, with their kinds
         let sentences = vec![
             ("damaged".to_string(), "This pack file names a game id that cannot be used.".to_string()),
-            ("newer-format".to_string(), "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 8). A newer version of this app is needed to open it.".to_string()),
+            ("newer-format".to_string(), "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 9). A newer version of this app is needed to open it.".to_string()),
             ("not-a-pack-file".to_string(), "This file is not an Atlas pack file.".to_string()),
         ];
         assert_eq!(said(&state), sentences);
@@ -1306,6 +1315,44 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// v0.25.0 (D231): a pack of guidebooks (format 8) is a pack like any other, never shown
+    /// as one that can't be read, and its card says Guidebooks; an index whose packs were read
+    /// with the crate before (format 8 kept as refused, `source.origin` left out) reads every
+    /// pack again once.
+    #[test]
+    fn a_pack_of_guidebooks_is_read_and_packs_are_read_again_with_a_newer_crate() {
+        let (dir, lib, ix) = crate::collection::tests::fixture("maps-guidebooks");
+        let base = folder(&lib);
+        let books = base.join(NO_GAME).join("Hollow Marsh Guidebooks.atlaspack");
+        guidebook_pack(&books, "guidebooks-hollow-marsh", "Hollow Marsh");
+        let mut site = format7("delta-example-maps", "Delta", "2026-11-17T08:30:00Z");
+        site["source"]["origin"] = json!("made-in-atlas");
+        write_pack(&base.join(NO_GAME).join("Delta - Example Maps.atlaspack"), &site, &[]);
+        let state = sync(&ix, &lib).unwrap();
+        assert!(state.unreadable.is_empty(), "{:?}", state.unreadable.iter().map(|f| f.error.clone()).collect::<Vec<_>>());
+        let card_of = |id: &str| overview(&ix, &lib).unwrap()["packs"].as_array().unwrap().iter().find(|p| p["id"] == id).cloned().unwrap();
+        let b = card_of("guidebooks-hollow-marsh");
+        assert_eq!((b["sort"].clone(), b["from"].clone(), b["version"].clone()), (json!("guidebooks"), json!("Guidebooks"), json!(8)), "{b}");
+        assert_eq!((card_of("delta-example-maps")["sort"].clone(), card_of("delta-example-maps")["from"].clone()), (json!("made-in-atlas"), json!("Made in Atlas")));
+        // as the crate before left them in the index: the guidebooks refused as a newer
+        // format, the other pack's description without its origin
+        let conn = ix.conn();
+        conn.execute("UPDATE atlas_packs SET description = NULL, error = 'This pack file was made by Example Shelf 1.0.0 in a newer format (version 8). A newer version of this app is needed to open it.', error_kind = 'newer-format' WHERE pack_id = 'guidebooks-hollow-marsh'", []).unwrap();
+        let mut old = site.clone();
+        old["source"].as_object_mut().unwrap().remove("origin");
+        conn.execute("UPDATE atlas_packs SET description = ?1 WHERE pack_id = 'delta-example-maps'", [old.to_string()]).unwrap();
+        // the same crate: kept as the index has them
+        assert_eq!(sync(&ix, &lib).unwrap().unreadable.len(), 1);
+        // another one: read again once, so the guidebooks are read and the origin is there
+        ix.set_meta(READER_KEY, "atlas-pack v0.24.0").unwrap();
+        let state = sync(&ix, &lib).unwrap();
+        assert!(state.unreadable.is_empty());
+        assert_eq!(card_of("guidebooks-hollow-marsh")["sort"], "guidebooks");
+        assert_eq!(card_of("delta-example-maps")["sort"], "made-in-atlas");
+        assert_eq!(ix.meta(READER_KEY).unwrap().as_deref(), Some(atlaspack::READER));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_linked_pack_rewritten_in_a_newer_format_is_still_sent_as_it_is() {
         // D222: Game Repo Server sends a game's linked packs; one the Importer has since
@@ -1319,13 +1366,13 @@ mod tests {
         let all = linked(&ix, &lib).unwrap();
         assert_eq!(all.iter().map(|p| (p.pack_id.as_str(), p.error.is_none())).collect::<Vec<_>>(), [("delta-example-maps", true)], "only the packs linked to a game");
         let file = base.join("Delta/Delta - Example Maps.atlaspack");
-        let mut eight = format7("delta-example-maps", "Delta", "2026-11-19T08:30:00Z");
-        eight["version"] = json!(8);
-        write_pack(&file, &eight, &[]);
+        let mut nine = format7("delta-example-maps", "Delta", "2026-11-19T08:30:00Z");
+        nine["version"] = json!(9);
+        write_pack(&file, &nine, &[]);
         let p = packs_of(&ix, &lib, "gb/Delta (World)").unwrap();
         assert_eq!(p.len(), 1);
         assert_eq!((p[0].pack_id.as_str(), &p[0].path, p[0].size), ("delta-example-maps", &file, std::fs::metadata(&file).unwrap().len()));
-        assert!(p[0].error.as_deref().is_some_and(|e| e.contains("newer format (version 8)")), "{:?}", p[0].error);
+        assert!(p[0].error.as_deref().is_some_and(|e| e.contains("newer format (version 9)")), "{:?}", p[0].error);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

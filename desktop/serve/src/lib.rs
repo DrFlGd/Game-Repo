@@ -17,6 +17,7 @@ pub mod files;
 pub mod http;
 pub mod made;
 pub mod packs;
+pub mod guidebooks;
 pub mod plans;
 pub mod saves;
 pub mod tls;
@@ -697,12 +698,40 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
                 Err(catalogue::TooOld) => Response::problem(410, "The list has changed too much since then: fetch it again."),
             })
         }
-        ("GET", p) if p.starts_with("/v1/games/") => ok(game_details(ix, lib, &p["/v1/games/".len()..])?),
+        ("GET", p) if p.starts_with("/v1/games/") => ok(game_details(ix, lib, &sh.data, &p["/v1/games/".len()..])?),
         // every pack of maps and guides the library holds, and one by its packId (D225)
-        ("GET", "/v1/packs") => ok(Response::json(200, &packs::library(ix, lib)?)),
+        ("GET", "/v1/packs") => {
+            // with each game's pack of guidebooks, grouped under the game (D237)
+            let mut l = packs::library(ix, lib)?;
+            l.items.extend(guidebooks::library(ix, lib, &sh.data, &|g| packs::game_of(ix, g))?);
+            l.items.sort_by(|a, b| {
+                let k = |x: &api::LibraryPack| (x.group.to_lowercase(), x.pack.title.to_lowercase(), x.pack.pack_id.clone());
+                k(a).cmp(&k(b))
+            });
+            ok(Response::json(200, &l))
+        }
         (_, p) if p.starts_with("/v1/packs/") && (m == "GET" || m == "HEAD") => {
             let rest = &p["/v1/packs/".len()..];
             let (id, what) = rest.split_once('/').unwrap_or((rest, ""));
+            // a game's pack of guidebooks, made by the server (D236): the whole set's, or a set's
+            // as a plan gave it; 202 while it's made
+            let made = if gamerepo_core::guidebooks::is_pack_id(id) {
+                match what {
+                    "file" => Some(guidebooks::whole(ix, lib, &sh.data, id)?),
+                    w if w.starts_with("made/") => Some(guidebooks::made(&sh.data, id, &w["made/".len()..])),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if let Some(st) = made {
+                return match st {
+                    guidebooks::Status::Ready(path, m) => send_file(sh, req, &device, path, Some(m.sha1)),
+                    guidebooks::Status::Pending => ok(Response::json(202, &json!({ "pending": true })).with("Retry-After", "2")),
+                    guidebooks::Status::Failed(e) => ok(Response::problem(500, format!("The pack of guidebooks couldn't be made: {e}"))),
+                    guidebooks::Status::Unknown => ok(Response::problem(404, "That pack of guidebooks isn't being made now: ask for the plan again.")),
+                };
+            }
             match what {
                 "file" => match packs::file_of(ix, lib, id)? {
                     Some(path) => send_file(sh, req, &device, path, None),
@@ -822,7 +851,7 @@ fn send_file(sh: &Arc<Shared>, req: &Request, device: &Device, path: PathBuf, sh
 }
 
 /// One game's details: its details, files, discs and each media kind with its size.
-fn game_details(ix: &Index, lib: &Library, key: &str) -> Result<Response> {
+fn game_details(ix: &Index, lib: &Library, data: &std::path::Path, key: &str) -> Result<Response> {
     let Some(g) = catalogue::game(ix, key)? else { return Ok(Response::problem(404, format!("There's no game {key} here now."))) };
     let keys = catalogue::keys_of(ix, key)?.unwrap_or_default();
     let v = browse::game(ix, lib, &keys[0])?;
@@ -856,7 +885,7 @@ fn game_details(ix: &Index, lib: &Library, key: &str) -> Result<Response> {
             "how": d.how, "on": d.on, "goes_in": gamerepo_core::mods::goes_in_itself(&d), "to_choose": d.fomod && d.choices.is_none(), "readme": gamerepo_core::mods::readme_text(&src),
         })).collect::<Vec<_>>()).unwrap_or_default(),
         // its packs of maps and guides, for Atlas on a device (D222)
-        "packs": packs::of_game(ix, lib, key)?,
+        "packs": packs::of_game(ix, lib, key)?.into_iter().chain(guidebooks::of_game(ix, lib, data, key)?).collect::<Vec<_>>(),
     })))
 }
 

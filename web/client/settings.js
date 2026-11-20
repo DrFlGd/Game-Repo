@@ -283,8 +283,16 @@ export function SettingsPage() {
         <span>Maps and guides for Atlas</span></label>
       <p class="muted" id="set-atlas-note">A game's packs of maps and guides from the library go into Atlas's packs folder with it, those ticked on its page. Packs can be large, so this is off until you tick it. Game Repo Go only changes the pack files it put there itself, and removing a game leaves its packs.</p>
       <${Folder} id="set-atlas-folder" label="Atlas's packs folder" value=${st.atlas.folder} setting="atlas_folder" fallback=${st.atlas.usual} />
+      <p class=${st.atlas.from === "go" && st.atlas.in_atlas && st.atlas.in_atlas !== st.atlas.folder ? "warn-note" : "muted"} id="set-atlas-from" data-from=${st.atlas.from}>${
+        st.atlas.from === "atlas" ? html`Set in Atlas: this is the packs folder chosen in Atlas's settings, so Game Repo Go puts packs where Atlas reads them, and follows it when it's changed there.`
+        : st.atlas.from === "go" ? (st.atlas.in_atlas && st.atlas.in_atlas !== st.atlas.folder
+          ? html`Set here. Atlas reads its packs from <span class="go-file">${st.atlas.in_atlas}</span>, so it won't see the packs put in this folder unless you add it in Atlas.`
+          : html`Set here.`)
+        : html`Atlas's usual packs folder${st.atlas.atlas_unusable ? html`: Atlas's settings name a packs folder it can't use (${st.atlas.atlas_unusable}), so Atlas uses this one too` : ""}. A folder chosen in Atlas is used once it's chosen there.`}
+        ${" "}When the folder changes, the packs Game Repo Go put in the one before move with it.</p>
+      ${st.atlas.missing && st.atlas.from === "atlas" ? html`<p class="warn-note" id="set-atlas-missing">This folder isn't there (is its drive connected?). Game Repo Go doesn't make a folder chosen in Atlas, as Atlas doesn't, so packs wait until it's there.</p>` : null}
       ${st.atlas.delivered ? html`<p class="muted" id="set-atlas-delivered">${plural(st.atlas.delivered, "pack")} put there by Game Repo Go.</p>` : null}
-      ${!st.atlas.default ? html`<div><button type="button" class="ghost" id="set-atlas-usual" onClick=${() => set({ atlas_folder: "" }).then(refreshStatus)}>Use the usual folder</button></div>` : null}
+      ${!st.atlas.default ? html`<div><button type="button" class="ghost" id="set-atlas-usual" onClick=${() => set({ atlas_folder: "" }).then(refreshStatus)}>${st.atlas.in_atlas && st.atlas.in_atlas !== st.atlas.usual ? "Use the folder Atlas reads" : "Use the usual folder"}</button></div>` : null}
       <label class="field-block"><span>Atlas's program</span>
         <input id="set-atlas-program" value=${v.atlas_program || ""} spellcheck="false" placeholder=${info.kind === "windows" ? "Found by itself (the program that opens .atlaspack files)" : "Where Atlas's program is"}
           onChange=${(e) => set({ atlas_program: e.currentTarget.value.trim() }).then(refreshStatus)} /></label>

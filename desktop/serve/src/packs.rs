@@ -74,6 +74,7 @@ pub fn info(p: &Linked) -> Pack {
         updated: d.updated.clone().unwrap_or_default(),
         personal_use: d.personal_use,
         error: p.error.clone().unwrap_or_default(),
+        guidebooks: vec![],
     }
 }
 
@@ -184,7 +185,7 @@ fn chosen_picture(lib: &Library, p: &maps::Pack) -> Option<String> {
 
 /// A Library key's game as a pack's (D225): its catalogue key when the server gives it,
 /// and its title and system as the library has them.
-fn game_of(ix: &Index, g: &maps::PackGame) -> Result<PackGame> {
+pub(crate) fn game_of(ix: &Index, g: &maps::PackGame) -> Result<PackGame> {
     let key = catalogue::game_for(ix, &g.key)?;
     let served = match &key {
         Some(k) => catalogue::game(ix, k)?,
@@ -342,5 +343,36 @@ mod tests {
         assert_eq!(said(&linked("delta-old", json!({ "importer": { "id": "example-maps", "title": "Example Maps" } }), "Atlas")), (s("Example Maps"), s(""), s("")));
         let j = serde_json::to_value(info(&linked("delta-app", json!({ "kind": "app" }), "Atlas"))).unwrap();
         assert_eq!((j["sort"].as_str(), j.get("made_in")), (Some("app"), None), "{j}");
+    }
+
+    /// D231: a whole description that says its sort (`source.origin`, Atlas 0.25.0) is told by
+    /// that word, and a pack of guidebooks is the sort `guidebooks`, with no site and no app.
+    #[test]
+    fn a_device_is_told_the_sort_a_pack_says_itself_and_guidebooks() {
+        let whole = |id: &str, source: serde_json::Value, written_by: &str| {
+            let mut l = linked(id, source, written_by);
+            let mut raw = l.description.raw.clone();
+            raw["detail"] = json!("full");
+            raw["pack"]["packVersion"] = json!("1.0.0");
+            raw["pack"]["schemaVersion"] = json!(2);
+            raw["pack"]["attribution"] = json!([]);
+            raw["contents"] = json!({ "maps": 1 });
+            raw["images"] = json!({ "detail": "full", "files": 1, "bytes": 1, "layers": [] });
+            raw["files"] = json!(1);
+            raw["bytes"] = json!(1);
+            l.description = Description::from_value(raw);
+            l
+        };
+        let said = |p: &Linked| {
+            let i = info(p);
+            (i.source, i.made_in, i.sort)
+        };
+        let s = |x: &str| x.to_string();
+        // read from web pages by its kind, made in Atlas by its word
+        assert_eq!(said(&whole("delta-example-maps", json!({ "kind": "web-pages", "name": "Example Maps", "origin": "made-in-atlas" }), "Atlas")), (s(""), s("Atlas"), s("made-in-atlas")));
+        assert_eq!(said(&whole("delta-example-maps", json!({ "kind": "web-pages", "name": "Example Maps", "origin": "site" }), "Atlas")), (s("Example Maps"), s(""), s("site")));
+        assert_eq!(said(&whole("delta-guidebooks", json!({ "kind": "unknown", "origin": "guidebooks" }), "Example Shelf")), (s(""), s(""), s("guidebooks")));
+        // a word not known: the rule from before
+        assert_eq!(said(&whole("delta-app", json!({ "kind": "app", "origin": "something-later" }), "Atlas")), (s(""), s(""), s("app")));
     }
 }

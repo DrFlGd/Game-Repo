@@ -291,12 +291,12 @@ def add_pc_game():
     run("serve-devices", "changed", "--data", data)
 
 
-def atlas_pack_file(path, pack_id, title, key, updated="2026-11-10T10:00:00Z", more=""):
+def atlas_pack_file(path, pack_id, title, key, updated="2026-11-10T10:00:00Z", more="", origin=None):
     """A pack of maps and guides as Atlas Importer writes one (the Atlas pack contract, as
     Atlas's block A3 built it), as docs/pack-file-format.md in Atlas's repository has it; no
     small pictures, so version 6. `updated`: when its content last changed (`pack.updated`);
-    `more`: more in it (as Atlas writes a pack again with more of yours). Made-up games and
-    sites only."""
+    `more`: more in it (as Atlas writes a pack again with more of yours); `origin`: its sort in
+    one word (`source.origin`, as Atlas 0.25.0 writes it, D231). Made-up games and sites only."""
     import zipfile
     d = {"format": "atlas-pack-file", "version": 6, "packId": pack_id, "title": f"{title} - Example Maps", "packVersion": "1.0.0", "detail": "standard",
          "exportedAt": "2026-11-12T08:00:00Z", "exportedBy": {"name": "Atlas Importer", "version": "0.23.0", "platform": "linux"},
@@ -307,6 +307,8 @@ def atlas_pack_file(path, pack_id, title, key, updated="2026-11-10T10:00:00Z", m
          "contents": {"maps": 2, "locations": 120, "guides": 2}, "files": 2, "bytes": 4096,
          "maps": [{"id": "map:world", "name": "The World", "width": 1024, "height": 768, "locations": 100}, {"id": "map:caves", "name": "The Caves", "width": 512, "height": 512, "locations": 20}],
          "guides": [{"title": "The Wiki", "type": "wiki", "pages": 30}]}
+    if origin:
+        d["source"]["origin"] = origin
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("atlaspack.json", json.dumps(d))
@@ -315,6 +317,41 @@ def atlas_pack_file(path, pack_id, title, key, updated="2026-11-10T10:00:00Z", m
             z.writestr("mine/my-notes.json", more, compress_type=zipfile.ZIP_DEFLATED)
     return path
 
+
+def guidebooks_for(folder):
+    """Two guidebooks, published guides as one file each (D232): a PDF of two pages with its
+    own text, and a CBZ of three pictures. Made-up games only."""
+    import io
+    import zipfile
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", None, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    kids = []
+    for t in ("Beta: the walkthrough", "Beta: every secret"):
+        stream = f"BT /F1 14 Tf 30 400 Td ({t}) Tj ET".encode()
+        objs.append(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
+        objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 595] /Contents %d 0 R /Resources << /Font << /F1 3 0 R >> >> >>" % len(objs))
+        kids.append(len(objs))
+    objs[1] = b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(b"%d 0 R" % k for k in kids), len(kids))
+    pdf, at = bytearray(b"%PDF-1.4\n"), []
+    for i, o in enumerate(objs, 1):
+        at.append(len(pdf))
+        pdf += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    xref = len(pdf)
+    pdf += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % x for x in at)
+    pdf += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "Beta Official Guide.pdf").write_bytes(bytes(pdf))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n in (1, 2, 3):
+            z.writestr(f"{n:02}.png", png(4, 4, (40 * n, 90, 200)))
+    (folder / "Beta Art Book.cbz").write_bytes(buf.getvalue())
+
+
+def guidebooks_in(path):
+    """The guidebooks a pack of guidebooks holds, by their files' names in it."""
+    import zipfile
+    with zipfile.ZipFile(path) as z:
+        return sorted(n.split("/", 1)[1] for n in z.namelist() if n.startswith("guidebooks/") and n.endswith((".pdf", ".cbz")))
 
 def atlas_stand_in(folder):
     """A stand-in for Atlas's program (D224) that writes down the arguments it was started
@@ -1007,9 +1044,22 @@ async def main():
             was_on = await pg.is_checked("#set-atlas-on")
             where = phone / "AppData" / "Local" / "Atlas" / "Packs" if sys.platform == "win32" else phone / ".local" / "share" / "atlas" / "packs"
             check("Settings has Maps and guides for Atlas, off at first, with Atlas's packs folder where the contract says", not was_on and usual == where, (was_on, usual))
+            # D230: a packs folder chosen in Atlas (its settings file's packsFolder) is the one
+            # Go uses when none is set in Go, and Settings says it was set in Atlas
+            atlas_settings = where.parent / "settings.json"
+            atlas_settings.parent.mkdir(parents=True, exist_ok=True)
+            atlas_settings.write_text(json.dumps({"format": "atlas-settings", "version": 1, "mapsFolder": None, "packsFolder": str(atlas)}), encoding="utf-8")
+            await pg.reload()
+            await pg.wait_for_selector("#set-atlas-from[data-from='atlas']", timeout=20000)
+            chosen = Path(await pg.input_value("#set-atlas-folder input"))
+            said_from = await pg.inner_text("#set-atlas-from")
+            check("a packs folder chosen in Atlas is the one Go uses, said to be set in Atlas", chosen == atlas and "Set in Atlas" in said_from and not await pg.is_visible("#set-atlas-usual"), (chosen, said_from))
             await pg.fill("#set-atlas-folder input", str(atlas))
             await pg.click("#set-atlas-folder button:has-text('Save')")
             await pg.wait_for_selector("#set-atlas-usual")
+            await pg.wait_for_selector("#set-atlas-from[data-from='go']")
+            said_from = await pg.inner_text("#set-atlas-from")
+            check("the folder set in Go is Go's own, and it's the one Atlas reads", said_from.startswith("Set here.") and "won't see" not in said_from, said_from)
             beta_page = B + "#game/" + "gb%2FBeta%20(Europe)"
             beta_pack = '#go-game-packs li[data-pack="beta-example-maps"]'
             await pg.goto(beta_page)
@@ -1138,6 +1188,54 @@ async def main():
             await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); delete l.view; localStorage.setItem('go-look', JSON.stringify(l)); }")
             check("the big screen's game page has Maps and guides…, the same list as a panel, and Show in Atlas beside it",
                   panel_ticked is False and big_show and not panel_show, (panel_ticked, big_show, panel_show))
+            # 13b2. a game's guidebooks (D232-D238): a pack of their own for the game, made by
+            # the server, listed with its packs, each guidebook with its size and a tick; the pack
+            # brought into Atlas's packs folder, made again with only the ticked ones when one is
+            # unticked, and taken out when none is
+            await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); delete l.view; localStorage.setItem('go-look', JSON.stringify(l)); }")
+            beta_folder = next(p.parent for p in (lib / "Maps and Guides").rglob("Beta - Example Maps.atlaspack"))
+            guidebooks_for(beta_folder / "Guidebooks")
+            run("serve-devices", "changed", "--data", data)
+            gb_pack = '#go-game-packs li[data-pack^="guidebooks-"]'
+            await pg.goto(beta_page)
+            await pg.reload()
+            await pg.wait_for_selector(f"{gb_pack} .go-guidebooks li", timeout=20000)
+            gb_listed = await pg.inner_text(gb_pack)
+            gb_ticks = await pg.eval_on_selector_all(f"{gb_pack} .go-guidebooks li", "els => els.map(e => [e.dataset.guidebook, e.querySelector('input').checked])")
+            await shot(pg, "17d-phone-game-guidebooks")
+            check("a game's guidebooks are listed with its packs, as a pack of their own, each guidebook with its size and ticked",
+                  "Beta - Guidebooks" in gb_listed and "2 guidebooks" in gb_listed and "Beta Official Guide" in gb_listed and "PDF · 2 pages" in gb_listed and "CBZ · 3 pages" in gb_listed
+                  and gb_ticks == [["Beta Art Book.cbz", True], ["Beta Official Guide.pdf", True]], (gb_listed, gb_ticks))
+            await pg.wait_for_selector("#go-game-packs-get", timeout=20000)
+            await pg.click("#go-game-packs-get")
+            gb_there = atlas / "Beta - Guidebooks.atlaspack"
+            for _ in range(120):
+                if gb_there.is_file() and not list(atlas.glob("*.part")):
+                    break
+                await asyncio.sleep(0.5)
+            first_gb = guidebooks_in(gb_there) if gb_there.is_file() else []
+            check("Download its ticked pack brings the game's guidebooks into Atlas's packs folder, in one pack made by the server",
+                  len(first_gb) == 2 and any(n.endswith(".pdf") for n in first_gb) and any(n.endswith(".cbz") for n in first_gb), first_gb)
+            await pg.reload()
+            await pg.wait_for_selector(f'{gb_pack}[data-here="yes"]', timeout=20000)
+            await pg.click(f'{gb_pack} li[data-guidebook="Beta Art Book.cbz"] input')
+            await pg.wait_for_selector("#go-game-packs-said", timeout=20000)
+            gb_said = await pg.inner_text("#go-game-packs-said")
+            second_gb = first_gb
+            for _ in range(120):
+                await asyncio.sleep(0.5)
+                if gb_there.is_file() and not list(atlas.glob("*.part")):
+                    second_gb = guidebooks_in(gb_there)
+                    if len(second_gb) == 1:
+                        break
+            check("unticking a guidebook brings the pack again with only the ticked ones, in place of the one there",
+                  "coming again" in gb_said and len(second_gb) == 1 and second_gb[0].endswith(".pdf") and len([p for p in atlas.iterdir() if "Guidebooks" in p.name]) == 1, (gb_said, second_gb))
+            await pg.reload()
+            await pg.wait_for_selector(f'{gb_pack} li[data-guidebook="Beta Official Guide.pdf"] input:not([disabled])', timeout=20000)
+            await pg.click(f'{gb_pack} li[data-guidebook="Beta Official Guide.pdf"] input')
+            await settled(pg, "() => /no guidebook is ticked/.test(document.querySelector('#go-game-packs-said')?.textContent || '')", 20000)
+            gb_none = await pg.inner_text("#go-game-packs-said")
+            check("with no guidebook ticked, the pack is taken out of Atlas's packs folder", "taken out" in gb_none and not gb_there.exists(), gb_none)
             # Android: not offered yet (the page hides it)
             shell(kind="android")
             await pg.goto(beta_page)
@@ -1161,7 +1259,7 @@ async def main():
             # game (else the game its description names); Install puts one in Atlas's packs
             # folder with the setting off, removing its game leaves it, Remove takes it off;
             # not offered on Android
-            atlas_pack_file(lib / "Maps and Guides" / "No game yet" / "Foxtrot Racer - Example Maps.atlaspack", "foxtrot-example-maps", "Foxtrot Racer", "nes/Foxtrot Racer")
+            atlas_pack_file(lib / "Maps and Guides" / "No game yet" / "Foxtrot Racer - Example Maps.atlaspack", "foxtrot-example-maps", "Foxtrot Racer", "nes/Foxtrot Racer", origin="made-in-atlas")
             run("maps", "sync", *lh)
             run("serve-devices", "changed", "--data", data)
             echo_pack = '#go-maps li[data-pack="echo-example-maps"]'
@@ -1198,6 +1296,22 @@ async def main():
             await pg.wait_for_selector("#maps-no-match")
             await pg.fill("#maps-search", "")
             check("its search finds a pack by its game's name", found == ["foxtrot-example-maps"], found)
+            # D231: a pack that says its sort (Foxtrot's source.origin, made in Atlas, though it
+            # was read from web pages) is said so, and the sorts are a filter
+            foxtrot_said = await pg.inner_text('#go-maps li[data-pack="foxtrot-example-maps"]')
+            await pg.select_option("#maps-sort", "made-in-atlas")
+            await settled(pg, "() => document.querySelectorAll('#go-maps li.go-pack').length === 1")
+            only_made = await pg.eval_on_selector_all("#go-maps li.go-pack", "els => els.map(e => e.dataset.pack)")
+            await pg.select_option("#maps-sort", "site")
+            await settled(pg, "() => !document.querySelector('#go-maps li[data-pack=\"foxtrot-example-maps\"]')")
+            # Beta's guidebooks, a pack Game Repo makes, are of the sort Guidebooks (D231, D237)
+            await pg.select_option("#maps-sort", "guidebooks")
+            await settled(pg, "() => document.querySelectorAll('#go-maps li.go-pack').length === 1")
+            only_guidebooks = await pg.eval_on_selector_all("#go-maps li.go-pack", "els => els.map(e => [e.dataset.pack, e.innerText])")
+            await pg.select_option("#maps-sort", "all")
+            check("a pack's own word for its sort is what Go says, and the sorts are a filter (a game's guidebooks among them)",
+                  "made in Atlas" in foxtrot_said and "from Example Maps" not in foxtrot_said and only_made == ["foxtrot-example-maps"]
+                  and len(only_guidebooks) == 1 and only_guidebooks[0][0].startswith("guidebooks-") and "a pack of guidebooks" in only_guidebooks[0][1], (foxtrot_said, only_made, only_guidebooks))
             # Install, with Maps and guides for Atlas off in Settings: through Downloads into
             # Atlas's packs folder, on its own
             await pg.click(f'{echo_pack} [data-action="install"]')
@@ -1257,11 +1371,13 @@ async def main():
             await pg.wait_for_selector(echo_pack, timeout=20000)
             big_tab = await pg.get_attribute(".go-big-bar #go-nav-maps", "aria-current")
             big_rows = await pg.eval_on_selector_all("#go-maps li.go-pack", "els => els.length")
+            gb_row = await pg.eval_on_selector_all('#go-maps li.go-pack[data-pack^="guidebooks-"]', "els => els.map(e => e.innerText)")
             await shot(pg, "17f-phone-big-maps")
             await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); delete l.view; localStorage.setItem('go-look', JSON.stringify(l)); }")
             await pg.goto(B + "#library")
             await pg.reload()
-            check("the big screen has Maps and guides as a tab of its own, with the same list", big_tab == "page" and big_rows == 3, (big_tab, big_rows))
+            check("the big screen has Maps and guides as a tab of its own, with the same list (Beta's guidebooks a pack of their own in it)",
+                  big_tab == "page" and big_rows == 4 and len(gb_row) == 1 and "Beta - Guidebooks" in gb_row[0] and "2 guidebooks" in gb_row[0], (big_tab, big_rows, gb_row))
 
             # 13c. PC games (D110-D112), on Windows and Linux: a system of their own, put in the
             # PC games folder Settings names, each game in its folder with a shortcut (in the

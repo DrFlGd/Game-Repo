@@ -434,6 +434,8 @@ pub fn plan(ix: &Index, lib: &Library, data: &Path, maker: &Maker, unpacker: &Un
     if !ask.pack_ids.is_empty() && ask.games.is_empty() {
         let mut p = Plan { ready: true, ..Default::default() };
         crate::packs::add_alone(ix, lib, hashes, &ask.pack_ids, &mut p)?;
+        // and games' packs of guidebooks (D237)
+        crate::guidebooks::add_alone(ix, lib, data, &ask.pack_ids, &mut p)?;
         return Ok(Ok(p));
     }
     // only the games' packs of maps and guides, for games the device has (D222)
@@ -445,12 +447,15 @@ pub fn plan(ix: &Index, lib: &Library, data: &Path, maker: &Maker, unpacker: &Un
         }
         let mut p = Plan { ready: true, ..Default::default() };
         crate::packs::add(ix, lib, hashes, ask, &ask.games, &mut p)?;
+        crate::guidebooks::add(ix, lib, data, ask, &ask.games, &mut p)?;
         return Ok(Ok(p));
     }
     let mut plan = plan_games(ix, lib, data, maker, unpacker, hashes, ask)?;
     // the games' packs of maps and guides for Atlas, for a device that asks (D222)
     if let (Ok(p), true) = (plan.as_mut(), ask.packs && !ask.media_only) {
         crate::packs::add(ix, lib, hashes, ask, &ask.games, p)?;
+        // and their guidebooks, in a pack of their own for each game (D237)
+        crate::guidebooks::add(ix, lib, data, ask, &ask.games, p)?;
     }
     Ok(plan)
 }

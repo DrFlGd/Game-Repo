@@ -21,6 +21,7 @@ import { gameHash, systemColour } from "./browse.js";
 import { useDroppedFiles } from "./documents.js";
 import { Icon } from "./icons.js";
 import { Shelf, useShelfState, Pic, PanelActions, askGame, byName } from "./shelf.js";
+import { guidebookItem, guidebookTile, guidebookFacts, GuidebookPanel, guidebookActions, importGuidebooks } from "./guidebooks.js";
 
 const err = (e) => e.message || String(e);
 const again = () => ui.set((s) => ({ changes: (s.changes || 0) + 1 }));
@@ -28,8 +29,8 @@ const fail = (e) => toast(err(e), 8000);
 
 /** What a pack is to the page: linked to a game, on To review, or left with no game. */
 const STATUS = { linked: "Linked to a game", review: "To review", nogame: "Left with no game", unreadable: "Can't be read" };
-const status = (p) => (p.unreadable ? "unreadable" : p.games?.length ? "linked" : p.left ? "nogame" : "review");
-const KIND = { map: "Maps", guide: "Guides", wiki: "Wiki pages" };
+const status = (p) => (p.unreadable ? "unreadable" : p.games?.length ? "linked" : p.left || p.guidebook ? "nogame" : "review");
+const KIND = { map: "Maps", guide: "Guides", wiki: "Wiki pages", guidebook: "Guidebooks" };
 const DETAIL = { overview: "Overview", standard: "Standard", full: "Full" };
 
 /** How long ago an instant was, in plain words: "today", "3 days ago", "2 months ago". */
@@ -63,8 +64,11 @@ export function packCounts(p) {
   ].filter(Boolean);
 }
 
-/** Where a pack is from, by the contract's rule (`Description::from_words`): its site, "Made in Atlas", "Made in Atlas Map Maker" or "Came with an app". */
+/** Where a pack is from (`Description::from_words`: the pack's own word, D231, else the contract's rule): its site, "Made in Atlas", "Made in Atlas Map Maker", "Came with an app" or "Guidebooks". */
 export const packFrom = (p) => p.from || null;
+
+/** The sorts of pack, as the filter names them (`Sort::word`). */
+const PACK_SORTS = { site: "Read from a site", "made-in-atlas": "Made in Atlas", "map-maker": "Made in Atlas Map Maker", app: "Came with an app", guidebooks: "Guidebooks" };
 
 /** What's said under a pack's title: where it's from, its counts, detail and size. */
 export const packFacts = (p) => [packFrom(p), ...packCounts(p), DETAIL[p.detail] ? `${DETAIL[p.detail]} detail` : null, size(p.size)].filter(Boolean).join(" · ");
@@ -207,7 +211,7 @@ const thumb = (p, px = 512) => (p ? libraryUrl(`~thumb/${px}/${p}`) : null);
 const atlasPic = (p, n) => (n != null && p.path ? libraryUrl(`~atlas/${n}/${encodeURIComponent(p.id)}/${p.path}`) : null);
 /** A pack's pictures: the one chosen for it, else its own cover; else a plain card with its mark. */
 const pics = (p, px) => [thumb(p.picture_path, px), atlasPic(p, p.cover_n)];
-const noPic = (p) => ({ icon: p.unreadable ? "alert" : p.kinds?.[0] === "guide" ? "book" : p.kinds?.[0] === "wiki" ? "wiki" : "map", colour: systemColour(p.games?.[0]?.platform || "maps") });
+const noPic = (p) => ({ icon: p.unreadable ? "alert" : p.kinds?.[0] === "guide" || p.sort === "guidebooks" ? "book" : p.kinds?.[0] === "wiki" ? "wiki" : "map", colour: systemColour(p.games?.[0]?.platform || "maps") });
 const gameTitle = (p) => p.games?.[0]?.title || p.game_title || p.title || p.name;
 
 const SORTS = [
@@ -218,7 +222,7 @@ const SORTS = [
   ["size", "Size", (a, b) => (b.size || 0) - (a.size || 0)],
   ["added", "Added", (a, b) => byName(b.added || "", a.added || "")],
 ];
-const GROUPS = [["game", "Game"], ["", "None"], ["is", "Is"], ["source", "Site"], ["system", "System"]];
+const GROUPS = [["game", "Game"], ["", "None"], ["is", "Is"], ["sort", "Sort of pack"], ["source", "Site"], ["system", "System"]];
 const COLUMNS = [
   ["title", "Title", (p) => p.title || p.name, "title"],
   ["game", "Game", (p) => (p.games || []).map((g) => g.title).join(", ") || STATUS[status(p)], "game"],
@@ -298,7 +302,9 @@ export function Maps() {
   const [st, set] = useShelfState("maps", { sort: "title", group: "game" });
   // files dropped here are imported, as packs (D78)
   useDroppedFiles(() => "maps");
-  const reload = () => api("maps").then((d) => { setData(d); setError(""); }).catch((e) => setError(err(e)));
+  // with the guidebooks (D233), each a card of its own among the packs
+  const reload = () => Promise.all([api("maps"), api("guidebooks").catch(() => ({ guidebooks: [] }))])
+    .then(([d, gb]) => { setData({ ...d, guidebooks: gb.guidebooks || [] }); setError(""); }).catch((e) => setError(err(e)));
   useEffect(() => {
     if (!s.library) return;
     reload();
@@ -324,6 +330,7 @@ export function Maps() {
   const packs = useMemo(() => [
     ...(data?.packs || []),
     ...(data?.unreadable || []).map((f) => ({ ...f, unreadable: true, title: f.name, games: [], kinds: [] })),
+    ...(data?.guidebooks || []).map(guidebookItem),
   ], [data]);
   const names = useMemo(() => {
     const m = { system: new Map(), game: new Map() };
@@ -334,11 +341,14 @@ export function Maps() {
     { id: "is", name: "Is", of: (p) => [status(p), p.personal_use ? "own" : null, p.copies?.length ? "copies" : null], label: (x) => STATUS[x] || (x === "own" ? "For your own use" : x === "copies" ? "Has another copy" : x) },
     { id: "game", name: "Game", of: (p) => (p.games?.length ? p.games.map((g) => g.title) : []), long: true, none: "No game yet", groupOrder: "name" },
     { id: "system", name: "System", of: (p) => (p.games || []).map((g) => g.platform), label: (x) => names.system.get(x) || x, none: "No game yet" },
+    { id: "sort", name: "Sort of pack", of: (p) => (p.unreadable ? [] : [p.sort || null]), label: (w) => PACK_SORTS[w] || w, none: "Doesn't say" },
     { id: "source", name: "Site", of: (p) => [packFrom(p)], long: true, none: "No site given" },
     { id: "kind", name: "Has", of: (p) => p.kinds || [], label: (k) => KIND[k] || k },
     { id: "detail", name: "Detail", of: (p) => [p.detail], label: (d) => DETAIL[d] || d },
   ];
   const actions = (list) => {
+    if (list.length && list.every((p) => p.guidebook)) return guidebookActions(list, off);
+    list = list.filter((p) => !p.guidebook);
     const one = list.length === 1 ? list[0] : null;
     const pack = one && !one.unreadable ? one : null;
     const desk = isDesktop();
@@ -358,6 +368,7 @@ export function Maps() {
   const review = packs.filter((p) => status(p) === "review");
   const more = () => [
     ...(packs.length ? [{ id: "maps-import-more", label: "Import maps and guides…", icon: "inbox", disabled: off || !isDesktop(), run: () => importFrom("import-maps", () => importMaps()) }] : []),
+    { id: "maps-import-guidebooks", label: "Import guidebooks…", icon: "book", disabled: off || !isDesktop(), run: () => importGuidebooks() },
     { id: "maps-look-again", label: "Look again", icon: "refresh", disabled: off || reading, run: () => look(true) },
     { id: "maps-show-folder", label: "Show the folder", icon: "folder", disabled: !isDesktop() || !data?.folder, run: () => ctx.platform.library.openPath(`${s.library.path}/${data.folder}`) },
   ];
@@ -376,10 +387,10 @@ export function Maps() {
   return html`<${Shelf} page="maps" noun=${["pack", "packs"]} title="Maps and Guides" items=${data ? packs : null} error=${error} st=${st} set=${set}
     fields=${fields} groups=${GROUPS} sorts=${SORTS} ratio="4 / 3" columns=${COLUMNS} cols=${COLS}
     text=${(p) => [p.title, p.name, p.game_title, p.source_name, ...(p.games || []).map((g) => g.title), ...(p.maps || []).map((m) => m.name), ...(p.guides || []).map((g) => g.title)].join(" ")}
-    tile=${(p) => ({ pics: pics(p, 512), none: noPic(p), badge: { text: p.unreadable ? "Can't be read" : p.games?.length ? p.games[0].platform_name : STATUS[status(p)], colour: systemColour(p.games?.[0]?.platform || "maps") }, title: p.title || p.name, meta: p.unreadable ? p.error : [gameTitle(p) !== p.title ? gameTitle(p) : null, packFrom(p), packCounts(p)[0]].filter(Boolean).join(" · "), missing: p.unreadable })}
-    line=${(p) => ({ pics: pics(p, 256), none: noPic(p), badge: { text: p.games?.length ? p.games.map((g) => g.title).slice(0, 2).join(", ") : STATUS[status(p)] }, title: p.title || p.name, meta: p.unreadable ? p.error : [packFacts(p), ageLine(p)].filter(Boolean).join(" · "), missing: p.unreadable })}
-    actions=${actions} onOpen=${(p) => !p.unreadable && openInAtlas(p)} top=${top} primary=${packs.length ? null : primary} more=${more} moreTitle="Import, look again, tile size" empty=${empty}
-    panel=${(p) => html`<${PackPanel} p=${p} off=${off} actions=${actions([p]).filter((a) => ["open", "link", "take-off", "picture", "show", "remove"].includes(a.id))} />`} />`;
+    tile=${(p) => p.guidebook ? guidebookTile(p) : ({ pics: pics(p, 512), none: noPic(p), badge: { text: p.unreadable ? "Can't be read" : p.games?.length ? p.games[0].platform_name : STATUS[status(p)], colour: systemColour(p.games?.[0]?.platform || "maps") }, title: p.title || p.name, meta: p.unreadable ? p.error : [gameTitle(p) !== p.title ? gameTitle(p) : null, packFrom(p), packCounts(p)[0]].filter(Boolean).join(" · "), missing: p.unreadable })}
+    line=${(p) => p.guidebook ? { ...guidebookTile(p), meta: guidebookFacts(p) } : ({ pics: pics(p, 256), none: noPic(p), badge: { text: p.games?.length ? p.games.map((g) => g.title).slice(0, 2).join(", ") : STATUS[status(p)] }, title: p.title || p.name, meta: p.unreadable ? p.error : [packFacts(p), ageLine(p)].filter(Boolean).join(" · "), missing: p.unreadable })}
+    actions=${actions} onOpen=${(p) => p.guidebook ? isDesktop() && ctx.platform.library.openPath(`${s.library.path}/${p.path}`) : !p.unreadable && openInAtlas(p)} top=${top} primary=${packs.length ? null : primary} more=${more} moreTitle="Import, look again, tile size" empty=${empty}
+    panel=${(p) => p.guidebook ? html`<${GuidebookPanel} g=${p} off=${off} />` : html`<${PackPanel} p=${p} off=${off} actions=${actions([p]).filter((a) => ["open", "link", "take-off", "picture", "show", "remove"].includes(a.id))} />`} />`;
 }
 
 /** A game's packs on its page (D219): each with Open in Atlas. */

@@ -75,6 +75,7 @@ pub mod magazines;
 pub mod magtext;
 pub mod atlaspack;
 pub mod maps;
+pub mod guidebooks;
 pub mod videos;
 pub mod makedat;
 pub mod meta;

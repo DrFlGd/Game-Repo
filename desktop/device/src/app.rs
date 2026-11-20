@@ -316,11 +316,12 @@ impl App {
         }
         let me = Arc::downgrade(&app);
         app.queue.on_away(Box::new(move || me.upgrade().is_some_and(|a| a.find_again())));
-        // packs 0.5.72 put in the wrong folder on Linux go into Atlas's own
+        // packs Go put in another folder (0.5.72's wrong one on Linux, or the one used
+        // before the packs folder changed) go into the one it uses now (D230)
         let me = Arc::downgrade(&app);
         std::thread::spawn(move || {
             if let Some(a) = me.upgrade() {
-                a.move_old_packs();
+                a.follow_packs_folder();
             }
         });
         app.queue.start();
@@ -424,8 +425,15 @@ impl App {
             }
         }
         // Atlas's packs folder (D222), with Maps and guides for Atlas on
-        if s.atlas_packs && self.packs_offered() {
-            d.places.insert(packs::PLACE.into(), self.packs_folder(&d.home));
+        if self.packs_offered() {
+            let (folder, from) = self.packs_folder_from(&d.home);
+            if s.atlas_packs {
+                d.places.insert(packs::PLACE.into(), folder.clone());
+            }
+            // one chosen in Atlas is never made (D230)
+            if from == packs::FolderFrom::Atlas {
+                d.places.insert(packs::SET_IN_ATLAS.into(), folder);
+            }
         }
         d.data = Some(self.data.clone());
         Ok(d)
@@ -442,38 +450,41 @@ impl App {
         self.kind != "android" && !cfg!(target_os = "android")
     }
 
-    /// Atlas's packs folder: the one set in Settings, else where the contract says.
+    /// Atlas's packs folder (D230): the one set in Go's Settings, else the one chosen in
+    /// Atlas (its settings file's `packsFolder`), else Atlas's usual one; worked out afresh
+    /// each time, as either can change while Go runs ([`packs::choose_folder`]).
     fn packs_folder(&self, home: &Path) -> PathBuf {
-        if self.packs_folder_usual(home) {
-            packs::default_folder(home)
-        } else {
-            PathBuf::from(&self.settings().atlas_folder)
-        }
+        self.packs_folder_from(home).0
     }
 
-    /// Whether Atlas's packs folder is the usual one: none set in Settings, or the one 0.5.72
-    /// guessed on Linux (`~/.local/share/Atlas/Packs`, not Atlas's), which is taken as it.
-    fn packs_folder_usual(&self, home: &Path) -> bool {
-        let s = self.settings();
-        s.atlas_folder.is_empty() || packs::old_default_folder(home).is_some_and(|old| Path::new(&s.atlas_folder) == old)
+    /// Atlas's packs folder and where it comes from ([`packs::choose_folder`]).
+    fn packs_folder_from(&self, home: &Path) -> (PathBuf, packs::FolderFrom) {
+        packs::choose_folder(&self.settings().atlas_folder, home)
     }
 
-    /// The packs Go delivered into 0.5.72's guess at Atlas's packs folder on Linux, moved
-    /// into the folder it uses now (D222, revised): once, as Go starts. Only the files in
-    /// its record that are as it put them.
-    fn move_old_packs(&self) {
+    /// The packs Go delivered into another folder than the packs folder it uses now, moved
+    /// into it (D230): 0.5.72's guess on Linux, or the folder used before the one set in Go
+    /// or in Atlas changed. As Go starts, after Settings change, before downloads and after
+    /// each read of the library. Only the files in Go's record that are as it put them, never
+    /// beside a newer copy, and a folder chosen in Atlas that isn't there isn't made
+    /// ([`packs::move_from`]).
+    fn follow_packs_folder(&self) {
         if !self.packs_offered() {
             return;
         }
         let home = self.home();
-        let Some(old) = packs::old_default_folder(&home) else { return };
-        if !packs::load(&self.data).delivered.iter().any(|e| e.folder == old) {
-            return;
+        let rec = packs::load(&self.data);
+        let (now, from) = self.packs_folder_from(&home);
+        let olds: std::collections::BTreeSet<PathBuf> = rec.delivered.iter().filter(|e| e.folder != now && e.there()).map(|e| e.folder.clone()).collect();
+        let mut moved = 0;
+        for old in &olds {
+            match packs::move_from(&self.data, old, &now, from != packs::FolderFrom::Atlas) {
+                Ok(n) => moved += n,
+                Err(e) => eprintln!("Game Repo Go: the packs in {} couldn't be moved into Atlas's packs folder {}: {e:#}", old.display(), now.display()),
+            }
         }
-        match packs::move_from(&self.data, &old, &self.packs_folder(&home)) {
-            Ok(0) => {}
-            Ok(_) => self.changed("device"),
-            Err(e) => eprintln!("Game Repo Go: the packs in {} couldn't be moved into Atlas's packs folder: {e:#}", old.display()),
+        if moved > 0 {
+            self.changed("device");
         }
     }
 
@@ -506,6 +517,14 @@ impl App {
                 let id = p["pack_id"].as_str().unwrap_or("");
                 let mut v = p.clone();
                 v["ticked"] = json!(!left.iter().any(|x| x == id));
+                // a game's pack of guidebooks: each guidebook ticked or not (D238)
+                if let Some(list) = v.get_mut("guidebooks").and_then(Value::as_array_mut) {
+                    let off = rec.guidebooks_left.get(key).cloned().unwrap_or_default();
+                    for g in list.iter_mut() {
+                        let gid = g["id"].as_str().unwrap_or("").to_string();
+                        g["ticked"] = json!(!off.contains(&gid));
+                    }
+                }
                 let here = rec.delivered.iter().find(|e| e.pack_id == id && e.here());
                 v["here"] = json!(here.is_some());
                 // newer on this device than the library's, so kept (D222 revised)
@@ -720,6 +739,42 @@ impl App {
         Ok(v)
     }
 
+    /// A guidebook ticked or unticked in a game's pack of guidebooks (D238): kept for the game;
+    /// on a game the device has, with Maps and guides for Atlas on and the pack ticked, the
+    /// pack comes again with the guidebooks ticked (in Downloads), newer, in place of the one
+    /// here. With none ticked, the pack is as good as unticked: taken out, as Go put it.
+    fn guidebook_tick(&self, key: &str, pack: &str, guidebook: &str, on: bool) -> Result<Value> {
+        if !self.packs_offered() {
+            bail!("Maps and guides for Atlas aren't offered on this device yet.");
+        }
+        packs::set_guidebook_ticked(&self.data, key, guidebook, on)?;
+        let details = self.catalogue.details(self.server().as_ref(), key).unwrap_or(None);
+        let all: Vec<String> = details
+            .as_ref()
+            .and_then(|d| d["packs"].as_array())
+            .into_iter()
+            .flatten()
+            .filter(|p| p["pack_id"] == pack)
+            .flat_map(|p| p["guidebooks"].as_array().cloned().unwrap_or_default())
+            .filter(|g| g["cannot_go"].as_str().unwrap_or("").is_empty())
+            .filter_map(|g| g["id"].as_str().map(String::from))
+            .collect();
+        let rec = packs::load(&self.data);
+        let off = rec.guidebooks_left.get(key).cloned().unwrap_or_default();
+        let none = !all.is_empty() && all.iter().all(|g| off.contains(g));
+        let pack_on = !rec.left_out.get(key).is_some_and(|l| l.iter().any(|x| x == pack));
+        let mut v = json!({});
+        if self.settings().atlas_packs && self.keys_on_device().contains(key) && pack_on {
+            if none {
+                v["removed"] = json!(packs::take_off(&self.data, key, pack)?);
+            } else {
+                v["queued"] = json!(self.get_packs(key)?);
+            }
+        }
+        self.changed("device");
+        Ok(v)
+    }
+
     /// A game's ticked packs brought to this device, for a game it has (D222): in Downloads.
     fn get_packs(&self, key: &str) -> Result<Vec<u64>> {
         if !self.settings().atlas_packs || !self.packs_offered() {
@@ -759,8 +814,11 @@ impl App {
         // the games' ticked packs for Atlas (D222)
         options.packs = device.places.contains_key(packs::PLACE);
         options.packs_left = packs::left_out(&self.data);
+        options.guidebooks_left = packs::guidebooks_left(&self.data);
         // packs on their own go to Atlas's packs folder whatever the setting says (D225)
         let packs_folder = self.packs_offered().then(|| self.packs_folder(&device.home));
+        // packs Go put in the folder used before go into this one first (D230)
+        self.follow_packs_folder();
         Ok(Ctx { server, device, options, packs_folder })
     }
 
@@ -827,6 +885,7 @@ impl App {
                 json!({ "game": game, "details": details, "on_device": self.keys_on_device().contains(&key), "packs": packs })
             }
             // a game's packs of maps and guides for Atlas (D222)
+            "guidebook_tick" => self.guidebook_tick(&arg::<String>(args, "key")?, &arg::<String>(args, "pack")?, &arg::<String>(args, "guidebook")?, arg::<bool>(args, "on")?)?,
             "pack_tick" => self.pack_tick(&arg::<String>(args, "key")?, &arg::<String>(args, "pack")?, arg::<bool>(args, "on")?)?,
             "packs_get" => json!({ "queued": self.get_packs(&arg::<String>(args, "key")?)? }),
             // Show in Atlas (D224)
@@ -1057,6 +1116,15 @@ impl App {
                     self.background_again();
                     self.changed("saves");
                 }
+                // Atlas's packs folder changed here: Go's packs follow it (D230)
+                if old.atlas_folder != new.atlas_folder {
+                    let me = self.me.clone();
+                    std::thread::spawn(move || {
+                        if let Some(a) = me.upgrade() {
+                            a.follow_packs_folder();
+                        }
+                    });
+                }
                 json!(new)
             }
             _ => bail!("There's no command {cmd}."),
@@ -1118,7 +1186,15 @@ impl App {
                 let home = self.home();
                 // Atlas's program for Show in Atlas (D224): where it's found, else why not
                 let found = atlas::find(&s.atlas_program);
-                json!({ "folder": self.packs_folder(&home), "usual": packs::default_folder(&home), "default": self.packs_folder_usual(&home), "delivered": packs::load(&self.data).delivered.iter().filter(|e| e.here()).count(),
+                // where the folder comes from (D230): set here, set in Atlas, or Atlas's usual
+                // one; and what Atlas's own settings say, for the page
+                let (folder, from) = self.packs_folder_from(&home);
+                let atlas_says = packs::atlas_packs_folder(&home);
+                json!({ "folder": folder, "usual": packs::default_folder(&home), "default": from != packs::FolderFrom::Go, "from": from.word(),
+                    "in_atlas": match &atlas_says { packs::AtlasSays::Folder(f) => f.clone(), _ => packs::default_folder(&home) },
+                    "atlas_unusable": match atlas_says { packs::AtlasSays::Unusable(why) => Some(why), _ => None },
+                    "missing": !folder.is_dir(), "settings_file": packs::atlas_settings_file(&home),
+                    "delivered": packs::load(&self.data).delivered.iter().filter(|e| e.here()).count(),
                     "program": found.as_ref().ok(), "program_set": !s.atlas_program.trim().is_empty(), "program_missing": found.as_ref().err().map(|e| e.to_string()) })
             }),
         })
@@ -1200,6 +1276,8 @@ impl App {
                         // the Devices page's changes, then what's here for it (D188); best done
                         let _ = app.take_changes(&s);
                         let _ = app.tell_contents(&s);
+                        // packs in the folder used before, if it changed in Atlas (D230)
+                        app.follow_packs_folder();
                         // packs kept on their own that the library has newer (D225)
                         let _ = app.update_alone_packs(&s);
                         app.sync_saves();
@@ -1678,6 +1756,7 @@ impl App {
         // the games' ticked packs for Atlas too (D222)
         o.packs = d.places.contains_key(packs::PLACE);
         o.packs_left = packs::left_out(&self.data);
+        o.guidebooks_left = packs::guidebooks_left(&self.data);
         let plan: Plan = s.call("POST", "/v1/plans", Some(&o.ask(keys)))?;
         let media_kind = |role: &str| role == gamerepo_wire::MANUAL.0 || gamerepo_wire::MEDIA.iter().any(|(k, _, _)| *k == role);
         let games: u64 = plan.files.iter().filter(|f| !media_kind(&f.role) && !packs::is_pack(f)).map(|f| f.size).sum();

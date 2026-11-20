@@ -1838,10 +1838,12 @@ async def mods_page(pg, base, home, library):
     await pg.wait_for_selector("#mods-import-dialog .op-paths", timeout=15000)
     await pg.click("#mods-import-dialog button[type=submit]")
     kept = library / "_library" / "games" / "pc" / "pc-modtest" / "patches" / "mods" / "HD Pack v2.zip"
-    for _ in range(100):
-        if kept.is_file():
-            break
-        await asyncio.sleep(0.1)
+    # the change's steps: the ZIP, then its readme (written through a .gamerepo-tmp file), so
+    # wait for both rather than the first
+    try:
+        await until(lambda: kept.is_file() and (kept.parent / "HD Pack v2.zip.readme.txt").is_file(), 10)
+    except TimeoutError:
+        pass
     check("Add a mod… asks for the PC game and brings the mod's ZIP in with its readme, the download kept (D205)",
           kept.is_file() and mod.is_file() and (kept.parent / "HD Pack v2.zip.readme.txt").is_file(), (kept.is_file(), sorted(x.name for x in kept.parent.iterdir()) if kept.parent.is_dir() else None))
     await pg.wait_for_selector("#mods-items [data-id]", timeout=15000)
@@ -2160,7 +2162,7 @@ async def maps_page(pg, base, home, library):
     a_name, b_name = "Lantern Valley - Example Maps.atlaspack", "Lantern Valley Deluxe - Example Maps.atlaspack"
     atlas_pack(no_game / a_name, "lantern-valley-example-maps", "Lantern Valley")
     atlas_pack(no_game / b_name, "lantern-valley-deluxe-example-maps", "Lantern Valley Deluxe")
-    atlas_pack(no_game / "Future Pack - Example Maps.atlaspack", "future-pack", "Future Pack", version=8)
+    atlas_pack(no_game / "Future Pack - Example Maps.atlaspack", "future-pack", "Future Pack", version=9)
     (no_game / "Half Written - Example Maps.atlaspack.part").write_bytes(b"PK\x03\x04 not yet")
     await pg.click('.sidebar a[href="#/maps"]')
     said = await toast_text(pg, "Linked Lantern Valley", timeout=30000)
@@ -2180,7 +2182,7 @@ async def maps_page(pg, base, home, library):
     check("Maps and Guides (under the Library, D219) reads the packs Atlas Importer wrote: one whose game's title is certain is linked and moved into its game's folder as a change (D218), shown with its own cover, grouped by game; one that isn't is on To review; a newer format says why; a .part file is left alone",
           menu == "Maps and Guides" and "Linked Lantern Valley to Lantern Valley" in said and a_at.is_file() and not (no_game / a_name).exists()
           and [g["key"] for g in linked.get("games", [])] == ["gb/Lantern Valley (World)"] and linked.get("file") == f"Lantern Valley/{a_name}"
-          and len(tiles) == 3 and "1 pack to review" in review and future[2] == "Can't be read" and "in a newer format (version 8)" in (future[3] or "")
+          and len(tiles) == 3 and "1 pack to review" in review and future[2] == "Can't be read" and "in a newer format (version 9)" in (future[3] or "")
           and "Lantern Valley" in groups and "No game yet" in groups and cards == ["Maps and guides…", "A folder…"],
           (said, tiles, groups, review, linked, cards))
     # the pack's panel: its maps with their small pictures, its guides and wikis with their page counts
@@ -2278,7 +2280,17 @@ async def maps_page(pg, base, home, library):
     await pg.wait_for_function("() => { const i = document.querySelector('#maps-items .lib-tile[data-id=\"moss-harbour-other-maps\"] img'); return i && i.complete && i.naturalWidth === 16; }", timeout=15000)
     moved = maps / "Moss Harbour" / "renamed by hand.atlaspack"
     (maps / "Moss Harbour" / e_name).rename(moved)
-    await asyncio.sleep(5)
+    # the page opened again once the folder watcher's read has the new name (the index is read
+    # before packs.json is written): sooner, the card would ask for the file at its old path
+    def renamed_kept():
+        try:
+            return json.loads((maps / "packs.json").read_text()).get("packs", {}).get("moss-harbour-other-maps", {}).get("file") == "Moss Harbour/renamed by hand.atlaspack"
+        except (OSError, ValueError):
+            return False
+    try:
+        await until(renamed_kept, 30)
+    except TimeoutError:
+        pass
     await pg.goto(base + "#/maps")
     await pg.wait_for_selector('#maps-items .lib-tile[data-id="moss-harbour-other-maps"]', timeout=15000)
     kept = json.loads((maps / "packs.json").read_text()).get("packs", {}).get("moss-harbour-other-maps", {})
@@ -2299,6 +2311,16 @@ async def maps_page(pg, base, home, library):
     check("a map made in Atlas (from no site) is linked by its game's title, whole with its mine/ things, and its card says Made in Atlas and what of yours it carries",
           made_linked.read_bytes() == made_bytes and "Made in Atlas" in made_meta and "Made in Atlas" in made_panel and "With your own locations and notes." in made_panel and " - " not in made_linked.name,
           (said, made_meta, made_panel[:400]))
+    # D231: the sorts of pack are a filter of their own (a site's packs, made in Atlas)
+    await pg.wait_for_selector('#filter-maps-sort [data-value="made-in-atlas"]', timeout=15000)
+    sorts = await pg.eval_on_selector_all("#filter-maps-sort [data-value]", "els => els.map(e => [e.dataset.value, e.innerText])")
+    await pg.click('#filter-maps-sort [data-value="made-in-atlas"] input')
+    await pg.wait_for_selector('#maps-chips [data-chip="sort-made-in-atlas"]')
+    await pg.wait_for_function("() => [...document.querySelectorAll('#maps-items .lib-tile')].every(e => e.dataset.id === 'moss-harbour-my-map')")
+    made_only = await pg.eval_on_selector_all("#maps-items .lib-tile", "els => els.map(e => e.dataset.id)")
+    await pg.click('#filter-maps-sort [data-value="made-in-atlas"] input')
+    check("the Sort of pack filter tells a site's packs from maps made in Atlas",
+          {v for v, _ in sorts} >= {"site", "made-in-atlas"} and any("Made in Atlas" in t for _, t in sorts) and made_only == ["moss-harbour-my-map"], (sorts, made_only))
     # Open in Atlas: the program set in Settings › Tools, started with the pack's path alone,
     # its one argument (D221; Atlas's block A2); off Windows no program is registered for
     # packs, so without Atlas set it says to set it
@@ -2340,11 +2362,112 @@ async def maps_page(pg, base, home, library):
     await toast_text(pg, "Removed")
     await pg.wait_for_selector(future_tile, state="detached", timeout=15000)
     check("a pack that can't be read says why in its panel (a newer format, with what wrote it), and Remove… sets it aside",
-          "in a newer format (version 8)" in error_said and "Atlas Importer 0.23.0" in error_said and not (no_game / "Future Pack - Example Maps.atlaspack").exists() and (no_game / "Half Written - Example Maps.atlaspack.part").is_file(), error_said)
+          "in a newer format (version 9)" in error_said and "Atlas Importer 0.23.0" in error_said and not (no_game / "Future Pack - Example Maps.atlaspack").exists() and (no_game / "Half Written - Example Maps.atlaspack.part").is_file(), error_said)
+
+
+async def guidebooks_page(pg, base, home, library):
+    """Guidebooks (D232–D240): published guides as one file (PDF, CBZ or CBR) imported for a
+    game into Maps and Guides/<title>/Guidebooks/, each a card of its own on the Maps and Guides
+    page, its text read page by page as the magazines' is, renamed, on the game's page, and
+    removed with Undo."""
+    gb = home / "GB"
+    gb.mkdir()
+    lantern = make_fixtures.rom(91, 1024)
+    (gb / "Lantern Valley (World).gb").write_bytes(lantern)
+    dat = home / "gb.dat"
+    dat.write_text(make_fixtures.logiqx("Nintendo - Game Boy", "20261001", [
+        ("Lantern Valley (World)", None, [make_fixtures.rom_xml("Lantern Valley (World).gb", lantern)]),
+    ]))
+    pick(gb, base)
+    await pg.click('.sidebar a[href="#/import"]')
+    await pg.click("#add-root")
+    await pg.wait_for_selector("#roots li")
+    pick(dat, base)
+    await pg.click("#import-dats")
+    await toast_text(pg, "Imported")
+    await back_home(pg, base)
+    await pg.click("#home-scan-button")
+    await toast_text(pg, "Scanned")
+    # the game's page, before it has any
+    await pg.goto(base + "#/game/gb/" + urllib.parse.quote("Lantern Valley (World)"))
+    await pg.wait_for_selector("#game-guidebooks", timeout=30000)
+    none_yet = await pg.inner_text("#game-guidebooks")
+    # a guide with its own text, and an art book of pictures
+    given = home / "Guides"
+    given.mkdir()
+    (given / "Lantern Valley Guide.pdf").write_bytes(text_pdf(["Walkthrough: the lantern in the valley", "Every secret of the harbour"]))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("02.png", png(4, 4, (0, 90, 200)))
+        z.writestr("01.png", png(4, 4, (200, 90, 0)))
+    (given / "Lantern Valley Art.cbz").write_bytes(buf.getvalue())
+    (given / "notes.txt").write_text("not a guidebook")
+    await pg.click('.sidebar a[href="#/maps"]')
+    await pg.wait_for_selector("#maps-menu")
+    pick(given / "Lantern Valley Guide.pdf", base)
+    pick(given / "Lantern Valley Art.cbz", base)
+    await pg.click("#maps-menu")
+    await pg.click('#context-menu [data-action="maps-import-guidebooks"]')
+    await pg.fill("#shelf-game-search", "Lantern")
+    await pg.wait_for_selector('#shelf-game-pick option[value="gb/Lantern Valley (World)"]', state="attached", timeout=15000)
+    await pg.click("#shelf-game button[type=submit]")
+    said = await toast_text(pg, "Imported 2 guidebooks for Lantern Valley")
+    there = library / "Maps and Guides" / "Lantern Valley" / "Guidebooks"
+    await until(lambda: (there / "Lantern Valley Guide.pdf").is_file() and (there / "Lantern Valley Art.cbz").is_file(), 15)
+    record = json.loads((library / "Maps and Guides" / "guidebooks.json").read_text())
+    tiles = '#maps-items .lib-tile[data-id^="guidebook:"]'
+    await pg.wait_for_function(f"() => document.querySelectorAll('{tiles}').length === 2", timeout=15000)
+    metas = await pg.eval_on_selector_all(tiles, "els => els.map(e => [e.querySelector('.lib-tile-title').textContent, e.querySelector('.lib-badge')?.textContent, e.querySelector('.lib-tile-meta').textContent])")
+    check("guidebooks picked are imported for the game the dialog names, into its folder in Maps and Guides, each a card of its own",
+          said.startswith("Imported 2 guidebooks for Lantern Valley") and (given / "Lantern Valley Guide.pdf").is_file() and not (there / "notes.txt").exists()
+          and record.get("folders", {}).get("Lantern Valley", {}).get("games", [{}])[0].get("key") == "gb/Lantern Valley (World)"
+          and sorted(m[0] for m in metas) == ["Lantern Valley Art", "Lantern Valley Guide"] and all(m[1].startswith("Guidebook") for m in metas)
+          and any("2 pages" in m[2] for m in metas), (said, record, metas))
+    # its text read after the import, page by page, as the magazines' is
+    guide = '#maps-items .lib-tile[data-id="guidebook:Lantern Valley/Guidebooks/Lantern Valley Guide.pdf"]'
+    await until(lambda: (there / ".text" / "Lantern Valley Guide.pdf.json").is_file(), 30)
+    await pg.goto(base + "#/maps")
+    await pg.click(guide, timeout=15000)
+    await pg.wait_for_function("() => /Text read, 2 pages/.test(document.querySelector('#guidebook-panel-facts')?.textContent || '')", timeout=20000)
+    facts = await pg.inner_text("#guidebook-panel-facts")
+    games = await pg.eval_on_selector_all("#guidebook-games li", "els => els.map(e => e.dataset.key)")
+    atlas = await pg.inner_text("#guidebook-panel-atlas")
+    await pg.screenshot(path=str(out / "99c-guidebook-panel.png"))
+    check("a guidebook's panel says its file type, pages, size and that its text is read, its game, and that it goes to Atlas with it",
+          facts.startswith("PDF · 2 pages") and "Text read, 2 pages" in facts and games == ["gb/Lantern Valley (World)"] and "Atlas" in atlas, (facts, games, atlas))
+    # Rename…: the title Atlas shows, kept in the record; the file keeps its name
+    await pg.click("#guidebook-panel-gb-rename")
+    await pg.fill("#shelf-ask-value", "Lantern Valley: The Official Guide")
+    await pg.click("#shelf-ask button[type=submit]")
+    await pg.wait_for_function("() => document.querySelector('#guidebook-panel-title')?.textContent === 'Lantern Valley: The Official Guide'", timeout=15000)
+    kept = json.loads((library / "Maps and Guides" / "guidebooks.json").read_text())["guidebooks"].get("Lantern Valley/Guidebooks/Lantern Valley Guide.pdf", {})
+    check("Rename… gives a guidebook the title Atlas shows, and its file keeps its name",
+          kept.get("title") == "Lantern Valley: The Official Guide" and (there / "Lantern Valley Guide.pdf").is_file(), kept)
+    # the game's page lists its guidebooks
+    await pg.goto(base + "#/game/gb/" + urllib.parse.quote("Lantern Valley (World)"))
+    await pg.wait_for_selector("#game-guidebooks li", timeout=15000)
+    listed = await pg.eval_on_selector_all("#game-guidebooks li", "els => els.map(e => e.innerText)")
+    await pg.screenshot(path=str(out / "99d-game-guidebooks.png"))
+    check("the game's page lists its guidebooks with their facts, and Import guidebooks…",
+          "None yet" in none_yet and len(listed) == 2 and any("Lantern Valley: The Official Guide" in x and "PDF" in x for x in listed) and await pg.locator("#game-guidebooks-import").count() == 1, (none_yet, listed))
+    # Remove…: set aside, with Undo
+    await pg.goto(base + "#/maps")
+    art = '#maps-items .lib-tile[data-id="guidebook:Lantern Valley/Guidebooks/Lantern Valley Art.cbz"]'
+    await pg.click(art, timeout=15000)
+    await pg.click("#guidebook-panel-gb-remove")
+    await pg.wait_for_selector("#organise-dialog #organise-totals")
+    await pg.click("#organise-dialog button[type=submit]")
+    await toast_text(pg, "Removed")
+    await pg.wait_for_selector(art, state="detached", timeout=15000)
+    gone = not (there / "Lantern Valley Art.cbz").exists()
+    await pg.click("#toast button:has-text('Undo')")
+    await until(lambda: (there / "Lantern Valley Art.cbz").is_file(), 15)
+    await pg.wait_for_selector(art, timeout=15000)
+    check("Remove… sets a guidebook aside, and Undo puts it back", gone and (there / "Lantern Valley Guide.pdf").is_file(), gone)
 
 
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),
-             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device), ("cheats", cheats_page), ("patches", patches_page), ("textures", textures_page), ("mods", mods_page), ("maps", maps_page)]
+             ("updates", updates_in_the_app), ("videos", videos), ("addons", addons_by_name), ("systems", add_systems), ("discs", disc_sets), ("saves", saves), ("devices", devices_page), ("card", card_device), ("cheats", cheats_page), ("patches", patches_page), ("textures", textures_page), ("mods", mods_page), ("maps", maps_page), ("guidebooks", guidebooks_page)]
 
 
 async def main():

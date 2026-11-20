@@ -93,6 +93,10 @@ progress { accent-color: var(--tool); height: 8px; }
 .go-sizes, .go-files { list-style: none; margin: 0; padding: 0; display: grid; }
 .go-sizes li, .go-files li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--steel-2); font-size: 14px; }
 .go-sizes li > :first-child { flex: 1; }
+/* a game's pack of guidebooks: each guidebook under it, with a tick of its own (D238) */
+.go-pack-list > li { flex-wrap: wrap; }
+.go-guidebooks { flex-basis: 100%; padding-left: 28px; }
+.go-guidebooks li:last-child { border-bottom: 0; }
 .go-file { min-width: 0; font-family: var(--font-mono); font-size: 12.5px; overflow-wrap: anywhere; }
 .go-files { max-height: 240px; overflow: auto; }
 

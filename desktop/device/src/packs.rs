@@ -160,6 +160,10 @@ pub struct Record {
     /// their `packId`s: kept there whatever the games here do
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub alone: Vec<String>,
+    /// The guidebooks unticked in a game's pack of guidebooks (D238): by the game's key, their
+    /// ids (their files' names in the library)
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub guidebooks_left: BTreeMap<String, Vec<String>>,
 }
 
 impl Record {
@@ -344,17 +348,137 @@ fn data_home(home: &Path) -> PathBuf {
     }
 }
 
-/// Atlas's packs folder where it is (the contract's answer 5, as Atlas's block A1 built
-/// it): `%LOCALAPPDATA%\Atlas\Packs` on Windows; `$XDG_DATA_HOME/atlas/packs`
-/// (`~/.local/share/atlas/packs`), all lower case, on Linux.
+/// The folder every Atlas desktop app on the computer shares (Atlas's `settings.rs`,
+/// `shared_dir`): `%LOCALAPPDATA%\Atlas` on Windows, `$XDG_DATA_HOME/atlas` on Linux.
+fn atlas_shared(home: &Path) -> PathBuf {
+    data_home(home).join(if cfg!(windows) { "Atlas" } else { "atlas" })
+}
+
+/// Atlas's packs folder where it is until the person chooses another in Atlas (the
+/// contract's answer 5, as Atlas's block A1 built it): `%LOCALAPPDATA%\Atlas\Packs` on
+/// Windows; `$XDG_DATA_HOME/atlas/packs` (`~/.local/share/atlas/packs`), all lower case, on
+/// Linux.
 pub fn default_folder(home: &Path) -> PathBuf {
-    let base = data_home(home);
-    if cfg!(windows) {
-        base.join("Atlas").join("Packs")
-    } else {
-        base.join("atlas").join("packs")
+    atlas_shared(home).join(if cfg!(windows) { "Packs" } else { "packs" })
+}
+
+/// Atlas's shared settings file (D230), where Atlas keeps the packs folder the person chose
+/// (`packsFolder`): `%LOCALAPPDATA%\Atlas\settings.json` on Windows,
+/// `$XDG_DATA_HOME/atlas/settings.json` on Linux.
+pub fn atlas_settings_file(home: &Path) -> PathBuf {
+    atlas_shared(home).join("settings.json")
+}
+
+/// A settings file larger than this isn't Atlas's (its `MAX_SETTINGS_BYTES`).
+const ATLAS_SETTINGS_MOST: u64 = 1 << 20;
+/// The longest `packsFolder` Atlas takes, in characters (its `MAX_FOLDER_CHARS`).
+const ATLAS_FOLDER_MOST: usize = 4096;
+
+/// What Atlas's settings file says of its packs folder (D230), read as Atlas reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AtlasSays {
+    /// Nothing: no file, a file Atlas wouldn't read (too large, not JSON, another format
+    /// or version), or no `packsFolder` (or `null`): Atlas uses its usual folder
+    Nothing,
+    /// The folder the person chose in Atlas, a full path
+    Folder(PathBuf),
+    /// A `packsFolder` Atlas can't use, and why (in Go's words): Atlas uses its usual folder
+    Unusable(&'static str),
+}
+
+/// Why a `packsFolder` value can't be used, by Atlas's own rules (`settings.rs`'s
+/// `unusable_folder`): empty, longer than 4,096 characters, with a NUL, not a full path, or
+/// going up a folder with `..`. None when it can be used.
+fn unusable_folder(text: &str) -> Option<&'static str> {
+    if text.trim().is_empty() {
+        return Some("it's empty");
+    }
+    if text.chars().count() > ATLAS_FOLDER_MOST {
+        return Some("it's too long");
+    }
+    if text.contains('\0') {
+        return Some("it isn't a path");
+    }
+    let path = Path::new(text);
+    if !path.is_absolute() {
+        return Some("it isn't a full path");
+    }
+    if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Some("it goes up a folder with ..");
+    }
+    None
+}
+
+/// What the text of Atlas's settings file says of its packs folder, read leniently as Atlas
+/// reads it: a file that isn't a JSON object of `format` "atlas-settings" and `version` 1
+/// says nothing (Atlas takes its defaults); `packsFolder` absent or `null` says nothing; a
+/// value that isn't text, or text Atlas can't use ([`unusable_folder`]), is unusable, and
+/// Atlas then uses its usual folder.
+pub fn atlas_says(text: &str) -> AtlasSays {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}')) else { return AtlasSays::Nothing };
+    if v.get("format").and_then(serde_json::Value::as_str) != Some("atlas-settings") || v.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
+        return AtlasSays::Nothing;
+    }
+    match v.get("packsFolder") {
+        None | Some(serde_json::Value::Null) => AtlasSays::Nothing,
+        Some(serde_json::Value::String(t)) => match unusable_folder(t) {
+            None => AtlasSays::Folder(PathBuf::from(t)),
+            Some(why) => AtlasSays::Unusable(why),
+        },
+        Some(_) => AtlasSays::Unusable("it isn't text"),
     }
 }
+
+/// What Atlas's settings file on this computer says of its packs folder now ([`atlas_says`]),
+/// read afresh each time, as the person can change it in Atlas while Go runs.
+pub fn atlas_packs_folder(home: &Path) -> AtlasSays {
+    let file = atlas_settings_file(home);
+    match std::fs::metadata(&file) {
+        Ok(m) if m.is_file() && m.len() <= ATLAS_SETTINGS_MOST => std::fs::read_to_string(&file).map(|t| atlas_says(&t)).unwrap_or(AtlasSays::Nothing),
+        _ => AtlasSays::Nothing,
+    }
+}
+
+/// Where the packs folder Go uses comes from (D230).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FolderFrom {
+    /// Set in Go's own Settings (`atlas_folder`)
+    Go,
+    /// Set in Atlas (`packsFolder` in its settings file)
+    Atlas,
+    /// Atlas's usual folder ([`default_folder`])
+    Usual,
+}
+
+impl FolderFrom {
+    /// Its word for the page: go, atlas or usual.
+    pub fn word(self) -> &'static str {
+        match self {
+            FolderFrom::Go => "go",
+            FolderFrom::Atlas => "atlas",
+            FolderFrom::Usual => "usual",
+        }
+    }
+}
+
+/// The packs folder Go puts packs in (D230): the one set in Go's Settings (`go_setting`) when
+/// one is (0.5.72's guess on Linux, [`old_default_folder`], counts as none), else the one set
+/// in Atlas ([`atlas_packs_folder`]), else Atlas's usual one. Worked out afresh each time.
+pub fn choose_folder(go_setting: &str, home: &Path) -> (PathBuf, FolderFrom) {
+    let set = go_setting.trim();
+    if !set.is_empty() && old_default_folder(home).is_none_or(|old| Path::new(set) != old) {
+        return (PathBuf::from(set), FolderFrom::Go);
+    }
+    match atlas_packs_folder(home) {
+        AtlasSays::Folder(f) => (f, FolderFrom::Atlas),
+        _ => (default_folder(home), FolderFrom::Usual),
+    }
+}
+
+/// The place, beside [`PLACE`], a device has when its packs folder is the one chosen in Atlas
+/// (D230): such a folder that isn't there (a drive that isn't connected) is never made, as
+/// Atlas never makes it, since its path would then be made on another drive.
+pub const SET_IN_ATLAS: &str = "atlas-set-in-atlas";
 
 /// Where 0.5.72 guessed Atlas's packs folder was on Linux, `$XDG_DATA_HOME/Atlas/Packs`: a
 /// folder Atlas doesn't look in. None on Windows, where the guess was right. A saved
@@ -406,19 +530,34 @@ pub fn rename_patiently(from: &Path, to: &Path) -> io::Result<()> {
 /// removed. Only the files in Go's record that are there as it put them; a name taken in
 /// `new` by a file that isn't Go's gives `<name> (2).atlaspack`. The old folder is left
 /// as it is, emptied or not (it may be yours). How many were moved.
-pub fn move_from(data: &Path, old: &Path, new: &Path) -> Result<usize> {
+///
+/// D230: also when the packs folder changes (set in Go, or in Atlas): `make` false leaves a
+/// folder that isn't there unmade (one chosen in Atlas), so nothing moves until it's there.
+/// Never beside a newer copy: a pack whose `packId` has a copy in `new` Go didn't put there
+/// that's as new as Go's file or newer (by its description, `pack.updated` then
+/// `exportedAt`) stays where it is (Atlas shows that copy, and Go's would only be beside it).
+pub fn move_from(data: &Path, old: &Path, new: &Path, make: bool) -> Result<usize> {
     // the same folder, or one a case-insensitive drive takes as the same (`Atlas/Packs` and
     // `atlas/packs`): nothing to move
     let same = |a: &Path, b: &Path| matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y);
-    if old == new || same(old, new) {
+    if old == new || same(old, new) || (!make && !new.is_dir()) {
         return Ok(0);
     }
     change(data, |rec| {
         let mut moved = 0;
+        // the copies in the new folder Go didn't put there, read once: (packId, updated, exportedAt)
+        let ours: Vec<PathBuf> = rec.delivered.iter().map(Delivered::path).collect();
+        let mut theirs: Option<Vec<(String, Option<String>, String)>> = None;
         for i in 0..rec.delivered.len() {
             let e = rec.delivered[i].clone();
             if e.folder != old || !e.there() {
                 continue;
+            }
+            let theirs = theirs.get_or_insert_with(|| pack_files(new).into_iter().filter(|p| !ours.contains(p)).filter_map(|p| dates(&p)).collect());
+            if let Some((_, mine_u, mine_e)) = dates(&e.path()).filter(|d| d.0 == e.pack_id) {
+                if theirs.iter().any(|t| t.0 == e.pack_id && gamerepo_wire::packs::newer(t.1.as_deref(), Some(&t.2), mine_u.as_deref(), Some(&mine_e)).is_ge()) {
+                    continue;
+                }
             }
             std::fs::create_dir_all(new)?;
             let name = free_name(new, &e.file, |_| false);
@@ -455,6 +594,10 @@ pub fn is_pack(f: &File) -> bool {
 pub fn part_of(d: &Device, f: &File) -> Result<PathBuf> {
     if f.path.contains(['/', '\\']) || !f.path.to_lowercase().ends_with(".atlaspack") {
         bail!("{} isn't a pack's name.", f.path);
+    }
+    // a packs folder chosen in Atlas that isn't there is never made (D230)
+    if let Some(folder) = d.places.get(SET_IN_ATLAS).filter(|f| !f.is_dir()) {
+        bail!("Atlas's packs folder, {}, chosen in Atlas, isn't there (is its drive connected?). Game Repo Go doesn't make it, as Atlas doesn't.", folder.display());
     }
     let dest = d.at(PLACE, &f.path)?;
     Ok(dest.with_file_name(format!("{}{PART}", f.path)))
@@ -602,6 +745,25 @@ pub fn note_there(d: &Device, f: &File) -> Result<()> {
 /// The packs unticked on each game's page, for a plan (`PlanAsk::packs_left`).
 pub fn left_out(data: &Path) -> Vec<(String, Vec<String>)> {
     load(data).left_out.into_iter().filter(|(_, v)| !v.is_empty()).collect()
+}
+
+/// The guidebooks unticked in each game's pack of guidebooks, for a plan
+/// (`PlanAsk::guidebooks_left`, D238).
+pub fn guidebooks_left(data: &Path) -> Vec<(String, Vec<String>)> {
+    load(data).guidebooks_left.into_iter().filter(|(_, v)| !v.is_empty()).collect()
+}
+
+/// A guidebook ticked or unticked in a game's pack of guidebooks (D238).
+pub fn set_guidebook_ticked(data: &Path, key: &str, guidebook: &str, on: bool) -> Result<()> {
+    change(data, |rec| {
+        let v = rec.guidebooks_left.entry(key.to_string()).or_default();
+        v.retain(|g| g != guidebook);
+        if !on {
+            v.push(guidebook.to_string());
+        }
+        rec.guidebooks_left.retain(|_, v| !v.is_empty());
+        Ok(())
+    })
 }
 
 /// A pack ticked or unticked on a game's page.
@@ -1267,7 +1429,7 @@ mod tests {
         std::fs::create_dir_all(&new).unwrap();
         std::fs::write(new.join("Delta - Example Maps.atlaspack"), b"copied in by hand").unwrap();
 
-        assert_eq!(move_from(&data, &old, &new).unwrap(), 1);
+        assert_eq!(move_from(&data, &old, &new, true).unwrap(), 1);
         assert_eq!(names(&new), ["Delta - Example Maps (2).atlaspack", "Delta - Example Maps.atlaspack"]);
         assert_eq!(std::fs::read(new.join("Delta - Example Maps (2).atlaspack")).unwrap(), b"delta");
         assert_eq!(std::fs::read(new.join("Delta - Example Maps.atlaspack")).unwrap(), b"copied in by hand");
@@ -1280,14 +1442,139 @@ mod tests {
         assert!(moved.there());
         assert_eq!(rec.delivered.iter().find(|e| e.pack_id == "beta-example-maps").unwrap().folder, old);
         // the next run has nothing more to move, and the same folder twice is nothing
-        assert_eq!(move_from(&data, &old, &new).unwrap(), 0);
-        assert_eq!(move_from(&data, &new, &new).unwrap(), 0);
+        assert_eq!(move_from(&data, &old, &new, true).unwrap(), 0);
+        assert_eq!(move_from(&data, &new, &new, true).unwrap(), 0);
         // a newer file of the moved pack, delivered into the new folder, goes over it there
         d.places.insert(PLACE.into(), new.clone());
         let newer = pack("Delta - Example Maps.atlaspack", "delta-example-maps", "gb/Delta (World)", b"delta, newer");
         deliver(&d, &newer, b"delta, newer");
         assert_eq!(std::fs::read(new.join("Delta - Example Maps (2).atlaspack")).unwrap(), b"delta, newer");
         assert_eq!(names(&new), ["Delta - Example Maps (2).atlaspack", "Delta - Example Maps.atlaspack"]);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// D230: Atlas's settings file read as Atlas reads it (its `settings.rs`): `packsFolder`
+    /// absent, `null`, in a file Atlas wouldn't read, or one it can't use is the usual folder.
+    #[test]
+    fn atlass_settings_file_is_read_as_atlas_reads_it() {
+        let home = std::env::temp_dir().join(format!("gamerepo-device-atlas-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let file = atlas_settings_file(&home);
+        if cfg!(windows) {
+            assert_eq!(file, home.join("AppData").join("Local").join("Atlas").join("settings.json"));
+        } else {
+            assert_eq!(file, home.join(".local").join("share").join("atlas").join("settings.json"));
+        }
+        // no file: nothing said
+        assert_eq!(atlas_packs_folder(&home), AtlasSays::Nothing);
+        let chosen = home.join("Elsewhere").join("Packs");
+        let good = serde_json::json!({ "format": "atlas-settings", "version": 1, "mapsFolder": null, "packsFolder": chosen }).to_string();
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, &good).unwrap();
+        assert_eq!(atlas_packs_folder(&home), AtlasSays::Folder(chosen.clone()), "a full path is the folder");
+        // with a byte order mark too, as Atlas reads it
+        assert_eq!(atlas_says(&format!("\u{feff}{good}")), AtlasSays::Folder(chosen.clone()));
+        // a file Atlas wouldn't read at all says nothing: not JSON, not an object, another
+        // format or version, no format; and one larger than 1 MB
+        for text in ["", "not json", "[]", r#"{"format":"atlas-settings","version":2,"packsFolder":"/p"}"#, r#"{"format":"other","version":1,"packsFolder":"/p"}"#, r#"{"version":1,"packsFolder":"/p"}"#, r#"{"format":"atlas-settings","version":"1","packsFolder":"/p"}"#] {
+            assert_eq!(atlas_says(text), AtlasSays::Nothing, "{text}");
+        }
+        std::fs::write(&file, format!("{good}{}", " ".repeat(1 << 20))).unwrap();
+        assert_eq!(atlas_packs_folder(&home), AtlasSays::Nothing, "too large to be Atlas's");
+        // absent or null: nothing said
+        assert_eq!(atlas_says(r#"{"format":"atlas-settings","version":1,"mapsFolder":"/maps"}"#), AtlasSays::Nothing);
+        assert_eq!(atlas_says(r#"{"format":"atlas-settings","version":1,"packsFolder":null}"#), AtlasSays::Nothing);
+        // values Atlas can't use: the usual folder, as Atlas does
+        let long = format!("/{}", "a".repeat(5000));
+        let cases: Vec<(String, &str)> = vec![
+            (r#""""#.into(), "it's empty"),
+            (r#""   ""#.into(), "it's empty"),
+            (r#""Packs""#.into(), "it isn't a full path"),
+            (r#""packs/inside""#.into(), "it isn't a full path"),
+            (serde_json::to_string(&home.join("packs").join("..").join("elsewhere")).unwrap(), "it goes up a folder with .."),
+            (serde_json::to_string(&format!("{}\0x", home.join("packs").display())).unwrap(), "it isn't a path"),
+            (format!("\"{long}\""), "it's too long"),
+            ("42".into(), "it isn't text"),
+            ("true".into(), "it isn't text"),
+            (r#"["/packs"]"#.into(), "it isn't text"),
+            (r#"{"path": "/packs"}"#.into(), "it isn't text"),
+        ];
+        for (bad, why) in cases {
+            let text = format!(r#"{{"format":"atlas-settings","version":1,"mapsFolder":"/maps","packsFolder":{bad}}}"#);
+            assert_eq!(atlas_says(&text), AtlasSays::Unusable(why), "{bad}");
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// D230: the packs folder Go uses: its own setting, else the one chosen in Atlas, else
+    /// Atlas's usual one; read afresh, so a change in Atlas is followed at once.
+    #[test]
+    fn go_uses_its_own_folder_then_atlass_choice_then_the_usual_one() {
+        let home = std::env::temp_dir().join(format!("gamerepo-device-atlas-choose-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let usual = default_folder(&home);
+        let in_atlas = home.join("Atlas Packs");
+        let mine = home.join("Go Packs");
+        // nothing set anywhere: the usual folder
+        assert_eq!(choose_folder("", &home), (usual.clone(), FolderFrom::Usual));
+        // chosen in Atlas
+        let file = atlas_settings_file(&home);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, serde_json::json!({ "format": "atlas-settings", "version": 1, "packsFolder": in_atlas }).to_string()).unwrap();
+        assert_eq!(choose_folder("", &home), (in_atlas.clone(), FolderFrom::Atlas));
+        assert_eq!(choose_folder("  ", &home), (in_atlas.clone(), FolderFrom::Atlas), "a blank setting is none");
+        // set in Go: Go's own wins
+        assert_eq!(choose_folder(mine.to_str().unwrap(), &home), (mine.clone(), FolderFrom::Go));
+        // 0.5.72's guess on Linux counts as none set
+        if let Some(old) = old_default_folder(&home) {
+            assert_eq!(choose_folder(old.to_str().unwrap(), &home), (in_atlas.clone(), FolderFrom::Atlas));
+        }
+        // Atlas's choice taken back, or one it can't use: the usual folder again
+        std::fs::write(&file, r#"{"format":"atlas-settings","version":1}"#).unwrap();
+        assert_eq!(choose_folder("", &home), (usual.clone(), FolderFrom::Usual));
+        std::fs::write(&file, r#"{"format":"atlas-settings","version":1,"packsFolder":"Packs"}"#).unwrap();
+        assert_eq!(choose_folder("", &home), (usual.clone(), FolderFrom::Usual));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// D230: when the packs folder changes, Go's own packs follow it, never beside a copy of
+    /// the same pack there that's as new or newer; a folder chosen in Atlas that isn't there
+    /// isn't made, so nothing moves into it and nothing is downloaded into it.
+    #[test]
+    fn gos_packs_follow_a_new_folder_but_never_beside_a_newer_copy() {
+        let (home, d) = device("follow");
+        let data = d.data.clone().unwrap();
+        let old = d.places[PLACE].clone();
+        let new = home.join("Chosen in Atlas");
+        let island = atlas_pack("island-maps", "2026-11-01T00:00:00Z", "2026-11-01T00:00:00Z", &[]);
+        let delta = atlas_pack("delta-maps", "2026-11-01T00:00:00Z", "2026-11-01T00:00:00Z", &[]);
+        let island_f = pack("Island - Example Maps.atlaspack", "island-maps", "gb/Island (World)", &island);
+        let delta_f = pack("Delta - Example Maps.atlaspack", "delta-maps", "gb/Delta (World)", &delta);
+        deliver(&d, &island_f, &island);
+        deliver(&d, &delta_f, &delta);
+        // a newer copy of Island's pack in the new folder, put there by Atlas (not Go)
+        let newer = atlas_pack("island-maps", "2026-11-10T00:00:00Z", "2026-11-10T00:00:00Z", &[]);
+        let missing = home.join("Not connected").join("Packs");
+        assert_eq!(move_from(&data, &old, &missing, false).unwrap(), 0, "a folder chosen in Atlas that isn't there isn't made");
+        assert!(!missing.exists());
+        // and nothing comes into it
+        let mut away = Device { home: d.home.clone(), places: d.places.clone(), data: d.data.clone() };
+        away.places.insert(PLACE.into(), missing.clone());
+        away.places.insert(SET_IN_ATLAS.into(), missing.clone());
+        let e = part_of(&away, &island_f).unwrap_err().to_string();
+        assert!(e.contains("isn't there") && !missing.exists(), "{e}");
+        std::fs::create_dir_all(new.join("by Atlas")).unwrap();
+        std::fs::write(new.join("by Atlas").join("Island.atlaspack"), &newer).unwrap();
+        assert_eq!(move_from(&data, &old, &new, false).unwrap(), 1, "only Delta's moves");
+        assert_eq!(names(&new), ["Delta - Example Maps.atlaspack", "by Atlas"]);
+        assert_eq!(names(&old), ["Island - Example Maps.atlaspack"], "Island's stays where it was: the copy there is newer");
+        let rec = load(&data);
+        assert_eq!(rec.delivered.iter().find(|e| e.pack_id == "delta-maps").unwrap().folder, new);
+        assert_eq!(rec.delivered.iter().find(|e| e.pack_id == "island-maps").unwrap().folder, old);
+        // the newer copy gone, Island's follows too (an older copy there is only beside it)
+        std::fs::write(new.join("by Atlas").join("Island.atlaspack"), atlas_pack("island-maps", "2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z", &[])).unwrap();
+        assert_eq!(move_from(&data, &old, &new, false).unwrap(), 1);
+        assert_eq!(std::fs::read(new.join("Island - Example Maps.atlaspack")).unwrap(), island);
         let _ = std::fs::remove_dir_all(&home);
     }
 
