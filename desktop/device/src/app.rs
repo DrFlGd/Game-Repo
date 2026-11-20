@@ -5,6 +5,7 @@
 //! device (D100), removing safely (D101) and media on their own (D102), and the client's
 //! settings, kept in its own data folder; the pairing token is kept by [`Secrets`].
 
+use crate::atlas;
 use crate::background;
 use crate::catalogue::{self, Catalogue};
 use crate::installs;
@@ -126,6 +127,9 @@ pub struct Settings {
     pub atlas_packs: bool,
     /// Atlas's packs folder, when it isn't where the contract says (empty: there)
     pub atlas_folder: String,
+    /// Atlas's program, for *Show in Atlas* (D224): empty, the one registered for
+    /// `.atlaspack` files on Windows
+    pub atlas_program: String,
 }
 
 impl Default for Settings {
@@ -155,6 +159,7 @@ impl Default for Settings {
             mods: true,
             atlas_packs: false,
             atlas_folder: String::new(),
+            atlas_program: String::new(),
             retroarch: String::new(),
             save_folders: BTreeMap::new(),
             background_saves: true,
@@ -510,7 +515,25 @@ impl App {
                 v
             })
             .collect();
-        json!({ "offered": true, "on": s.atlas_packs, "folder": folder, "items": items })
+        // Show in Atlas (D224): the pack Atlas is asked for, when one is in its packs folder
+        let ids: Vec<&str> = items.iter().filter_map(|p| p["pack_id"].as_str()).collect();
+        let show = packs::to_show(&rec, &folder, &ids);
+        json!({ "offered": true, "on": s.atlas_packs, "folder": folder, "items": items, "show": show })
+    }
+
+    /// *Show in Atlas* on a game's page (D224): Atlas started with `--show-pack` and the
+    /// game's pack in its packs folder ([`packs::to_show`]), in front; not waited for.
+    fn atlas_show(&self, key: &str) -> Result<Value> {
+        if !self.packs_offered() {
+            bail!("Atlas can't be started from Game Repo Go on this device yet.");
+        }
+        let details = self.catalogue.details(self.server().as_ref(), key).unwrap_or(None);
+        let view = self.packs_view(key, details.as_ref());
+        let Some(pack) = view["show"].as_str() else { bail!("None of this game's packs is in Atlas's packs folder on this device.") };
+        let program = atlas::find(&self.settings().atlas_program)?;
+        atlas::show(&program, pack)?;
+        let title = view["items"].as_array().into_iter().flatten().find(|p| p["pack_id"] == pack).and_then(|p| p["title"].as_str()).unwrap_or(pack);
+        Ok(json!({ "pack": pack, "title": title, "program": program }))
     }
 
     /// A pack ticked or unticked on a game's page (D222): kept for the game; on a game the
@@ -640,6 +663,8 @@ impl App {
             // a game's packs of maps and guides for Atlas (D222)
             "pack_tick" => self.pack_tick(&arg::<String>(args, "key")?, &arg::<String>(args, "pack")?, arg::<bool>(args, "on")?)?,
             "packs_get" => json!({ "queued": self.get_packs(&arg::<String>(args, "key")?)? }),
+            // Show in Atlas (D224)
+            "atlas_show" => self.atlas_show(&arg::<String>(args, "key")?)?,
             "picture" => {
                 let (key, kind): (String, String) = (arg(args, "key")?, arg::<Option<String>>(args, "kind")?.unwrap_or_else(|| "cover".into()));
                 let size = args.get("size").and_then(Value::as_u64).unwrap_or(256) as u32;
@@ -825,6 +850,10 @@ impl App {
                 if !new.atlas_folder.is_empty() && !Path::new(&new.atlas_folder).is_absolute() {
                     bail!("{} isn't a whole folder path (such as {}).", new.atlas_folder, packs::default_folder(&self.home()).display());
                 }
+                // Atlas's program (D224): a file that's there
+                if !new.atlas_program.trim().is_empty() && !Path::new(new.atlas_program.trim()).is_file() {
+                    bail!("{} isn't a program here (Atlas's, such as {}).", new.atlas_program, if cfg!(windows) { r"C:\Program Files\Atlas\Atlas.exe" } else { "/opt/Atlas/atlas.AppImage" });
+                }
                 if new.atlas_packs && !self.packs_offered() {
                     bail!("Maps and guides for Atlas aren't offered on this device yet.");
                 }
@@ -835,6 +864,7 @@ impl App {
                     bail!("{} isn't RetroArch's settings file (retroarch.cfg).", new.retroarch);
                 }
                 let mut new = new;
+                new.atlas_program = new.atlas_program.trim().to_string();
                 new.save_folders.retain(|_, v| !v.trim().is_empty());
                 for (id, f) in &new.save_folders {
                     let Some(p) = gamerepo_wire::saves::built_in().into_iter().find(|p| p.id == *id && p.kind == "folders") else { bail!("There's no emulator {id} whose saves are synced.") };
@@ -916,7 +946,10 @@ impl App {
             // Maps and guides for Atlas (D222): where the packs go, on Windows and Linux
             "atlas": self.packs_offered().then(|| {
                 let home = self.home();
-                json!({ "folder": self.packs_folder(&home), "usual": packs::default_folder(&home), "default": self.packs_folder_usual(&home), "delivered": packs::load(&self.data).delivered.iter().filter(|e| e.here()).count() })
+                // Atlas's program for Show in Atlas (D224): where it's found, else why not
+                let found = atlas::find(&s.atlas_program);
+                json!({ "folder": self.packs_folder(&home), "usual": packs::default_folder(&home), "default": self.packs_folder_usual(&home), "delivered": packs::load(&self.data).delivered.iter().filter(|e| e.here()).count(),
+                    "program": found.as_ref().ok(), "program_set": !s.atlas_program.trim().is_empty(), "program_missing": found.as_ref().err().map(|e| e.to_string()) })
             }),
         })
     }

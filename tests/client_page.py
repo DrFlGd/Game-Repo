@@ -23,7 +23,9 @@ one list; Make room ticking
 games; a removal shown and done; a game's media removed alone; Settings (Show games on this
 device, the look, each skin, About and updates with the CLI's stand-in for the updater, Tailscale set up on the Steam Deck with stand-ins for Konsole and Tailscale); Maps and
 guides for Atlas (off at first, a game's packs listed and ticked, one brought into Atlas's
-packs folder and taken out again, Atlas's own files untouched, hidden on Android); the Library and a game's page kept with the library away; every page
+packs folder and taken out again, Atlas's own files untouched, hidden on Android; Show in
+Atlas once a pack is there, saying where to set Atlas when it isn't found, and starting a
+stand-in for Atlas with --show-pack and the pack's id); the Library and a game's page kept with the library away; every page
 moved through with the keys alone, and the games by rows and columns; no page errors; and
 the library and everything outside ES-DE's folders as they were. Screenshots for each.
 """
@@ -312,6 +314,22 @@ def atlas_pack_file(path, pack_id, title, key, updated="2026-11-10T10:00:00Z", m
         if more:
             z.writestr("mine/my-notes.json", more, compress_type=zipfile.ZIP_DEFLATED)
     return path
+
+
+def atlas_stand_in(folder):
+    """A stand-in for Atlas's program (D224) that writes down the arguments it was started
+    with, a line each, into atlas-args.txt beside it: a shell script, or a .cmd on Windows."""
+    folder.mkdir(parents=True, exist_ok=True)
+    said = folder / "atlas-args.txt"
+    if sys.platform == "win32":
+        prog = folder / "atlas.cmd"
+        prog.write_text('@echo off\r\n>"%~dp0atlas-args.part" echo %~1\r\n>>"%~dp0atlas-args.part" echo %~2\r\n'
+                        'move /y "%~dp0atlas-args.part" "%~dp0atlas-args.txt" >nul\r\n', encoding="ascii")
+    else:
+        prog = folder / "atlas"
+        prog.write_text('#!/bin/sh\nd="$(dirname "$0")"\nprintf \'%s\\n\' "$@" > "$d/atlas-args.part"\nmv "$d/atlas-args.part" "$d/atlas-args.txt"\n', encoding="ascii")
+        prog.chmod(0o755)
+    return prog, said
 
 
 def atlas_packs():
@@ -1000,7 +1018,8 @@ async def main():
             on = await pg.get_attribute("#go-game-packs", "data-on")
             check("a game's page lists its packs of maps and guides with their sizes, ticked, and says the setting is off",
                   ticked and on == "no" and "Beta from Example Maps" in listed and "2 maps" in listed and "30 wiki pages" in listed and "guide page" not in listed
-                  and " KB" in listed and "Turn on Maps and guides for Atlas" in listed and not await pg.query_selector("#go-game-packs-get"), listed)
+                  and " KB" in listed and "Turn on Maps and guides for Atlas" in listed and not await pg.query_selector("#go-game-packs-get")
+                  and not await pg.query_selector("#go-game-atlas-show"), listed)
             check("with the setting off, no pack is put in Atlas's packs folder", sorted(p.name for p in atlas.iterdir()) == sorted(theirs), sorted(p.name for p in atlas.iterdir()))
             await pg.click("#go-game-packs-settings")
             await pg.wait_for_selector("#set-atlas-on")
@@ -1025,11 +1044,46 @@ async def main():
                   and all((atlas / n).read_bytes() == b for n, b in theirs.items()) and not list(go_data.glob("packs-coming/*")), (asked, came, record))
             await pg.reload()
             await pg.wait_for_selector(f'{beta_pack}[data-here="yes"]', timeout=20000)
+            # Show in Atlas (D224): offered now a pack of the game is in Atlas's packs folder;
+            # with Atlas not found (Linux: nothing says where it is) it says where to set it;
+            # set to a stand-in, Atlas is started with --show-pack and the pack's id, as two
+            # arguments, with no --background
+            await pg.wait_for_selector("#go-game-atlas-show", timeout=20000)
+            show_pack = await pg.get_attribute("#go-game-atlas-show", "data-pack")
+            not_found = "(not tried on Windows, where an Atlas installed would start)"
+            if sys.platform.startswith("linux"):
+                await pg.click("#go-game-atlas-show")
+                await toast(pg, "Atlas wasn't found")
+                not_found = await pg.inner_text("#go-toast")
+            stand_in, said_args = atlas_stand_in(home / "atlas-stand-in")
+            await pg.goto(B + "#settings")
+            await pg.wait_for_selector("#set-atlas-program")
+            await pg.fill("#set-atlas-program", str(stand_in))
+            await pg.press("#set-atlas-program", "Tab")
+            await settled(pg, "() => document.querySelector('#set-atlas-program-note')?.textContent.includes('starts')", 20000)
+            program_said = await pg.inner_text("#set-atlas-program-note")
+            await pg.goto(beta_page)
+            await pg.wait_for_selector("#go-game-atlas-show", timeout=20000)
+            await shot(pg, "17b2-phone-game-show-in-atlas")
+            await pg.click("#go-game-atlas-show")
+            await toast(pg, "Atlas was asked to show")
+            started_said = await pg.inner_text("#go-toast")
+            started = []
+            for _ in range(80):
+                if said_args.is_file():
+                    started = said_args.read_text().split()
+                    break
+                await asyncio.sleep(0.25)
+            check("Show in Atlas is offered once a pack of the game is in Atlas's packs folder, says where to set Atlas when it isn't found, and starts Atlas with --show-pack and the pack's id",
+                  show_pack == "beta-example-maps" and ("Settings" in not_found or sys.platform == "win32") and str(stand_in) in program_said
+                  and started == ["--show-pack", "beta-example-maps"] and "Beta" in started_said, (show_pack, not_found, program_said, started, started_said))
             await pg.click(f"{beta_pack} input")
             await pg.wait_for_selector("#go-game-packs-said", timeout=20000)
             said = await pg.inner_text("#go-game-packs-said")
-            check("unticking a pack on a game the device has takes it out of Atlas's packs folder, and only that",
-                  "taken out of Atlas's packs folder" in said and sorted(p.name for p in atlas.iterdir()) == sorted(theirs)
+            await settled(pg, "() => !document.querySelector('#go-game-atlas-show')")
+            check("unticking a pack on a game the device has takes it out of Atlas's packs folder, and only that, and Show in Atlas goes",
+                  not await pg.query_selector("#go-game-atlas-show")
+                  and "taken out of Atlas's packs folder" in said and sorted(p.name for p in atlas.iterdir()) == sorted(theirs)
                   and all((atlas / n).read_bytes() == b for n, b in theirs.items()), (said, sorted(p.name for p in atlas.iterdir())))
             # ticked again it comes back; then Atlas writes it again here, newer than the
             # library's (D222 revised): the library's older one isn't put over it, and the page
@@ -1076,17 +1130,20 @@ async def main():
             await pg.click("#go-game-packs-open")
             await pg.wait_for_selector(f'#packs-dialog {beta_pack}')
             panel_ticked = await pg.is_checked(f"#packs-dialog {beta_pack} input")
+            big_show = await pg.query_selector(".go-big-game #go-game-atlas-show") is not None
+            panel_show = await pg.query_selector("#packs-dialog #go-game-atlas-show") is not None
             await pg.keyboard.press("Escape")
             await pg.wait_for_selector("#packs-dialog", state="detached")
             await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); delete l.view; localStorage.setItem('go-look', JSON.stringify(l)); }")
-            check("the big screen's game page has Maps and guides…, the same list as a panel", panel_ticked is False, panel_ticked)
+            check("the big screen's game page has Maps and guides…, the same list as a panel, and Show in Atlas beside it",
+                  panel_ticked is False and big_show and not panel_show, (panel_ticked, big_show, panel_show))
             # Android: not offered yet (the page hides it)
             shell(kind="android")
             await pg.goto(beta_page)
             await pg.reload()
             await pg.wait_for_selector("#go-game-title")
             await settled(pg, "() => document.querySelector('#go-game-on')")
-            hidden_game = not await pg.query_selector("#go-game-packs")
+            hidden_game = not await pg.query_selector("#go-game-packs") and not await pg.query_selector("#go-game-atlas-show")
             await pg.goto(B + "#settings")
             await pg.wait_for_selector("#set-esde")
             hidden_set = not await pg.query_selector("#set-atlas")
@@ -1096,7 +1153,7 @@ async def main():
             await pg.wait_for_selector("#set-atlas-on")
             await pg.uncheck("#set-atlas-on")
             await pg.wait_for_function("() => !document.querySelector('#set-atlas-on')?.checked")
-            check("on Android neither the setting nor a game's packs are shown", hidden_game and hidden_set, (hidden_game, hidden_set))
+            check("on Android neither the setting nor a game's packs nor Show in Atlas are shown", hidden_game and hidden_set, (hidden_game, hidden_set))
 
             # 13c. PC games (D110-D112), on Windows and Linux: a system of their own, put in the
             # PC games folder Settings names, each game in its folder with a shortcut (in the

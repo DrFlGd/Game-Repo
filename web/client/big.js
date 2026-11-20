@@ -17,7 +17,7 @@ import { enqueue } from "./add.js";
 import { LIBRARY_ORDERS } from "./library.js";
 import { DEVICE_ORDERS } from "./device.js";
 import { focusFirst, show } from "./keys.js";
-import { showPacks } from "./packs.js";
+import { ShowInAtlas, showPacks } from "./packs.js";
 
 export const TABS = [
   ["library", "Library", Icon.gamepad],
@@ -323,6 +323,7 @@ export function BigGame({ gameKey }) {
                   <button type="button" class="ghost" id="go-game-enqueue" data-say="Queued, it waits for Start downloads… in Downloads" onClick=${() => enqueue([game.key])}>Add to queue</button>`}
             ${media.length || files.length ? html`<button type="button" class="ghost" id="go-game-media" onClick=${() => showDialog({ type: "media", title: game.title, media, files })}>Pictures and files…</button>` : null}
             ${showPacks(g) ? html`<button type="button" class="ghost" id="go-game-packs-open" data-say="Its packs of maps and guides for Atlas, each ticked or not" onClick=${() => showDialog({ type: "packs", key: game.key, title: game.title })}>Maps and guides…</button>` : null}
+            <${ShowInAtlas} k=${game.key} packs=${g.packs} big=${true} />
           </div>
           ${d.description ? html`<div class="go-hero-text go-scroll" tabindex="0" data-a="" data-say="Up and Down scroll the description">${String(d.description).split(/\n\s*\n/).map((p) => html`<p>${p}</p>`)}</div>` : null}
           ${facts.length ? html`<dl class="go-hero-facts">${facts.map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>` : null}

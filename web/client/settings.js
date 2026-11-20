@@ -285,6 +285,13 @@ export function SettingsPage() {
       <${Folder} id="set-atlas-folder" label="Atlas's packs folder" value=${st.atlas.folder} setting="atlas_folder" fallback=${st.atlas.usual} />
       ${st.atlas.delivered ? html`<p class="muted" id="set-atlas-delivered">${plural(st.atlas.delivered, "pack")} put there by Game Repo Go.</p>` : null}
       ${!st.atlas.default ? html`<div><button type="button" class="ghost" id="set-atlas-usual" onClick=${() => set({ atlas_folder: "" }).then(refreshStatus)}>Use the usual folder</button></div>` : null}
+      <label class="field-block"><span>Atlas's program</span>
+        <input id="set-atlas-program" value=${v.atlas_program || ""} spellcheck="false" placeholder=${info.kind === "windows" ? "Found by itself (the program that opens .atlaspack files)" : "Where Atlas's program is"}
+          onChange=${(e) => set({ atlas_program: e.currentTarget.value.trim() }).then(refreshStatus)} /></label>
+      <p class=${st.atlas.program ? "muted" : "warn-note"} id="set-atlas-program-note">${st.atlas.program
+        ? html`<i>Show in Atlas</i> on a game's page starts <span class="go-file">${st.atlas.program}</span> with the game's pack.`
+        : info.kind === "windows" ? html`Atlas isn't found on this device (nothing opens .atlaspack files): install it, or set where its program is, for <i>Show in Atlas</i> on a game's page.`
+        : html`Set where Atlas's program is for <i>Show in Atlas</i> on a game's page: on Linux nothing says where Atlas is.`}</p>
     </section>` : null}
 
     <section class="go-set" id="set-downloads">

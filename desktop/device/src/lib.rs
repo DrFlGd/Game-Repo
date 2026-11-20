@@ -10,6 +10,7 @@
 //! that holds `ES-DE/` and `ROMs/`; 9b's client is built on it too.
 
 pub mod app;
+pub mod atlas;
 pub mod background;
 pub mod catalogue;
 pub mod client;
@@ -175,6 +176,48 @@ fn same_drive(a: &Path, b: &Path) -> bool {
         let root = |p: &Path| std::fs::canonicalize(existing(p)).ok().and_then(|c| c.components().next().map(|c| c.as_os_str().to_ascii_lowercase()));
         root(a).is_some() && root(a) == root(b)
     }
+}
+
+/// What an AppImage sets for its own libraries, which the programs Go starts mustn't get.
+const APPIMAGE_ENV: &[&str] = &[
+    "APPDIR", "APPIMAGE", "ARGV0", "OWD", "LD_LIBRARY_PATH", "LD_PRELOAD", "GDK_PIXBUF_MODULE_FILE", "GDK_PIXBUF_MODULEDIR", "GIO_MODULE_DIR",
+    "GIO_EXTRA_MODULES", "GSETTINGS_SCHEMA_DIR", "GTK_DATA_PREFIX", "GTK_EXE_PREFIX", "GTK_IM_MODULE_FILE", "GTK_PATH", "PYTHONHOME", "PYTHONPATH",
+    "PERLLIB", "QT_PLUGIN_PATH", "WEBKIT_DISABLE_DMABUF_RENDERER",
+];
+
+/// A PATH-like list without what's inside the AppImage Go runs from.
+pub(crate) fn outside_appimage(list: &std::ffi::OsStr) -> std::ffi::OsString {
+    let appdir = std::env::var_os("APPDIR").map(PathBuf::from).filter(|d| !d.as_os_str().is_empty());
+    let kept: Vec<PathBuf> = std::env::split_paths(list).filter(|p| appdir.as_ref().is_none_or(|d| !p.starts_with(d))).collect();
+    std::env::join_paths(kept).unwrap_or_default()
+}
+
+/// A program started on its own, with the user's own surroundings, not the AppImage's (the
+/// terminal for Tailscale's set-up, the browser, Atlas): it outlives Go, nothing waits on it
+/// here (a thread reaps it when it ends), and on Windows it gets no console window.
+pub(crate) fn start_alone(program: &Path, args: &[&str]) -> Result<()> {
+    let mut c = std::process::Command::new(program);
+    c.args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    for k in APPIMAGE_ENV {
+        c.env_remove(k);
+    }
+    for k in ["PATH", "XDG_DATA_DIRS", "XDG_CONFIG_DIRS"] {
+        if let Some(v) = std::env::var_os(k) {
+            c.env(k, outside_appimage(&v));
+        }
+    }
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut c, 0);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let mut child = c.spawn()?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
 }
 
 /// A file written whole, through a temporary name.

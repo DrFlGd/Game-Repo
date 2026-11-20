@@ -265,6 +265,31 @@ pub fn theirs_here<'a>(rec: &'a Record, folder: &Path, pack: &str) -> Option<&'a
     rec.theirs.iter().find(|t| t.pack_id == pack && t.path.starts_with(folder) && t.path.is_file())
 }
 
+/// The pack *Show in Atlas* asks Atlas for (D224), of a game's packs (`ids`, in the library's
+/// order): of those in Atlas's packs folder here (one Go delivered or kept there, or a copy Go
+/// didn't deliver that it left in place of its own), the newest by the file's own description
+/// (`pack.updated`, then `exportedAt`, as Atlas picks between two files of a pack), the first
+/// in the library's order when they're as new or can't be read. None when none is here.
+pub fn to_show(rec: &Record, folder: &Path, ids: &[&str]) -> Option<String> {
+    // a pack's `pack.updated` and `exportedAt`, when its file can be read as it
+    type When = Option<(Option<String>, String)>;
+    let mut best: Option<(&str, When)> = None;
+    for &id in ids {
+        let file = rec.delivered.iter().find(|e| e.pack_id == id && e.here()).map(Delivered::path).or_else(|| theirs_here(rec, folder, id).map(|t| t.path.clone()));
+        let Some(file) = file else { continue };
+        let when = dates(&file).filter(|d| d.0 == id).map(|d| (d.1, d.2));
+        let newer = |than: &When| match (&when, than) {
+            (Some(a), Some(b)) => gamerepo_wire::packs::newer(a.0.as_deref(), Some(&a.1), b.0.as_deref(), Some(&b.1)).is_gt(),
+            (Some(_), None) => true,
+            _ => false,
+        };
+        if best.as_ref().is_none_or(|b| newer(&b.1)) {
+            best = Some((id, when));
+        }
+    }
+    best.map(|b| b.0.to_string())
+}
+
 static WRITING: Mutex<()> = Mutex::new(());
 
 pub fn load(data: &Path) -> Record {
@@ -787,6 +812,45 @@ mod tests {
         let e = here(&data, "island").unwrap();
         assert_eq!((e.size, e.sha1.clone(), e.kept_over.as_str(), e.newer_here, e.games.clone()), (lib2.len() as u64, g2.sha1.clone().unwrap(), "", false, vec![key.to_string()]));
         assert!(there(&d, &g2) && !there(&d, &g1));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Show in Atlas (D224): of a game's packs, the one in Atlas's packs folder here (Go's,
+    /// kept, or a copy Go left in place of its own) that's newest by its own description; the
+    /// first in the library's order when they're as new; none when none is here.
+    #[test]
+    fn show_in_atlas_asks_for_the_newest_of_a_games_packs_that_are_here() {
+        let (home, d) = device("show");
+        let folder = d.places[PLACE].clone();
+        let data = d.data.clone().unwrap();
+        let key = "pc/island";
+        assert_eq!(to_show(&load(&data), &folder, &["alpha", "beta"]), None, "none here");
+        // one that isn't a pack Go can read still counts while it's alone
+        let broken = b"PK not a pack".to_vec();
+        deliver(&d, &pack("Broken.atlaspack", "broken", key, &broken), &broken);
+        assert_eq!(to_show(&load(&data), &folder, &["alpha", "broken"]).as_deref(), Some("broken"));
+        let a = atlas_pack("alpha", "2026-11-18T08:00:00Z", "2026-11-18T08:05:00Z", &[]);
+        deliver(&d, &pack("Alpha.atlaspack", "alpha", key, &a), &a);
+        let b = atlas_pack("beta", "2026-11-19T08:00:00Z", "2026-11-19T08:05:00Z", &[]);
+        deliver(&d, &pack("Beta.atlaspack", "beta", key, &b), &b);
+        let rec = load(&data);
+        assert_eq!(to_show(&rec, &folder, &["broken", "gamma", "alpha", "beta"]).as_deref(), Some("beta"), "the newest");
+        assert_eq!(to_show(&rec, &folder, &["broken", "alpha"]).as_deref(), Some("alpha"), "one that can be read over one that can't");
+        // as new: the first in the library's order
+        let a2 = atlas_pack("alpha", "2026-11-19T08:00:00Z", "2026-11-19T08:05:00Z", &[]);
+        let f = pack("Alpha.atlaspack", "alpha", key, &a2);
+        deliver(&d, &f, &a2);
+        assert_eq!(to_show(&load(&data), &folder, &["alpha", "beta"]).as_deref(), Some("alpha"));
+        assert_eq!(to_show(&load(&data), &folder, &["beta", "alpha"]).as_deref(), Some("beta"));
+        // taken out: it's not asked for
+        assert!(take_off(&data, key, "beta").unwrap() && take_off(&data, key, "alpha").unwrap());
+        assert_eq!(to_show(&load(&data), &folder, &["alpha", "beta"]), None);
+        // a copy Go didn't deliver that Go left in place of its own is Atlas's to show too
+        let c = atlas_pack("gamma", "2026-11-20T08:00:00Z", "2026-11-20T08:00:00Z", &[]);
+        std::fs::write(folder.join("Gamma.atlaspack"), &c).unwrap();
+        let g = File { pack_updated: "2026-11-20T08:00:00Z".into(), pack_exported_at: "2026-11-20T08:00:00Z".into(), ..pack("Gamma.atlaspack", "gamma", key, &c) };
+        assert!(theirs_instead(&d, &g));
+        assert_eq!(to_show(&load(&data), &folder, &["alpha", "gamma"]).as_deref(), Some("gamma"));
         let _ = std::fs::remove_dir_all(&home);
     }
 
