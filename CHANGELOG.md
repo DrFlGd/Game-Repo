@@ -93,6 +93,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.77 (2026-11-20)
+
 - **Maps and guides on Game Repo Go.** On Windows, Linux and the Steam Deck, Game Repo Go has a *Maps and guides* page beside the games (a tab on the big screen) with every pack of maps and guides for Atlas in the library, grouped by the game each is for, with a search. *Install* puts a pack in Atlas's packs folder on its own, through Downloads, so maps for a game you installed some other way (from Steam, say) can go to Atlas too; the setting *Maps and guides for Atlas* needn't be on. A pack installed on its own stays when you untick it on a game or remove the game, and comes again when the library has a newer copy (never an older one over a newer one). *Remove* takes it out, unless a game on the device still has it ticked, Atlas changed it there, or Game Repo Go didn't put it there, and says which. *Show in Atlas* is there too. It needs Game Repo on the library's computer updated to this version.
 
 ## 0.5.76 (2026-11-20)
