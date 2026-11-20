@@ -1,0 +1,4 @@
+total 22084
+drwxr-xr-x  2 runner runner     4096 Nov 20 14:08 .
+drwxr-xr-x 12 runner runner     4096 Nov 20 14:08 ..
+-rw-r--r--  1 runner runner 22604907 Nov 20 14:08 Game Repo Go_0.5.78_arm64.apk
