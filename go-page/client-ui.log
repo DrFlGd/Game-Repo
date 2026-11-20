@@ -1,0 +1,8 @@
+Game Repo Go's pages on http://127.0.0.1:59939/ (ES-DE looked for in /home/runner/work/_temp/go-page/phone, the client's folder /home/runner/work/_temp/go-page/go-data)
+pair {"address":"127.0.0.1:38687","code":"000000"}: That isn't the code Game Repo shows.
+atlas_show {"key":"gb/Beta (Europe)"}: Atlas wasn't found on this device: set where it is in Settings › Maps and guides for Atlas.
+/invoke/api: Broken pipe (os error 32)
+/invoke/api: Broken pipe (os error 32)
+/picture/nes/Echo%20(USA)/cover: Broken pipe (os error 32)
+/picture/gb/Beta%20(Europe)/cover: Broken pipe (os error 32)
+/picture/gb/Alpha%20(USA)/cover: Broken pipe (os error 32)

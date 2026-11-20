@@ -1,0 +1,8 @@
+$ /home/runner/work/Game-Repo/Game-Repo/dist/Game Repo Go_0.5.78_amd64.AppImage --steam-apply /tmp/gamerepo-test-steam-2uuzl20z/data
+exit 0 after 3.2 s
+
+
+--- steam-restart.log
+1795183939 restarting Steam (Game Mode: false)
+1795183941 written: {"shortcuts":2,"others":0}
+1795183941 Steam started again
