@@ -93,6 +93,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.76 (2026-11-20)
+
 - **Show in Atlas on Game Repo Go.** On Windows, Linux and the Steam Deck, a game's page has *Show in Atlas* once one of its packs of maps and guides is in Atlas's packs folder on the device (on the big screen, beside *Maps and guides…*). It brings Atlas to the front with that game, starting it if it isn't open; with several packs there it shows the newest. On Windows Game Repo Go finds Atlas by itself (the program that opens `.atlaspack` files); on Linux and the Steam Deck set where Atlas is in Settings › Maps and guides for Atlas, *Atlas's program* (it can be set on Windows too). Atlas 0.24.0 or later opens the game; an older Atlas only comes to the front.
 - **Maps and Guides and Game Repo Go read packs with Atlas 0.24.0's code**, the same as 0.23.0's.
 
