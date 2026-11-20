@@ -2,7 +2,7 @@
 //! Atlas Importer wrote, by the *Atlas pack contract for Game Repo*.
 //!
 //! The reading is Atlas's own `atlas-pack` crate (the contract's block A3), a git
-//! dependency pinned to Atlas's release tag v0.23.0; its `docs/pack-file-format.md` is the
+//! dependency pinned to Atlas's release tag v0.24.0; its `docs/pack-file-format.md` is the
 //! reference for the format.
 //! [`read_header`] reads the description from the front of the file only, and
 //! [`read_preview`] one small picture the description lists, from the entries right behind

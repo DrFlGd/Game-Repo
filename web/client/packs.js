@@ -3,7 +3,8 @@
 // its ticked packs into Atlas's packs folder; ticking one later on a game this device has
 // brings it, and unticking one takes it out again, if Game Repo Go put it there. A pack
 // whose file on this device is newer than the library's (Atlas changed it here) is kept and
-// said so. Windows and Linux only: not offered on Android yet.
+// said so. *Show in Atlas* starts Atlas on the game when one of its packs is in Atlas's
+// packs folder here (D224). Windows and Linux only: not offered on Android yet.
 import { html, useEffect, useState } from "../lib/html.js";
 import { call, info } from "./backend.js";
 import { closeDialog, open, say } from "./state.js";
@@ -21,7 +22,28 @@ export const holds = (p) => [
 /** Whether the game's page shows its packs at all. */
 export const showPacks = (g) => !!(g?.packs?.offered && info.kind !== "android" && g.packs.items?.length);
 
-export function Packs({ k, packs, onDevice, onChange }) {
+/** Show in Atlas (D224): Atlas started showing the game's pack that's in its packs folder
+ *  here (`packs.show`, the backend's pick), brought to the front; Windows and Linux only.
+ *  When Atlas isn't found, it says where to set it, with Open Settings. */
+export function ShowInAtlas({ k, packs, big = false }) {
+  const [busy, setBusy] = useState(false);
+  if (!packs?.offered || info.kind === "android" || !packs.show) return null;
+  const show = async () => {
+    setBusy(true);
+    try {
+      const r = await call("atlas_show", { key: k });
+      say(`Atlas was asked to show ${r.title}.`);
+    } catch (e) {
+      const m = message(e);
+      say(m, /Settings/.test(m) ? "settings" : null);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return html`<button type="button" class="ghost" id="go-game-atlas-show" data-pack=${packs.show} data-say=${big ? "Atlas comes to the front with this game's maps" : null} disabled=${busy} onClick=${show}>${busy ? "Starting Atlas…" : "Show in Atlas"}</button>`;
+}
+
+export function Packs({ k, packs, onDevice, onChange, atlasButton = true }) {
   const [busy, setBusy] = useState("");
   const [said, setSaid] = useState("");
   // a tick shown as it was clicked until the page's details are read again
@@ -57,6 +79,7 @@ export function Packs({ k, packs, onDevice, onChange }) {
     <p class="muted" id="go-game-packs-note">${packs.on
       ? onDevice ? html`Ticked packs are in Atlas's packs folder, <span class="go-file">${packs.folder}</span>. Untick one to take it out.` : "The ticked packs come with the game, into Atlas's packs folder."
       : html`Turn on Maps and guides for Atlas in Settings for the ticked packs to come with the game. <button type="button" class="ghost compact" id="go-game-packs-settings" onClick=${() => { closeDialog(); open({ page: "settings" }); }}>Open Settings</button>`}</p>
+    ${packs.show && atlasButton ? html`<div class="go-game-do"><${ShowInAtlas} k=${k} packs=${packs} /></div>` : null}
     <ul class="go-sizes go-pack-list">${packs.items.map((p) => html`<li key=${p.pack_id} data-pack=${p.pack_id} data-here=${p.here ? "yes" : "no"}>
       <label class="check-row"><input type="checkbox" checked=${isTicked(p)} disabled=${!!busy} aria-label=${`Bring ${p.title}`} onChange=${(e) => tick(p, e.currentTarget.checked)} />
         <span><strong>${p.title}</strong>${p.source ? html` <span class="muted">from ${p.source}</span>` : p.made_in ? html` <span class="muted" data-said="made-in">made in ${p.made_in}</span>` : p.sort === "app" ? html` <span class="muted" data-said="came-with-app">came with an app</span>` : null}
@@ -79,6 +102,6 @@ export function PacksDialog({ gameKey, title }) {
   const [rev, setRev] = useState(0);
   useEffect(() => { call("game", { key: gameKey }).then(setG).catch((e) => say(message(e))); }, [gameKey, rev]);
   return html`<${Dialog} title=${`Maps and guides for ${title}`} id="packs-dialog" onSubmit=${closeDialog} cancelLabel="Close">
-    ${g ? html`<${Packs} k=${gameKey} packs=${g.packs} onDevice=${g.on_device} onChange=${() => setRev((r) => r + 1)} />` : html`<p class="muted">Opening…</p>`}
+    ${g ? html`<${Packs} k=${gameKey} packs=${g.packs} onDevice=${g.on_device} atlasButton=${false} onChange=${() => setRev((r) => r + 1)} />` : html`<p class="muted">Opening…</p>`}
   <//>`;
 }

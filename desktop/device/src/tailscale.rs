@@ -24,13 +24,6 @@ const WATCH: Duration = Duration::from_secs(30 * 60);
 /// Terminals the set-up can run in, with what comes before the command: Konsole (the Steam
 /// Deck's Desktop Mode), then others a Linux PC may have.
 const TERMINALS: &[(&str, &[&str])] = &[("konsole", &["-e"]), ("gnome-terminal", &["--"]), ("xfce4-terminal", &["-x"]), ("xterm", &["-e"])];
-/// What an AppImage sets for its own libraries, which the programs Go starts mustn't get.
-const APPIMAGE_ENV: &[&str] = &[
-    "APPDIR", "APPIMAGE", "ARGV0", "OWD", "LD_LIBRARY_PATH", "LD_PRELOAD", "GDK_PIXBUF_MODULE_FILE", "GDK_PIXBUF_MODULEDIR", "GIO_MODULE_DIR",
-    "GIO_EXTRA_MODULES", "GSETTINGS_SCHEMA_DIR", "GTK_DATA_PREFIX", "GTK_EXE_PREFIX", "GTK_IM_MODULE_FILE", "GTK_PATH", "PYTHONHOME", "PYTHONPATH",
-    "PERLLIB", "QT_PLUGIN_PATH", "WEBKIT_DISABLE_DMABUF_RENDERER",
-];
-
 static WATCHING: AtomicBool = AtomicBool::new(false);
 
 /// What Go remembers, in `tailscale.json`.
@@ -128,38 +121,9 @@ fn password() -> &'static str {
     output(Path::new("passwd"), &["-S", &me], Duration::from_secs(3)).map(|o| password_state(&String::from_utf8_lossy(&o.stdout))).unwrap_or("")
 }
 
-/// A PATH-like list without what's inside the AppImage Go runs from.
-fn outside_appimage(list: &std::ffi::OsStr) -> std::ffi::OsString {
-    let appdir = std::env::var_os("APPDIR").map(PathBuf::from).filter(|d| !d.as_os_str().is_empty());
-    let kept: Vec<PathBuf> = std::env::split_paths(list).filter(|p| appdir.as_ref().is_none_or(|d| !p.starts_with(d))).collect();
-    std::env::join_paths(kept).unwrap_or_default()
-}
-
-/// A program to start with the user's own surroundings, not the AppImage's, on its own:
-/// it outlives Go, and nothing waits on it here.
-fn start(program: &Path, args: &[&str]) -> Result<()> {
-    let mut c = Command::new(program);
-    c.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    for k in APPIMAGE_ENV {
-        c.env_remove(k);
-    }
-    for k in ["PATH", "XDG_DATA_DIRS", "XDG_CONFIG_DIRS"] {
-        if let Some(v) = std::env::var_os(k) {
-            c.env(k, outside_appimage(&v));
-        }
-    }
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut c, 0);
-    let mut child = c.spawn()?;
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    Ok(())
-}
-
 /// A program on the PATH (as the programs Go starts see it).
 fn on_path(name: &str) -> Option<PathBuf> {
-    let path = outside_appimage(&std::env::var_os("PATH")?);
+    let path = crate::outside_appimage(&std::env::var_os("PATH")?);
     std::env::split_paths(&path).map(|d| d.join(name)).find(|p| p.is_file())
 }
 
@@ -213,7 +177,7 @@ pub fn set_up(data: &Path) -> Result<()> {
     }
     let script = script.display().to_string();
     let args: Vec<&str> = before.iter().copied().chain(["bash", script.as_str()]).collect();
-    if let Err(e) = start(&term, &args) {
+    if let Err(e) = crate::start_alone(&term, &args) {
         bail!("{name} didn't start: {e}");
     }
     let mut r = record(data);
@@ -228,7 +192,7 @@ pub fn open(url: &str) -> Result<()> {
         bail!("That isn't Tailscale's sign-in page.");
     }
     let Some(opener) = on_path("xdg-open") else { bail!("There's no xdg-open here to open the browser with: go to {url}") };
-    start(&opener, &[url])
+    crate::start_alone(&opener, &[url])
 }
 
 /// While a set-up runs (from Go, for half an hour at most): Tailscale's sign-in page opened
