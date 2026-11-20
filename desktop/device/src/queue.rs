@@ -53,6 +53,10 @@ pub struct Item {
     /// Only its packs of maps and guides for Atlas, for a game the device has (D222)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub packs_only: bool,
+    /// A pack of maps and guides on its own, by its `packId` (Maps and guides, D225): its key
+    /// is `pack:<packId>`, and it comes with no game
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub pack: String,
     /// Its files on the device, for a game from elsewhere whose media is asked for (D102)
     pub adopt: Vec<HeldFile>,
     /// The ES-DE custom collection it's put in too (C16); empty: none
@@ -93,6 +97,27 @@ pub struct Ctx {
     pub server: Server,
     pub device: Device,
     pub options: AddOptions,
+    /// Atlas's packs folder where packs go on their own (D225), whether or not a game's packs
+    /// come with it (the device's place `atlas`, which only Maps and guides for Atlas gives
+    /// it); None where packs aren't offered (Android)
+    pub packs_folder: Option<PathBuf>,
+}
+
+impl Ctx {
+    /// The device as a queue item needs it: a pack on its own has Atlas's packs folder (D225).
+    fn for_item(mut self, item: &Item) -> Ctx {
+        if !item.pack.is_empty() {
+            if let Some(f) = &self.packs_folder {
+                self.device.places.entry(crate::packs::PLACE.to_string()).or_insert_with(|| f.clone());
+            }
+        }
+        self
+    }
+}
+
+/// A queue item's key for a pack on its own (D225).
+pub fn pack_key(pack: &str) -> String {
+    format!("pack:{pack}")
 }
 
 /// The game downloading now.
@@ -497,7 +522,7 @@ impl Queue {
             drop(inner);
             if let Some(p) = plan_to_drop {
                 if let Ok(c) = (self.ctx)() {
-                    drop_parts(&c.device, &p);
+                    drop_parts(&c.for_item(&item).device, &p);
                 }
             }
             (self.changed)();
@@ -525,7 +550,7 @@ impl Queue {
 
     /// One game: its plan (asked for once and kept), then its files and its entries.
     fn one(&self, item: &Item, stop: &AtomicBool, got: &AtomicU64) -> Result<()> {
-        let c = (self.ctx)()?;
+        let c = (self.ctx)()?.for_item(item);
         let mut o = c.options.clone();
         o.media = item.media.clone();
         o.manuals = item.manuals;
@@ -533,7 +558,15 @@ impl Queue {
         o.packs_only = item.packs_only;
         o.collection = item.collection.clone();
         o.adopt = if item.adopt.is_empty() { vec![] } else { vec![(item.key.clone(), item.adopt.clone())] };
-        let keys = [item.key.clone()];
+        // a pack on its own (D225): asked for by its packId, with no game
+        if !item.pack.is_empty() {
+            if c.packs_folder.is_none() {
+                bail!("Maps and guides for Atlas aren't offered on this device yet.");
+            }
+            o.packs_only = true;
+            o.pack_ids = vec![item.pack.clone()];
+        }
+        let keys: Vec<String> = if item.pack.is_empty() { vec![item.key.clone()] } else { vec![] };
         let plan = match &item.plan {
             Some(p) => p.clone(),
             None => {

@@ -40,6 +40,16 @@
 //! fetched (Atlas would show that copy, not Go's); the record notes it ([`Theirs`]) so it
 //! isn't read again while it's unchanged, and the game's page says so. That copy is never
 //! replaced, moved or removed.
+//!
+//! Packs on their own (D225, "Maps and Guides notes, part 8"): Go's Maps and guides puts a
+//! pack of the library's in the packs folder without any game, by its `packId`. The record
+//! keeps those packs in [`Record::alone`], beside each game's ticks: such a pack is one file
+//! however many games have it too (a pack is keyed by its `packId` everywhere here), it
+//! stays when a game is removed or unticks it ([`take_off`]), and taking it off on its own
+//! ([`remove_alone`]) keeps the file while a game this device has still has it ticked. The
+//! same rules as a game's pack: only Go's own file is ever replaced or removed, and never
+//! by an older one; [`library_newer`] says when the library's copy is newer than the file
+//! here, so Go fetches it again after a read of the library.
 
 use crate::Device;
 use anyhow::{bail, Result};
@@ -146,6 +156,17 @@ pub struct Record {
     /// Copies of packs in the packs folder that Go didn't deliver, as new as the library's or
     /// newer, for which Go's own wasn't fetched
     pub theirs: Vec<Theirs>,
+    /// The packs put in the packs folder on their own, from Maps and guides (D225), by
+    /// their `packId`s: kept there whatever the games here do
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub alone: Vec<String>,
+}
+
+impl Record {
+    /// Whether a pack was put in the packs folder on its own (D225).
+    pub fn is_alone(&self, pack: &str) -> bool {
+        self.alone.iter().any(|p| p == pack)
+    }
 }
 
 /// A copy of a pack in Atlas's packs folder that Go didn't deliver (copied in by hand, or put
@@ -556,7 +577,9 @@ pub fn put_in_place(d: &Device, f: &File, part: &Path, sha1: &str) -> Result<Pat
         }
         rec.delivered.retain(|e| e.pack_id != f.pack);
         rec.theirs.retain(|t| t.pack_id != f.pack);
-        rec.delivered.push(Delivered { pack_id: f.pack.clone(), file: name, folder: folder.clone(), size: f.size, sha1: sha1.to_string(), games, at: now(), ..Default::default() });
+        // its size as it came (a pack fetched by its packId may be a newer file than the plan's)
+        let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(f.size);
+        rec.delivered.push(Delivered { pack_id: f.pack.clone(), file: name, folder: folder.clone(), size, sha1: sha1.to_string(), games, at: now(), ..Default::default() });
         Ok(dest)
     })
 }
@@ -597,15 +620,17 @@ pub fn set_ticked(data: &Path, key: &str, pack: &str, on: bool) -> Result<()> {
 /// A pack unticked on the page of a game the device has: the game taken off what Go
 /// delivered it for, and its file removed once no game here wants it, only when it's there
 /// as Go put it. A file Go kept over the library's (newer or as new here: Atlas wrote it,
-/// maybe with the maker's own things) is never removed. True when the file was removed.
+/// maybe with the maker's own things) is never removed, nor one put there on its own too
+/// (D225). True when the file was removed.
 pub fn take_off(data: &Path, key: &str, pack: &str) -> Result<bool> {
     change(data, |rec| {
+        let alone = rec.is_alone(pack);
         let Some(i) = rec.delivered.iter().position(|e| e.pack_id == pack) else { return Ok(false) };
         let e = &mut rec.delivered[i];
         e.games.retain(|g| g != key);
-        if !e.games.is_empty() || !e.kept_over.is_empty() {
+        if !e.games.is_empty() || !e.kept_over.is_empty() || alone {
             // a file kept over the library's stays, and stays noted, so ticked again it isn't
-            // fetched (nor put beside it)
+            // fetched (nor put beside it); one put there on its own stays for itself
             return Ok(false);
         }
         let e = rec.delivered.remove(i);
@@ -621,6 +646,91 @@ pub fn take_off(data: &Path, key: &str, pack: &str) -> Result<bool> {
 /// The pack Go delivered of a `packId`, with its file there (or kept over the library's).
 pub fn here(data: &Path, pack: &str) -> Option<Delivered> {
     load(data).delivered.into_iter().find(|e| e.pack_id == pack && e.here())
+}
+
+/// The file of a pack in the packs folder `folder` that Atlas reads as it, if one is: the one
+/// Go delivered (or kept over the library's), else a copy Go didn't deliver that it left in
+/// place of its own ([`theirs_here`]).
+pub fn file_here(rec: &Record, folder: &Path, pack: &str) -> Option<PathBuf> {
+    rec.delivered.iter().find(|e| e.pack_id == pack && &e.folder == folder && e.here()).map(Delivered::path).or_else(|| theirs_here(rec, folder, pack).map(|t| t.path.clone()))
+}
+
+/// Packs put in the packs folder on their own (D225), noted once they're there (delivered,
+/// or there already as Go's or as a copy it left in place of its own).
+pub fn set_alone(data: &Path, packs: &[String]) -> Result<()> {
+    change(data, |rec| {
+        for p in packs {
+            if !rec.is_alone(p) {
+                rec.alone.push(p.clone());
+            }
+        }
+        rec.alone.sort();
+        Ok(())
+    })
+}
+
+/// Whether the library's copy of a pack, by the dates its list gives (`pack.updated`, then
+/// `exportedAt`), is newer than the file of it in the packs folder (D225): Go then fetches
+/// it, and puts it in place under the usual rules. False when no file of it is here, or the
+/// file here can't be read as the pack (it's left as it is), or the library gives no dates.
+pub fn library_newer(rec: &Record, folder: &Path, pack: &str, updated: &str, exported_at: &str) -> bool {
+    let date = |s: &str| Some(s.to_string()).filter(|s| !s.trim().is_empty());
+    let (u, e) = (date(updated), date(exported_at));
+    if u.is_none() && e.is_none() {
+        return false;
+    }
+    let Some(file) = file_here(rec, folder, pack) else { return false };
+    let Some((id, hu, he)) = dates(&file) else { return false };
+    id == pack && gamerepo_wire::packs::newer(u.as_deref(), e.as_deref(), hu.as_deref(), Some(&he)).is_gt()
+}
+
+/// What became of a pack taken off on its own (D225, [`remove_alone`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case", tag = "result", content = "games")]
+pub enum Off {
+    /// Its file was taken out of the packs folder
+    Removed,
+    /// Its file stays: these games on this device have it ticked (their keys)
+    KeptFor(Vec<String>),
+    /// Its file stays: Atlas wrote it again since Go put it there (newer, or changed), so it's
+    /// not Go's to remove
+    Changed,
+    /// Its file stays: it's a copy Go didn't put there
+    NotGos,
+    /// No file of it was here
+    Gone,
+}
+
+/// A pack put in the packs folder on its own, taken off (D225): it's no longer kept on its
+/// own, and its file is removed only when no game this device has still has it ticked
+/// (`wanted`, asked with each game's key Go delivered it for), it's Go's own, and it's there
+/// as Go put it (its size and SHA-1). A file Atlas wrote again since, or a copy Go didn't
+/// deliver, stays as it is.
+pub fn remove_alone(data: &Path, pack: &str, wanted: impl Fn(&str) -> bool) -> Result<Off> {
+    change(data, |rec| {
+        rec.alone.retain(|p| p != pack);
+        let Some(i) = rec.delivered.iter().position(|e| e.pack_id == pack) else {
+            return Ok(if rec.theirs.iter().any(|t| t.pack_id == pack && t.path.is_file()) { Off::NotGos } else { Off::Gone });
+        };
+        let e = &rec.delivered[i];
+        let games: Vec<String> = e.games.iter().filter(|g| wanted(g)).cloned().collect();
+        if !games.is_empty() {
+            return Ok(Off::KeptFor(games));
+        }
+        if !e.kept_over.is_empty() {
+            return Ok(Off::Changed);
+        }
+        let e = rec.delivered.remove(i);
+        if !e.path().is_file() {
+            return Ok(Off::Gone);
+        }
+        // unchanged: its size, and its SHA-1 (Atlas may have written it again at the same size)
+        if e.there() && crate::sha1_file(&e.path()).is_ok_and(|h| h.eq_ignore_ascii_case(&e.sha1)) {
+            patiently(|| std::fs::remove_file(e.path()))?;
+            return Ok(Off::Removed);
+        }
+        Ok(Off::Changed)
+    })
 }
 
 #[cfg(test)]
@@ -812,6 +922,100 @@ mod tests {
         let e = here(&data, "island").unwrap();
         assert_eq!((e.size, e.sha1.clone(), e.kept_over.as_str(), e.newer_here, e.games.clone()), (lib2.len() as u64, g2.sha1.clone().unwrap(), "", false, vec![key.to_string()]));
         assert!(there(&d, &g2) && !there(&d, &g1));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Packs on their own (D225): a pack installed from Maps and guides (no game's key) is one
+    /// file with the same pack a game brings, stays when a game unticks it, is taken off on
+    /// its own only once no game this device has still has it ticked, and never when Atlas
+    /// wrote it again here or it's a copy Go didn't put there.
+    #[test]
+    fn a_pack_on_its_own_is_one_file_with_a_games_and_stays_while_a_game_here_wants_it() {
+        let (home, d) = device("alone");
+        let folder = d.places[PLACE].clone();
+        let data = d.data.clone().unwrap();
+        let game = "gb/Island (World)";
+        // installed on its own: no game's key
+        let v1 = atlas_pack("island", "2026-11-18T08:00:00Z", "2026-11-18T08:05:00Z", &[]);
+        let alone = pack("Island.atlaspack", "island", "", &v1);
+        let at = deliver(&d, &alone, &v1);
+        set_alone(&data, &["island".to_string()]).unwrap();
+        let rec = load(&data);
+        assert!(rec.is_alone("island"));
+        assert_eq!(rec.delivered[0].games, Vec::<String>::new(), "no game brought it");
+        // the game installed later brings the same pack: one file, noted as the game's too
+        let with_game = pack("Island.atlaspack", "island", game, &v1);
+        assert!(there(&d, &with_game), "the same packId and file: not fetched again");
+        note_there(&d, &with_game).unwrap();
+        assert_eq!(names(&folder), ["Island.atlaspack"], "never two");
+        assert_eq!(here(&data, "island").unwrap().games, [game]);
+        // unticked on the game's page: it stays, as it's on its own too
+        assert!(!take_off(&data, game, "island").unwrap());
+        assert!(at.is_file());
+        note_there(&d, &with_game).unwrap();
+        // taken off on its own while the game here still has it ticked: the file stays and only
+        // the flag goes
+        let off = remove_alone(&data, "island", |g| g == game).unwrap();
+        assert_eq!(off, Off::KeptFor(vec![game.to_string()]));
+        assert!(at.is_file() && !load(&data).is_alone("island"));
+        // on its own again, the game gone from the device: taken out
+        set_alone(&data, &["island".to_string()]).unwrap();
+        assert_eq!(remove_alone(&data, "island", |_| false).unwrap(), Off::Removed);
+        assert!(!at.exists() && load(&data).delivered.is_empty());
+        assert_eq!(remove_alone(&data, "island", |_| false).unwrap(), Off::Gone);
+
+        // Atlas writes it again here, newer: the library's older copy isn't put over it, and
+        // taking it off on its own leaves it
+        let at = deliver(&d, &alone, &v1);
+        set_alone(&data, &["island".to_string()]).unwrap();
+        let v2 = atlas_pack("island", "2026-11-19T10:00:00Z", "2026-11-19T10:00:00Z", MINE);
+        std::fs::write(&at, &v2).unwrap();
+        deliver(&d, &alone, &v1);
+        assert_eq!(std::fs::read(&at).unwrap(), v2, "kept_over: never older over newer");
+        assert!(!library_newer(&load(&data), &folder, "island", "2026-11-18T08:00:00Z", "2026-11-18T08:05:00Z"));
+        assert_eq!(remove_alone(&data, "island", |_| false).unwrap(), Off::Changed);
+        assert_eq!(std::fs::read(&at).unwrap(), v2);
+        // changed by hand at another size: not Go's to remove either
+        std::fs::remove_file(&at).unwrap();
+        save(&data, &Record::default()).unwrap();
+        let at = deliver(&d, &alone, &v1);
+        set_alone(&data, &["island".to_string()]).unwrap();
+        std::fs::write(&at, b"PK changed by hand").unwrap();
+        assert_eq!(remove_alone(&data, "island", |_| false).unwrap(), Off::Changed);
+        assert!(at.is_file());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// After a read of the library (D225): a pack kept on its own comes again only when the
+    /// library's copy is newer than the file here by its dates (`pack.updated`, then
+    /// `exportedAt`), whether that file is Go's or a copy Go left in place of its own.
+    #[test]
+    fn the_librarys_copy_is_fetched_again_only_when_its_newer_than_the_file_here() {
+        let (home, d) = device("alone-newer");
+        let folder = d.places[PLACE].clone();
+        let data = d.data.clone().unwrap();
+        let v1 = atlas_pack("island", "2026-11-18T08:00:00Z", "2026-11-18T08:05:00Z", &[]);
+        let rec = load(&data);
+        assert!(!library_newer(&rec, &folder, "island", "2026-11-20T00:00:00Z", ""), "nothing here: nothing to update");
+        deliver(&d, &pack("Island.atlaspack", "island", "", &v1), &v1);
+        let rec = load(&data);
+        assert!(!library_newer(&rec, &folder, "island", "2026-11-18T08:00:00Z", "2026-11-18T08:05:00Z"), "the same");
+        assert!(!library_newer(&rec, &folder, "island", "2026-11-17T08:00:00Z", "2026-11-19T08:05:00Z"), "older by pack.updated");
+        assert!(library_newer(&rec, &folder, "island", "2026-11-18T08:00:00Z", "2026-11-18T09:00:00Z"), "newer by exportedAt");
+        assert!(library_newer(&rec, &folder, "island", "2026-11-19T08:00:00Z", ""), "newer by pack.updated");
+        assert!(!library_newer(&rec, &folder, "island", "", ""), "no dates: not fetched");
+        // a copy Go didn't deliver, newer, in place of Go's: compared with that one
+        let theirs = atlas_pack("isle", "2026-11-21T08:00:00Z", "2026-11-21T08:00:00Z", &[]);
+        std::fs::write(folder.join("Isle (mine).atlaspack"), &theirs).unwrap();
+        let f = File { pack_updated: "2026-11-20T08:00:00Z".into(), ..pack("Isle.atlaspack", "isle", "", b"library's") };
+        assert!(theirs_instead(&d, &f));
+        let rec = load(&data);
+        assert!(!library_newer(&rec, &folder, "isle", "2026-11-20T08:00:00Z", ""));
+        assert!(library_newer(&rec, &folder, "isle", "2026-11-22T08:00:00Z", ""));
+        // taken off on its own: a copy Go didn't put there stays
+        set_alone(&data, &["isle".to_string()]).unwrap();
+        assert_eq!(remove_alone(&data, "isle", |_| false).unwrap(), Off::NotGos);
+        assert!(folder.join("Isle (mine).atlaspack").is_file());
         let _ = std::fs::remove_dir_all(&home);
     }
 

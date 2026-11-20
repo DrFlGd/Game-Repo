@@ -498,7 +498,12 @@ impl Catalogue {
             return Ok(Some(b));
         }
         let Some(s) = s else { return Ok(None) };
-        let (head, mut body) = match s.open_request("GET", &format!("/v1/pictures/{}/{}?size={size}", path_value(key), query_value(kind))) {
+        // a pack's picture (D225): its key `~pack/<packId>`, its kind `cover-<mark>`
+        let url = match key.strip_prefix("~pack/") {
+            Some(id) => format!("/v1/packs/{}/cover?size={size}", path_value(id)),
+            None => format!("/v1/pictures/{}/{}?size={size}", path_value(key), query_value(kind)),
+        };
+        let (head, mut body) = match s.open_request("GET", &url) {
             Ok(x) => x,
             Err(_) => return Ok(None),
         };

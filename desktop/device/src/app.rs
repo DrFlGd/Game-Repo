@@ -268,6 +268,9 @@ pub struct Own {
 const FIND_AGAIN: Duration = Duration::from_secs(60);
 const FIND_WAIT: Duration = Duration::from_secs(8);
 
+/// The library's packs as Go last read them (D225), in its data folder.
+const PACKS_LIST: &str = "packs-library.json";
+
 fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
@@ -507,6 +510,8 @@ impl App {
                 v["here"] = json!(here.is_some());
                 // newer on this device than the library's, so kept (D222 revised)
                 v["newer_here"] = json!(here.is_some_and(|e| e.newer_here));
+                // put there on its own too, from Maps and guides (D225): unticking leaves it
+                v["alone"] = json!(rec.is_alone(id));
                 // a copy Go didn't deliver, as new or newer, so Go's wasn't fetched
                 if let Some(t) = packs::theirs_here(&rec, &folder, id) {
                     let file = t.path.strip_prefix(&folder).unwrap_or(&t.path).display().to_string();
@@ -523,9 +528,21 @@ impl App {
 
     /// *Show in Atlas* on a game's page (D224): Atlas started with `--show-pack` and the
     /// game's pack in its packs folder ([`packs::to_show`]), in front; not waited for.
-    fn atlas_show(&self, key: &str) -> Result<Value> {
+    fn atlas_show(&self, key: &str, pack: &str) -> Result<Value> {
         if !self.packs_offered() {
             bail!("Atlas can't be started from Game Repo Go on this device yet.");
+        }
+        // a pack by its packId, from Maps and guides (D225): when a file of it is in Atlas's
+        // packs folder here
+        if !pack.is_empty() {
+            let folder = self.packs_folder(&self.home());
+            if packs::file_here(&packs::load(&self.data), &folder, pack).is_none() {
+                bail!("This pack isn't in Atlas's packs folder on this device.");
+            }
+            let program = atlas::find(&self.settings().atlas_program)?;
+            atlas::show(&program, pack)?;
+            let title = self.kept_packs().and_then(|l| l.items.into_iter().find(|p| p.pack.pack_id == pack)).map(|p| p.pack.title).unwrap_or_else(|| pack.to_string());
+            return Ok(json!({ "pack": pack, "title": title, "program": program }));
         }
         let details = self.catalogue.details(self.server().as_ref(), key).unwrap_or(None);
         let view = self.packs_view(key, details.as_ref());
@@ -534,6 +551,153 @@ impl App {
         atlas::show(&program, pack)?;
         let title = view["items"].as_array().into_iter().flatten().find(|p| p["pack_id"] == pack).and_then(|p| p["title"].as_str()).unwrap_or(pack);
         Ok(json!({ "pack": pack, "title": title, "program": program }))
+    }
+
+    /// The library's packs as Game Repo Go last read them (D225), kept in its data folder so
+    /// Maps and guides shows them with the library away; with when they were read.
+    fn kept_packs(&self) -> Option<api::PackList> {
+        let v: Value = serde_json::from_slice(&std::fs::read(self.data.join(PACKS_LIST)).ok()?).ok()?;
+        serde_json::from_value(v["list"].clone()).ok()
+    }
+
+    /// The library's packs read now (`GET /v1/packs`, D225), and kept.
+    fn read_packs(&self, s: &Server) -> Result<api::PackList> {
+        let list: api::PackList = match s.get("/v1/packs") {
+            Ok(l) => l,
+            Err(e) if e.downcast_ref::<client::Refused>().is_some_and(|r| r.status == 404) => bail!("The library's Game Repo is too old to list its maps and guides: update Game Repo on the library's computer."),
+            Err(e) => return Err(e),
+        };
+        crate::write_whole(&self.data.join(PACKS_LIST), &serde_json::to_vec(&json!({ "at": now(), "list": list }))?)?;
+        Ok(list)
+    }
+
+    /// Maps and guides (D225): every pack the library holds, each with whether it's in Atlas's
+    /// packs folder here, put there on its own, with a game this device has, newer here, or a
+    /// copy Go didn't put there, and whether it's coming. Read from the library when it can be
+    /// reached, else the list kept from the last time (`offline`). Windows and Linux only.
+    fn packs_library(&self) -> Result<Value> {
+        if !self.packs_offered() {
+            return Ok(json!({ "offered": false }));
+        }
+        let (list, error, at) = match self.server() {
+            Some(s) => match self.read_packs(&s) {
+                Ok(l) => (Some(l), String::new(), Some(now())),
+                Err(e) => {
+                    let why = if queue::is_offline(&e) { "The library can't be reached.".to_string() } else { format!("{e:#}") };
+                    let at = std::fs::read(self.data.join(PACKS_LIST)).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).and_then(|v| v["at"].as_i64());
+                    (self.kept_packs(), why, at)
+                }
+            },
+            None => (None, "This device isn't paired with a library.".to_string(), None),
+        };
+        let list = list.unwrap_or_default();
+        let rec = packs::load(&self.data);
+        let folder = self.packs_folder(&self.home());
+        let held = self.keys_on_device();
+        let coming: HashSet<String> =
+            self.queue.shown().items.into_iter().filter(|i| !i.pack.is_empty() && !matches!(i.state, queue::State::Done | queue::State::Failed)).map(|i| i.pack).collect();
+        let items: Vec<Value> = list
+            .items
+            .iter()
+            .map(|p| {
+                let id = p.pack.pack_id.as_str();
+                let mut v = serde_json::to_value(p).unwrap_or_default();
+                let delivered = rec.delivered.iter().find(|e| e.pack_id == id && e.folder == folder && e.here());
+                let theirs = packs::theirs_here(&rec, &folder, id);
+                v["here"] = json!(delivered.is_some() || theirs.is_some());
+                v["alone"] = json!(rec.is_alone(id));
+                v["newer_here"] = json!(delivered.is_some_and(|e| e.newer_here));
+                if let Some(t) = theirs.filter(|_| delivered.is_none()) {
+                    v["theirs"] = json!({ "file": t.path.strip_prefix(&folder).unwrap_or(&t.path).display().to_string(), "newer": t.newer });
+                }
+                // the games this device has that brought it, with it ticked
+                let left = |g: &str| rec.left_out.get(g).is_some_and(|l| l.iter().any(|x| x == id));
+                let with: Vec<String> = delivered
+                    .into_iter()
+                    .flat_map(|e| e.games.iter())
+                    .filter(|g| held.contains(*g) && !left(g))
+                    .map(|g| p.games.iter().find(|x| &x.key == g).map(|x| x.title.clone()).or_else(|| self.catalogue.game(g).map(|x| x.title)).unwrap_or_else(|| g.clone()))
+                    .collect();
+                v["with"] = json!(with);
+                v["coming"] = json!(coming.contains(id));
+                v["newer_in_library"] = json!(packs::library_newer(&rec, &folder, id, &p.pack.updated, &p.exported_at));
+                // its picture through the app's own (a pack's "key" for it), its mark the kind
+                // so a new picture isn't taken for the one kept
+                if let Some((_, mark)) = p.cover.split_once("?v=") {
+                    v["picture"] = json!(format!("cover-{mark}"));
+                }
+                v
+            })
+            .collect();
+        Ok(json!({ "offered": true, "on": self.settings().atlas_packs, "folder": folder, "items": items, "unreadable": list.unreadable, "offline": !error.is_empty(), "error": error, "at": at }))
+    }
+
+    /// Install on Maps and guides (D225): a pack fetched by its packId through the queue (in
+    /// Downloads) and put in Atlas's packs folder on its own, as a game's pack is put there; a
+    /// pack there already (Go's, or a copy as new as the library's) is only noted as on its own.
+    fn pack_install(&self, pack: &str) -> Result<Value> {
+        if !self.packs_offered() {
+            bail!("Maps and guides for Atlas aren't offered on this device yet.");
+        }
+        if self.server().is_none() {
+            bail!("This device isn't paired with a library: pair it in Settings.");
+        }
+        let title = self.kept_packs().and_then(|l| l.items.into_iter().find(|p| p.pack.pack_id == pack)).map(|p| p.pack.title).unwrap_or_else(|| pack.to_string());
+        let item = queue::Item { key: queue::pack_key(pack), title, pack: pack.to_string(), packs_only: true, ..Default::default() };
+        let ids = self.queue.add(vec![item]);
+        self.changed("device");
+        Ok(json!({ "queued": ids }))
+    }
+
+    /// Remove on Maps and guides (D225): the pack no longer kept on its own, and its file taken
+    /// out of Atlas's packs folder unless a game this device has still has it ticked, Atlas
+    /// wrote it again since, or it isn't Go's ([`packs::remove_alone`]). What's coming of it
+    /// is cancelled.
+    fn pack_remove(&self, pack: &str) -> Result<Value> {
+        if !self.packs_offered() {
+            bail!("Maps and guides for Atlas aren't offered on this device yet.");
+        }
+        let coming: Vec<u64> = self.queue.shown().items.into_iter().filter(|i| i.pack == pack && !matches!(i.state, queue::State::Done | queue::State::Failed)).map(|i| i.id).collect();
+        if !coming.is_empty() {
+            self.queue.cancel(&coming);
+        }
+        let held = self.keys_on_device();
+        let left = packs::load(&self.data).left_out;
+        let off = packs::remove_alone(&self.data, pack, |g| held.contains(g) && !left.get(g).is_some_and(|l| l.iter().any(|x| x == pack)))?;
+        self.changed("device");
+        let title_of = |g: &String| self.catalogue.game(g).map(|x| x.title).unwrap_or_else(|| g.clone());
+        Ok(match off {
+            packs::Off::Removed => json!({ "result": "removed" }),
+            packs::Off::KeptFor(games) => json!({ "result": "kept_for", "games": games.iter().map(title_of).collect::<Vec<_>>() }),
+            packs::Off::Changed => json!({ "result": "changed" }),
+            packs::Off::NotGos => json!({ "result": "not_gos" }),
+            packs::Off::Gone => json!({ "result": "gone" }),
+        })
+    }
+
+    /// After each read of the library (D225): a pack kept on its own whose library copy is
+    /// newer than the file here (by `pack.updated`, then `exportedAt`) comes again, in
+    /// Downloads, and is put in place under the usual rules (never an older one over a newer).
+    fn update_alone_packs(&self, s: &Server) -> Result<()> {
+        if !self.packs_offered() {
+            return Ok(());
+        }
+        let rec = packs::load(&self.data);
+        if rec.alone.is_empty() {
+            return Ok(());
+        }
+        let list = self.read_packs(s)?;
+        let folder = self.packs_folder(&self.home());
+        let items: Vec<queue::Item> = list
+            .items
+            .into_iter()
+            .filter(|p| rec.is_alone(&p.pack.pack_id) && packs::library_newer(&rec, &folder, &p.pack.pack_id, &p.pack.updated, &p.exported_at))
+            .map(|p| queue::Item { key: queue::pack_key(&p.pack.pack_id), title: p.pack.title, pack: p.pack.pack_id, packs_only: true, ..Default::default() })
+            .collect();
+        if !items.is_empty() {
+            self.queue.add(items);
+        }
+        Ok(())
     }
 
     /// A pack ticked or unticked on a game's page (D222): kept for the game; on a game the
@@ -595,7 +759,9 @@ impl App {
         // the games' ticked packs for Atlas (D222)
         options.packs = device.places.contains_key(packs::PLACE);
         options.packs_left = packs::left_out(&self.data);
-        Ok(Ctx { server, device, options })
+        // packs on their own go to Atlas's packs folder whatever the setting says (D225)
+        let packs_folder = self.packs_offered().then(|| self.packs_folder(&device.home));
+        Ok(Ctx { server, device, options, packs_folder })
     }
 
     fn changed(&self, what: &str) {
@@ -664,7 +830,11 @@ impl App {
             "pack_tick" => self.pack_tick(&arg::<String>(args, "key")?, &arg::<String>(args, "pack")?, arg::<bool>(args, "on")?)?,
             "packs_get" => json!({ "queued": self.get_packs(&arg::<String>(args, "key")?)? }),
             // Show in Atlas (D224)
-            "atlas_show" => self.atlas_show(&arg::<String>(args, "key")?)?,
+            "atlas_show" => self.atlas_show(&arg_or::<String>(args, "key"), &arg_or::<String>(args, "pack"))?,
+            // Maps and guides: the library's packs, each put in Atlas's packs folder on its own (D225)
+            "packs_library" => self.packs_library()?,
+            "pack_install" => self.pack_install(&arg::<String>(args, "pack")?)?,
+            "pack_remove" => self.pack_remove(&arg::<String>(args, "pack")?)?,
             "picture" => {
                 let (key, kind): (String, String) = (arg(args, "key")?, arg::<Option<String>>(args, "kind")?.unwrap_or_else(|| "cover".into()));
                 let size = args.get("size").and_then(Value::as_u64).unwrap_or(256) as u32;
@@ -1030,6 +1200,8 @@ impl App {
                         // the Devices page's changes, then what's here for it (D188); best done
                         let _ = app.take_changes(&s);
                         let _ = app.tell_contents(&s);
+                        // packs kept on their own that the library has newer (D225)
+                        let _ = app.update_alone_packs(&s);
                         app.sync_saves();
                     }
                     r

@@ -1,5 +1,6 @@
-// Game Repo Go's frame: the bar at the top, the four pages (Library, Downloads, On this device,
-// Settings) down the side on a PC and along the bottom on a phone, the notes every page
+// Game Repo Go's frame: the bar at the top, the pages (Library, Maps and guides on Windows and
+// Linux (D225), Downloads, On this device, Settings) down the side on a PC and along the
+// bottom on a phone, the notes every page
 // shows (a removal cut short, ES-DE not found), the dialogs and the message at the bottom.
 // In the big-screen view (D113, big.js) the pages are tabs along the top and the button
 // hints run along the bottom.
@@ -19,13 +20,18 @@ import { DevicePage, PendingRemoval, RemoveDialog, RoomDialog } from "./device.j
 import { SettingsPage } from "./settings.js";
 import { BigBar, BigGame, ChooseDialog, Hints, MediaDialog, OptionsDialog, Shelves, useFocus } from "./big.js";
 import { PacksDialog } from "./packs.js";
+import { MapsPage, showMaps } from "./maps.js";
 
 const PAGES = [
   ["library", "Library", Icon.gamepad],
+  ["maps", "Maps and guides", Icon.map],
   ["queue", "Downloads", Icon.download],
   ["device", "On this device", Icon.monitor],
   ["settings", "Settings", Icon.cog],
 ];
+
+/** The pages in the menu: Maps and guides only where packs go to Atlas (D225). */
+export const pagesFor = (status, pages = PAGES) => pages.filter(([page]) => page !== "maps" || showMaps(status));
 
 function Mark() {
   return html`<svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><g data-sk="classic"><path d="M3 7a1.5 1.5 0 0 1 1.5-1.5h4.5l1.5 2h9a1.5 1.5 0 0 1 1.5 1.5v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" /><path d="M6.6 12h1.6v-1.6h1.8v1.6h1.6v1.8h-1.6v1.6h-1.8v-1.6h-1.6z" class="accent" /><circle cx="15" cy="11.6" r="1.15" class="accent" /><circle cx="17.2" cy="14" r="1.15" class="accent" /></g></svg>`;
@@ -47,7 +53,7 @@ function Nav({ route, status }) {
   const left = status?.queue?.left || status?.queue?.queued || 0;
   const here = route.page === "game" ? "library" : route.page;
   return html`<nav class="sidebar go-nav" aria-label="Pages">
-    ${PAGES.map(([page, label, icon]) => html`<a class="go-nav-link" href=${`#${page}`} id=${`go-nav-${page}`} aria-current=${here === page ? "page" : null}>
+    ${pagesFor(status).map(([page, label, icon]) => html`<a class="go-nav-link" href=${`#${page}`} id=${`go-nav-${page}`} aria-current=${here === page ? "page" : null}>
       ${icon(18)}<span>${label}</span>${page === "queue" && left ? html`<span class="go-nav-n" aria-label=${status.queue.left ? `${left} to come` : `${left} queued`}>${left}</span>` : null}</a>`)}
   </nav>`;
 }
@@ -95,6 +101,7 @@ function Page({ route, paired, big }) {
   switch (route.page) {
     case "game": return big ? html`<${BigGame} gameKey=${route.key} key=${route.key} />` : html`<${GamePage} gameKey=${route.key} key=${route.key} />`;
     case "library": return big ? html`<${Shelves} />` : html`<${LibraryPage} />`;
+    case "maps": return html`<${MapsPage} />`;
     case "queue": return html`<${QueuePage} />`;
     case "device": return html`<${DevicePage} />`;
     case "settings": return html`<${SettingsPage} />`;

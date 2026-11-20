@@ -9,7 +9,7 @@ import { refreshUpdates } from "../ui/updates.js";
 
 export const go = createStore({
   ready: false,
-  route: { page: "library" },  // library | games (big screen: a place's games) | game (key) | queue | device | settings
+  route: { page: "library" },  // library | games (big screen: a place's games) | game (key) | maps | queue | device | settings
   view: "classic",             // big (D113) | classic, from look()
   status: null,                // `status`: pairing, ES-DE's folders, the queue's and sync's progress
   storage: { needed: false, granted: true },  // Android's All files access (D87)
@@ -32,12 +32,12 @@ export const go = createStore({
   toast: null,                 // { text, page? }
 });
 
-// ---- the address: #library, #games, #game/<key>, #queue, #device, #settings ------------
+// ---- the address: #library, #games, #game/<key>, #maps, #queue, #device, #settings -----
 
 export function routeOf(hash) {
   const h = decodeURIComponent((hash || "").replace(/^#\/?/, ""));
   if (h.startsWith("game/")) return { page: "game", key: h.slice(5) };
-  return { page: ["games", "queue", "device", "settings"].includes(h) ? h : "library" };
+  return { page: ["games", "maps", "queue", "device", "settings"].includes(h) ? h : "library" };
 }
 
 export function open(route) {

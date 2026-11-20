@@ -585,8 +585,8 @@ async def main():
             await pg.goto(B + "#library")
             await pg.wait_for_function("() => document.querySelectorAll('#go-games .go-card[data-key]').length === 4")
             await pg.evaluate("() => document.activeElement?.blur()")
-            order = await focus_order(pg, 12)
-            check("the arrow keys go through the menu, the systems, the search and the order to the games", order[1:5] == ["go-nav-library", "go-nav-queue", "go-nav-device", "go-nav-settings"]
+            order = await focus_order(pg, 13)
+            check("the arrow keys go through the menu, the systems, the search and the order to the games", order[1:6] == ["go-nav-library", "go-nav-maps", "go-nav-queue", "go-nav-device", "go-nav-settings"]
                   and "go-search" in order and "go-sort" in order and "card 0" in order, order)
             cols = await pg.evaluate("() => { const c = [...document.querySelectorAll('#go-games .go-card')].map(e => e.offsetTop); return c.filter(t => t === c[0]).length; }")
             await pg.keyboard.press("ArrowRight")
@@ -883,7 +883,7 @@ async def main():
                 focused: document.activeElement?.dataset.key || '' })""")
             await shot(pg, "18-big-library")
             check("in Game Mode the big-screen view: the pages as tabs, a shelf for each system, the first game focused and the buttons' hints",
-                  frame["view"] == "big" and [t[:9] for t in frame["tabs"]] == ["Library", "Downloads", "On this d", "Settings"] and frame["shelves"] == ["gb", "nes", "places"]
+                  frame["view"] == "big" and [t[:9] for t in frame["tabs"]] == ["Library", "Maps and ", "Downloads", "On this d", "Settings"] and frame["shelves"] == ["gb", "nes", "places"]
                   and frame["focused"].startswith("gb/") and "Open" in frame["hints"] and "Options" in frame["hints"] and "Search" in frame["hints"], frame)
             first = await at()
             await pg.keyboard.press("ArrowRight")
@@ -921,7 +921,8 @@ async def main():
                 await settled(pg, "() => document.querySelector('.go-tab[aria-current=page]')?.getAttribute('href') === location.hash", 2000)
                 hashes.append(await pg.evaluate("() => location.hash"))
             check("R1 and L1 (Page Down and Up) go to the page after and the one before, pressed twice quickly too",
-                  hashes == ["#queue", "#library", "#device", "#queue"], hashes)
+                  hashes == ["#maps", "#library", "#queue", "#maps"], hashes)
+            await pg.keyboard.press("PageDown")
             await pg.wait_for_selector("#queue-start")
             await pg.focus("#queue-start")
             await pg.keyboard.press("Enter")
@@ -1154,6 +1155,113 @@ async def main():
             await pg.uncheck("#set-atlas-on")
             await pg.wait_for_function("() => !document.querySelector('#set-atlas-on')?.checked")
             check("on Android neither the setting nor a game's packs nor Show in Atlas are shown", hidden_game and hidden_set, (hidden_game, hidden_set))
+
+            # 13d. Maps and guides on their own (D225-D229), on Windows and Linux: a page of its
+            # own beside the games with every pack the library holds, grouped by the library's
+            # game (else the game its description names); Install puts one in Atlas's packs
+            # folder with the setting off, removing its game leaves it, Remove takes it off;
+            # not offered on Android
+            atlas_pack_file(lib / "Maps and Guides" / "No game yet" / "Foxtrot Racer - Example Maps.atlaspack", "foxtrot-example-maps", "Foxtrot Racer", "nes/Foxtrot Racer")
+            run("maps", "sync", *lh)
+            run("serve-devices", "changed", "--data", data)
+            echo_pack = '#go-maps li[data-pack="echo-example-maps"]'
+            echo_file = atlas / "Echo - Example Maps.atlaspack"
+            echo_page = B + "#game/" + "nes%2FEcho%20(USA)"
+            await pg.goto(echo_page)
+            await pg.wait_for_selector("#go-game-title", timeout=20000)
+            echo_title = (await pg.inner_text("#go-game-title")).strip()
+            in_nav = {}
+            for kind in ("windows", "linux", "android"):
+                shell(kind=kind)
+                await pg.goto(B + "#library")
+                await pg.reload()
+                await pg.wait_for_selector("#go-nav-library", timeout=20000)
+                in_nav[kind] = await pg.query_selector("#go-nav-maps") is not None
+            shell(kind="windows")
+            await pg.goto(B + "#library")
+            await pg.reload()
+            await pg.wait_for_selector("#go-nav-maps", timeout=20000)
+            await pg.click("#go-nav-maps")
+            await pg.wait_for_selector(echo_pack, timeout=20000)
+            groups = dict(await pg.eval_on_selector_all("#go-maps .go-pack-group", "els => els.map(e => [e.dataset.group, [...e.querySelectorAll('li.go-pack')].map(l => l.dataset.pack)])"))
+            note = await pg.inner_text("#maps-note")
+            await shot(pg, "17d-phone-maps")
+            check("Maps and guides is in the menu on Windows and Linux and not on Android",
+                  in_nav == {"windows": True, "linux": True, "android": False}, in_nav)
+            check("it lists every pack the library holds, grouped by the library's game, else by the game its description names, and says where Install puts them",
+                  groups.get(echo_title) == ["echo-example-maps"] and groups.get("Foxtrot Racer") == ["foxtrot-example-maps"]
+                  and "beta-example-maps" in sum(groups.values(), []) and str(atlas) in note and "Steam" in note, (echo_title, groups, note))
+            await pg.fill("#maps-search", "foxtrot")
+            await settled(pg, "() => document.querySelectorAll('#go-maps li.go-pack').length === 1")
+            found = await pg.eval_on_selector_all("#go-maps li.go-pack", "els => els.map(e => e.dataset.pack)")
+            await pg.fill("#maps-search", "no such pack")
+            await pg.wait_for_selector("#maps-no-match")
+            await pg.fill("#maps-search", "")
+            check("its search finds a pack by its game's name", found == ["foxtrot-example-maps"], found)
+            # Install, with Maps and guides for Atlas off in Settings: through Downloads into
+            # Atlas's packs folder, on its own
+            await pg.click(f'{echo_pack} [data-action="install"]')
+            for _ in range(120):
+                if echo_file.is_file() and not list(atlas.glob("*.part")):
+                    break
+                await asyncio.sleep(0.5)
+            await pg.wait_for_selector(f'{echo_pack}[data-alone="yes"]', timeout=30000)
+            record = json.loads((go_data / "packs.json").read_text(encoding="utf-8"))
+            check("Install puts a pack in Atlas's packs folder on its own, whole, with the setting off and its game not on the device",
+                  echo_file.is_file() and echo_file.read_bytes() == in_lib[echo_file.name].read_bytes() and record.get("alone") == ["echo-example-maps"]
+                  and all((atlas / n).read_bytes() == b for n, b in theirs.items()),
+                  (sorted(p.name for p in atlas.iterdir()), record.get("alone")))
+            await shot(pg, "17e-phone-maps-installed")
+            # its game downloaded and removed again: the pack stays, on its own
+            await pg.goto(echo_page)
+            await pg.wait_for_selector("#go-game-add", timeout=20000)
+            await pg.click("#go-game-add")
+            await pg.wait_for_selector("#add-dialog button[type=submit]")
+            await pg.click("#add-dialog button[type=submit]")
+            await pg.click("#go-nav-queue")
+            await pg.wait_for_selector('#queue-done li[data-key="nes/Echo (USA)"]', timeout=120000)
+            if await pg.query_selector("#queue-restart button"):
+                await pg.click("#queue-restart button")
+                await pg.wait_for_selector("#queue-restart", state="detached")
+            await pg.click("#go-nav-device")
+            await pg.wait_for_selector('#device-list [data-system="nes"] .go-sys-open', timeout=20000)
+            echo_row = '#device-list .go-row[data-id^="nes/Echo"]'
+            if not await pg.query_selector(echo_row):
+                await pg.click('#device-list [data-system="nes"] .go-sys-open')
+            await pg.wait_for_selector(echo_row, timeout=20000)
+            await pg.check(f"{echo_row} .go-row-tick")
+            await pg.click("#device-remove")
+            await pg.wait_for_selector("#remove-files li")
+            await pg.click("#remove-dialog button[type=submit]")
+            await toast(pg, "Removed 1 game")
+            await pg.wait_for_selector(echo_row, state="detached")
+            await pg.click("#go-nav-maps")
+            await pg.wait_for_selector(f'{echo_pack}[data-alone="yes"]', timeout=20000)
+            nes = phone / "ROMs" / "nes"
+            check("removing its game from the device leaves a pack installed on its own in Atlas's packs folder",
+                  echo_file.is_file() and not (nes.is_dir() and any(p.name.startswith("Echo") for p in nes.iterdir())), sorted(p.name for p in atlas.iterdir()))
+            # (the removal took the emptied NES folder with it: ES-DE's folder for it again, as before)
+            nes.mkdir(parents=True, exist_ok=True)
+            await pg.click(f'{echo_pack} [data-action="remove"]')
+            await pg.wait_for_selector("#maps-said", timeout=20000)
+            said = await pg.inner_text("#maps-said")
+            await pg.wait_for_selector(f'{echo_pack}[data-here="no"]', timeout=20000)
+            record = json.loads((go_data / "packs.json").read_text(encoding="utf-8"))
+            check("Remove takes it out of Atlas's packs folder, and only it",
+                  "taken out of Atlas's packs folder" in said and not echo_file.exists() and "echo-example-maps" not in record.get("alone", [])
+                  and all((atlas / n).read_bytes() == b for n, b in theirs.items()), (said, sorted(p.name for p in atlas.iterdir())))
+            # the big screen: a tab of its own
+            await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); l.view = 'big'; localStorage.setItem('go-look', JSON.stringify(l)); }")
+            await pg.goto(B + "#maps")
+            await pg.reload()
+            await pg.wait_for_selector(echo_pack, timeout=20000)
+            big_tab = await pg.get_attribute(".go-big-bar #go-nav-maps", "aria-current")
+            big_rows = await pg.eval_on_selector_all("#go-maps li.go-pack", "els => els.length")
+            await shot(pg, "17f-phone-big-maps")
+            await pg.evaluate("() => { const l = JSON.parse(localStorage.getItem('go-look') || '{}'); delete l.view; localStorage.setItem('go-look', JSON.stringify(l)); }")
+            await pg.goto(B + "#library")
+            await pg.reload()
+            check("the big screen has Maps and guides as a tab of its own, with the same list", big_tab == "page" and big_rows == 3, (big_tab, big_rows))
 
             # 13c. PC games (D110-D112), on Windows and Linux: a system of their own, put in the
             # PC games folder Settings names, each game in its folder with a shortcut (in the

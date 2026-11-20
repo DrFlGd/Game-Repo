@@ -96,6 +96,28 @@ progress { accent-color: var(--tool); height: 8px; }
 .go-file { min-width: 0; font-family: var(--font-mono); font-size: 12.5px; overflow-wrap: anywhere; }
 .go-files { max-height: 240px; overflow: auto; }
 
+/* ---- Maps and guides (D225) ---------------------------------------------- */
+.go-maps .go-page-head .go-search { flex: 0 1 300px; }
+.go-pack-group { display: grid; gap: 8px; }
+.go-pack-group h2 .muted { font-size: 13px; font-weight: 500; }
+.go-pack-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.go-pack { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 8px 14px; padding: 10px 12px; border: 1px solid var(--steel-2); border-radius: var(--radius-s); background: var(--white); }
+.go-pack-cover { display: grid; place-items: center; width: 64px; aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-s); background: var(--thumb-bg); color: var(--graphite); }
+.go-pack-cover img { width: 100%; height: 100%; object-fit: cover; }
+.go-pack-what { display: grid; gap: 1px; min-width: 0; }
+.go-pack-what strong { overflow-wrap: anywhere; }
+.go-pack-what .muted { font-size: 13px; }
+.go-pack-on { color: var(--ok); font-weight: 600; }
+.go-pack-do { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+[data-view="big"] .go-pack { grid-template-columns: 96px minmax(0, 1fr) auto; padding: 14px 20px; border-radius: 12px; }
+[data-view="big"] .go-pack-cover { width: 96px; }
+[data-view="big"] .go-pack-what strong { font-size: 18px; }
+@media (max-width: 760px) {
+  .go-pack, [data-view="big"] .go-pack { grid-template-columns: 52px minmax(0, 1fr); padding: 10px 12px; }
+  .go-pack-cover, [data-view="big"] .go-pack-cover { width: 52px; }
+  .go-pack-do { grid-column: 1 / -1; justify-content: flex-start; }
+}
+
 /* ---- Add to device ------------------------------------------------------ */
 .go-kind { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; }
 .go-kind-size { font-variant-numeric: tabular-nums; }
@@ -304,7 +326,7 @@ progress { accent-color: var(--tool); height: 8px; }
 .go-hero-facts dt { color: var(--graphite); font-size: 13px; }
 .go-hero-facts dd { margin: 2px 0 0; font-size: 16px; font-weight: 600; }
 
-/* Downloads, On this device and Settings: the classic pages, larger */
+/* Maps and guides, Downloads, On this device and Settings: the classic pages, larger */
 [data-view="big"] .go-page { max-width: 1120px; padding: clamp(14px, 3vh, 26px) var(--side) 40px; gap: 16px; }
 [data-view="big"] .go-page h1 { font-size: 30px; font-weight: 800; }
 [data-view="big"] .go-page h2 { font-size: 20px; }
@@ -355,9 +377,9 @@ progress { accent-color: var(--tool); height: 8px; }
   [data-view="big"] .go-big-brand { display: none; }
   [data-view="big"] .go-big-here { display: block; flex: 1; color: var(--tool); font-size: 20px; font-weight: 800; font-stretch: var(--head-stretch); }
   [data-view="big"] .go-big-search { display: inline-grid; place-items: center; width: 44px; height: 44px; min-height: 0; padding: 0; border: 0; border-radius: 22px; background: color-mix(in srgb, var(--chrome-ink) 12%, transparent); color: var(--chrome-ink); }
-  [data-view="big"] .go-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 4px 4px env(safe-area-inset-bottom); background: var(--chrome); border-top: 1px solid color-mix(in srgb, var(--chrome-ink) 16%, transparent); }
+  [data-view="big"] .go-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 0; padding: 4px 4px env(safe-area-inset-bottom); background: var(--chrome); border-top: 1px solid color-mix(in srgb, var(--chrome-ink) 16%, transparent); }
   [data-view="big"] .go-tabs .go-pad-shoulder { display: none; }
-  [data-view="big"] .go-tab { position: relative; flex-direction: column; gap: 3px; padding: 8px 2px; border-radius: 8px; font-size: 12px; }
+  [data-view="big"] .go-tab { position: relative; flex-direction: column; gap: 3px; padding: 8px 2px; border-radius: 8px; font-size: 12px; white-space: normal; text-align: center; line-height: 1.2; }
   [data-view="big"] .go-tab .icon { display: block; }
   [data-view="big"] .go-tab[aria-current="page"] { background: transparent; color: var(--tool); }
   [data-view="big"] .go-tab .go-nav-n { position: absolute; top: 2px; left: calc(50% + 8px); }
