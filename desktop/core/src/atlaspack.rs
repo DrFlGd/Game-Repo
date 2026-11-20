@@ -666,14 +666,14 @@ pub(crate) mod tests {
         wrong["format"] = json!("something-else");
         write_pack(&other, &wrong, &[]);
         assert_eq!(refused(read_header(&other)), not);
-        // version 8 is newer than the crate reads: the sentence names what wrote it, and its
+        // version 9 is newer than the crate reads (v0.25.0 reads 8): the sentence names what wrote it, and its
         // advice names no app (the app reading it is the one to update), shown as it is
-        let mut eight = format7("x", "X", "2026-01-01T00:00:00Z");
-        eight["version"] = json!(8);
-        write_pack(&other, &eight, &[]);
+        let mut nine = format7("x", "X", "2026-01-01T00:00:00Z");
+        nine["version"] = json!(9);
+        write_pack(&other, &nine, &[]);
         assert_eq!(
             refused(read_header(&other)),
-            ("newer-format", "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 8). A newer version of this app is needed to open it.".to_string())
+            ("newer-format", "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 9). A newer version of this app is needed to open it.".to_string())
         );
         // a description that's missing a field every pack has (the contract's answer 2): damaged
         for field in ["format", "version", "packId", "title", "packVersion", "detail", "exportedAt", "exportedBy", "pack", "source", "contents", "images", "files", "bytes"] {
