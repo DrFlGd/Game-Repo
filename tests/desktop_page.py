@@ -1838,10 +1838,12 @@ async def mods_page(pg, base, home, library):
     await pg.wait_for_selector("#mods-import-dialog .op-paths", timeout=15000)
     await pg.click("#mods-import-dialog button[type=submit]")
     kept = library / "_library" / "games" / "pc" / "pc-modtest" / "patches" / "mods" / "HD Pack v2.zip"
-    for _ in range(100):
-        if kept.is_file():
-            break
-        await asyncio.sleep(0.1)
+    # the change's steps: the ZIP, then its readme (written through a .gamerepo-tmp file), so
+    # wait for both rather than the first
+    try:
+        await until(lambda: kept.is_file() and (kept.parent / "HD Pack v2.zip.readme.txt").is_file(), 10)
+    except TimeoutError:
+        pass
     check("Add a mod… asks for the PC game and brings the mod's ZIP in with its readme, the download kept (D205)",
           kept.is_file() and mod.is_file() and (kept.parent / "HD Pack v2.zip.readme.txt").is_file(), (kept.is_file(), sorted(x.name for x in kept.parent.iterdir()) if kept.parent.is_dir() else None))
     await pg.wait_for_selector("#mods-items [data-id]", timeout=15000)
@@ -2278,7 +2280,17 @@ async def maps_page(pg, base, home, library):
     await pg.wait_for_function("() => { const i = document.querySelector('#maps-items .lib-tile[data-id=\"moss-harbour-other-maps\"] img'); return i && i.complete && i.naturalWidth === 16; }", timeout=15000)
     moved = maps / "Moss Harbour" / "renamed by hand.atlaspack"
     (maps / "Moss Harbour" / e_name).rename(moved)
-    await asyncio.sleep(5)
+    # the page opened again once the folder watcher's read has the new name (the index is read
+    # before packs.json is written): sooner, the card would ask for the file at its old path
+    def renamed_kept():
+        try:
+            return json.loads((maps / "packs.json").read_text()).get("packs", {}).get("moss-harbour-other-maps", {}).get("file") == "Moss Harbour/renamed by hand.atlaspack"
+        except (OSError, ValueError):
+            return False
+    try:
+        await until(renamed_kept, 30)
+    except TimeoutError:
+        pass
     await pg.goto(base + "#/maps")
     await pg.wait_for_selector('#maps-items .lib-tile[data-id="moss-harbour-other-maps"]', timeout=15000)
     kept = json.loads((maps / "packs.json").read_text()).get("packs", {}).get("moss-harbour-other-maps", {})
