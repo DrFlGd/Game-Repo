@@ -63,8 +63,11 @@ export function packCounts(p) {
   ].filter(Boolean);
 }
 
-/** Where a pack is from, by the contract's rule (`Description::from_words`): its site, "Made in Atlas", "Made in Atlas Map Maker" or "Came with an app". */
+/** Where a pack is from (`Description::from_words`: the pack's own word, D231, else the contract's rule): its site, "Made in Atlas", "Made in Atlas Map Maker", "Came with an app" or "Guidebooks". */
 export const packFrom = (p) => p.from || null;
+
+/** The sorts of pack, as the filter names them (`Sort::word`). */
+const PACK_SORTS = { site: "Read from a site", "made-in-atlas": "Made in Atlas", "map-maker": "Made in Atlas Map Maker", app: "Came with an app", guidebooks: "Guidebooks" };
 
 /** What's said under a pack's title: where it's from, its counts, detail and size. */
 export const packFacts = (p) => [packFrom(p), ...packCounts(p), DETAIL[p.detail] ? `${DETAIL[p.detail]} detail` : null, size(p.size)].filter(Boolean).join(" · ");
@@ -207,7 +210,7 @@ const thumb = (p, px = 512) => (p ? libraryUrl(`~thumb/${px}/${p}`) : null);
 const atlasPic = (p, n) => (n != null && p.path ? libraryUrl(`~atlas/${n}/${encodeURIComponent(p.id)}/${p.path}`) : null);
 /** A pack's pictures: the one chosen for it, else its own cover; else a plain card with its mark. */
 const pics = (p, px) => [thumb(p.picture_path, px), atlasPic(p, p.cover_n)];
-const noPic = (p) => ({ icon: p.unreadable ? "alert" : p.kinds?.[0] === "guide" ? "book" : p.kinds?.[0] === "wiki" ? "wiki" : "map", colour: systemColour(p.games?.[0]?.platform || "maps") });
+const noPic = (p) => ({ icon: p.unreadable ? "alert" : p.kinds?.[0] === "guide" || p.sort === "guidebooks" ? "book" : p.kinds?.[0] === "wiki" ? "wiki" : "map", colour: systemColour(p.games?.[0]?.platform || "maps") });
 const gameTitle = (p) => p.games?.[0]?.title || p.game_title || p.title || p.name;
 
 const SORTS = [
@@ -218,7 +221,7 @@ const SORTS = [
   ["size", "Size", (a, b) => (b.size || 0) - (a.size || 0)],
   ["added", "Added", (a, b) => byName(b.added || "", a.added || "")],
 ];
-const GROUPS = [["game", "Game"], ["", "None"], ["is", "Is"], ["source", "Site"], ["system", "System"]];
+const GROUPS = [["game", "Game"], ["", "None"], ["is", "Is"], ["sort", "Sort of pack"], ["source", "Site"], ["system", "System"]];
 const COLUMNS = [
   ["title", "Title", (p) => p.title || p.name, "title"],
   ["game", "Game", (p) => (p.games || []).map((g) => g.title).join(", ") || STATUS[status(p)], "game"],
@@ -334,6 +337,7 @@ export function Maps() {
     { id: "is", name: "Is", of: (p) => [status(p), p.personal_use ? "own" : null, p.copies?.length ? "copies" : null], label: (x) => STATUS[x] || (x === "own" ? "For your own use" : x === "copies" ? "Has another copy" : x) },
     { id: "game", name: "Game", of: (p) => (p.games?.length ? p.games.map((g) => g.title) : []), long: true, none: "No game yet", groupOrder: "name" },
     { id: "system", name: "System", of: (p) => (p.games || []).map((g) => g.platform), label: (x) => names.system.get(x) || x, none: "No game yet" },
+    { id: "sort", name: "Sort of pack", of: (p) => (p.unreadable ? [] : [p.sort || null]), label: (w) => PACK_SORTS[w] || w, none: "Doesn't say" },
     { id: "source", name: "Site", of: (p) => [packFrom(p)], long: true, none: "No site given" },
     { id: "kind", name: "Has", of: (p) => p.kinds || [], label: (k) => KIND[k] || k },
     { id: "detail", name: "Detail", of: (p) => [p.detail], label: (d) => DETAIL[d] || d },

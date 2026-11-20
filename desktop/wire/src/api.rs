@@ -238,8 +238,9 @@ pub struct Pack {
     /// (Atlas Importer's maps too) or "Atlas Map Maker"
     #[serde(skip_serializing_if = "String::is_empty")]
     pub made_in: String,
-    /// The sort of pack, by the contract's rule, in one word: site | made-in-atlas |
-    /// map-maker | app (one that came with an app); empty when it doesn't say
+    /// The sort of pack, in one word: the pack's own `source.origin` when it says it (Atlas
+    /// 0.25.0, D231), else by the contract's rule: site | made-in-atlas | map-maker | app (one
+    /// that came with an app) | guidebooks (a pack of guidebooks); empty when it doesn't say
     #[serde(skip_serializing_if = "String::is_empty")]
     pub sort: String,
     /// It carries the maker's own things (`mine`), in plain words: "With your own locations

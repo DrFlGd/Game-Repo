@@ -1481,7 +1481,18 @@ fn go_on_linux_moves_the_packs_it_put_in_the_old_folder_into_atlass_own() {
     let mine = dir.join("My Atlas Packs");
     call(&app, "set_settings", json!({ "atlas_folder": mine }));
     let st = call(&app, "status", json!({}));
-    assert_eq!((st["atlas"]["folder"].as_str(), st["atlas"]["default"].as_bool()), (mine.to_str(), Some(false)), "{st}");
+    assert_eq!((st["atlas"]["folder"].as_str(), st["atlas"]["default"].as_bool(), st["atlas"]["from"].as_str()), (mine.to_str(), Some(false), Some("go")), "{st}");
+    // D230: and Go's pack follows the folder it changed to
+    until("the pack followed the new folder", 30, || mine.join("Alpha - Example Maps.atlaspack").is_file(), || format!("{:?} {:?}", names_in(&new), names_in(&mine)));
+    assert!(!new.join("Alpha - Example Maps.atlaspack").exists());
+    // a folder chosen in Atlas is used once Go's own is taken off, and the pack follows it
+    let chosen = dir.join("Chosen in Atlas");
+    std::fs::create_dir_all(&chosen).unwrap();
+    std::fs::write(new.parent().unwrap().join("settings.json"), json!({ "format": "atlas-settings", "version": 1, "packsFolder": chosen }).to_string()).unwrap();
+    call(&app, "set_settings", json!({ "atlas_folder": "" }));
+    let st = call(&app, "status", json!({}));
+    assert_eq!((st["atlas"]["folder"].as_str(), st["atlas"]["from"].as_str(), st["atlas"]["default"].as_bool()), (chosen.to_str(), Some("atlas"), Some(true)), "{st}");
+    until("the pack followed the folder chosen in Atlas", 30, || chosen.join("Alpha - Example Maps.atlaspack").is_file(), || format!("{:?} {:?}", names_in(&mine), names_in(&chosen)));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

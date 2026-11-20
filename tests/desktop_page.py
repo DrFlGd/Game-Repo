@@ -2160,7 +2160,7 @@ async def maps_page(pg, base, home, library):
     a_name, b_name = "Lantern Valley - Example Maps.atlaspack", "Lantern Valley Deluxe - Example Maps.atlaspack"
     atlas_pack(no_game / a_name, "lantern-valley-example-maps", "Lantern Valley")
     atlas_pack(no_game / b_name, "lantern-valley-deluxe-example-maps", "Lantern Valley Deluxe")
-    atlas_pack(no_game / "Future Pack - Example Maps.atlaspack", "future-pack", "Future Pack", version=8)
+    atlas_pack(no_game / "Future Pack - Example Maps.atlaspack", "future-pack", "Future Pack", version=9)
     (no_game / "Half Written - Example Maps.atlaspack.part").write_bytes(b"PK\x03\x04 not yet")
     await pg.click('.sidebar a[href="#/maps"]')
     said = await toast_text(pg, "Linked Lantern Valley", timeout=30000)
@@ -2180,7 +2180,7 @@ async def maps_page(pg, base, home, library):
     check("Maps and Guides (under the Library, D219) reads the packs Atlas Importer wrote: one whose game's title is certain is linked and moved into its game's folder as a change (D218), shown with its own cover, grouped by game; one that isn't is on To review; a newer format says why; a .part file is left alone",
           menu == "Maps and Guides" and "Linked Lantern Valley to Lantern Valley" in said and a_at.is_file() and not (no_game / a_name).exists()
           and [g["key"] for g in linked.get("games", [])] == ["gb/Lantern Valley (World)"] and linked.get("file") == f"Lantern Valley/{a_name}"
-          and len(tiles) == 3 and "1 pack to review" in review and future[2] == "Can't be read" and "in a newer format (version 8)" in (future[3] or "")
+          and len(tiles) == 3 and "1 pack to review" in review and future[2] == "Can't be read" and "in a newer format (version 9)" in (future[3] or "")
           and "Lantern Valley" in groups and "No game yet" in groups and cards == ["Maps and guides…", "A folder…"],
           (said, tiles, groups, review, linked, cards))
     # the pack's panel: its maps with their small pictures, its guides and wikis with their page counts
@@ -2299,6 +2299,16 @@ async def maps_page(pg, base, home, library):
     check("a map made in Atlas (from no site) is linked by its game's title, whole with its mine/ things, and its card says Made in Atlas and what of yours it carries",
           made_linked.read_bytes() == made_bytes and "Made in Atlas" in made_meta and "Made in Atlas" in made_panel and "With your own locations and notes." in made_panel and " - " not in made_linked.name,
           (said, made_meta, made_panel[:400]))
+    # D231: the sorts of pack are a filter of their own (a site's packs, made in Atlas)
+    await pg.wait_for_selector('#filter-maps-sort [data-value="made-in-atlas"]', timeout=15000)
+    sorts = await pg.eval_on_selector_all("#filter-maps-sort [data-value]", "els => els.map(e => [e.dataset.value, e.innerText])")
+    await pg.click('#filter-maps-sort [data-value="made-in-atlas"] input')
+    await pg.wait_for_selector('#maps-chips [data-chip="sort-made-in-atlas"]')
+    await pg.wait_for_function("() => [...document.querySelectorAll('#maps-items .lib-tile')].every(e => e.dataset.id === 'moss-harbour-my-map')")
+    made_only = await pg.eval_on_selector_all("#maps-items .lib-tile", "els => els.map(e => e.dataset.id)")
+    await pg.click('#filter-maps-sort [data-value="made-in-atlas"] input')
+    check("the Sort of pack filter tells a site's packs from maps made in Atlas",
+          {v for v, _ in sorts} >= {"site", "made-in-atlas"} and any("Made in Atlas" in t for _, t in sorts) and made_only == ["moss-harbour-my-map"], (sorts, made_only))
     # Open in Atlas: the program set in Settings › Tools, started with the pack's path alone,
     # its one argument (D221; Atlas's block A2); off Windows no program is registered for
     # packs, so without Atlas set it says to set it
@@ -2340,7 +2350,7 @@ async def maps_page(pg, base, home, library):
     await toast_text(pg, "Removed")
     await pg.wait_for_selector(future_tile, state="detached", timeout=15000)
     check("a pack that can't be read says why in its panel (a newer format, with what wrote it), and Remove… sets it aside",
-          "in a newer format (version 8)" in error_said and "Atlas Importer 0.23.0" in error_said and not (no_game / "Future Pack - Example Maps.atlaspack").exists() and (no_game / "Half Written - Example Maps.atlaspack.part").is_file(), error_said)
+          "in a newer format (version 9)" in error_said and "Atlas Importer 0.23.0" in error_said and not (no_game / "Future Pack - Example Maps.atlaspack").exists() and (no_game / "Half Written - Example Maps.atlaspack.part").is_file(), error_said)
 
 
 OWN_HOMES = [("arcade", arcade), ("magazines", magazines), ("import", import_by_system), ("variants", variants), ("serve", serve_to_devices),

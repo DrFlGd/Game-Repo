@@ -83,7 +83,7 @@ export function Packs({ k, packs, onDevice, onChange, atlasButton = true }) {
     ${packs.show && atlasButton ? html`<div class="go-game-do"><${ShowInAtlas} k=${k} packs=${packs} /></div>` : null}
     <ul class="go-sizes go-pack-list">${packs.items.map((p) => html`<li key=${p.pack_id} data-pack=${p.pack_id} data-here=${p.here ? "yes" : "no"}>
       <label class="check-row"><input type="checkbox" checked=${isTicked(p)} disabled=${!!busy} aria-label=${`Bring ${p.title}`} onChange=${(e) => tick(p, e.currentTarget.checked)} />
-        <span><strong>${p.title}</strong>${p.source ? html` <span class="muted">from ${p.source}</span>` : p.made_in ? html` <span class="muted" data-said="made-in">made in ${p.made_in}</span>` : p.sort === "app" ? html` <span class="muted" data-said="came-with-app">came with an app</span>` : null}
+        <span><strong>${p.title}</strong>${p.source ? html` <span class="muted">from ${p.source}</span>` : p.made_in ? html` <span class="muted" data-said="made-in">made in ${p.made_in}</span>` : p.sort === "app" ? html` <span class="muted" data-said="came-with-app">came with an app</span>` : p.sort === "guidebooks" ? html` <span class="muted" data-said="guidebooks">a pack of guidebooks</span>` : null}
           ${holds(p) ? html`<br /><small class="muted">${holds(p)}</small>` : null}
           ${p.own_things ? html`<br /><small class="muted" data-said="mine">${p.own_things}</small>` : null}
           ${p.newer_here ? html`<br /><small class="muted" data-said="newer-here">Newer on this device: kept. Game Repo's copy is older, so it isn't put over it.</small>`
