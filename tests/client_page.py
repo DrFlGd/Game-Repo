@@ -713,6 +713,7 @@ async def main():
             await pg.goto(B + "#settings")
             await pg.wait_for_selector("#set-version")
             not_on_windows = await pg.query_selector("#set-steam") is None
+            no_exit_on_windows = await pg.query_selector("#set-exit-go") is None
             app_note = await pg.inner_text("#set-tailscale-app")
             check("on Android, Settings › Tailscale points to Tailscale's own app (D179)", "app of its own for Android" in app_note, app_note)
             # Settings › Saves (D186): RetroArch's folders from the retroarch.cfg set, and Sync saves now
@@ -784,6 +785,27 @@ async def main():
             await shot(pg, "16-pc-linux-steam")
             check("on Linux, Settings adds Game Repo Go to Steam's library, written while Steam's closed",
                   not_on_windows and mine, (not_on_windows, vdf[:200]))
+            # D244: Exit Game Repo Go on Linux, where Game Mode has no window to close: in
+            # Settings and in the big screen's Options (☰), reachable by a controller; with
+            # nothing running it ends Game Repo Go at once (the stand-in counts it)
+            quits = shell()["quit"]
+            await pg.wait_for_selector("#set-exit-go")
+            await pg.click("#set-exit-go")
+            if await pg.query_selector("#exit-dialog"):
+                await pg.click("#exit-dialog button[type=submit]")
+            for _ in range(50):
+                if shell()["quit"] > quits:
+                    break
+                await asyncio.sleep(0.1)
+            in_options = None
+            if await pg.query_selector("#go-hint-menu"):
+                await pg.click("#go-hint-menu")
+                await pg.wait_for_selector("#options-dialog")
+                in_options = await pg.query_selector("#options-exit") is not None
+                await pg.keyboard.press("Escape")
+                await pg.wait_for_selector("#options-dialog", state="detached")
+            check("on Linux, Exit Game Repo Go is in Settings (and the big screen's Options) and ends it; not on Windows (D244)",
+                  shell()["quit"] == quits + 1 and in_options is not False and no_exit_on_windows, (shell()["quit"], quits, in_options, no_exit_on_windows))
             # A on a text box, from a controller, in Game Mode: Steam's keyboard
             before_kb = shell()["keyboard"]
             await pg.evaluate("""() => {
@@ -1456,6 +1478,84 @@ async def main():
             # (zipped as its folder, Zeta: that folder isn't made again inside the game's, D124)
             check("a PC game is unpacked into its own folder of the PC games folder, with a shortcut, and no ES-DE restart asked for",
                   files == ["data/level1.dat", "zeta.exe"] and shortcut and restart is None, (files, shortcut, restart is None))
+            if sys.platform.startswith("linux"):
+                # D241–D243: Atlas started with a game in Steam. Settings › Maps and guides for
+                # Atlas shows the contract's launch line for the AppImage Atlas's settings name
+                # (linuxAppImage), with Copy; Start Atlas with my games, on as that AppImage is
+                # there, puts it in the launch options of Zeta's Steam shortcut, and Zeta's own
+                # switch takes it out and back; launch options changed in Steam are left as they
+                # are; a path the line can't hold gets no line, and says why
+                vdf_file = steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf"
+                atlas_file = phone / ".local" / "share" / "atlas" / "settings.json"
+                atlas_file.parent.mkdir(parents=True, exist_ok=True)
+                kept_atlas = json.loads(atlas_file.read_text(encoding="utf-8")) if atlas_file.exists() else {"format": "atlas-settings", "version": 1}
+                appimage = home / "apps" / "Atlas Viewer.AppImage"
+                appimage.parent.mkdir(parents=True, exist_ok=True)
+                appimage.write_bytes(b"\x7fELF an AppImage")
+                atlas_file.write_text(json.dumps({**kept_atlas, "linuxAppImage": str(appimage)}), encoding="utf-8")
+                line = f"bash -c '\"{appimage}\" --background & exec \"$@\"' -- %command%"
+                options = lambda: vdf_file.read_bytes()
+                launch = lambda value: b"\x01LaunchOptions\x00" + value.encode() + b"\x00"
+                shell(kind="linux")
+                await ctx.grant_permissions(["clipboard-read", "clipboard-write"], origin=B.rstrip("/"))
+                await pg.goto(B + "#settings")
+                await pg.reload()
+                await pg.wait_for_selector("#set-atlas-line textarea", timeout=20000)
+                shown_line = await pg.input_value("#set-atlas-line textarea")
+                where_said = await pg.inner_text("#set-atlas-appimage")
+                start_on = await pg.is_checked("#set-atlas-start")
+                await pg.click("#set-atlas-line-copy")
+                await pg.wait_for_selector("#set-atlas-line-copy[data-copied]")
+                copied = await pg.evaluate("() => navigator.clipboard.readText().catch(() => '')")
+                await shot(pg, "18-linux-atlas-launch")
+                check("on Linux, Settings › Maps and guides for Atlas shows the launch line for the AppImage Atlas's settings name, with Copy (D241)",
+                      shown_line == line and str(appimage) in where_said and copied == line, (shown_line, where_said, copied))
+                for _ in range(50):
+                    if launch(line) in options():
+                        break
+                    await asyncio.sleep(0.1)
+                check("Start Atlas with my games is on as the AppImage is there, and the line is in Zeta's launch options in Steam (D242)",
+                      start_on and launch(line) in options(), (start_on, options()[-400:]))
+                # Zeta's own switch: off takes exactly the line out, on puts it back
+                zeta_page = B + "#game/" + "pcgames%2Fzeta"
+                await pg.goto(zeta_page)
+                await pg.wait_for_selector("#go-atlas-start-on", timeout=20000)
+                switch_on = await pg.is_checked("#go-atlas-start-on")
+                await pg.click("#go-atlas-start-on")
+                await pg.wait_for_function("() => document.querySelector('#go-atlas-start-said')?.textContent.includes(\"doesn't start\")", timeout=20000)
+                off_in_steam = launch("") in options() and line.encode() not in options()
+                await pg.click("#go-atlas-start-on")
+                await pg.wait_for_function("() => document.querySelector('#go-atlas-start-said')?.textContent.includes('starts beside it')", timeout=20000)
+                check("a game's page has its own switch: off takes Go's line out of its launch options, on puts it back (D242)",
+                      switch_on and off_in_steam and launch(line) in options(), (switch_on, off_in_steam))
+                # changed in Steam (the person's own): left as they are, and the line to copy
+                vdf_file.write_bytes(options().replace(launch(line), launch("gamemoderun %command%")))
+                await pg.reload()
+                await pg.wait_for_selector('#go-atlas-start[data-outcome="theirs"]', timeout=20000)
+                theirs_said = await pg.inner_text("#go-atlas-start-said")
+                theirs_line = await pg.input_value("#go-atlas-start-line textarea")
+                await pg.locator("#go-atlas-start").scroll_into_view_if_needed()
+                await shot(pg, "18-linux-atlas-theirs")
+                await pg.click("#go-atlas-start-on")
+                await pg.wait_for_function("() => document.querySelector('#go-atlas-start-said')?.textContent.includes(\"doesn't start\")", timeout=20000)
+                await pg.click("#go-atlas-start-on")
+                await pg.wait_for_function("() => document.querySelector('#go-atlas-start-said')?.textContent.includes('left as they are')", timeout=20000)
+                check("launch options changed in Steam are never written over: the page says so and shows the line to copy (D242)",
+                      "left as they are" in theirs_said and theirs_line == line and launch("gamemoderun %command%") in options() and line.encode() not in options(), theirs_said)
+                vdf_file.write_bytes(options().replace(launch("gamemoderun %command%"), launch("")))
+                # a path the line can't hold: no line, and why
+                atlas_file.write_text(json.dumps({**kept_atlas, "linuxAppImage": str(home / "apps" / "$HOME" / "Atlas.AppImage")}), encoding="utf-8")
+                await pg.goto(B + "#settings")
+                await pg.reload()
+                await pg.wait_for_selector("#set-atlas-refused", timeout=20000)
+                refused = await pg.inner_text("#set-atlas-refused")
+                no_line = await pg.query_selector("#set-atlas-line") is None
+                start_off = await pg.is_disabled("#set-atlas-start")
+                await shot(pg, "18-linux-atlas-refused")
+                check("a path the line can't hold ($ here) gets no line, says why, and nothing is written with it (D241)",
+                      "dollar sign" in refused and no_line and start_off and b"$HOME" not in options(), refused)
+                atlas_file.write_text(json.dumps(kept_atlas), encoding="utf-8")
+                shell(kind="windows")
             # D207–D208: its files checked on its page, a change put back, a save left as it is
             await pg.goto(B + "#library")
             await pg.wait_for_selector("#go-place-pick option[value='s:pcgames']", state="attached", timeout=20000)

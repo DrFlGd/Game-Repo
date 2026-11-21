@@ -1193,9 +1193,9 @@ mod tests {
         write_pack(&delta, &format7("delta-example-maps", "Delta", "2026-11-17T08:30:00Z"), &[("preview/map-one.jpg", jpeg(3)), ("preview/map-two.jpg", jpeg(4))]);
         write_pack(&no_game.join("Zeta - Example Maps.atlaspack"), &format6("zeta-example-maps", "Zeta", "2026-11-10T08:30:00Z"), &[]);
         write_pack(&no_game.join("Beta - Example Maps.atlaspack.part"), &format6("beta-example-maps", "Beta", "2026-11-10T08:30:00Z"), &[]);
-        let mut nine = format7("future", "Epsilon", "2026-11-10T08:30:00Z");
-        nine["version"] = json!(9);
-        write_pack(&no_game.join("Epsilon - Example Maps.atlaspack"), &nine, &[]);
+        let mut ten = format7("future", "Epsilon", "2026-11-10T08:30:00Z");
+        ten["version"] = json!(10);
+        write_pack(&no_game.join("Epsilon - Example Maps.atlaspack"), &ten, &[]);
         std::fs::write(no_game.join("notes.atlaspack"), b"some notes").unwrap();
         // a packId that can't be one (upper case, a space): damaged, by the crate's check
         write_pack(&no_game.join("Theta - Example Maps.atlaspack"), &format6("Theta Maps", "Theta", "2026-11-10T08:30:00Z"), &[]);
@@ -1212,7 +1212,7 @@ mod tests {
         // the crate's own sentences, as they are, with their kinds
         let sentences = vec![
             ("damaged".to_string(), "This pack file names a game id that cannot be used.".to_string()),
-            ("newer-format".to_string(), "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 9). A newer version of this app is needed to open it.".to_string()),
+            ("newer-format".to_string(), "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 10). A newer version of this app is needed to open it.".to_string()),
             ("not-a-pack-file".to_string(), "This file is not an Atlas pack file.".to_string()),
         ];
         assert_eq!(said(&state), sentences);
@@ -1318,7 +1318,8 @@ mod tests {
     /// v0.25.0 (D231): a pack of guidebooks (format 8) is a pack like any other, never shown
     /// as one that can't be read, and its card says Guidebooks; an index whose packs were read
     /// with the crate before (format 8 kept as refused, `source.origin` left out) reads every
-    /// pack again once.
+    /// pack again once. v0.26.0 (D241): so is a pack of format 9 (routes, the map's own
+    /// icons), refused by the crate before.
     #[test]
     fn a_pack_of_guidebooks_is_read_and_packs_are_read_again_with_a_newer_crate() {
         let (dir, lib, ix) = crate::collection::tests::fixture("maps-guidebooks");
@@ -1328,6 +1329,9 @@ mod tests {
         let mut site = format7("delta-example-maps", "Delta", "2026-11-17T08:30:00Z");
         site["source"]["origin"] = json!("made-in-atlas");
         write_pack(&base.join(NO_GAME).join("Delta - Example Maps.atlaspack"), &site, &[]);
+        // v0.26.0: a pack of format 9, with routes and the map's own icons
+        let (routes, more) = crate::atlaspack::tests::format9("zeta-example-maps", "Zeta", "2026-11-20T08:30:00Z");
+        crate::atlaspack::tests::write_pack_with(&base.join(NO_GAME).join("Zeta - Example Maps.atlaspack"), &routes, &[("preview/map-one.jpg", jpeg(3))], &more);
         let state = sync(&ix, &lib).unwrap();
         assert!(state.unreadable.is_empty(), "{:?}", state.unreadable.iter().map(|f| f.error.clone()).collect::<Vec<_>>());
         let card_of = |id: &str| overview(&ix, &lib).unwrap()["packs"].as_array().unwrap().iter().find(|p| p["id"] == id).cloned().unwrap();
@@ -1341,14 +1345,17 @@ mod tests {
         let mut old = site.clone();
         old["source"].as_object_mut().unwrap().remove("origin");
         conn.execute("UPDATE atlas_packs SET description = ?1 WHERE pack_id = 'delta-example-maps'", [old.to_string()]).unwrap();
+        conn.execute("UPDATE atlas_packs SET description = NULL, error = 'This pack file was made by Atlas Importer 0.22.0 in a newer format (version 9). A newer version of this app is needed to open it.', error_kind = 'newer-format' WHERE pack_id = 'zeta-example-maps'", []).unwrap();
         // the same crate: kept as the index has them
-        assert_eq!(sync(&ix, &lib).unwrap().unreadable.len(), 1);
+        assert_eq!(sync(&ix, &lib).unwrap().unreadable.len(), 2);
         // another one: read again once, so the guidebooks are read and the origin is there
         ix.set_meta(READER_KEY, "atlas-pack v0.24.0").unwrap();
         let state = sync(&ix, &lib).unwrap();
         assert!(state.unreadable.is_empty());
         assert_eq!(card_of("guidebooks-hollow-marsh")["sort"], "guidebooks");
         assert_eq!(card_of("delta-example-maps")["sort"], "made-in-atlas");
+        let z = card_of("zeta-example-maps");
+        assert_eq!((z["version"].clone(), z["contents"]["typePictures"].clone(), z["own_things"].clone(), z["personal_use"].clone()), (json!(9), json!(2), json!("With your own lists, locations and routes"), json!(true)), "{z}");
         assert_eq!(ix.meta(READER_KEY).unwrap().as_deref(), Some(atlaspack::READER));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1366,13 +1373,13 @@ mod tests {
         let all = linked(&ix, &lib).unwrap();
         assert_eq!(all.iter().map(|p| (p.pack_id.as_str(), p.error.is_none())).collect::<Vec<_>>(), [("delta-example-maps", true)], "only the packs linked to a game");
         let file = base.join("Delta/Delta - Example Maps.atlaspack");
-        let mut nine = format7("delta-example-maps", "Delta", "2026-11-19T08:30:00Z");
-        nine["version"] = json!(9);
-        write_pack(&file, &nine, &[]);
+        let mut ten = format7("delta-example-maps", "Delta", "2026-11-19T08:30:00Z");
+        ten["version"] = json!(10);
+        write_pack(&file, &ten, &[]);
         let p = packs_of(&ix, &lib, "gb/Delta (World)").unwrap();
         assert_eq!(p.len(), 1);
         assert_eq!((p[0].pack_id.as_str(), &p[0].path, p[0].size), ("delta-example-maps", &file, std::fs::metadata(&file).unwrap().len()));
-        assert!(p[0].error.as_deref().is_some_and(|e| e.contains("newer format (version 9)")), "{:?}", p[0].error);
+        assert!(p[0].error.as_deref().is_some_and(|e| e.contains("newer format (version 10)")), "{:?}", p[0].error);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

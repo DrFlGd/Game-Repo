@@ -260,7 +260,7 @@ dependencies = [
 [[package]]
 name = "atlas-pack"
 version = "0.1.0"
-source = "git+https://github.com/DrFlGd/Atlas?tag=v0.25.0#23a883c3808e6fed17fa72f2f3174c6b7bb1b96a"
+source = "git+https://github.com/DrFlGd/Atlas?tag=v0.26.0#0dd1869e5fcc6ed414d00f4c5782bd018a34db0f"
 dependencies = [
  "flate2",
  "serde",

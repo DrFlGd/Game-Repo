@@ -5,7 +5,8 @@
 // PC game's files can be checked and the game put back (D207–D208), its mods picked
 // and applied to it as it's installed (D209), and a mod put in by hand recorded as its,
 // taken off by itself, or kept in the library (D210). On Windows and Linux its packs of
-// maps and guides for Atlas are listed, each ticked or not (D222).
+// maps and guides for Atlas are listed, each ticked or not (D222). On Linux a PC game with a
+// Steam shortcut of Game Repo Go's has its own switch for starting Atlas with it (D242).
 import { html, useState, useEffect } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
@@ -15,6 +16,7 @@ import { ago, bytes, kindName, message } from "./format.js";
 import { pick } from "./library.js";
 import { enqueue } from "./add.js";
 import { Packs } from "./packs.js";
+import { AtlasStart } from "./launch.js";
 
 function Picture({ k, kind, size, alt }) {
   const [bad, setBad] = useState(false);
@@ -207,6 +209,7 @@ export function GamePage({ gameKey }) {
                   <button type="button" class="ghost" id="go-game-tick" aria-pressed=${ticked ? "true" : "false"} onClick=${() => pick([game])}>${ticked ? "Selected" : "Select"}</button>`}
           </div>
           ${g.on_device && game.system === "pcgames" ? html`<${PcFiles} k=${game.key} title=${game.title} mods=${g.details?.mods || []} />` : null}
+          <${AtlasStart} k=${game.key} a=${g.atlas_start} onChange=${() => setRev((r) => r + 1)} />
           ${saves.length ? html`<ul class="go-sizes" id="go-game-saves">${saves.map((x) => html`<li data-conflict=${x.conflict ? "yes" : "no"}><span>${x.label}</span><span class="muted">${x.conflict ? "differs from the library's: choose one in Game Repo" : `synced ${ago(x.at)}`}</span></li>`)}</ul>` : null}
           ${d.description ? html`<div class="go-game-text">${String(d.description).split(/\n\s*\n/).map((p) => html`<p>${p}</p>`)}</div>` : null}
           ${facts.length ? html`<dl class="go-facts">${facts.map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>` : null}

@@ -392,13 +392,13 @@ fn app_command(mut a: Args, to: &std::path::Path) -> Result<()> {
 /// Game Repo Go's pages and backend over HTTP, for the page test (tests/client_page.py) and
 /// for trying the pages in a browser: POST /invoke/<command> as tests/tauri_shim.js sends
 /// them (`api`, its `update_*` a stand-in set and read with /test/update as in `serve`,
-/// `app_info`, `pick_folder`, `storage`, `leave`), GET /picture/<key>/<kind> as
+/// `app_info`, `pick_folder`, `storage`, `leave`, `quit`), GET /picture/<key>/<kind> as
 /// the app's `picture://`, GET /events the backend's changes (server-sent events, the app's
 /// "go-changed"), POST /test/pick the answer to the next folder dialog, POST /test/shell
 /// what the shell says it is ({"kind": "android"}, whether All files access is allowed yet:
 /// {"granted": false}, asked for, it is; {"kind": "linux", "game_mode": true}) and GET
-/// /test/shell that, how often Back left the app ("left") and Steam's keyboard was asked
-/// for ("keyboard"), and the pages from --ui (client.html at /). With --root, Tailscale and
+/// /test/shell that, how often Back left the app ("left"), Steam's keyboard was asked
+/// for ("keyboard") and Exit Game Repo Go was pressed ("quit"), and the pages from --ui (client.html at /). With --root, Tailscale and
 /// SteamOS's os-release are looked for in that folder instead of `/` (D179).
 pub fn client_ui(mut a: Args) -> Result<()> {
     use std::io::Write;
@@ -423,7 +423,7 @@ pub fn client_ui(mut a: Args) -> Result<()> {
         app.set_root(root);
     }
     let picks: Arc<Mutex<Vec<String>>> = Arc::default();
-    let shell = Arc::new(Mutex::new(json!({ "kind": kind, "granted": true, "left": 0, "keyboard": 0, "game_mode": false })));
+    let shell = Arc::new(Mutex::new(json!({ "kind": kind, "granted": true, "left": 0, "keyboard": 0, "quit": 0, "game_mode": false })));
     let stand_in = Arc::new(crate::updates::StandIn::new("Game Repo Go"));
     let listener = std::net::TcpListener::bind(("127.0.0.1", port))?;
     eprintln!("Game Repo Go's pages on http://127.0.0.1:{port}/ (ES-DE looked for in {}, the client's folder {})", home.display(), data.display());
@@ -471,6 +471,13 @@ pub fn client_ui(mut a: Args) -> Result<()> {
                             let answer = json!({ "needed": s["kind"] == "android", "granted": s["granted"] });
                             drop(s);
                             json(&mut stream, 200, &answer)
+                        }
+                        "quit" => {
+                            // Exit Game Repo Go (D244): counted, as the stand-in keeps serving
+                            let mut s = shell.lock().unwrap();
+                            s["quit"] = json!(s["quit"].as_u64().unwrap_or(0) + 1);
+                            drop(s);
+                            json(&mut stream, 200, &Value::Null)
                         }
                         "leave" => {
                             let mut s = shell.lock().unwrap();

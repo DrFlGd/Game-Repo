@@ -14,8 +14,9 @@
 //! contract names none, so there's nothing for `xdg-mime` to be asked about, and Go asks
 //! for Atlas to be set. A program called `atlas` on the PATH is never looked for.
 //!
-//! Left out (D224): starting Atlas by itself beside a game, and `--background` (pending
-//! Jerred's decision and the contract's trial T3).
+//! Starting Atlas by itself beside a game, with `--background`, is `launch.rs`'s (D241–D243):
+//! on Linux, the contract's line in the game's Steam launch options, as Jerred decided after
+//! the contract's trial T3 (D224 had left it out).
 
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};

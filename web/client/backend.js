@@ -43,6 +43,10 @@ export const storage = (ask = false) => tauri.core.invoke("storage", { ask });
 /** Game Repo Go to the background (Android's Back with nothing to go back from). */
 export const leave = () => tauri.core.invoke("leave");
 
+/** Exit Game Repo Go (D244): it ends, as closing its window does (a download goes on next
+ *  time). Linux's Game Mode has no window to close. */
+export const quit = () => tauri.core.invoke("quit");
+
 /** Steam's on-screen keyboard (the Steam Deck's Game Mode, where nothing else would bring
  *  one up for a text box). */
 export const keyboard = () => tauri.core.invoke("keyboard").catch(() => {});

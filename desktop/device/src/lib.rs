@@ -15,6 +15,7 @@ pub mod background;
 pub mod catalogue;
 pub mod client;
 pub mod installs;
+pub mod launch;
 pub mod packs;
 pub mod pcfiles;
 pub mod pcgames;
