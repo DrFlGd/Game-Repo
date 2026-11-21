@@ -96,6 +96,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.79 (2026-11-21)
+
 - **Atlas can start with your games on the Steam Deck.** Settings › Maps and guides for Atlas (on Linux) shows the line that starts Atlas beside a game in Steam, with Copy, for the AppImage Atlas last started from (else the usual `~/Applications/Atlas.AppImage`), and says why there's no line when Atlas's path can't be put in it. *Start Atlas with my games* puts it in the launch options of the PC games Game Repo Go adds to Steam (on when Atlas's AppImage is there), each game's page can turn it off for that game, and when Atlas's AppImage moves the line follows it. Launch options you changed in Steam are never written over: the page says so and shows the line to copy. Steam's own games aren't changed; copy the line into theirs.
 - **Exit Game Repo Go.** On Linux, Settings and the big screen's Options (☰) have *Exit Game Repo Go*, for Game Mode, which has no window to close; it asks first when downloads are going, and they carry on next time.
 - **Packs from Atlas 0.26.0 are read** (format 9, with routes and a map's own icons), and a card counts your own routes among your own things. A pack with a map's own icons is marked *For your own use*; Game Repo never shows those icons, only a pack's cover and map pictures.
