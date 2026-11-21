@@ -5,7 +5,8 @@
 // page with its picture large behind it; Options (☰) and the lists (a <select>) as panels
 // from the right, as every dialog is. Maps and guides, Downloads, On this device and Settings are the classic
 // view's pages, made larger (client.css). Touch works on all of it, for phones, where the
-// tabs go along the bottom instead.
+// tabs go along the bottom instead. On Linux, Options (☰) has Exit Game Repo Go (D244), as
+// Game Mode has no window to close.
 import { html, useState, useEffect, useRef } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
@@ -19,6 +20,8 @@ import { DEVICE_ORDERS } from "./device.js";
 import { focusFirst, show } from "./keys.js";
 import { ShowInAtlas, showPacks } from "./packs.js";
 import { showMaps } from "./maps.js";
+import { AtlasStart } from "./launch.js";
+import { exitGo, exitOffered } from "./exit.js";
 
 export const TABS = [
   ["library", "Library", Icon.gamepad],
@@ -291,10 +294,11 @@ export function BigGame({ gameKey }) {
   const s = useStore(go, (x) => ({ systems: x.systems, deviceRev: x.deviceRev }));
   const [g, setG] = useState(null);
   const [error, setError] = useState("");
+  const [rev, setRev] = useState(0);
   useEffect(() => {
     setError("");
     call("game", { key: gameKey }).then(setG).catch((e) => setError(message(e)));
-  }, [gameKey, s.deviceRev]);
+  }, [gameKey, s.deviceRev, rev]);
   const game = g?.game;
   const d = g?.details?.details || {};
   const media = g?.details?.media || [];
@@ -331,6 +335,7 @@ export function BigGame({ gameKey }) {
             ${showPacks(g) ? html`<button type="button" class="ghost" id="go-game-packs-open" data-say="Its packs of maps and guides for Atlas, each ticked or not" onClick=${() => showDialog({ type: "packs", key: game.key, title: game.title })}>Maps and guides…</button>` : null}
             <${ShowInAtlas} k=${game.key} packs=${g.packs} big=${true} />
           </div>
+          <${AtlasStart} k=${game.key} a=${g.atlas_start} big=${true} onChange=${() => setRev((r) => r + 1)} />
           ${d.description ? html`<div class="go-hero-text go-scroll" tabindex="0" data-a="" data-say="Up and Down scroll the description">${String(d.description).split(/\n\s*\n/).map((p) => html`<p>${p}</p>`)}</div>` : null}
           ${facts.length ? html`<dl class="go-hero-facts">${facts.map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>` : null}
           ${!g.details ? html`<p class="muted">The rest of its details show once the library can be reached.</p>` : null}
@@ -373,6 +378,9 @@ export function OptionsDialog() {
     <div class="field-block go-options"><span>View</span>
       <${Option} label="Switch to the classic view" id="options-classic" run=${() => { closeDialog(); setLook({ view: "classic" }); say("The classic view, for a mouse and keyboard. Settings › Look brings the big screen back."); }} />
     </div>
+    ${exitOffered() ? html`<div class="field-block go-options"><span>Game Repo Go</span>
+      <${Option} label="Exit Game Repo Go" id="options-exit" run=${() => { closeDialog(); exitGo(); }} />
+    </div>` : null}
   <//>`;
 }
 

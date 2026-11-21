@@ -2162,7 +2162,7 @@ async def maps_page(pg, base, home, library):
     a_name, b_name = "Lantern Valley - Example Maps.atlaspack", "Lantern Valley Deluxe - Example Maps.atlaspack"
     atlas_pack(no_game / a_name, "lantern-valley-example-maps", "Lantern Valley")
     atlas_pack(no_game / b_name, "lantern-valley-deluxe-example-maps", "Lantern Valley Deluxe")
-    atlas_pack(no_game / "Future Pack - Example Maps.atlaspack", "future-pack", "Future Pack", version=9)
+    atlas_pack(no_game / "Future Pack - Example Maps.atlaspack", "future-pack", "Future Pack", version=10)
     (no_game / "Half Written - Example Maps.atlaspack.part").write_bytes(b"PK\x03\x04 not yet")
     await pg.click('.sidebar a[href="#/maps"]')
     said = await toast_text(pg, "Linked Lantern Valley", timeout=30000)
@@ -2182,7 +2182,7 @@ async def maps_page(pg, base, home, library):
     check("Maps and Guides (under the Library, D219) reads the packs Atlas Importer wrote: one whose game's title is certain is linked and moved into its game's folder as a change (D218), shown with its own cover, grouped by game; one that isn't is on To review; a newer format says why; a .part file is left alone",
           menu == "Maps and Guides" and "Linked Lantern Valley to Lantern Valley" in said and a_at.is_file() and not (no_game / a_name).exists()
           and [g["key"] for g in linked.get("games", [])] == ["gb/Lantern Valley (World)"] and linked.get("file") == f"Lantern Valley/{a_name}"
-          and len(tiles) == 3 and "1 pack to review" in review and future[2] == "Can't be read" and "in a newer format (version 9)" in (future[3] or "")
+          and len(tiles) == 3 and "1 pack to review" in review and future[2] == "Can't be read" and "in a newer format (version 10)" in (future[3] or "")
           and "Lantern Valley" in groups and "No game yet" in groups and cards == ["Maps and guides…", "A folder…"],
           (said, tiles, groups, review, linked, cards))
     # the pack's panel: its maps with their small pictures, its guides and wikis with their page counts
@@ -2362,7 +2362,7 @@ async def maps_page(pg, base, home, library):
     await toast_text(pg, "Removed")
     await pg.wait_for_selector(future_tile, state="detached", timeout=15000)
     check("a pack that can't be read says why in its panel (a newer format, with what wrote it), and Remove… sets it aside",
-          "in a newer format (version 9)" in error_said and "Atlas Importer 0.23.0" in error_said and not (no_game / "Future Pack - Example Maps.atlaspack").exists() and (no_game / "Half Written - Example Maps.atlaspack.part").is_file(), error_said)
+          "in a newer format (version 10)" in error_said and "Atlas Importer 0.23.0" in error_said and not (no_game / "Future Pack - Example Maps.atlaspack").exists() and (no_game / "Half Written - Example Maps.atlaspack.part").is_file(), error_said)
 
 
 async def guidebooks_page(pg, base, home, library):

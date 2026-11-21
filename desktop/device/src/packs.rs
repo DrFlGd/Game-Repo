@@ -415,10 +415,7 @@ fn unusable_folder(text: &str) -> Option<&'static str> {
 /// value that isn't text, or text Atlas can't use ([`unusable_folder`]), is unusable, and
 /// Atlas then uses its usual folder.
 pub fn atlas_says(text: &str) -> AtlasSays {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}')) else { return AtlasSays::Nothing };
-    if v.get("format").and_then(serde_json::Value::as_str) != Some("atlas-settings") || v.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
-        return AtlasSays::Nothing;
-    }
+    let Some(v) = atlas_settings_of(text) else { return AtlasSays::Nothing };
     match v.get("packsFolder") {
         None | Some(serde_json::Value::Null) => AtlasSays::Nothing,
         Some(serde_json::Value::String(t)) => match unusable_folder(t) {
@@ -426,6 +423,25 @@ pub fn atlas_says(text: &str) -> AtlasSays {
             Some(why) => AtlasSays::Unusable(why),
         },
         Some(_) => AtlasSays::Unusable("it isn't text"),
+    }
+}
+
+/// The text of Atlas's settings file as Atlas reads it (D230): a JSON object (a byte order
+/// mark allowed) of `format` "atlas-settings" and `version` 1; None for anything else, which
+/// says nothing (Atlas takes its defaults). Each field is then read leniently on its own.
+pub fn atlas_settings_of(text: &str) -> Option<serde_json::Value> {
+    let v = serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}')).ok()?;
+    (v.get("format").and_then(serde_json::Value::as_str) == Some("atlas-settings") && v.get("version").and_then(serde_json::Value::as_u64) == Some(1)).then_some(v)
+}
+
+/// Atlas's settings file on this computer now ([`atlas_settings_of`]): None when there's no
+/// file, it's larger than Atlas reads, or it isn't one Atlas reads. Read afresh each time, as
+/// the person can change it in Atlas while Go runs.
+pub fn atlas_settings(home: &Path) -> Option<serde_json::Value> {
+    let file = atlas_settings_file(home);
+    match std::fs::metadata(&file) {
+        Ok(m) if m.is_file() && m.len() <= ATLAS_SETTINGS_MOST => std::fs::read_to_string(&file).ok().and_then(|t| atlas_settings_of(&t)),
+        _ => None,
     }
 }
 

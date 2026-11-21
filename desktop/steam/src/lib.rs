@@ -410,6 +410,19 @@ pub fn put_shortcuts(steam: &Path, user: &str, tag: &str, list: &[Shortcut], pre
     Ok((others, b))
 }
 
+/// The launch options of `tag`'s shortcuts in a user's shortcuts.vdf as they are now (the
+/// person may have changed them in Steam), by their ids. Empty when there's no file, or it
+/// can't be read.
+pub fn launch_options(steam: &Path, user: &str, tag: &str) -> std::collections::BTreeMap<u32, String> {
+    let Ok(dir) = config_dir(steam, user) else { return Default::default() };
+    let Ok(b) = std::fs::read(dir.join("shortcuts.vdf")) else { return Default::default() };
+    shortcuts_of(&parse(&b).unwrap_or_default())
+        .iter()
+        .filter(|v| is_tagged(v, tag))
+        .filter_map(|v| Some((v.int("appid")?, v.str("LaunchOptions").unwrap_or_default())))
+        .collect()
+}
+
 /// The ids of `tag`'s shortcuts in a user's shortcuts.vdf.
 pub fn tagged_ids(steam: &Path, user: &str, tag: &str) -> Vec<u32> {
     let Ok(dir) = config_dir(steam, user) else { return vec![] };

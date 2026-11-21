@@ -5,7 +5,9 @@
 // version with its updates (D134); on Windows and Linux, the PC games folder (D111) and full screen (D127); on
 // Linux, Steam (D107, D109); Tailscale, set up on the Steam Deck (D179); and saves synced
 // with the library (D186); and on Windows and Linux, maps and guides for Atlas with their
-// folder (D222). Each change is kept as it's made.
+// folder (D222), on Linux with the line that starts Atlas with a game in Steam and *Start
+// Atlas with my games* (D242), and Exit Game Repo Go (D244), as Game Mode has no window to
+// close. Each change is kept as it's made.
 import { html, useEffect, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { SKINS, THEMES } from "../ui/state.js";
@@ -13,6 +15,8 @@ import { call, info, pickFolder } from "./backend.js";
 import { go, look, refreshLists, refreshSettings, refreshStatus, say, setLook, showDialog, usualView } from "./state.js";
 import { ago, bytes, count, KINDS, message, plural } from "./format.js";
 import { UpdatePanel } from "../ui/updates.js";
+import { AtlasLaunchSettings } from "./launch.js";
+import { ExitButton, exitOffered } from "./exit.js";
 
 function Folder({ id, label, value, fallback, setting, error }) {
   const [text, setText] = useState(null);
@@ -300,6 +304,7 @@ export function SettingsPage() {
         ? html`<i>Show in Atlas</i> on a game's page starts <span class="go-file">${st.atlas.program}</span> with the game's pack.`
         : info.kind === "windows" ? html`Atlas isn't found on this device (nothing opens .atlaspack files): install it, or set where its program is, for <i>Show in Atlas</i> on a game's page.`
         : html`Set where Atlas's program is for <i>Show in Atlas</i> on a game's page: on Linux nothing says where Atlas is.`}</p>
+      <${AtlasLaunchSettings} settings=${v} set=${set} />
     </section>` : null}
 
     <section class="go-set" id="set-downloads">
@@ -388,5 +393,11 @@ export function SettingsPage() {
       <p>Game Repo Go <span id="set-version">${st.version}</span>${info.kind ? ` for ${info.kind[0].toUpperCase()}${info.kind.slice(1)}` : ""}. Free software under the MIT licence.</p>
       <${UpdatePanel} call=${call} settings=${true} />
     </section>
+
+    ${exitOffered() ? html`<section class="go-set" id="set-exit">
+      <h2>Exit</h2>
+      <p class="muted">Ends Game Repo Go (in Game Mode there's no window to close). Downloads stop where they are and carry on when you open it again.</p>
+      <div><${ExitButton} id="set-exit-go" /></div>
+    </section>` : null}
   </section>`;
 }

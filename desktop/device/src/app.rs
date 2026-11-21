@@ -9,6 +9,7 @@ use crate::atlas;
 use crate::background;
 use crate::catalogue::{self, Catalogue};
 use crate::installs;
+use crate::launch;
 use crate::packs;
 use crate::pcgames;
 use crate::queue::{self, Ctx, Queue};
@@ -130,6 +131,10 @@ pub struct Settings {
     /// Atlas's program, for *Show in Atlas* (D224): empty, the one registered for
     /// `.atlaspack` files on Windows
     pub atlas_program: String,
+    /// Start Atlas with my games (D242, Linux): the contract's launch line in the launch
+    /// options of the Steam shortcuts Go makes for its PC games. None: on when Atlas's
+    /// AppImage is where the line names it, else off
+    pub atlas_with_games: Option<bool>,
 }
 
 impl Default for Settings {
@@ -160,6 +165,7 @@ impl Default for Settings {
             atlas_packs: false,
             atlas_folder: String::new(),
             atlas_program: String::new(),
+            atlas_with_games: None,
             retroarch: String::new(),
             save_folders: BTreeMap::new(),
             background_saves: true,
@@ -322,6 +328,8 @@ impl App {
         std::thread::spawn(move || {
             if let Some(a) = me.upgrade() {
                 a.follow_packs_folder();
+                // Atlas's launch line in Go's games as Atlas's settings say now (D242)
+                a.follow_atlas_line();
             }
         });
         app.queue.start();
@@ -486,6 +494,69 @@ impl App {
         if moved > 0 {
             self.changed("device");
         }
+    }
+
+    /// Whether Atlas can be started with Go's games through Steam's launch options (D242):
+    /// on Linux (the Steam Deck), where PC games get Steam shortcuts. The line is bash's, so
+    /// never on Windows, and Android has no Steam.
+    fn launch_offered(&self) -> bool {
+        cfg!(target_os = "linux") && self.pc()
+    }
+
+    /// The launch line on this device now ([`launch::launch`]), and whether Go puts it in its
+    /// games: *Start Atlas with my games* as set, else on when the AppImage is there.
+    fn atlas_launch_now(&self) -> (launch::Launch, bool) {
+        let l = launch::launch(&self.home());
+        let on = l.line.is_some() && self.settings().atlas_with_games.unwrap_or(l.exists);
+        (l, on)
+    }
+
+    /// Go's launch line in its games' Steam shortcuts as it should be now (D242): the line
+    /// for the AppImage Atlas's settings name (so Go's own lines follow a moved AppImage),
+    /// or none. Written at once while Steam's closed, else it waits as every change does. As
+    /// Go starts, after Settings change, after each read of the library and when Settings or
+    /// a game's page shows it.
+    fn follow_atlas_line(&self) {
+        if !self.launch_offered() {
+            return;
+        }
+        let (l, on) = self.atlas_launch_now();
+        let want = if on { l.line } else { None };
+        if steam::state(&self.data).atlas_line != want {
+            if let Err(e) = steam::set_atlas_line(&self.data, want) {
+                eprintln!("Game Repo Go: Atlas's launch line couldn't be put in Steam: {e:#}");
+            }
+            self.changed("settings");
+        }
+    }
+
+    /// *Start Atlas with my games* for Settings (D242): the line (or why there's none), where
+    /// its path comes from, whether the AppImage is there, the setting, and each game's.
+    fn atlas_launch(&self) -> Value {
+        if !self.launch_offered() {
+            return json!({ "offered": false });
+        }
+        self.follow_atlas_line();
+        let (l, on) = self.atlas_launch_now();
+        let home = self.home();
+        json!({ "offered": true, "path": l.path, "from": l.from, "exists": l.exists, "line": l.line, "refused": l.refused,
+            "usual": home.join(launch::USUAL), "settings_file": packs::atlas_settings_file(&home),
+            "setting": self.settings().atlas_with_games, "on": on, "games": steam::atlas_games(&self.data, None) })
+    }
+
+    /// A PC game's own switch for starting Atlas with it, for its page (D242): None when it
+    /// has no Steam shortcut of Go's here.
+    fn atlas_start(&self, key: &str) -> Option<Value> {
+        if !self.launch_offered() || !steam::state(&self.data).wanted.iter().any(|w| w.key == key) {
+            return None;
+        }
+        self.follow_atlas_line();
+        let (l, on) = self.atlas_launch_now();
+        let mut g = steam::atlas_games(&self.data, Some(key)).into_iter().next()?;
+        g["on"] = json!(on);
+        g["line"] = json!(l.line);
+        g["refused"] = json!(l.refused);
+        Some(g)
     }
 
     /// The user's folder, for where Atlas's packs folder usually is: the device's, else the
@@ -882,7 +953,7 @@ impl App {
                 let game = self.catalogue.game(&key);
                 let details = self.catalogue.details(self.server().as_ref(), &key).unwrap_or(None);
                 let packs = self.packs_view(&key, details.as_ref());
-                json!({ "game": game, "details": details, "on_device": self.keys_on_device().contains(&key), "packs": packs })
+                json!({ "game": game, "details": details, "on_device": self.keys_on_device().contains(&key), "packs": packs, "atlas_start": self.atlas_start(&key) })
             }
             // a game's packs of maps and guides for Atlas (D222)
             "guidebook_tick" => self.guidebook_tick(&arg::<String>(args, "key")?, &arg::<String>(args, "pack")?, &arg::<String>(args, "guidebook")?, arg::<bool>(args, "on")?)?,
@@ -994,6 +1065,17 @@ impl App {
             "pc_empty_aside" => json!({ "files": crate::pcfiles::empty_aside(&self.device()?, &arg::<String>(args, "key")?, &arg_or::<String>(args, "when"))? }),
             "add_media" => self.add_media(&arg_or::<String>(args, "id"), &arg_or::<String>(args, "key"), &arg::<Vec<String>>(args, "kinds")?)?,
             "steam" => steam::status(&self.data),
+            // Atlas started with Go's games through Steam's launch options (D242)
+            "atlas_launch" => self.atlas_launch(),
+            "atlas_launch_game" => {
+                if !self.launch_offered() {
+                    bail!("Atlas is started with games through Steam on Linux only.");
+                }
+                let key: String = arg(args, "key")?;
+                steam::set_atlas_game(&self.data, &key, arg::<bool>(args, "on")?)?;
+                self.changed("settings");
+                self.atlas_start(&key).unwrap_or(Value::Null)
+            }
             "steam_add_self" => {
                 let own = self.own();
                 let w = if arg_or::<bool>(args, "on") {
@@ -1083,6 +1165,9 @@ impl App {
                 if !new.atlas_program.trim().is_empty() && !Path::new(new.atlas_program.trim()).is_file() {
                     bail!("{} isn't a program here (Atlas's, such as {}).", new.atlas_program, if cfg!(windows) { r"C:\Program Files\Atlas\Atlas.exe" } else { "/opt/Atlas/atlas.AppImage" });
                 }
+                if new.atlas_with_games == Some(true) && !self.launch_offered() {
+                    bail!("Atlas is started with games through Steam on Linux only.");
+                }
                 if new.atlas_packs && !self.packs_offered() {
                     bail!("Maps and guides for Atlas aren't offered on this device yet.");
                 }
@@ -1115,6 +1200,10 @@ impl App {
                 if (old.saves, old.background_saves) != (new.saves, new.background_saves) {
                     self.background_again();
                     self.changed("saves");
+                }
+                // Start Atlas with my games changed: Go's games' launch options follow (D242)
+                if old.atlas_with_games != new.atlas_with_games {
+                    self.follow_atlas_line();
                 }
                 // Atlas's packs folder changed here: Go's packs follow it (D230)
                 if old.atlas_folder != new.atlas_folder {
@@ -1278,6 +1367,8 @@ impl App {
                         let _ = app.tell_contents(&s);
                         // packs in the folder used before, if it changed in Atlas (D230)
                         app.follow_packs_folder();
+                        // Go's launch line after a move of Atlas's AppImage (D242)
+                        app.follow_atlas_line();
                         // packs kept on their own that the library has newer (D225)
                         let _ = app.update_alone_packs(&s);
                         app.sync_saves();

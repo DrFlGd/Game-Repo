@@ -175,6 +175,18 @@ async fn leave(app: AppHandle) -> Result<(), String> {
     }
 }
 
+/// *Exit Game Repo Go* (D244): Game Mode has no window to close, so the page's own button
+/// ends it, as closing does elsewhere: a download stops where it is and goes on when Game
+/// Repo Go next opens (the queue is kept as it ends, `RunEvent::Exit`). The page asks first
+/// when something's running. Not on Android, where Android ends apps.
+#[tauri::command]
+fn quit(app: AppHandle) {
+    #[cfg(desktop)]
+    app.exit(0);
+    #[cfg(mobile)]
+    let _ = app;
+}
+
 const KIND: &str = if cfg!(target_os = "android") { "android" } else if cfg!(windows) { "windows" } else { "linux" };
 
 fn percent_decode(s: &str) -> String {
@@ -366,7 +378,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![api, app_info, pick_folder, storage, leave, keyboard]);
+        .invoke_handler(tauri::generate_handler![api, app_info, pick_folder, storage, leave, keyboard, quit]);
     // closing the window while games download keeps them going, with the icon by the clock
     #[cfg(desktop)]
     let app = app.on_window_event(|w, e| {

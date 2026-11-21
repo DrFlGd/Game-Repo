@@ -18,6 +18,7 @@ import { AddDialog, AddMediaDialog } from "./add.js";
 import { QueuePage, StartDialog } from "./queue.js";
 import { DevicePage, PendingRemoval, RemoveDialog, RoomDialog } from "./device.js";
 import { SettingsPage } from "./settings.js";
+import { ExitDialog } from "./exit.js";
 import { BigBar, BigGame, ChooseDialog, Hints, MediaDialog, OptionsDialog, Shelves, useFocus } from "./big.js";
 import { PacksDialog } from "./packs.js";
 import { MapsPage, showMaps } from "./maps.js";
@@ -89,6 +90,7 @@ function Dialogs({ dialog }) {
     case "pair": return html`<${PairDialog} />`;
     case "unpair": return html`<${UnpairDialog} library=${dialog.library} />`;
     case "options": return html`<${OptionsDialog} />`;
+    case "exit": return html`<${ExitDialog} />`;
     case "choose": return html`<${ChooseDialog} select=${dialog.select} />`;
     case "media": return html`<${MediaDialog} title=${dialog.title} media=${dialog.media} files=${dialog.files} />`;
     case "packs": return html`<${PacksDialog} gameKey=${dialog.key} title=${dialog.title} />`;

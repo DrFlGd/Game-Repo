@@ -4,8 +4,16 @@
 //! Steam's own files only while Steam is closed. While Steam runs they wait; *Restart
 //! Steam* starts a helper that outlives Steam (and Game Repo Go, which Steam closes with it
 //! in Game Mode), closes Steam, writes them and starts Steam again.
+//!
+//! On Linux a PC game's shortcut can start Atlas with the game (D242, "Maps and Guides
+//! notes, part 11"): the contract's launch line ([`crate::launch`]) goes in its launch
+//! options when Go's line is wanted (`atlas_line`, from Settings' *Start Atlas with my
+//! games*) and the game's switch isn't off (`atlas_off`). Launch options the person changed
+//! in Steam are never written over: each shortcut's are read back from shortcuts.vdf just
+//! before it's written ([`crate::launch::resolve`]).
 
 use crate::app::Settings;
+use crate::launch::{self, Outcome};
 use anyhow::{anyhow, bail, Result};
 use gamerepo_steam::Shortcut;
 use serde::{Deserialize, Serialize};
@@ -58,6 +66,9 @@ pub struct Written {
     /// The grid files written
     pub grid: Vec<String>,
     pub at: i64,
+    /// Go's own launch options of each shortcut when they were written (the game's
+    /// arguments), so a change of them in the library is still taken as Go's
+    pub launch: BTreeMap<u32, String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -65,6 +76,19 @@ pub struct Written {
 pub struct State {
     pub wanted: Vec<Wanted>,
     pub written: Written,
+    /// The launch line that starts Atlas with a game (D242), when Go puts it in its games'
+    /// shortcuts: Settings' *Start Atlas with my games* on, and a line for the AppImage
+    pub atlas_line: Option<String>,
+    /// The games whose own switch for Atlas is off, by their keys
+    pub atlas_off: BTreeSet<String>,
+}
+
+impl State {
+    /// The line wanted in a shortcut's launch options: none for Game Repo Go's own, nor for
+    /// a game whose switch is off.
+    fn line_for(&self, key: &str) -> Option<&str> {
+        (key != OWN && !self.atlas_off.contains(key)).then_some(self.atlas_line.as_deref()).flatten()
+    }
 }
 
 fn now() -> i64 {
@@ -124,11 +148,26 @@ fn target(data: &Path, s: &State) -> (Vec<Shortcut>, BTreeMap<u32, String>, Vec<
     (shortcuts, tools, grid)
 }
 
+/// Each wanted shortcut's launch options worked out against what Steam's file has now
+/// (`now`, by id): its id, and what to write ([`launch::resolve`]).
+fn launches(s: &State, shortcuts: &[Shortcut], now: &BTreeMap<u32, String>) -> Vec<(u32, launch::Resolved)> {
+    s.wanted
+        .iter()
+        .zip(shortcuts)
+        .map(|(w, sc)| (sc.appid, launch::resolve(now.get(&sc.appid).map(String::as_str), &w.args, s.line_for(&w.key), s.written.launch.get(&sc.appid).map(String::as_str))))
+        .collect()
+}
+
 /// Whether what's wanted differs from what was last written (for Steam's folder and user now).
 pub fn waiting(data: &Path) -> bool {
     let s = state(data);
     let Ok((steam, user)) = place(data) else { return false };
     let (shortcuts, tools, grid) = target(data, &s);
+    // a shortcut's launch options not yet as they should be (Atlas's line, D242)
+    let now = gamerepo_steam::launch_options(&steam, &user, TAG);
+    if launches(&s, &shortcuts, &now).iter().any(|(id, r)| now.get(id) != Some(&r.value)) {
+        return true;
+    }
     let w = &s.written;
     let ids: BTreeSet<u32> = shortcuts.iter().map(|x| x.appid).collect();
     let grid: BTreeSet<&String> = grid.iter().map(|(n, _)| n).collect();
@@ -152,10 +191,54 @@ pub fn want(data: &Path, key: &str, w: Option<Wanted>) -> Result<bool> {
         s.wanted.push(w);
     }
     save(data, &s)?;
+    write_if_closed(data)
+}
+
+/// What's waiting written now if Steam's closed; gives whether it's still waiting.
+fn write_if_closed(data: &Path) -> Result<bool> {
     if place(data).is_ok() && waiting(data) && !gamerepo_steam::running() {
         apply(data)?;
     }
     Ok(waiting(data))
+}
+
+/// The launch line Go puts in its games' shortcuts to start Atlas with them (D242), or none;
+/// written at once if Steam's closed and it changed. Gives whether something waits.
+pub fn set_atlas_line(data: &Path, line: Option<String>) -> Result<bool> {
+    let mut s = state(data);
+    if s.atlas_line != line {
+        s.atlas_line = line;
+        save(data, &s)?;
+    }
+    write_if_closed(data)
+}
+
+/// A game's own switch for starting Atlas with it (D242); written at once if Steam's closed.
+pub fn set_atlas_game(data: &Path, key: &str, on: bool) -> Result<bool> {
+    let mut s = state(data);
+    let changed = if on { s.atlas_off.remove(key) } else { s.atlas_off.insert(key.to_string()) };
+    if changed {
+        save(data, &s)?;
+    }
+    write_if_closed(data)
+}
+
+/// Starting Atlas with each of Go's games in Steam (D242), for the page: its key and name,
+/// its switch, how its launch options come out ([`Outcome`]), and whether that's still to be
+/// written. `only`: one game's.
+pub fn atlas_games(data: &Path, only: Option<&str>) -> Vec<Value> {
+    let s = state(data);
+    let (shortcuts, _, _) = target(data, &s);
+    let now = place(data).map(|(steam, user)| gamerepo_steam::launch_options(&steam, &user, TAG)).unwrap_or_default();
+    s.wanted
+        .iter()
+        .zip(launches(&s, &shortcuts, &now))
+        .filter(|(w, _)| w.key != OWN && only.is_none_or(|k| k == w.key))
+        .map(|(w, (id, r))| {
+            json!({ "key": w.key, "name": w.name, "switch": !s.atlas_off.contains(&w.key), "outcome": r.outcome,
+                "waiting": now.get(&id) != Some(&r.value), "options": now.get(&id) })
+        })
+        .collect()
 }
 
 /// Write what's wanted into Steam: only while it's closed.
@@ -165,7 +248,14 @@ pub fn apply(data: &Path) -> Result<Value> {
         bail!("Steam is running: its files are written once it's closed (Restart Steam does it).");
     }
     let mut s = state(data);
-    let (shortcuts, tools, grid) = target(data, &s);
+    let (mut shortcuts, tools, grid) = target(data, &s);
+    // each shortcut's launch options read back from Steam's file first: the person's own are
+    // never written over, Go's line goes in or out of Go's own (D242)
+    let launches = launches(&s, &shortcuts, &gamerepo_steam::launch_options(&steam, &user, TAG));
+    for (sc, (_, r)) in shortcuts.iter_mut().zip(&launches) {
+        sc.args = r.value.clone();
+    }
+    let launch: BTreeMap<u32, String> = s.wanted.iter().zip(&shortcuts).map(|(w, sc)| (sc.appid, w.args.clone())).collect();
     let stamp = now().to_string();
     let old = s.written.clone();
     // another user or Steam folder before: Game Repo Go's shortcuts come out of that one
@@ -194,9 +284,10 @@ pub fn apply(data: &Path) -> Result<Value> {
             written.push(name.clone());
         }
     }
-    s.written = Written { steam: steam.display().to_string(), user: user.clone(), appids: shortcuts.iter().map(|x| x.appid).collect(), tools, grid: written, at: now() };
+    s.written = Written { steam: steam.display().to_string(), user: user.clone(), appids: shortcuts.iter().map(|x| x.appid).collect(), tools, grid: written, at: now(), launch };
     save(data, &s)?;
-    Ok(json!({ "shortcuts": shortcuts.len(), "others": others }))
+    let theirs = launches.iter().filter(|(_, r)| r.outcome == Outcome::Theirs).count();
+    Ok(json!({ "shortcuts": shortcuts.len(), "others": others, "theirs": theirs }))
 }
 
 /// For the page: Steam found or not, running, its users, what's wanted and whether it waits.
@@ -331,6 +422,76 @@ mod tests {
         assert!(gamerepo_steam::tagged_ids(&steam, "22202", TAG).is_empty());
         assert_eq!(gamerepo_steam::compat_tool(&steam, id), None);
         assert!(!steam.join(format!("userdata/22202/config/grid/{id}p.png")).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A shortcut's launch options in Steam's file, as Steam would leave them after the person
+    /// changed them in a game's Properties.
+    fn set_options_in_steam(steam: &Path, appid: u32, options: &str) {
+        let file = steam.join("userdata/22202/config/shortcuts.vdf");
+        let top = gamerepo_steam::parse(&std::fs::read(&file).unwrap()).unwrap();
+        let list = gamerepo_steam::shortcuts_of(&top)
+            .into_iter()
+            .map(|v| match v {
+                gamerepo_steam::Vdf::Map(m) if gamerepo_steam::Vdf::Map(m.clone()).int("appid") == Some(appid) => gamerepo_steam::Vdf::Map(
+                    m.into_iter().map(|(k, x)| if k.eq_ignore_ascii_case(b"LaunchOptions") { (k, gamerepo_steam::Vdf::Str(options.as_bytes().to_vec())) } else { (k, x) }).collect(),
+                ),
+                other => other,
+            })
+            .collect();
+        std::fs::write(&file, gamerepo_steam::write(&gamerepo_steam::with_shortcuts(top, list))).unwrap();
+    }
+
+    #[test]
+    fn atlass_line_goes_only_into_gos_own_launch_options_and_follows_the_appimage() {
+        let dir = std::env::temp_dir().join(format!("gamerepo-go-steam-atlas-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (data, steam) = (dir.join("data"), dir.join("Steam"));
+        std::fs::create_dir_all(steam.join("userdata/22202/config")).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        let s = Settings { steam: steam.display().to_string(), ..Default::default() };
+        std::fs::write(data.join("settings.json"), serde_json::to_vec(&s).unwrap()).unwrap();
+        if gamerepo_steam::running() {
+            return;
+        }
+        let game = |name: &str, args: &str| Wanted { name: name.into(), program: format!("/home/deck/Games/{name}/game.sh"), start_dir: format!("/home/deck/Games/{name}"), args: args.into(), ..Default::default() };
+        want(&data, "pcgames/zeta", Some(game("Zeta Quest", ""))).unwrap();
+        want(&data, "pcgames/eta", Some(game("Eta Racer", "-windowed"))).unwrap();
+        want(&data, OWN, Some(game("Game Repo Go", ""))).unwrap();
+        let id = |name: &str| game(name, "").shortcut().appid;
+        let (zeta, eta, own) = (id("Zeta Quest"), id("Eta Racer"), id("Game Repo Go"));
+        let options = || gamerepo_steam::launch_options(&steam, "22202", TAG);
+        assert_eq!(options(), BTreeMap::from([(zeta, String::new()), (eta, "-windowed".into()), (own, String::new())]));
+        // the line wanted: written into the games' (empty, or the game's own arguments after
+        // it), never Game Repo Go's own
+        let line = launch::line("/home/deck/Applications/Atlas.AppImage");
+        assert!(!set_atlas_line(&data, Some(line.clone())).unwrap());
+        assert_eq!(options(), BTreeMap::from([(zeta, line.clone()), (eta, format!("{line} -windowed")), (own, String::new())]));
+        assert!(atlas_games(&data, None).iter().all(|g| g["outcome"] == "on" && g["waiting"] == false), "{:?}", atlas_games(&data, None));
+        // the person changes Zeta's in Steam: never written over, said so
+        set_options_in_steam(&steam, zeta, "gamemoderun %command%");
+        assert!(!waiting(&data), "theirs is as it should be");
+        apply(&data).unwrap();
+        assert_eq!(options()[&zeta], "gamemoderun %command%");
+        assert_eq!(atlas_games(&data, Some("pcgames/zeta"))[0]["outcome"], "theirs");
+        // the AppImage moved (linuxAppImage changed): Go's own lines follow it, theirs stays
+        let moved = launch::line("/run/media/deck/SD/Atlas.AppImage");
+        set_atlas_line(&data, Some(moved.clone())).unwrap();
+        assert_eq!(options(), BTreeMap::from([(zeta, "gamemoderun %command%".into()), (eta, format!("{moved} -windowed")), (own, String::new())]));
+        // Eta's switch off: exactly Go's line comes out, its own arguments stay
+        set_atlas_game(&data, "pcgames/eta", false).unwrap();
+        assert_eq!(options()[&eta], "-windowed");
+        assert_eq!(atlas_games(&data, Some("pcgames/eta"))[0]["switch"], false);
+        set_atlas_game(&data, "pcgames/eta", true).unwrap();
+        assert_eq!(options()[&eta], format!("{moved} -windowed"));
+        // the setting off: every line of Go's out, the person's left as they are
+        set_atlas_line(&data, None).unwrap();
+        assert_eq!(options(), BTreeMap::from([(zeta, "gamemoderun %command%".into()), (eta, "-windowed".into()), (own, String::new())]));
+        // while Steam's files can't be written, it waits (a change made with Steam running)
+        set_options_in_steam(&steam, eta, &format!("{moved} -windowed"));
+        assert!(waiting(&data), "Go's line out of Eta's is still to be written");
+        apply(&data).unwrap();
+        assert!(!waiting(&data));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

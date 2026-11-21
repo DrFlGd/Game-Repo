@@ -2,15 +2,18 @@
 //! Atlas Importer wrote, by the *Atlas pack contract for Game Repo*.
 //!
 //! The reading is Atlas's own `atlas-pack` crate (the contract's block A3), a git
-//! dependency pinned to Atlas's release tag v0.25.0 (format 8, packs of guidebooks); its
-//! `docs/pack-file-format.md` is the reference for the format.
+//! dependency pinned to Atlas's release tag v0.26.0 (format 9: routes, and a map's own
+//! icons kept for the person's own use); its `docs/pack-file-format.md` is the reference
+//! for the format.
 //! [`read_header`] reads the description from the front of the file only, and
 //! [`read_preview`] one small picture the description lists, from the entries right behind
 //! it. A file that's wrong is refused with the crate's [`Refusal`]: its sentence (not a pack
 //! file, a newer format naming the app that wrote it, a damaged description, a file that
 //! couldn't be opened), shown as it is, Game Repo doesn't guess; and its kind ([`kind_of`]),
 //! kept beside the sentence. Nothing in a pack is ever unpacked to disk by the names inside
-//! it, and no address in it is ever fetched.
+//! it, and no address in it is ever fetched. Only the small pictures under `preview/` are
+//! ever read (the cover and the maps'), never a type's picture of a map's own icons (format
+//! 9, `shareable: false`), which the contract says never leaves the person's own devices.
 //!
 //! What's Game Repo's own here: [`Description`], the crate's `Header` as a card reads it,
 //! every field optional (a format 6 pack has no `game`, `maps`, `guides` or `cover`), so it
@@ -28,9 +31,10 @@ pub use atlas_pack::{Refusal, RefusalKind, EXTENSION, FORMAT, VERSION};
 
 /// The release of Atlas's crate this build reads packs with (the tag `Cargo.toml` pins):
 /// when it changes, every pack in the index is read again once (`maps::read_folder`), as a
-/// newer crate reads more of a description (v0.25.0: `source.origin`) and newer formats
-/// (v0.25.0: format 8, packs of guidebooks), which the index kept refused.
-pub const READER: &str = "atlas-pack v0.25.0";
+/// newer crate reads more of a description (v0.25.0: `source.origin`; v0.26.0: `mine.routes`
+/// and `contents.typePictures`) and newer formats (v0.25.0: format 8, packs of guidebooks;
+/// v0.26.0: format 9, routes and a map's own icons), which the index kept refused.
+pub const READER: &str = "atlas-pack v0.26.0";
 
 /// A pack's description, read from the front of its file by Atlas's crate: refused, with
 /// the crate's [`Refusal`], when it isn't a pack file, needs a newer format than
@@ -133,6 +137,8 @@ pub struct Mine {
     pub pages: u64,
     pub sections: u64,
     pub notes: u64,
+    /// Their own routes (`mine/my-routes.json`, format 9)
+    pub routes: u64,
     pub guide_links: bool,
     pub group: bool,
 }
@@ -155,11 +161,16 @@ pub struct Description {
     /// `pack.updated`: when its content last changed (what two files of a pack compare by)
     pub updated: Option<String>,
     pub source: Source,
-    /// `contents`: maps, layers, locations, categories, regions, checklists, guides…
+    /// `contents`: maps, layers, locations, categories, regions, checklists, guides…, and
+    /// from format 9 `typePictures` (the types drawn with the map's own icons, which the file
+    /// carries for the person's own use)
     pub contents: BTreeMap<String, u64>,
     pub files: Option<u64>,
     pub bytes: Option<u64>,
     pub game: Game,
+    /// For the person's own use: `personalUse`, or the file carries a map's own icons (format
+    /// 9's `contents.typePictures`), pictures kept for their own use (`shareable: false`)
+    /// that make the file one for their own devices only
     pub personal_use: bool,
     pub cover: Option<String>,
     pub maps: Vec<MapInfo>,
@@ -285,7 +296,7 @@ impl Description {
             files: number(v, "files"),
             bytes: number(v, "bytes"),
             game: Game { title: text(&game, "title"), system: text(&game, "system") },
-            personal_use: v.get("personalUse").and_then(Value::as_bool).unwrap_or(false),
+            personal_use: v.get("personalUse").and_then(Value::as_bool).unwrap_or(false) || v.get("contents").and_then(|c| number(c, "typePictures")).is_some_and(|n| n > 0),
             cover: text(v, "cover"),
             maps: list("maps")
                 .iter()
@@ -306,6 +317,7 @@ impl Description {
                 pages: number(m, "pages").unwrap_or(0),
                 sections: number(m, "sections").unwrap_or(0),
                 notes: number(m, "notes").unwrap_or(0),
+                routes: number(m, "routes").unwrap_or(0),
                 guide_links: m.get("guideLinks").and_then(Value::as_bool).unwrap_or(false),
                 group: m.get("group").and_then(Value::as_bool).unwrap_or(false),
             }),
@@ -398,6 +410,7 @@ impl Description {
             (m.areas, "areas"),
             (m.pages + m.sections, "guide pages"),
             (m.notes, "notes"),
+            (m.routes, "routes"),
             (m.photos, "photos"),
         ]
         .into_iter()
@@ -708,14 +721,14 @@ pub(crate) mod tests {
         wrong["format"] = json!("something-else");
         write_pack(&other, &wrong, &[]);
         assert_eq!(refused(read_header(&other)), not);
-        // version 9 is newer than the crate reads (v0.25.0 reads 8): the sentence names what wrote it, and its
+        // version 10 is newer than the crate reads (v0.26.0 reads 9): the sentence names what wrote it, and its
         // advice names no app (the app reading it is the one to update), shown as it is
-        let mut nine = format7("x", "X", "2026-01-01T00:00:00Z");
-        nine["version"] = json!(9);
-        write_pack(&other, &nine, &[]);
+        let mut ten = format7("x", "X", "2026-01-01T00:00:00Z");
+        ten["version"] = json!(10);
+        write_pack(&other, &ten, &[]);
         assert_eq!(
             refused(read_header(&other)),
-            ("newer-format", "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 9). A newer version of this app is needed to open it.".to_string())
+            ("newer-format", "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 10). A newer version of this app is needed to open it.".to_string())
         );
         // a description that's missing a field every pack has (the contract's answer 2): damaged
         for field in ["format", "version", "packId", "title", "packVersion", "detail", "exportedAt", "exportedBy", "pack", "source", "contents", "images", "files", "bytes"] {
@@ -787,6 +800,61 @@ pub(crate) mod tests {
         assert_eq!(Description::from_value(v.clone()).own_things().as_deref(), Some("With your own photos"));
         v["mine"] = json!({});
         assert_eq!(Description::from_value(v).own_things().as_deref(), Some("With your own things"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A pack of format 9 (Atlas 0.26.0): the pack's routes (`routes.json`), the person's own
+    /// (`mine/my-routes.json`, counted as `routes` in `mine`), and the map's own icons (types
+    /// that name a picture, the pictures in `pictures.json` with `shareable: false`, counted as
+    /// `typePictures` in `contents`).
+    pub(crate) fn format9(id: &str, game: &str, updated: &str) -> (Value, Vec<(&'static str, Vec<u8>)>) {
+        let mut d = format7(id, game, updated);
+        d["version"] = json!(9);
+        d["contents"]["typePictures"] = json!(2);
+        d["mine"] = json!({ "lists": 1, "locations": 4, "routes": 3 });
+        let more = vec![
+            ("routes.json", br#"{"routes":[{"id":"r1","name":"The long way round","points":[[1,2],[3,4]]}]}"#.to_vec()),
+            ("categories.json", br#"{"categories":[{"id":"chest","icon":"chest","picture":"pictures/type-chest.png"},{"id":"well","icon":"water","picture":"pictures/type-well.png"}]}"#.to_vec()),
+            ("pictures.json", br#"{"pictures":[{"name":"pictures/type-chest.png","shareable":false},{"name":"pictures/type-well.png","shareable":false,"cut":[0,0,32,32]}]}"#.to_vec()),
+            ("pictures/type-chest.png", vec![0x89, b'P', b'N', b'G', 1, 2, 3]),
+            ("pictures/type-well.png", vec![0x89, b'P', b'N', b'G', 4, 5, 6]),
+            ("mine/my-routes.json", br#"{"routes":[{"id":"m1"},{"id":"m2"},{"id":"m3"}]}"#.to_vec()),
+        ];
+        (d, more)
+    }
+
+    #[test]
+    fn a_pack_of_format_9_with_routes_and_the_maps_icons_is_read_and_its_icons_never_shown() {
+        let dir = dir("format9");
+        let path = dir.join("Delta - Example Maps.atlaspack");
+        let (v, more) = format9("delta-example-maps", "Delta", "2026-11-20T08:30:00Z");
+        write_pack_with(&path, &v, &[("preview/map-one.jpg", jpeg(3)), ("preview/map-two.jpg", jpeg(5))], &more);
+        // read as any pack, not refused as a newer format
+        let d = read_header(&path).unwrap();
+        assert_eq!((d.version, d.pack_id.as_deref(), d.sort()), (9, Some("delta-example-maps"), Some(Sort::Site)));
+        // its counts: the maps' icons in contents, the person's own routes in mine
+        assert_eq!((d.contents.get("typePictures"), d.contents.get("maps"), d.contents.get("locations")), (Some(&2), Some(&2), Some(&1840)));
+        assert_eq!(d.mine.as_ref().map(|m| (m.lists, m.locations, m.routes)), Some((1, 4, 3)));
+        assert_eq!(d.own_things().as_deref(), Some("With your own lists, locations and routes"));
+        let c = card(&d);
+        assert_eq!((c["contents"]["typePictures"].clone(), c["mine"]["routes"].clone(), c["personal_use"].clone()), (json!(2), json!(3), json!(true)));
+        // the map's icons make the file one for the person's own devices, even without personalUse
+        let mut v2 = v.clone();
+        v2.as_object_mut().unwrap().remove("personalUse");
+        assert!(Description::from_value(v2.clone()).personal_use);
+        v2["contents"]["typePictures"] = json!(0);
+        assert!(!Description::from_value(v2).personal_use, "no icons, no personalUse: not for own use");
+        // only the cover and the maps' small pictures are ever read: never a type's picture
+        assert_eq!(d.previews(), ["preview/map-one.jpg", "preview/map-two.jpg"]);
+        assert_eq!(read_preview(&path, "preview/map-two.jpg").unwrap(), jpeg(5));
+        for name in ["pictures/type-chest.png", "pictures/type-well.png", "routes.json", "mine/my-routes.json"] {
+            assert!(read_preview(&path, name).is_err(), "{name} is never read as a picture");
+        }
+        // the crate's own version: 9
+        assert_eq!(VERSION, 9);
+        // a description without the new fields has none
+        let old = Description::from_value(format7("x", "X", "2026-01-01T00:00:00Z"));
+        assert_eq!((old.contents.get("typePictures"), old.mine.map(|m| m.routes)), (None, None));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -929,7 +997,7 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let file = dir.join("Hollow Marsh guidebooks.atlaspack");
         guidebook_pack(&file, "guidebooks-hollow-marsh", "Hollow Marsh");
-        assert_eq!(VERSION, 8);
+        assert!(VERSION >= 8, "the crate reads format 8 (v0.26.0 reads up to 9)");
         let d = read_header(&file).unwrap();
         assert_eq!((d.version, d.pack_id.as_deref(), d.game_title()), (8, Some("guidebooks-hollow-marsh"), Some("Hollow Marsh")));
         assert_eq!((d.sort(), d.made_in(), d.site(), d.from_words().as_deref()), (Some(Sort::Guidebooks), None, None, Some("Guidebooks")));
