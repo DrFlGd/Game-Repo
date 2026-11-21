@@ -59,7 +59,9 @@ pub fn why_not(path: &str) -> Option<String> {
         };
         return Some(format!("its path holds {named}"));
     }
-    if !path.starts_with('/') || !Path::new(path).is_absolute() {
+    // A Linux path (the line is for bash on Linux), judged the same on every system Go is
+    // built and tested on: a full path starts at `/`.
+    if !path.starts_with('/') {
         return Some("it isn't a full path".into());
     }
     None
@@ -92,7 +94,7 @@ pub fn appimage_said(settings: Option<&Value>) -> Option<String> {
 pub fn launch_from(said: Option<&str>, home: &Path, is_file: impl Fn(&Path) -> bool) -> Launch {
     let (path, from) = match said {
         Some(p) => (p.to_string(), "atlas"),
-        None => (home.join(USUAL).to_string_lossy().into_owned(), "usual"),
+        None => (format!("{}/{USUAL}", home.to_string_lossy().trim_end_matches('/')), "usual"),
     };
     let refused = why_not(&path);
     Launch { exists: refused.is_none() && is_file(Path::new(&path)), line: refused.is_none().then(|| line(&path)), refused, path, from }
