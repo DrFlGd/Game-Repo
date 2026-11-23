@@ -1,0 +1,14 @@
+
+> tauri
+> tauri android init --ci
+
+        Info Using installed NDK: /usr/local/lib/android/sdk/ndk/30.0.16248370
+        Info Installing Android Rust targets...
+        Info Installing target armv7-linux-androideabi
+info: downloading component rust-std
+        Info Installing target i686-linux-android
+info: downloading component rust-std
+Generating Android Studio project...
+        Info "/home/runner/work/Game-Repo/Game-Repo/desktop/client" relative to "/home/runner/work/Game-Repo/Game-Repo/desktop/client/gen/android/gamerepo_client" is "../../../"
+victory: Project generated successfully!
+    Make cool apps! 🌻 🐕 🎉

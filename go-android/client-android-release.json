@@ -1,0 +1,18 @@
+[
+ [
+  "the release APK starts on the pairing page",
+  true
+ ],
+ [
+  "its plugin answers after minifying (the access note needs it)",
+  true
+ ],
+ [
+  "it doesn't crash",
+  true
+ ],
+ [
+  "its saves' job is set up through WorkManager after minifying",
+  true
+ ]
+]
