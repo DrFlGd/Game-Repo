@@ -272,6 +272,27 @@ pub struct Own {
     pub program: PathBuf,
     pub icon: PathBuf,
     pub helper: Vec<String>,
+    /// Its own pictures for Steam's library (cover, banner, hero, logo), as files the app
+    /// wrote beside its data: Steam's grid takes files
+    pub art: Vec<(String, PathBuf)>,
+}
+
+/// Game Repo Go's own pictures for Steam's library written into `steam-art/` in its data
+/// folder (media kind, file name, the picture), each only when it differs, so a newer
+/// version's reach Steam; gives them for [`Own::art`].
+pub fn own_art(data: &Path, pictures: &[(&str, &str, &[u8])]) -> Vec<(String, PathBuf)> {
+    let dir = data.join("steam-art");
+    let _ = std::fs::create_dir_all(&dir);
+    pictures
+        .iter()
+        .filter_map(|(kind, name, bytes)| {
+            let file = dir.join(name);
+            if std::fs::read(&file).ok().as_deref() != Some(*bytes) && std::fs::write(&file, bytes).is_err() {
+                return None;
+            }
+            Some((kind.to_string(), file))
+        })
+        .collect()
 }
 
 /// How often the library is looked for at another address while it can't be reached,
@@ -360,6 +381,37 @@ impl App {
     /// What Game Repo Go is (its program, icon and Steam helper).
     pub fn set_own(&self, own: Own) {
         *self.own.lock().unwrap_or_else(|e| e.into_inner()) = own;
+        // already in Steam: its shortcut brought up to date (a new place for the AppImage,
+        // or pictures a newer version brings), written when Steam's next closed
+        let had = steam::state(&self.data).wanted.into_iter().find(|w| w.key == steam::OWN);
+        if let (Some(had), Some(now)) = (had, self.own_wanted()) {
+            if had != now {
+                let _ = steam::want(&self.data, steam::OWN, Some(now));
+            }
+        }
+    }
+
+    /// Game Repo Go's own shortcut in Steam: its program, its icon and its pictures for
+    /// Steam's library. None where it can't add itself (no program).
+    fn own_wanted(&self) -> Option<steam::Wanted> {
+        let own = self.own();
+        if own.program.as_os_str().is_empty() {
+            return None;
+        }
+        let icon = own.icon.display().to_string();
+        let mut art: BTreeMap<String, String> = own.art.iter().map(|(kind, p)| (kind.clone(), p.display().to_string())).collect();
+        if !icon.is_empty() {
+            art.insert("icon".into(), icon.clone());
+        }
+        Some(steam::Wanted {
+            key: steam::OWN.into(),
+            name: "Game Repo Go".into(),
+            program: own.program.display().to_string(),
+            start_dir: own.program.parent().map(|p| p.display().to_string()).unwrap_or_default(),
+            icon,
+            art,
+            ..Default::default()
+        })
     }
 
     fn own(&self) -> Own {
@@ -1169,20 +1221,8 @@ impl App {
                 self.atlas_start(&key).unwrap_or(Value::Null)
             }
             "steam_add_self" => {
-                let own = self.own();
                 let w = if arg_or::<bool>(args, "on") {
-                    if own.program.as_os_str().is_empty() {
-                        bail!("Game Repo Go can't add itself to Steam from here.");
-                    }
-                    let icon = own.icon.display().to_string();
-                    Some(steam::Wanted {
-                        name: "Game Repo Go".into(),
-                        program: own.program.display().to_string(),
-                        start_dir: own.program.parent().map(|p| p.display().to_string()).unwrap_or_default(),
-                        icon: icon.clone(),
-                        art: if icon.is_empty() { BTreeMap::new() } else { BTreeMap::from([("icon".to_string(), icon)]) },
-                        ..Default::default()
-                    })
+                    Some(self.own_wanted().ok_or_else(|| anyhow!("Game Repo Go can't add itself to Steam from here."))?)
                 } else {
                     None
                 };
