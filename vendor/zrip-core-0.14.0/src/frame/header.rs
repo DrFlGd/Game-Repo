@@ -1,0 +1,221 @@
+//! Frame header parsing.
+
+#![forbid(unsafe_code)]
+
+use crate::error::DecompressError;
+use crate::frame::ZSTD_MAGIC;
+
+/// A parsed frame header.
+#[derive(Debug, Clone)]
+pub struct FrameHeader {
+    /// Window size in bytes. Single-segment frames use the content size.
+    pub window_size: u64,
+    /// Decompressed size, when the header gives it.
+    pub frame_content_size: Option<u64>,
+    /// Dictionary ID, when present and nonzero.
+    pub dict_id: Option<u32>,
+    /// Whether a 4-byte checksum (low 32 bits of XXH64) ends the frame.
+    pub content_checksum: bool,
+    /// Whether the window is the whole content (no window descriptor).
+    pub single_segment: bool,
+    /// Header size in bytes. Includes the magic number, unless parsed with
+    /// [`parse_frame_header_after_magic`] and a `magic_size` of 0.
+    pub header_size: usize,
+}
+
+/// Largest window log a frame header may give, as C zstd's
+/// `ZSTD_WINDOWLOG_MAX`.
+const WINDOW_LOG_MAX: u64 = if cfg!(target_pointer_width = "32") {
+    30
+} else {
+    31
+};
+
+/// Parses the frame header at the start of `data`, magic number first.
+pub fn parse_frame_header(data: &[u8]) -> Result<FrameHeader, DecompressError> {
+    if data.len() < 4 {
+        return Err(DecompressError::InputExhausted);
+    }
+
+    let magic = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    if magic != ZSTD_MAGIC {
+        return Err(DecompressError::BadMagic);
+    }
+
+    parse_frame_header_after_magic(&data[4..], 4)
+}
+
+/// Parses a frame header that starts after the magic number. Adds
+/// `magic_size` to `header_size`, for callers that skipped the magic.
+/// Truncation fails with [`DecompressError::BadFrameHeader`].
+pub fn parse_frame_header_after_magic(
+    data: &[u8],
+    magic_size: usize,
+) -> Result<FrameHeader, DecompressError> {
+    if data.is_empty() {
+        return Err(DecompressError::BadFrameHeader);
+    }
+
+    // Frame_Header_Descriptor: bits 7-6 content size field, 5 single
+    // segment, 4 unused, 3 reserved, 2 checksum, 1-0 dict ID field.
+    let descriptor = data[0];
+    let dict_id_flag = descriptor & 0x03;
+    let content_checksum = (descriptor & 0x04) != 0;
+    let single_segment = (descriptor & 0x20) != 0;
+    let fcs_field_size_flag = (descriptor >> 6) & 0x03;
+
+    let reserved = (descriptor & 0x08) != 0;
+    if reserved {
+        return Err(DecompressError::BadFrameHeader);
+    }
+    // Descriptor bit 4 is unused and must be ignored by decoders.
+
+    let mut offset = 1;
+
+    let window_size = if single_segment {
+        0
+    } else {
+        if data.len() <= offset {
+            return Err(DecompressError::BadFrameHeader);
+        }
+        let window_desc = data[offset];
+        offset += 1;
+        // Window_Descriptor: `(1 << (10 + exponent)) * (1 + mantissa / 8)`.
+        let exponent = (window_desc >> 3) as u64;
+        let mantissa = (window_desc & 0x07) as u64;
+        let window_base = 1u64 << (10 + exponent);
+        let window_add = (window_base >> 3) * mantissa;
+        // As C zstd (`ZSTD_WINDOWLOG_MAX`): at most 2^31 bytes, 2^30 on
+        // 32-bit targets.
+        if 10 + exponent > WINDOW_LOG_MAX {
+            return Err(DecompressError::WindowTooLarge {
+                requested: window_base + window_add,
+                max: 1 << WINDOW_LOG_MAX,
+            });
+        }
+        window_base + window_add
+    };
+
+    let dict_id_size = match dict_id_flag {
+        0 => 0,
+        1 => 1,
+        2 => 2,
+        3 => 4,
+        _ => unreachable!(),
+    };
+
+    let dict_id = if dict_id_size > 0 {
+        if data.len() < offset + dict_id_size {
+            return Err(DecompressError::BadFrameHeader);
+        }
+        let id = match dict_id_size {
+            1 => data[offset] as u32,
+            2 => u16::from_le_bytes([data[offset], data[offset + 1]]) as u32,
+            4 => u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]),
+            _ => unreachable!(),
+        };
+        offset += dict_id_size;
+        (id != 0).then_some(id)
+    } else {
+        None
+    };
+
+    let fcs_field_size = match fcs_field_size_flag {
+        0 => {
+            if single_segment {
+                1
+            } else {
+                0
+            }
+        }
+        1 => 2,
+        2 => 4,
+        3 => 8,
+        _ => unreachable!(),
+    };
+
+    let frame_content_size = if fcs_field_size > 0 {
+        if data.len() < offset + fcs_field_size {
+            return Err(DecompressError::BadFrameHeader);
+        }
+        let fcs = match fcs_field_size {
+            1 => data[offset] as u64,
+            // The 2-byte field stores the size minus 256.
+            2 => u16::from_le_bytes([data[offset], data[offset + 1]]) as u64 + 256,
+            4 => u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]) as u64,
+            8 => u64::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
+            ]),
+            _ => unreachable!(),
+        };
+        offset += fcs_field_size;
+        Some(fcs)
+    } else {
+        None
+    };
+
+    let final_window_size = if single_segment {
+        frame_content_size.unwrap_or(0)
+    } else {
+        window_size
+    };
+
+    Ok(FrameHeader {
+        window_size: final_window_size,
+        frame_content_size,
+        dict_id,
+        content_checksum,
+        single_segment,
+        header_size: offset + magic_size,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_minimal_header() {
+        let data = [0x28, 0xB5, 0x2F, 0xFD, 0x20, 0x00];
+        let hdr = parse_frame_header(&data).unwrap();
+        assert!(hdr.single_segment);
+        assert!(!hdr.content_checksum);
+        assert_eq!(hdr.dict_id, None);
+        assert_eq!(hdr.frame_content_size, Some(0));
+    }
+
+    #[test]
+    fn bad_magic() {
+        let data = [0x00, 0x00, 0x00, 0x00, 0x00];
+        assert!(matches!(
+            parse_frame_header(&data),
+            Err(DecompressError::BadMagic)
+        ));
+    }
+
+    #[test]
+    fn parse_header_after_magic() {
+        let data = [0x20, 0x00];
+        let hdr = parse_frame_header_after_magic(&data, 0).unwrap();
+        assert!(hdr.single_segment);
+        assert_eq!(hdr.frame_content_size, Some(0));
+        assert_eq!(hdr.header_size, 2);
+    }
+}

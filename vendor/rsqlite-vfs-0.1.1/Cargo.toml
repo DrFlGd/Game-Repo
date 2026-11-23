@@ -1,0 +1,31 @@
+[dependencies.hashbrown]
+default-features = false
+features = ["default-hasher"]
+version = "0.16.1"
+
+[dependencies.thiserror]
+default-features = false
+version = "2.0.12"
+
+[dev-dependencies.rand]
+version = "0.9"
+
+[lib]
+path = "src/lib.rs"
+
+[package]
+autobenches = false
+autobins = false
+autoexamples = false
+autolib = false
+autotests = false
+categories = ["development-tools::ffi", "wasm", "database"]
+description = "Helping to implement SQLite VFS."
+edition = "2021"
+include = ["src/**/*.rs", "build.rs", "sqlite3/**/*.c", "sqlite3/**/*.h", "sqlite3mc/**/*.c", "sqlite3mc/**/*.h", "shim/**/*.h", "shim/**/*.c", "Cargo.toml", "/README.md", "LICENSE"]
+keywords = ["sqlite", "vfs"]
+license = "MIT"
+name = "rsqlite-vfs"
+readme = "README.md"
+rust-version = "1.81.0"
+version = "0.1.1"
