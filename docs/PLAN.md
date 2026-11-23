@@ -8637,6 +8637,14 @@ Tests:
 For the Atlas side: nothing asked. If Atlas changes its updater key, its release's file
 names, the install mode, or `latest.json`'s shape, Go has to follow.
 
+The contract's rev 50 (2026-11-23): Atlas Importer now finds the library on its own. It
+reads Game Repo's `config.json` (`%APPDATA%\io.github.drflgd.gamerepo\config.json`, or
+`$XDG_CONFIG_HOME/io.github.drflgd.gamerepo/config.json` on Linux), takes its `library`
+field, else `~/Game Repo`, and writes packs to `Maps and Guides` in it. Nothing to build:
+`config::app_dirs`, `Config::library` and `default_library_path` already match, and their
+comments now say Atlas counts on these names. Renaming the app folder, the file, the field
+or the default library means telling the contract first.
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
