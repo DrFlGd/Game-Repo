@@ -100,6 +100,8 @@ Phases 1 and 2a are released (v0.1.0, v0.2.0); 2b (disc systems and conversion),
 
 ## Unreleased
 
+## 0.5.80 (2026-11-23)
+
 - **Your magazines go to Atlas.** Each magazine on the Magazines page goes to Atlas in a pack of its own (Atlas 0.29.0): its issues with their covers, dates and numbers, the text you've read from them, and the games you've ticked in each with their pages, so Atlas can show which issues cover a game. Game Repo Go's *Maps and guides* lists every magazine under *Magazines*, to install on its own; Game Repo Server makes the pack the first time a device asks for it and again when the magazine changes, and Go takes the newer one. A CBR goes as a CBZ, and an issue that can't go says why in its panel, where each issue also says which pack it goes in.
 - **Packs from Atlas 0.29.0 are read** (format 10): a pack of magazines put in Maps and Guides by hand is listed as *Magazines* and never linked to a game by its title.
 - **Install Atlas from Game Repo Go.** On Windows and Linux (the Steam Deck too), Settings › Maps and guides for Atlas has *Install Atlas* while Atlas isn't installed: Game Repo Go downloads Atlas's latest release from GitHub, checks it's signed by Atlas, and installs it, for you only and without asking for an administrator on Windows, as `Atlas.AppImage` in the Applications folder of your home folder on Linux. A download that doesn't match Atlas's signature is deleted and nothing is installed. Once Atlas is there, Settings says where; Game Repo Go never updates it, as Atlas updates itself. *Show in Atlas* and the Steam launch line offer *Install Atlas* when Atlas isn't found, and on Linux *Show in Atlas* now finds Atlas's AppImage by itself. Nothing is installed unless you press it.
