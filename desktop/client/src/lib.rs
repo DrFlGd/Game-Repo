@@ -115,7 +115,8 @@ fn keyboard() {
 }
 
 /// Game Repo Go itself on Linux (D107): its program (the AppImage it runs from), its icon
-/// (written beside its data, as Steam needs a file) and its Steam helper (main.rs).
+/// and its pictures for Steam's library (written beside its data, as Steam needs files) and
+/// its Steam helper (main.rs).
 #[cfg(target_os = "linux")]
 fn own(data: &std::path::Path) -> gamerepo_device::app::Own {
     let program = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from).or_else(|| std::env::current_exe().ok()).unwrap_or_default();
@@ -126,7 +127,14 @@ fn own(data: &std::path::Path) -> gamerepo_device::app::Own {
         let _ = std::fs::write(&icon, ICON);
     }
     let helper = vec![program.display().to_string(), "--steam-apply".into(), data.display().to_string()];
-    gamerepo_device::app::Own { program, icon, helper }
+    // its pictures for Steam's library (tools/make_steam_art.py)
+    let art = gamerepo_device::app::own_art(data, &[
+        ("cover", "cover.png", include_bytes!("../steam/cover.png")),
+        ("banner", "banner.png", include_bytes!("../steam/banner.png")),
+        ("hero", "hero.png", include_bytes!("../steam/hero.png")),
+        ("logo", "logo.png", include_bytes!("../steam/logo.png")),
+    ]);
+    gamerepo_device::app::Own { program, icon, helper, art }
 }
 
 /// A folder chosen (ES-DE's folder or the ROMs folder in Settings). None if cancelled.

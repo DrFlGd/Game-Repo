@@ -782,9 +782,15 @@ async def main():
             await pg.wait_for_selector("#set-steam-done")
             vdf = (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
             mine = b"Game Repo Go" in vdf and Path(cli).name.encode() in vdf
+            grid_dir = steam_dir / "userdata" / "22202" / "config" / "grid"
+            # its own pictures (the stand-in's, whose files hold their kind): <id>p, <id>,
+            # <id>_hero and <id>_logo, all with one id
+            own_grid = {f.read_bytes(): f.name for f in grid_dir.iterdir() if f.read_bytes() in (b"cover", b"banner", b"hero", b"logo")} if grid_dir.is_dir() else {}
+            own_id = own_grid.get(b"banner", "?.png")[:-4]
+            art = own_grid == {b"cover": f"{own_id}p.png", b"banner": f"{own_id}.png", b"hero": f"{own_id}_hero.png", b"logo": f"{own_id}_logo.png"}
             await shot(pg, "16-pc-linux-steam")
-            check("on Linux, Settings adds Game Repo Go to Steam's library, written while Steam's closed",
-                  not_on_windows and mine, (not_on_windows, vdf[:200]))
+            check("on Linux, Settings adds Game Repo Go to Steam's library with its own pictures (cover, banner, hero, logo), written while Steam's closed",
+                  not_on_windows and mine and art, (not_on_windows, vdf[:200], own_grid))
             # D244: Exit Game Repo Go on Linux, where Game Mode has no window to close: in
             # Settings and in the big screen's Options (☰), reachable by a controller; with
             # nothing running it ends Game Repo Go at once (the stand-in counts it)

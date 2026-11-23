@@ -343,11 +343,14 @@ pub fn device_command(mut a: Args) -> Result<()> {
     }
 }
 
-/// The stand-in as Game Repo Go: this program, and its Steam helper (`device steam-apply`).
+/// The stand-in as Game Repo Go: this program, its Steam helper (`device steam-apply`) and
+/// stand-ins for its pictures in Steam's library.
 fn own(data: &std::path::Path) -> device::app::Own {
     let program = std::env::current_exe().unwrap_or_default();
     let helper = vec![program.display().to_string(), "device".into(), "steam-apply".into(), "--data".into(), data.display().to_string()];
-    device::app::Own { program, icon: PathBuf::new(), helper }
+    // stand-ins for its pictures for Steam's library: the page test finds them in Steam's grid
+    let art = device::app::own_art(data, &[("cover", "cover.png", b"cover"), ("banner", "banner.png", b"banner"), ("hero", "hero.png", b"hero"), ("logo", "logo.png", b"logo")]);
+    device::app::Own { program, icon: PathBuf::new(), helper, art }
 }
 
 /// Game Repo Go's backend run as its pages call it (`device app <command> [<args as JSON>]`),

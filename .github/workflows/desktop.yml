@@ -844,6 +844,8 @@ jobs:
         run: |
           ls -la dist
           ls dist/"Game Repo_${V}_x64-setup.exe" dist/"Game Repo Server_${V}_x64-setup.exe" dist/"Game Repo Go_${V}_x64-setup.exe" dist/"Game Repo Go_${V}_amd64.AppImage" > /dev/null   # the installers are this version's
+          # Game Repo Go's pictures for Steam's library (tools/make_steam_art.py), for adding it by hand
+          (cd desktop/client/steam && zip -q -X "$GITHUB_WORKSPACE/dist/Game Repo Go_${V}_steam-artwork.zip" cover.png banner.png hero.png logo.png icon.png)
           # the update files the programs read (D134), each signature checked against the
           # public key first; none until the update key is in the secrets
           updates=no
@@ -869,6 +871,7 @@ jobs:
             fi
             echo
             echo "**Steam Deck and Linux:** \`Game Repo Go_${V}_amd64.AppImage\` is Game Repo Go for a Steam Deck, or a Linux computer with ES-DE. On the Deck, in Desktop Mode: download it, right-click it › Properties › Permissions › tick Is executable, and open it. In its Settings › Steam, tick \"Game Repo Go in Steam's library\", and it's in Game Mode's library too, where the Deck's controls work it."
+            echo "\`Game Repo Go_${V}_steam-artwork.zip\` has its pictures for Steam's library (portrait and wide capsules, hero, logo, icon): Game Repo Go puts them on its own shortcut, and they're here for anyone adding them by hand (in Steam's library on the desktop: right-click the picture › Manage › Set custom artwork)."
             if ls dist/*.deb "dist/Game Repo_${V}_amd64.AppImage" > /dev/null 2>&1; then
               echo "**Linux:** Game Repo itself, the \`.deb\` or \`Game Repo_${V}_amd64.AppImage\`."
             fi
