@@ -26,10 +26,11 @@ export const go = createStore({
   queueRev: 0,
   savesRev: 0,                 // counts the saves' syncs (D186)
   tailscaleRev: 0,             // counts what Tailscale's doing changing while a set-up runs (D179)
+  atlasRev: 0,                 // counts Install Atlas's steps (D250)
   deviceSort: "system",        // On this device's order (D115)
   roomFor: 0,                  // Make room: the bytes the Library's selected games need
   dialog: null,                // { type: "add" | "remove" | "pair" | …, … }
-  toast: null,                 // { text, page? }
+  toast: null,                 // { text, page?, label? }
 });
 
 // ---- the address: #library, #games, #game/<key>, #maps, #queue, #device, #settings -----
@@ -56,10 +57,11 @@ export function back() {
 // ---- messages and dialogs ------------------------------------------------------------
 
 let toastTimer = null;
-/** A short message at the bottom; `page` adds a link to it ("See the queue"). */
-export function say(text, page = null) {
+/** A short message at the bottom; `page` adds a link to it ("See the queue"), with `label`
+ *  its words when they aren't the page's own, and `page#id` scrolling to a part of it. */
+export function say(text, page = null, label = null) {
   clearTimeout(toastTimer);
-  go.set({ toast: { text, page } });
+  go.set({ toast: { text, page, label } });
   toastTimer = setTimeout(() => go.set({ toast: null }), 6000);
 }
 
@@ -148,6 +150,8 @@ export async function load() {
       go.set((s) => ({ savesRev: s.savesRev + 1 }));
     } else if (what === "tailscale") {
       go.set((s) => ({ tailscaleRev: s.tailscaleRev + 1 }));
+    } else if (what === "atlas") {
+      go.set((s) => ({ atlasRev: s.atlasRev + 1 }));
     }
   });
   // the library brought up to date each time Game Repo Go opens (D98)

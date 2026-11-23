@@ -16,6 +16,7 @@ import { call, info, pictureUrl } from "./backend.js";
 import { go, say } from "./state.js";
 import { ago, bytes, message, plural } from "./format.js";
 import { holds } from "./packs.js";
+import { sayAtlas } from "./atlas.js";
 
 /** Whether Maps and guides is offered on this device (beside the games in the menu). */
 export const showMaps = (status) => info.kind !== "android" && !!status?.atlas;
@@ -100,7 +101,8 @@ export function MapsPage() {
     try {
       await f();
     } catch (e) {
-      say(message(e), /Settings/.test(message(e)) ? "settings" : null);
+      // Atlas not found (Show in Atlas): with Install Atlas (D250)
+      sayAtlas(message(e));
     } finally {
       setBusy("");
       load();

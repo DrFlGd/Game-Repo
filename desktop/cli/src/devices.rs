@@ -399,7 +399,9 @@ fn app_command(mut a: Args, to: &std::path::Path) -> Result<()> {
 /// {"granted": false}, asked for, it is; {"kind": "linux", "game_mode": true}) and GET
 /// /test/shell that, how often Back left the app ("left"), Steam's keyboard was asked
 /// for ("keyboard") and Exit Game Repo Go was pressed ("quit"), and the pages from --ui (client.html at /). With --root, Tailscale and
-/// SteamOS's os-release are looked for in that folder instead of `/` (D179).
+/// SteamOS's os-release are looked for in that folder instead of `/` (D179). Install Atlas
+/// (D250) fetches from `GAMEREPO_TEST_ATLAS_RELEASES` (a stand-in for
+/// `https://github.com/DrFlGd/Atlas`) with the key `GAMEREPO_TEST_ATLAS_KEY` when they're set.
 pub fn client_ui(mut a: Args) -> Result<()> {
     use std::io::Write;
     use std::sync::mpsc::{channel, Sender};
@@ -421,6 +423,11 @@ pub fn client_ui(mut a: Args) -> Result<()> {
     app.set_background(&std::env::current_exe().unwrap_or_default(), false);
     if let Some(root) = root {
         app.set_root(root);
+    }
+    // Install Atlas (D250) against the page test's stand-in release server and its test key,
+    // never Atlas's own releases: only this command reads these, never Game Repo Go itself
+    if let Ok(releases) = std::env::var("GAMEREPO_TEST_ATLAS_RELEASES") {
+        app.set_atlas_source(device::atlas_install::Source { releases, pubkey: std::env::var("GAMEREPO_TEST_ATLAS_KEY").unwrap_or_default() });
     }
     let picks: Arc<Mutex<Vec<String>>> = Arc::default();
     let shell = Arc::new(Mutex::new(json!({ "kind": kind, "granted": true, "left": 0, "keyboard": 0, "quit": 0, "game_mode": false })));

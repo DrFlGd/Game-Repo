@@ -48,16 +48,33 @@ pub fn release(file: &str, platform: &str, version: &str) -> Result<Option<Relea
     }))
 }
 
-fn unwrap_box(b64: &str, what: &str) -> Result<String, String> {
-    let bytes = base64::engine::general_purpose::STANDARD.decode(b64.trim()).map_err(|_| format!("The {what} isn't what the Tauri CLI writes."))?;
-    String::from_utf8(bytes).map_err(|_| format!("The {what} isn't what the Tauri CLI writes."))
+fn unwrap_box(b64: &str) -> Result<String, String> {
+    let bytes = base64::engine::general_purpose::STANDARD.decode(b64.trim()).map_err(|_| "it isn't what the Tauri CLI writes".to_string())?;
+    String::from_utf8(bytes).map_err(|_| "it isn't what the Tauri CLI writes".to_string())
+}
+
+/// A public key and a signature as the Tauri CLI writes them (each a minisign box, base64
+/// once more), read: `Err` says which of the two can't be read, in a few words.
+pub fn decode(signature: &str, pubkey: &str) -> Result<(minisign_verify::PublicKey, minisign_verify::Signature), Unreadable> {
+    let key = unwrap_box(pubkey).and_then(|k| minisign_verify::PublicKey::decode(&k).map_err(|e| e.to_string())).map_err(Unreadable::Key)?;
+    let sig = unwrap_box(signature).and_then(|s| minisign_verify::Signature::decode(&s).map_err(|e| e.to_string())).map_err(Unreadable::Signature)?;
+    Ok((key, sig))
+}
+
+/// What [`decode`] couldn't read, with why.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Unreadable {
+    Key(String),
+    Signature(String),
 }
 
 /// Checks a downloaded update against `signature` (its .sig, as the update file carries it)
 /// and the public key built in, and that it was signed as `version`.
 pub fn verify(data: &[u8], signature: &str, pubkey: &str, version: &str) -> Result<(), String> {
-    let key = minisign_verify::PublicKey::decode(&unwrap_box(pubkey, "public key")?).map_err(|e| format!("The public key built in can't be read ({e})."))?;
-    let sig = minisign_verify::Signature::decode(&unwrap_box(signature, "signature")?).map_err(|e| format!("The update's signature can't be read ({e})."))?;
+    let (key, sig) = decode(signature, pubkey).map_err(|e| match e {
+        Unreadable::Key(e) => format!("The public key built in can't be read ({e})."),
+        Unreadable::Signature(e) => format!("The update's signature can't be read ({e})."),
+    })?;
     key.verify(data, &sig, false).map_err(|_| "The update doesn't match its signature, so it wasn't installed.".to_string())?;
     let signed = sig.trusted_comment().split('\t').find_map(|f| f.strip_prefix("version:")).unwrap_or_default();
     if signed != version {
