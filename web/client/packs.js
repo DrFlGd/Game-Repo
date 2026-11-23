@@ -13,6 +13,7 @@ import { call, info } from "./backend.js";
 import { closeDialog, open, say } from "./state.js";
 import { Dialog } from "./dialog.js";
 import { bytes, message, plural } from "./format.js";
+import { sayAtlas } from "./atlas.js";
 
 /** What a pack holds, as people say it: "2 maps · 340 locations · 12 guide pages". */
 export const holds = (p) => p.sort === "guidebooks" ? [
@@ -30,7 +31,7 @@ export const showPacks = (g) => !!(g?.packs?.offered && info.kind !== "android" 
 
 /** Show in Atlas (D224): Atlas started showing the game's pack that's in its packs folder
  *  here (`packs.show`, the backend's pick), brought to the front; Windows and Linux only.
- *  When Atlas isn't found, it says where to set it, with Open Settings. */
+ *  When Atlas isn't found, it says so with Install Atlas (D260), else with Open Settings. */
 export function ShowInAtlas({ k, packs, big = false }) {
   const [busy, setBusy] = useState(false);
   if (!packs?.offered || info.kind === "android" || !packs.show) return null;
@@ -40,8 +41,8 @@ export function ShowInAtlas({ k, packs, big = false }) {
       const r = await call("atlas_show", { key: k });
       say(`Atlas was asked to show ${r.title}.`);
     } catch (e) {
-      const m = message(e);
-      say(m, /Settings/.test(m) ? "settings" : null);
+      // Atlas not found: with Install Atlas (D260)
+      sayAtlas(message(e));
     } finally {
       setBusy(false);
     }

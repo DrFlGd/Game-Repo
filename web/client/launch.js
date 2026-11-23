@@ -11,6 +11,7 @@ import { useStore } from "../lib/store.js";
 import { call, info } from "./backend.js";
 import { go, say } from "./state.js";
 import { message } from "./format.js";
+import { InstallLink } from "./atlas.js";
 
 /** `text` on the clipboard: the web view's, else the selected line copied the old way.
  *  False when neither could (the line is left selected). */
@@ -80,7 +81,7 @@ export function AtlasLaunchSettings({ settings, set }) {
     <h3>Start Atlas with a game in Steam</h3>
     <p class="muted">Put this line in a game's launch options in Steam (its Properties › General › Launch Options) and Atlas starts beside the game, without taking the focus: in Game Mode the Steam button switches between them.</p>
     ${a.line ? html`<${AtlasLine} line=${a.line} id="set-atlas-line" />
-      <p class=${a.exists ? "muted" : "warn-note"} id="set-atlas-appimage">${where}${a.exists ? "" : " It isn't there now."}</p>`
+      <p class=${a.exists ? "muted" : "warn-note"} id="set-atlas-appimage">${where}${a.exists ? "" : " It isn't there now."}${!a.exists && a.installable ? html` <${InstallLink} id="set-atlas-appimage-install" />` : null}</p>`
       : html`<p class="warn-note" id="set-atlas-refused">${refusedSay(a)}</p>`}
     <label class="check-row"><input type="checkbox" id="set-atlas-start" checked=${a.on} disabled=${!a.line} onChange=${() => set({ atlas_with_games: !a.on })} />
       <span>Start Atlas with my games</span></label>

@@ -8358,6 +8358,163 @@ Tests:
 For the Atlas side: nothing asked. Atlas's format notes say a writer falls back to the usual
 path for a `linuxAppImage` the line can't hold; Go shows no line instead (above).
 
+### Maps and Guides notes, part 13: Install Atlas on Game Repo Go (D260–D265, built 2026-11-23)
+
+Jerred asked for an *Install Atlas* button in Game Repo Go: Atlas "is no longer a trial build
+and has a built in updater so it only needs the initial install". Go installs Atlas once, on
+a press, and never updates it, because Atlas updates itself (Atlas 0.27.0's updater, on
+Windows and in the Linux AppImage). Facts from Atlas v0.29.0 (`78b74dd`): `release.yml`,
+`linux-appimage.yml`, `linux-release.yml`, and `apps/desktop/src-tauri/tauri.conf.json`
+with `tauri.windows.conf.json`. Claude's defaults below, followed unless Jerred says
+otherwise. The code is `desktop/device/src/atlas_install.rs` (fetching, checking and
+installing), `atlas.rs` (finding Atlas) and `web/client/atlas.js` (the block and its links).
+
+**D260 Where Install Atlas shows.** Settings › Maps and guides for Atlas, on Windows and
+Linux (the Steam Deck), never on Android (`atlas_install_state`'s `offered`: where maps and
+guides go to Atlas, on a system Atlas's releases have a build for, `windows-x86_64` or
+`linux-x86_64`). A block *Atlas*, above *Atlas's program*:
+- Atlas not installed: *Atlas isn't installed on this device.*, *Install Atlas*, and what it
+  does (where the AppImage goes on Linux; for you only, no administrator, on Windows), and
+  that Atlas updates itself from then on.
+- While it works: *Looking for Atlas's latest release…*, *Downloading Atlas 0.29.0… 12 MB of
+  98 MB* with a bar, *Installing Atlas…* (the backend says "atlas" as it goes; the page reads
+  `atlas_install_state` again).
+- Installed: *Atlas 0.29.0 is installed:* and where (the version as Windows has it, or the
+  one just installed), *Atlas updates itself, so Game Repo Go never changes it.* No update
+  button, ever. On Linux an AppImage that can't be run is said so (*Is executable*).
+- A refusal is said in the block, plainly (below), and the button stays.
+- The links: wherever Go says Atlas wasn't found. *Show in Atlas* (a game's page, the big
+  screen, Maps and guides) answers *Atlas wasn't found on this device: install it, or set
+  where it is in Settings › Maps and guides for Atlas.* with *Install Atlas* on the message
+  (`sayAtlas`; Settings opened at the block); the launch line's *It isn't there now.*
+  (D241) has an *Install Atlas* button beside it while Atlas isn't installed
+  (`atlas_launch`'s `installable`); *Atlas's program*'s note says to install it with
+  *Install Atlas*.
+- Never on its own: nothing is fetched until the press, and nothing is ever installed over
+  an Atlas that's there (the command refuses: *Atlas is installed already … It updates
+  itself.*).
+
+**D261 Whether Atlas is installed** (`atlas::installed`, which *Show in Atlas*'s `find` now
+uses too):
+- The program set in Settings (*Atlas's program*), when it's a file, as D224 takes it.
+- Windows: Atlas's uninstall key, then the program registered for `.atlaspack` (D224).
+  Tauri v2's NSIS template (`installer.nsi`, tauri-bundler 2.10.6, the nearest to Atlas's
+  `@tauri-apps/cli` 2.12.4 that was at hand) writes
+  `Software\Microsoft\Windows\CurrentVersion\Uninstall\<productName>`, so `…\Uninstall\Atlas`,
+  under `SHCTX`: `HKEY_CURRENT_USER` for the `currentUser` install mode, Tauri v2's default.
+  Atlas's configs set no `bundle.windows.nsis.installMode` (`plugins.updater.windows.
+  installMode: "passive"` is the updater's way of running the installer, not where it
+  installs), so HKCU; HKLM is read after it for a copy installed another way. Values:
+  `DisplayName` (must be `Atlas`), `DisplayVersion` (shown), `DisplayIcon` (the program in
+  quotes, read with `program_of_command`), else `InstallLocation` (quoted) with
+  `MainBinaryName`; only a program that's there counts (`from_uninstall`).
+- Linux: the AppImage Atlas's settings name (`linuxAppImage`, what it last started from)
+  when it's there and can be run (a mode with an x), else `~/Applications/Atlas.AppImage`
+  when any file is there: Go never writes over one, so one that can't be run is still
+  Atlas, said so. Before this, Go on Linux asked for Atlas's program to be set for *Show in
+  Atlas* (D224); it now finds the AppImage as the launch line does.
+
+**D262 Getting the file, and checking it.**
+- `https://github.com/DrFlGd/Atlas/releases/latest/download/latest.json`, the latest
+  release's update file, as Atlas's own updater reads it; this system's entry in
+  `platforms`. None: *Atlas's latest release has no build for this system yet.* (Atlas's
+  `release.yml` leaves Linux out of `latest.json` when the AppImage didn't build.)
+- Only a file of Atlas's releases: the entry's `url` must be
+  `https://github.com/DrFlGd/Atlas/releases/download/<tag>/<name>`, plain parts, `<name>` an
+  `.exe` on Windows and exactly `Atlas.AppImage` on Linux (`build_of`). Redirects are
+  followed by hand, at most five, only to the release's own address or over HTTPS to
+  GitHub's hosts for release files, `objects.githubusercontent.com` and
+  `release-assets.githubusercontent.com` (`may_fetch`); anywhere else is refused and named.
+- Fetched with `ureq` (rustls, as `gamerepo-core`'s downloads; the proxy from
+  `HTTPS_PROXY`/`NO_PROXY`), as `GameRepoGo/<version>`, a broken connection tried once more.
+  Go's own updates use tauri-plugin-updater inside the window, which the device crate (and
+  the page test's stand-in for the app) can't, so only its minisign checking is shared
+  (`update::decode`).
+- Downloaded with progress to `atlas-download/<name>.part` in Go's data folder, checked as
+  it comes against the entry's `signature` and Atlas's updater key: minisign, Ed25519 over
+  the file's BLAKE2b (`minisign-verify`'s stream check). A signature by another key is
+  refused before anything is downloaded. No version is asked of the trusted comment: the
+  Tauri CLI's default signature names only the file (Game Repo's own carry a version, D137).
+- **Atlas's key is pinned in Go's source** (`atlas_install::PUBKEY`), copied exactly from
+  `plugins.updater.pubkey` in Atlas's `tauri.conf.json` at v0.29.0 (minisign key
+  `D07A3EBAB3B43CC1`). **If Atlas ever rotates its updater key, `PUBKEY` must change in Go
+  with it**, or Go refuses every new release as not matching.
+- A file that doesn't match: deleted, nothing installed, *The Atlas downloaded doesn't
+  match Atlas's signature, so it was deleted and nothing was installed.* The download
+  folder is emptied whatever happens, and at the start of each install.
+- Atlas's Windows installer has no Authenticode signature (Atlas's notes: Windows shows
+  "Windows protected your PC"); Go checks the updater's signature instead, which is the
+  same check Atlas's updater makes.
+
+**D263 Installing.**
+- Windows: the installer is renamed from `.part` to its own name and run silently (`/S`)
+  for this user, with no window (`run_alone`, `start_alone`'s command waited for), on the
+  install's own thread while the page says *Installing Atlas…*; at most 15 minutes. Atlas's
+  installer is `currentUser` (`RequestExecutionLevel user`), so no administrator is asked;
+  one that asks (Windows' error 740) is said and not run. A code other than 0 is said.
+  Then Atlas is looked for again: found, *Atlas … is installed*; not found, said. The
+  installer is deleted. Tauri's template, run silent, also makes the Start menu and
+  desktop shortcuts and doesn't start Atlas (no `/R`).
+- Linux and the Steam Deck: the checked AppImage goes to `~/Applications/Atlas.AppImage`,
+  where Atlas's release notes say to put it and the launch line looks (D241): the folder
+  made when needed, the file moved beside it, mode 755, then hard-linked into place, which
+  never replaces a file (a folder that can't take links: renamed after a last look), and the
+  temporary name removed. An `Atlas.AppImage` (or a link) already there is never written
+  over: the install is refused before anything is fetched, and that file counts as Atlas
+  (D261).
+- After installing: Go's launch line follows (`follow_atlas_line`): *Start Atlas with my
+  games*, not set, turns on now the AppImage is there (D242), and the PC games Go added to
+  Steam get the line; Settings reads everything again.
+
+**D264 No desktop entry or file type on Linux.** Atlas writes none when it starts (its
+`linux.rs` and `lib.rs` keep only `linuxAppImage` in the shared settings), and
+`linux-appimage.yml` builds only the AppImage (SteamOS's system can't be changed). Writing
+one well needs Atlas's icon out of the AppImage and a `.desktop` file Go would then own
+across Atlas's own updates: not trivial, so left out. Atlas is started from Go (*Show in
+Atlas*), from Steam (the launch line) or from the file.
+
+**D265 The tests' stand-in.** `gamerepo-cli client-ui` (the page test's stand-in for Go,
+never Go itself) reads `GAMEREPO_TEST_ATLAS_RELEASES` (in place of
+`https://github.com/DrFlGd/Atlas`) and `GAMEREPO_TEST_ATLAS_KEY` (in place of `PUBKEY`) and
+hands them to `App::set_atlas_source`. A build-time variable, as Android's update test uses
+(`GAMEREPO_UPDATE_FILE`, D139), wasn't taken: CI runs the page test with the release CLI it
+builds anyway.
+
+Tests:
+- `device` `atlas_install`: `latest_json_gives_this_systems_file_of_atlass_releases` (each
+  system's entry; Windows only, no signature: *no build for this system yet*; another host,
+  repository, path, name or `..`: refused), `redirects_are_followed_only_to_githubs_hosts_for_release_files`,
+  `a_file_is_checked_against_atlass_signature_good_bad_or_missing` (a test key made with the
+  `minisign` crate; a changed byte, another key, Atlas's real key, a missing or unreadable
+  signature), `the_pinned_key_is_atlass_and_reads`,
+  `the_appimage_goes_into_applications_runnable_and_never_over_one_there` (folder made, mode
+  755, nothing left beside it, never over a file or a link), and on Linux
+  `atlas_is_installed_from_its_latest_release_checked_and_a_bad_one_leaves_nothing` (a stand-in
+  release server: a file on another server, a changed file, another key, a redirect to another
+  host, no release, no Linux build, then the whole install through GitHub's redirect and a
+  second press refused before fetching).
+- `device` `atlas`: `atlas_is_read_from_its_uninstall_key_as_tauris_installer_writes_it`
+  (the values as `installer.nsi` writes them, without `DisplayIcon`, with an icon index, a
+  variable, no version; another product, `..`, nothing usable),
+  `on_linux_atlas_is_its_appimage_where_atlas_says_else_in_applications`, and `find` with
+  the user's folder.
+- `client_page.py` (Linux): a stand-in for Atlas's releases (Python's `http.server`;
+  `latest.json` reached through a 302 as GitHub's is) with a made-up AppImage signed with a
+  test key in pure Python (`tools/update_files.py`'s Ed25519). *Show in Atlas* with Atlas not
+  found has *Install Atlas*, which opens Settings at the block; with no AppImage the block
+  offers it and the launch line links to it; a changed file is refused and leaves nothing
+  (no `~/Applications`, no download folder); then `~/Applications/Atlas.AppImage` in the
+  made-up home, mode 755, the block says *Atlas 0.29.0 is installed* and where with no
+  button, the launch line names it, *Start Atlas with my games* is on and Zeta's launch
+  options have it, and *Atlas's program*'s note says *Show in Atlas* starts it.
+- Not run: a real installer or AppImage, GitHub itself, Windows. The Windows code
+  (registry reading, the silent installer) was compile-checked for `x86_64-pc-windows-gnu`
+  in a scratch crate, not run; the uninstall key's values are from Tauri's template, not read
+  from a real Atlas install.
+
+For the Atlas side: nothing asked. If Atlas changes its updater key, its release's file
+names, the install mode, or `latest.json`'s shape, Go has to follow.
+
 
 
 - crates.io was reachable on 2026-10-16 and the workspace built online. It has been
@@ -8506,6 +8663,8 @@ path for a `linuxAppImage` the line can't hold; Go shows no line instead (above)
 
 D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D48 are proposed in "Phase 6b design", followed as built ("Phase 6b notes"). New ones get a number here as they come up (next: D245). D241–D244 are in "Maps and Guides notes, part 11" (2026-11-21), Claude's defaults for the contract's revisions 44–48 (Atlas 0.26.0, the Steam launch line Jerred chose after trial T3) and Jerred's ask for an exit button on Linux, followed unless he says otherwise. D232–D240 are in "Maps and Guides notes, part 10" (2026-11-20), Claude's defaults for the contract's revision 42, block A8 (guidebooks, Jerred's ask), followed unless he says otherwise. D230–D231 are in "Maps and Guides notes, part 9" (2026-11-20), Claude's defaults for the contract's revision 42 (Atlas 0.25.0: the packs folder chosen in Atlas, a pack's own sort), followed unless he says otherwise. D225–D229 are in "Maps and Guides notes, part 8" (2026-11-20), Claude's defaults for the contract's revision 38 (maps and guides on their own on Game Repo Go, Jerred's ask), followed unless he says otherwise. D224 is in "Maps and Guides notes, part 7" (2026-11-19), Claude's default for Jerred's ask (*Show in Atlas* on Game Repo Go, Atlas 0.24.0's tag), followed unless he says otherwise. D214–D223 are in "Maps and Guides: Atlas packs" (2026-11-19), Claude's defaults for building Game Repo's side of the Atlas pack contract, Jerred's ask, followed unless he says otherwise. D207–D213 are in "Mods on installed games, putting a game back, FOMOD and Nexus Mods" (2026-11-01), Claude's defaults for Jerred's ask, followed unless he says otherwise. D197–D206 are in "Cheats and patches" (2026-10-31), Claude's defaults for Jerred's ask (D201, a patched game kept as a variant, his choice on the card), followed unless he says otherwise. D196 is in "Save sync notes, part 9: Switch, Wii U and PlayStation 3 emulators" (2026-10-31), Claude's defaults for the emulators Jerred's go-ahead asked for. D195 is in "Save sync notes, part 8: saves not matched" (2026-10-31), Claude's default for D183's last step, built as Jerred's go-ahead on the remaining save sync work asked. D192–D194 are in "Save sync notes, part 4: emulators of their own" (2026-10-26), Jerred's ask (PPSSPP, Dolphin, ARMSX2 and the other popular emulators, folders set in Go) with Claude's defaults for the rest, followed unless he says otherwise. D180–D191 are in "Save sync and the Devices page" (2026-10-26), Claude's defaults for Jerred's ask, D190 (phones over USB) his choice of Claude's recommendation, the rest followed unless he says otherwise. D179 is in "Setting up Tailscale on the Steam Deck" (2026-10-24), Jerred's agreement to Claude's suggestion, revised and built on 2026-10-25 as he asked (the installer in the app, Game Repo's own since the community script has no licence), with Claude's defaults for the details. D177–D178 are in "The October 2026 review's fixes, convert on import and tool downloads" (2026-10-24): Jerred's asks, with his choice to download and verify the tools (Tesseract's page), the rest Claude's defaults, followed unless he says otherwise. D174–D176 are in "Games on several discs as one" (2026-10-23), Jerred's ask with his choice of a CHD per disc and a playlist, and Claude's defaults for the rest, followed unless he says otherwise. D172–D173 are in "Updating every system's DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D168–D171 are in "Set aside in History, PC games as a shelf, the Documents grid, a collection's systems" (2026-10-23), Claude's defaults for Jerred's list, followed unless he says otherwise. D165–D167 are in "Adding a system, PlayStation 5 and Redump's own DATs" (2026-10-23), Claude's defaults for Jerred's ask, followed unless he says otherwise. D160–D164 are in "Updates and DLC by their names" (2026-10-23), Claude's defaults for Jerred's Switch and 3DS question, followed unless he says otherwise. D157–D159 are in "The backlog" (2026-10-22), Claude's defaults for Jerred's backlog, followed unless he says otherwise. D150–D156 are in "Jerred's list of 2026-10-22, second part", Claude's defaults for his Library, game page, Videos, Magazines, Documents and collections asks, followed unless he says otherwise. D140–D149 are in "Jerred's list of 2026-10-22", Claude's defaults for his import into a collection, his fixes and the roadmap's C, D and F, followed unless he says otherwise. D139 is in "Game Repo Go's updates on Android" (2026-10-21), Claude's default for part 2 of Jerred's ask for updates, followed unless he says otherwise. D138 is in "More from the sources for PC games" (2026-10-21), Jerred's ask, as he chose it. D134–D137 are in "In-app updates" (2026-10-21), Claude's defaults for Jerred's ask for updates and his choice to keep the repository public, built for a releases repository of its own later, followed unless he says otherwise. D133 is in "Reading a big game once on import" (2026-10-21), Claude's default for Jerred's slow import of a large zipped PC game, followed unless he says otherwise. D131–D132 are in "Two later items: the main DAT in the DAT files list, the big screen's size" (2026-10-21), Claude's defaults, followed unless he says otherwise. D124–D127 are in "Jerred's Steam Deck tryout of 0.5.37" (2026-10-21), Claude's defaults, followed unless he says otherwise. D128–D130 are in "Phase 10 notes, part 3" (2026-10-21), Claude's defaults for Jerred's tryout of PC games in Game Repo, followed unless he says otherwise. D118–D123 are in "Phase 10 design" (2026-10-20), Claude's defaults for Jerred's variants and custom DATs, followed unless he says otherwise. D113–D117 are in "Phase 9e design" (2026-10-20), Claude's defaults for Jerred's list after trying 0.5.33, followed unless he says otherwise. D106–D112 are in "Phase 9c design" (2026-10-20), proposed with Claude's defaults and followed as Jerred asked for 9c to be built. D105 (Jerred, 2026-10-20), PC games unpacked on devices, is in "Device client requirements". D96–D104 are in "Phase 9b design" (2026-10-20): D96, the client's name *Game Repo Go*, is Jerred's; D97–D104 he agreed with the design (PR #44), followed as built ("Phase 9b notes, part 1"). D89–D95 (Jerred, 2026-10-19) are in "Phase 9a design". D84–D88 (Jerred, 2026-10-19) are in "Device client requirements". D78–D82 (Jerred, 2026-10-18) are in "Hardening after the v0.5.18 review", and D83 (Jerred, 2026-10-19) after them. D77 (Jerred, 2026-10-18) is in "Import by system". D71–D76 are in "UI pass 3 design" (Jerred's review of 2026-10-18 and Claude's findings), followed as built ("UI pass 3 notes"); D75's export choice for ES-DE is Jerred's. D49–D54 are in "Collections rework design". D55–D56 are in "PC game page design", D55 followed as built and D56 built in Phase 8b as D66. D51 was dropped (Jerred, 2026-10-18); D52 was built as D67. D57–D61 are in "Phase 7 design", followed as built ("Phase 7 notes"). D62–D68 are in "Phase 8 design": D65 chosen by Jerred, the rest proposed with the scope he agreed; D62–D68 followed as built ("Phase 8a notes", "Phase 8b notes", "Phase 8c notes"). D69 is Jerred's list for the UI pass after Phase 8 (2026-10-18), built as "UI pass 2 notes": in Collections, "made from" becomes "source", the games are shown as the Library shows them, Export appears once (not on the page and again in the top bar), and the collections sit in a ribbon of their own on the left, as Model Library's and SCAD Workshop's subcategory views do; a game's page has a collapsible ribbon on the right showing its scraped media; the pages are left-aligned, not centred; Audit gets ways to view a system other than one long list; and BIOS files drops its choice of systems (those with games, with files missing, every system) for every system with a search field. D70 (Jerred, 2026-10-18): ScreenScraper is asked with as many threads as the account allows, and a game's picture sits in a fixed square box ("Scraping threads and the game picture").
 
+D260–D265 are in "Maps and Guides notes, part 13" (2026-11-23), Claude's defaults for Jerred's ask for an *Install Atlas* button in Game Repo Go, followed unless he says otherwise. They were numbered from D260 while D245 onward were being taken in parallel, to be renumbered when both are merged.
+
 ---
 
 ## 12. Next steps
@@ -8645,7 +8804,10 @@ D42–D45 are in "Phase 6 design", followed as built ("Phase 6 notes"). D46–D4
     routes and a map's own icons), Atlas started with a game on Linux through the game's Steam
     launch options (the contract's line with Copy, *Start Atlas with my games* for Go's own
     games, a game's switch, Jerred's choice after trial T3) and *Exit Game Repo Go* on Linux
-    (D241–D244, the contract's revisions 44–48): built ("Maps and Guides notes, part 11"). A
+    (D241–D244, the contract's revisions 44–48): built ("Maps and Guides notes, part 11");
+    part 13, *Install Atlas* on Game Repo Go for Windows and Linux, Atlas's latest release
+    fetched, checked against Atlas's updater key and installed once on a press, never
+    updated by Go (D260–D265, Jerred's ask): built ("Maps and Guides notes, part 13"). A
     newer pack on a device stays there (Jerred, 2026-11-19: nothing travels back). Steam's
     own games are left to Copy (D243); your data beside a pack, and Android wait for the
     contract (D223).

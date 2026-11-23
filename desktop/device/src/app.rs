@@ -6,6 +6,7 @@
 //! settings, kept in its own data folder; the pairing token is kept by [`Secrets`].
 
 use crate::atlas;
+use crate::atlas_install;
 use crate::background;
 use crate::catalogue::{self, Catalogue};
 use crate::installs;
@@ -247,6 +248,10 @@ pub struct App {
     background: Mutex<Option<Background>>,
     /// Opened for the sync in the background alone ([`App::open_with`])
     alone: bool,
+    /// *Install Atlas* (D260): where Atlas's releases are (a stand-in's in the page test), and
+    /// what an install is doing
+    atlas_source: Mutex<atlas_install::Source>,
+    atlas_progress: Mutex<atlas_install::Progress>,
 }
 
 /// Who sets the sync in the background up, what went wrong setting it up last, and whether
@@ -315,7 +320,7 @@ impl App {
                     }
                 }),
             );
-            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default(), root: Mutex::new(PathBuf::from("/")), saving: Mutex::new(false), background: Mutex::default(), alone }
+            App { data: data.to_path_buf(), kind: kind.into(), homes: Mutex::new(homes), secrets, settings: Mutex::new(settings), catalogue, queue, sync: Mutex::default(), checking: Mutex::default(), held: Mutex::default(), events, me: me.clone(), looked: Mutex::default(), own: Mutex::default(), root: Mutex::new(PathBuf::from("/")), saving: Mutex::new(false), background: Mutex::default(), alone, atlas_source: Mutex::default(), atlas_progress: Mutex::default() }
         });
         if alone {
             return Ok(app);
@@ -365,6 +370,13 @@ impl App {
     /// stand-in for the app) a folder standing in for it.
     pub fn set_root(&self, root: PathBuf) {
         *self.root.lock().unwrap_or_else(|e| e.into_inner()) = root;
+    }
+
+    /// Where Atlas's releases are for *Install Atlas* (D260): Atlas's own on GitHub, or (the
+    /// page test's stand-in for the app, `gamerepo-cli client-ui`) a stand-in release server
+    /// with a test key.
+    pub fn set_atlas_source(&self, source: atlas_install::Source) {
+        *self.atlas_source.lock().unwrap_or_else(|e| e.into_inner()) = source;
     }
 
     fn root(&self) -> PathBuf {
@@ -541,7 +553,84 @@ impl App {
         let home = self.home();
         json!({ "offered": true, "path": l.path, "from": l.from, "exists": l.exists, "line": l.line, "refused": l.refused,
             "usual": home.join(launch::USUAL), "settings_file": packs::atlas_settings_file(&home),
-            "setting": self.settings().atlas_with_games, "on": on, "games": steam::atlas_games(&self.data, None) })
+            "setting": self.settings().atlas_with_games, "on": on, "games": steam::atlas_games(&self.data, None),
+            // Install Atlas (D260) is offered beside "It isn't there now"
+            "installable": self.atlas_install_offered() && atlas::installed(&self.settings().atlas_program, &home).is_none() })
+    }
+
+    /// Whether *Install Atlas* is offered here (D260): where maps and guides go to Atlas
+    /// (Windows and Linux) and Atlas's releases carry a build for the system.
+    fn atlas_install_offered(&self) -> bool {
+        self.packs_offered() && atlas_install::platform().is_some()
+    }
+
+    /// *Install Atlas* for Settings (D260–D261): whether it's offered, whether Atlas is
+    /// installed and where (then there's nothing to install, and nothing to update: Atlas
+    /// updates itself), and what an install is doing.
+    fn atlas_install_state(&self) -> Value {
+        if !self.atlas_install_offered() {
+            return json!({ "offered": false });
+        }
+        let home = self.home();
+        let found = atlas::installed(&self.settings().atlas_program, &home);
+        let progress = self.atlas_progress.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        // where the AppImage goes, on Linux
+        let place = (!cfg!(windows)).then(|| atlas_install::appimage_place(&home));
+        json!({ "offered": true, "installed": found, "progress": progress, "place": place })
+    }
+
+    /// *Install Atlas* pressed (D262–D264): never on its own, and never over an Atlas that's
+    /// installed. Atlas's latest release for this system is fetched, checked and installed on a
+    /// thread of its own, the page told as it goes ("atlas"); then Atlas is looked for again,
+    /// and Go's launch line follows it (D241).
+    fn atlas_install(&self) -> Result<Value> {
+        if !self.atlas_install_offered() {
+            bail!("Game Repo Go can't install Atlas on this device.");
+        }
+        let home = self.home();
+        if let Some(f) = atlas::installed(&self.settings().atlas_program, &home) {
+            bail!("Atlas is installed already, at {}. It updates itself.", f.program.display());
+        }
+        {
+            let mut p = self.atlas_progress.lock().unwrap_or_else(|e| e.into_inner());
+            if ["reading", "downloading", "installing"].contains(&p.state) {
+                bail!("Atlas is being installed already.");
+            }
+            *p = atlas_install::Progress { state: "reading", ..Default::default() };
+        }
+        let source = self.atlas_source.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let data = self.data.clone();
+        let me = self.me.clone();
+        std::thread::spawn(move || {
+            let mut told = std::time::Instant::now();
+            let mut last = "";
+            let mut tell = |p: atlas_install::Progress| {
+                let Some(a) = me.upgrade() else { return };
+                let state = p.state;
+                *a.atlas_progress.lock().unwrap_or_else(|e| e.into_inner()) = p;
+                // each step at once, the bytes four times a second
+                if state != last || told.elapsed() >= Duration::from_millis(250) {
+                    last = state;
+                    told = std::time::Instant::now();
+                    (a.events)("atlas");
+                }
+            };
+            let r = atlas_install::install(&source, &data, &home, &mut tell);
+            let Some(a) = me.upgrade() else { return };
+            let version = a.atlas_progress.lock().unwrap_or_else(|e| e.into_inner()).version.clone();
+            let found = atlas::installed(&a.settings().atlas_program, &home);
+            let p = match (r, found) {
+                (Ok(said), Some(_)) => atlas_install::Progress { state: "done", version, message: Some(said), ..Default::default() },
+                (Ok(_), None) => atlas_install::Progress { state: "failed", version, message: Some("Atlas's installer finished, but Atlas isn't found on this device. Try again, or install it from its releases page.".into()), ..Default::default() },
+                (Err(e), _) => atlas_install::Progress { state: "failed", version, message: Some(e), ..Default::default() },
+            };
+            *a.atlas_progress.lock().unwrap_or_else(|e| e.into_inner()) = p;
+            // Start Atlas with my games is on by itself once the AppImage is there (D242)
+            a.follow_atlas_line();
+            (a.events)("atlas");
+            a.changed("settings");
+        });
+        Ok(self.atlas_install_state())
     }
 
     /// A PC game's own switch for starting Atlas with it, for its page (D242): None when it
@@ -629,7 +718,7 @@ impl App {
             if packs::file_here(&packs::load(&self.data), &folder, pack).is_none() {
                 bail!("This pack isn't in Atlas's packs folder on this device.");
             }
-            let program = atlas::find(&self.settings().atlas_program)?;
+            let program = atlas::find(&self.settings().atlas_program, &self.home())?;
             atlas::show(&program, pack)?;
             let title = self.kept_packs().and_then(|l| l.items.into_iter().find(|p| p.pack.pack_id == pack)).map(|p| p.pack.title).unwrap_or_else(|| pack.to_string());
             return Ok(json!({ "pack": pack, "title": title, "program": program }));
@@ -637,7 +726,7 @@ impl App {
         let details = self.catalogue.details(self.server().as_ref(), key).unwrap_or(None);
         let view = self.packs_view(key, details.as_ref());
         let Some(pack) = view["show"].as_str() else { bail!("None of this game's packs is in Atlas's packs folder on this device.") };
-        let program = atlas::find(&self.settings().atlas_program)?;
+        let program = atlas::find(&self.settings().atlas_program, &self.home())?;
         atlas::show(&program, pack)?;
         let title = view["items"].as_array().into_iter().flatten().find(|p| p["pack_id"] == pack).and_then(|p| p["title"].as_str()).unwrap_or(pack);
         Ok(json!({ "pack": pack, "title": title, "program": program }))
@@ -1067,6 +1156,9 @@ impl App {
             "steam" => steam::status(&self.data),
             // Atlas started with Go's games through Steam's launch options (D242)
             "atlas_launch" => self.atlas_launch(),
+            // Install Atlas (D260–D264): only on a press, never an update
+            "atlas_install_state" => self.atlas_install_state(),
+            "atlas_install" => self.atlas_install()?,
             "atlas_launch_game" => {
                 if !self.launch_offered() {
                     bail!("Atlas is started with games through Steam on Linux only.");
@@ -1274,7 +1366,7 @@ impl App {
             "atlas": self.packs_offered().then(|| {
                 let home = self.home();
                 // Atlas's program for Show in Atlas (D224): where it's found, else why not
-                let found = atlas::find(&s.atlas_program);
+                let found = atlas::find(&s.atlas_program, &home);
                 // where the folder comes from (D230): set here, set in Atlas, or Atlas's usual
                 // one; and what Atlas's own settings say, for the page
                 let (folder, from) = self.packs_folder_from(&home);

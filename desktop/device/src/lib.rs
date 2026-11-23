@@ -11,6 +11,7 @@
 
 pub mod app;
 pub mod atlas;
+pub mod atlas_install;
 pub mod background;
 pub mod catalogue;
 pub mod client;
@@ -193,10 +194,9 @@ pub(crate) fn outside_appimage(list: &std::ffi::OsStr) -> std::ffi::OsString {
     std::env::join_paths(kept).unwrap_or_default()
 }
 
-/// A program started on its own, with the user's own surroundings, not the AppImage's (the
-/// terminal for Tailscale's set-up, the browser, Atlas): it outlives Go, nothing waits on it
-/// here (a thread reaps it when it ends), and on Windows it gets no console window.
-pub(crate) fn start_alone(program: &Path, args: &[&str]) -> Result<()> {
+/// A program's command with the user's own surroundings, not the AppImage's, no console window
+/// on Windows, and nothing read from or written to Go's own input and output.
+fn alone(program: &Path, args: &[&str]) -> std::process::Command {
     let mut c = std::process::Command::new(program);
     c.args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     for k in APPIMAGE_ENV {
@@ -207,18 +207,43 @@ pub(crate) fn start_alone(program: &Path, args: &[&str]) -> Result<()> {
             c.env(k, outside_appimage(&v));
         }
     }
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut c, 0);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
+    c
+}
+
+/// A program started on its own, with the user's own surroundings, not the AppImage's (the
+/// terminal for Tailscale's set-up, the browser, Atlas): it outlives Go, nothing waits on it
+/// here (a thread reaps it when it ends), and on Windows it gets no console window.
+pub(crate) fn start_alone(program: &Path, args: &[&str]) -> Result<()> {
+    let mut c = alone(program, args);
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut c, 0);
     let mut child = c.spawn()?;
     std::thread::spawn(move || {
         let _ = child.wait();
     });
     Ok(())
+}
+
+/// A program run as [`start_alone`] starts one (Atlas's installer, D263), but waited for, at
+/// most `wait`: how it ended, or None when it hadn't (it's left running).
+#[allow(dead_code)]
+pub(crate) fn run_alone(program: &Path, args: &[&str], wait: std::time::Duration) -> std::io::Result<Option<std::process::ExitStatus>> {
+    let mut child = alone(program, args).spawn()?;
+    let until = std::time::Instant::now() + wait;
+    loop {
+        if let Some(s) = child.try_wait()? {
+            return Ok(Some(s));
+        }
+        if std::time::Instant::now() >= until {
+            return Ok(None);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
 }
 
 /// A file written whole, through a temporary name.

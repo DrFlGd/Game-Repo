@@ -131,6 +131,14 @@ function BigFocus({ route }) {
   return null;
 }
 
+/** A message's link followed: its page, and the part of it after `#` scrolled to. */
+function toastGo(page) {
+  const [to, part] = page.split("#");
+  go.set({ toast: null });
+  open({ page: to });
+  if (part) setTimeout(() => document.getElementById(part)?.scrollIntoView({ block: "center" }), 300);
+}
+
 export function Shell() {
   const s = useStore(go, (x) => ({ ready: x.ready, route: x.route, status: x.status, storage: x.storage, dialog: x.dialog, toast: x.toast, view: x.view }));
   if (!s.ready) return html`<p class="go-opening muted">Opening Game Repo Go…</p>`;
@@ -152,6 +160,6 @@ export function Shell() {
     ${big ? html`<${Hints} route=${s.route} dialog=${s.dialog} />` : null}
     <${Dialogs} dialog=${s.dialog} />
     ${s.toast ? html`<div class="toast go-toast" role="status" aria-live="polite" id="go-toast"><span>${s.toast.text}</span>
-      ${s.toast.page ? html`<button type="button" class="ghost light" tabindex=${big ? "-1" : null} onClick=${() => { go.set({ toast: null }); open({ page: s.toast.page }); }}>${s.toast.page === "queue" ? "See Downloads" : s.toast.page === "settings" ? "Open Settings" : `See the ${s.toast.page}`}</button>` : null}</div>` : null}`;
+      ${s.toast.page ? html`<button type="button" class="ghost light" id="go-toast-go" tabindex=${big ? "-1" : null} onClick=${() => toastGo(s.toast.page)}>${s.toast.label || (s.toast.page === "queue" ? "See Downloads" : s.toast.page === "settings" ? "Open Settings" : `See the ${s.toast.page}`)}</button>` : null}</div>` : null}`;
 }
 

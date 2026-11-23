@@ -30,6 +30,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha1 = "0.10"
 sha2 = "0.10"
+# Install Atlas (D260): Atlas's latest.json and its installer or AppImage fetched from its
+# GitHub releases, as gamerepo-core fetches its downloads (rustls, the proxy from the
+# environment)
+ureq = "3"
 
 [target.'cfg(windows)'.dependencies]
 # Show in Atlas (D224): the program registered for .atlaspack files read from the registry

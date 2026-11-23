@@ -177,6 +177,9 @@ progress { accent-color: var(--tool); height: 8px; }
 /* Atlas's launch line for Steam (D242): the whole line in a box, with Copy beside it */
 .go-atlas-start { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
 .go-atlas-start h3 { margin: 8px 0 0; }
+.go-atlas-install { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.go-atlas-install h3 { margin: 8px 0 0; }
+.go-atlas-install p { margin: 0; }
 .go-atlas-line { display: flex; gap: 8px; }
 .go-atlas-line { align-items: flex-start; }
 .go-atlas-line textarea { flex: 1; min-width: 0; resize: none; font-family: var(--mono, ui-monospace, monospace); overflow-wrap: anywhere; }
