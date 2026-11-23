@@ -260,7 +260,7 @@ dependencies = [
 [[package]]
 name = "atlas-pack"
 version = "0.1.0"
-source = "git+https://github.com/DrFlGd/Atlas?tag=v0.26.0#0dd1869e5fcc6ed414d00f4c5782bd018a34db0f"
+source = "git+https://github.com/DrFlGd/Atlas?tag=v0.29.0#78b74dd2ccc84e6d5f008138fe87049ef8f3c4c7"
 dependencies = [
  "flate2",
  "serde",
@@ -1612,6 +1612,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2 0.10.9",
+ "ureq",
  "windows-sys 0.61.2",
  "zip",
 ]

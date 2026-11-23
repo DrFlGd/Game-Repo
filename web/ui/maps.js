@@ -64,11 +64,11 @@ export function packCounts(p) {
   ].filter(Boolean);
 }
 
-/** Where a pack is from (`Description::from_words`: the pack's own word, D231, else the contract's rule): its site, "Made in Atlas", "Made in Atlas Map Maker", "Came with an app" or "Guidebooks". */
+/** Where a pack is from (`Description::from_words`: the pack's own word, D231, else the contract's rule): its site, "Made in Atlas", "Made in Atlas Map Maker", "Came with an app", "Guidebooks" or "Magazines". */
 export const packFrom = (p) => p.from || null;
 
 /** The sorts of pack, as the filter names them (`Sort::word`). */
-const PACK_SORTS = { site: "Read from a site", "made-in-atlas": "Made in Atlas", "map-maker": "Made in Atlas Map Maker", app: "Came with an app", guidebooks: "Guidebooks" };
+const PACK_SORTS = { site: "Read from a site", "made-in-atlas": "Made in Atlas", "map-maker": "Made in Atlas Map Maker", app: "Came with an app", guidebooks: "Guidebooks", magazines: "Magazines" };
 
 /** What's said under a pack's title: where it's from, its counts, detail and size. */
 export const packFacts = (p) => [packFrom(p), ...packCounts(p), DETAIL[p.detail] ? `${DETAIL[p.detail]} detail` : null, size(p.size)].filter(Boolean).join(" · ");
@@ -211,7 +211,7 @@ const thumb = (p, px = 512) => (p ? libraryUrl(`~thumb/${px}/${p}`) : null);
 const atlasPic = (p, n) => (n != null && p.path ? libraryUrl(`~atlas/${n}/${encodeURIComponent(p.id)}/${p.path}`) : null);
 /** A pack's pictures: the one chosen for it, else its own cover; else a plain card with its mark. */
 const pics = (p, px) => [thumb(p.picture_path, px), atlasPic(p, p.cover_n)];
-const noPic = (p) => ({ icon: p.unreadable ? "alert" : p.kinds?.[0] === "guide" || p.sort === "guidebooks" ? "book" : p.kinds?.[0] === "wiki" ? "wiki" : "map", colour: systemColour(p.games?.[0]?.platform || "maps") });
+const noPic = (p) => ({ icon: p.unreadable ? "alert" : p.kinds?.[0] === "guide" || p.sort === "guidebooks" || p.sort === "magazines" ? "book" : p.kinds?.[0] === "wiki" ? "wiki" : "map", colour: systemColour(p.games?.[0]?.platform || "maps") });
 const gameTitle = (p) => p.games?.[0]?.title || p.game_title || p.title || p.name;
 
 const SORTS = [

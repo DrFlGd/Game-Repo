@@ -7,7 +7,8 @@
 // has still has it ticked, Atlas changed it here, or it isn't Game Repo Go's. Show in Atlas
 // starts Atlas with it. Windows and Linux only, as a game's packs are (not on Android until
 // the Atlas pack contract's trial T2 says how). A game's pack of guidebooks is listed with its
-// game's packs, said as guidebooks (D238).
+// game's packs, said as guidebooks (D238). Each magazine's pack (Atlas 0.29.0, D247) is listed
+// under Magazines, after the games, with its issues: a pack of no game, installed on its own.
 import { html, useEffect, useRef, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { Icon } from "../ui/icons.js";
@@ -15,15 +16,16 @@ import { call, info, pictureUrl } from "./backend.js";
 import { go, say } from "./state.js";
 import { ago, bytes, message, plural } from "./format.js";
 import { holds } from "./packs.js";
+import { sayAtlas } from "./atlas.js";
 
 /** Whether Maps and guides is offered on this device (beside the games in the menu). */
 export const showMaps = (status) => info.kind !== "android" && !!status?.atlas;
 
 /** Where a pack is from, as a game's page says it. */
-const from = (p) => (p.source ? `from ${p.source}` : p.made_in ? `made in ${p.made_in}` : p.sort === "app" ? "came with an app" : p.sort === "guidebooks" ? "a pack of guidebooks" : "");
+const from = (p) => (p.source ? `from ${p.source}` : p.made_in ? `made in ${p.made_in}` : p.sort === "app" ? "came with an app" : p.sort === "guidebooks" ? "a pack of guidebooks" : p.sort === "magazines" ? "a magazine's issues" : "");
 
 /** The sorts of pack (D231: the pack's own word, else the contract's rule), for the filter. */
-export const SORTS = [["site", "From sites"], ["made-in-atlas", "Made in Atlas"], ["map-maker", "Made in Atlas Map Maker"], ["app", "Came with an app"], ["guidebooks", "Guidebooks"], ["", "Not said"]];
+export const SORTS = [["site", "From sites"], ["made-in-atlas", "Made in Atlas"], ["map-maker", "Made in Atlas Map Maker"], ["app", "Came with an app"], ["guidebooks", "Guidebooks"], ["magazines", "Magazines"], ["", "Not said"]];
 
 /** A pack's picture (its own cover, or the one chosen for it in Game Repo), else a map. */
 function Cover({ p }) {
@@ -31,7 +33,7 @@ function Cover({ p }) {
   useEffect(() => setBad(false), [p.picture]);
   return html`<span class="go-pack-cover" aria-hidden="true">${p.picture && !bad
     ? html`<img src=${pictureUrl(`~pack/${p.pack_id}`, p.picture, 256)} alt="" decoding="async" draggable="false" onError=${() => setBad(true)} />`
-    : p.sort === "guidebooks" ? Icon.book(30) : Icon.map(30)}</span>`;
+    : p.sort === "guidebooks" || p.sort === "magazines" ? Icon.book(30) : Icon.map(30)}</span>`;
 }
 
 /** Where a pack stands on this device, in a line. */
@@ -99,7 +101,8 @@ export function MapsPage() {
     try {
       await f();
     } catch (e) {
-      say(message(e), /Settings/.test(message(e)) ? "settings" : null);
+      // Atlas not found (Show in Atlas): with Install Atlas (D250)
+      sayAtlas(message(e));
     } finally {
       setBusy("");
       load();
@@ -155,7 +158,7 @@ export function MapsPage() {
     ${said ? html`<p id="maps-said" role="status">${said}</p>` : null}
     ${!v.items.length ? html`<p class="empty" id="maps-none">${v.offline ? "No list of the library's maps and guides is kept on this device yet." : "The library has no maps and guides yet. Game Repo keeps them in its Maps and Guides section, where Atlas Importer writes them."}</p>` : null}
     ${v.items.length && !shown.length ? html`<p class="empty" id="maps-no-match">${text.trim() ? `No maps and guides match “${text.trim()}”.` : "No packs of that sort."}</p>` : null}
-    ${groups.map((g, i) => html`<section class="go-pack-group" key=${g.title} data-group=${g.title}>
+    ${groups.map((g, i) => html`<section class="go-pack-group" key=${g.title} data-group=${g.title} data-magazines=${g.packs.every((p) => p.sort === "magazines") ? "yes" : null}>
       <h2>${g.title} <span class="muted">${plural(g.packs.length, "pack")}</span></h2>
       <ul class="go-pack-rows">${g.packs.map((p, j) => html`<${Pack} key=${p.pack_id} p=${p} first=${i === 0 && j === 0} busy=${busy} install=${install} remove=${remove} show=${show} />`)}</ul>
     </section>`)}

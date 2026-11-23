@@ -2,9 +2,9 @@
 //! Atlas Importer wrote, by the *Atlas pack contract for Game Repo*.
 //!
 //! The reading is Atlas's own `atlas-pack` crate (the contract's block A3), a git
-//! dependency pinned to Atlas's release tag v0.26.0 (format 9: routes, and a map's own
-//! icons kept for the person's own use); its `docs/pack-file-format.md` is the reference
-//! for the format.
+//! dependency pinned to Atlas's release tag v0.29.0 (format 10: packs of magazines, after
+//! format 9's routes and a map's own icons kept for the person's own use); its
+//! `docs/pack-file-format.md` is the reference for the format.
 //! [`read_header`] reads the description from the front of the file only, and
 //! [`read_preview`] one small picture the description lists, from the entries right behind
 //! it. A file that's wrong is refused with the crate's [`Refusal`]: its sentence (not a pack
@@ -32,9 +32,10 @@ pub use atlas_pack::{Refusal, RefusalKind, EXTENSION, FORMAT, VERSION};
 /// The release of Atlas's crate this build reads packs with (the tag `Cargo.toml` pins):
 /// when it changes, every pack in the index is read again once (`maps::read_folder`), as a
 /// newer crate reads more of a description (v0.25.0: `source.origin`; v0.26.0: `mine.routes`
-/// and `contents.typePictures`) and newer formats (v0.25.0: format 8, packs of guidebooks;
-/// v0.26.0: format 9, routes and a map's own icons), which the index kept refused.
-pub const READER: &str = "atlas-pack v0.26.0";
+/// and `contents.typePictures`; v0.29.0: `magazine` and `issues`) and newer formats (v0.25.0:
+/// format 8, packs of guidebooks; v0.26.0: format 9, routes and a map's own icons; v0.29.0:
+/// format 10, packs of magazines), which the index kept refused.
+pub const READER: &str = "atlas-pack v0.29.0";
 
 /// A pack's description, read from the front of its file by Atlas's crate: refused, with
 /// the crate's [`Refusal`], when it isn't a pack file, needs a newer format than
@@ -181,7 +182,8 @@ pub struct Description {
     /// Importer, Atlas Map Maker…); only "Atlas Map Maker" tells a sort ([`Description::sort`])
     pub pack_written_by: Option<String>,
     /// Its sort as the file says it (D231): `source.origin` (Atlas 0.25.0 and later write it),
-    /// or a pack of guidebooks (format 8), read by the crate's `Header::origin`; None when the
+    /// or a pack of guidebooks (format 8) or of magazines (format 10, D245), read by the
+    /// crate's `Header::origin`; None when the
     /// file says neither, and the contract's rule from before tells it ([`Description::sort`])
     pub origin: Option<Sort>,
     /// The whole description as it was read
@@ -206,11 +208,13 @@ pub enum Sort {
     App,
     /// A pack of guidebooks (format 8: published guides as PDF or CBZ files, D231)
     Guidebooks,
+    /// A pack of the issues of a magazine (format 10, D245): of no game, one per magazine
+    Magazines,
 }
 
 impl Sort {
     /// Its one word, as the card, Game Repo Server and Go say it: the words of Atlas's
-    /// `source.origin` (site, made-in-atlas, map-maker, guidebooks), and `app`.
+    /// `source.origin` (site, made-in-atlas, map-maker, guidebooks, magazines), and `app`.
     pub fn word(self) -> &'static str {
         match self {
             Sort::Site => "site",
@@ -218,12 +222,13 @@ impl Sort {
             Sort::MapMaker => "map-maker",
             Sort::App => "app",
             Sort::Guidebooks => "guidebooks",
+            Sort::Magazines => "magazines",
         }
     }
 
     /// The sort a word names ([`Sort::word`]); None for any other word.
     pub fn from_word(w: &str) -> Option<Sort> {
-        [Sort::Site, Sort::MadeInAtlas, Sort::MapMaker, Sort::App, Sort::Guidebooks].into_iter().find(|s| s.word() == w.trim())
+        [Sort::Site, Sort::MadeInAtlas, Sort::MapMaker, Sort::App, Sort::Guidebooks, Sort::Magazines].into_iter().find(|s| s.word() == w.trim())
     }
 
     /// The sort the crate's `Origin` names; None for a word it doesn't know (`Other`).
@@ -233,20 +238,22 @@ impl Sort {
             atlas_pack::Origin::MadeInAtlas => Some(Sort::MadeInAtlas),
             atlas_pack::Origin::MapMaker => Some(Sort::MapMaker),
             atlas_pack::Origin::Guidebooks => Some(Sort::Guidebooks),
+            atlas_pack::Origin::Magazines => Some(Sort::Magazines),
             _ => None,
         }
     }
 }
 
 /// The sort a description says itself (D231), by the crate's `Header::origin`: when its
-/// `source.origin` is a word the crate knows, or it carries guidebooks (format 8). None when
+/// `source.origin` is a word the crate knows, or it carries guidebooks (format 8) or a
+/// magazine's issues (format 10). None when
 /// it says neither (then [`Description::sort`] keeps the contract's rule from before: the
 /// crate's own guess for such a file would take a pack that came with an app and was exported
 /// by Atlas as made in Atlas), or when the JSON isn't a whole `Header` (a test's, or a
 /// description from before kept in the index).
 fn origin_of(raw: &Value) -> Option<Sort> {
     let h: atlas_pack::Header = serde_json::from_value(raw.clone()).ok()?;
-    let says = h.source.origin.is_some_and(|o| o != atlas_pack::Origin::Other) || !h.guidebooks.is_empty();
+    let says = h.source.origin.is_some_and(|o| o != atlas_pack::Origin::Other) || !h.guidebooks.is_empty() || !h.issues.is_empty();
     says.then(|| h.origin()).flatten().and_then(Sort::of_origin)
 }
 
@@ -373,7 +380,7 @@ impl Description {
         match self.sort()? {
             Sort::MadeInAtlas => Some("Atlas"),
             Sort::MapMaker => Some(MAP_MAKER),
-            Sort::Site | Sort::App | Sort::Guidebooks => None,
+            Sort::Site | Sort::App | Sort::Guidebooks | Sort::Magazines => None,
         }
     }
 
@@ -389,11 +396,13 @@ impl Description {
     }
 
     /// Where it's from, in the words a card says it: the site's name, "Made in Atlas",
-    /// "Made in Atlas Map Maker", "Came with an app" or "Guidebooks". None when it doesn't say.
+    /// "Made in Atlas Map Maker", "Came with an app", "Guidebooks" or "Magazines". None when it
+    /// doesn't say.
     pub fn from_words(&self) -> Option<String> {
         match self.sort() {
             Some(Sort::App) => Some("Came with an app".into()),
             Some(Sort::Guidebooks) => Some("Guidebooks".into()),
+            Some(Sort::Magazines) => Some("Magazines".into()),
             _ => self.made_in().map(|m| format!("Made in {m}")).or_else(|| self.site().map(String::from)),
         }
     }
@@ -721,14 +730,14 @@ pub(crate) mod tests {
         wrong["format"] = json!("something-else");
         write_pack(&other, &wrong, &[]);
         assert_eq!(refused(read_header(&other)), not);
-        // version 10 is newer than the crate reads (v0.26.0 reads 9): the sentence names what wrote it, and its
+        // version 11 is newer than the crate reads (v0.29.0 reads 10): the sentence names what wrote it, and its
         // advice names no app (the app reading it is the one to update), shown as it is
-        let mut ten = format7("x", "X", "2026-01-01T00:00:00Z");
-        ten["version"] = json!(10);
-        write_pack(&other, &ten, &[]);
+        let mut eleven = format7("x", "X", "2026-01-01T00:00:00Z");
+        eleven["version"] = json!(11);
+        write_pack(&other, &eleven, &[]);
         assert_eq!(
             refused(read_header(&other)),
-            ("newer-format", "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 10). A newer version of this app is needed to open it.".to_string())
+            ("newer-format", "This pack file was made by Atlas Importer 0.22.0 in a newer format (version 11). A newer version of this app is needed to open it.".to_string())
         );
         // a description that's missing a field every pack has (the contract's answer 2): damaged
         for field in ["format", "version", "packId", "title", "packVersion", "detail", "exportedAt", "exportedBy", "pack", "source", "contents", "images", "files", "bytes"] {
@@ -850,8 +859,8 @@ pub(crate) mod tests {
         for name in ["pictures/type-chest.png", "pictures/type-well.png", "routes.json", "mine/my-routes.json"] {
             assert!(read_preview(&path, name).is_err(), "{name} is never read as a picture");
         }
-        // the crate's own version: 9
-        assert_eq!(VERSION, 9);
+        // the crate's own version: 10 (v0.29.0, magazines), which reads format 9 as before
+        assert_eq!(VERSION, 10);
         // a description without the new fields has none
         let old = Description::from_value(format7("x", "X", "2026-01-01T00:00:00Z"));
         assert_eq!((old.contents.get("typePictures"), old.mine.map(|m| m.routes)), (None, None));
@@ -904,7 +913,7 @@ pub(crate) mod tests {
         v["pack"]["writtenBy"] = json!({ "name": "Atlas" });
         assert_eq!(sort(&Description::from_value(v)), (None, None, None, None), "not Made in Atlas by its writer alone");
         // the one word of each sort, read back (for Atlas's planned field)
-        for s in [Sort::Site, Sort::MadeInAtlas, Sort::MapMaker, Sort::App, Sort::Guidebooks] {
+        for s in [Sort::Site, Sort::MadeInAtlas, Sort::MapMaker, Sort::App, Sort::Guidebooks, Sort::Magazines] {
             assert_eq!(Sort::from_word(s.word()), Some(s));
         }
         assert_eq!(Sort::from_word("atlas"), None);
@@ -997,7 +1006,7 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let file = dir.join("Hollow Marsh guidebooks.atlaspack");
         guidebook_pack(&file, "guidebooks-hollow-marsh", "Hollow Marsh");
-        assert!(VERSION >= 8, "the crate reads format 8 (v0.26.0 reads up to 9)");
+        assert!(VERSION >= 8, "the crate reads format 8 (v0.29.0 reads up to 10)");
         let d = read_header(&file).unwrap();
         assert_eq!((d.version, d.pack_id.as_deref(), d.game_title()), (8, Some("guidebooks-hollow-marsh"), Some("Hollow Marsh")));
         assert_eq!((d.sort(), d.made_in(), d.site(), d.from_words().as_deref()), (Some(Sort::Guidebooks), None, None, Some("Guidebooks")));
@@ -1007,6 +1016,53 @@ pub(crate) mod tests {
         let mut raw = d.raw.clone();
         raw["source"].as_object_mut().unwrap().remove("origin");
         assert_eq!(Description::from_value(raw).sort(), Some(Sort::Guidebooks));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A pack of a made-up magazine's issues (format 10), written by Atlas's own crate as
+    /// another app writes one, with one issue of four pages.
+    pub(crate) fn magazine_pack(path: &Path, id: &str, title: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let issue = path.with_extension("source.pdf");
+        std::fs::write(&issue, pdf(4)).unwrap();
+        let pack = atlas_pack::MagazinePack {
+            pack_id: id.into(),
+            magazine: atlas_pack::MagazineFacts { title: title.into(), publisher: Some("Reed Press".into()) },
+            written_by: atlas_pack::AppInfo { name: "Example Shelf".into(), version: "1.0.0".into(), platform: "linux".into() },
+            issues: vec![atlas_pack::NewIssue {
+                file: issue.clone(),
+                title: "Issue 41".into(),
+                date: Some("2026-04".into()),
+                number: Some(41),
+                pages: None,
+                text: None,
+                cover: None,
+                games: vec![atlas_pack::IssueGame { title: "Hollow Marsh".into(), system: None, game_id: None, pages: vec![[2, 3]] }],
+            }],
+        };
+        atlas_pack::write_magazine_pack(&pack, path).unwrap();
+        std::fs::remove_file(&issue).unwrap();
+    }
+
+    /// Format 10 (v0.29.0, D245): a pack of magazines is read, not refused as newer or
+    /// damaged, and its sort is Magazines, which a card says; it's of no game.
+    #[test]
+    fn a_pack_of_magazines_is_read_and_its_sort_is_magazines() {
+        let dir = std::env::temp_dir().join(format!("gamerepo-atlaspack-magazines-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let file = dir.join("Marsh Monthly.atlaspack");
+        magazine_pack(&file, "magazines-marsh-monthly", "Marsh Monthly");
+        assert!(VERSION >= 10, "the crate reads format 10");
+        let d = read_header(&file).unwrap();
+        assert_eq!((d.version, d.pack_id.as_deref(), d.game.title.as_deref(), d.game_title()), (10, Some("magazines-marsh-monthly"), None, Some("Marsh Monthly")), "no game: its title is the magazine's");
+        assert_eq!((d.sort(), d.made_in(), d.site(), d.from_words().as_deref()), (Some(Sort::Magazines), None, None, Some("Magazines")));
+        assert_eq!(d.raw["issues"][0]["games"][0]["pages"], json!([[2, 3]]));
+        let c = card(&d);
+        assert_eq!((c["sort"].clone(), c["from"].clone(), c["site"].clone()), (json!("magazines"), json!("Magazines"), Value::Null));
+        // a description that lists issues without saying its origin is one too
+        let mut raw = d.raw.clone();
+        raw["source"].as_object_mut().unwrap().remove("origin");
+        assert_eq!(Description::from_value(raw).sort(), Some(Sort::Magazines));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

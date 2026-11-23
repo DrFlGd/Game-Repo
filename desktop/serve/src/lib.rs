@@ -18,6 +18,7 @@ pub mod http;
 pub mod made;
 pub mod packs;
 pub mod guidebooks;
+pub mod magazines;
 pub mod plans;
 pub mod saves;
 pub mod tls;
@@ -701,11 +702,13 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
         ("GET", p) if p.starts_with("/v1/games/") => ok(game_details(ix, lib, &sh.data, &p["/v1/games/".len()..])?),
         // every pack of maps and guides the library holds, and one by its packId (D225)
         ("GET", "/v1/packs") => {
-            // with each game's pack of guidebooks, grouped under the game (D237)
+            // with each game's pack of guidebooks, grouped under the game (D237), and each
+            // magazine's pack under Magazines, after the games (D247)
             let mut l = packs::library(ix, lib)?;
             l.items.extend(guidebooks::library(ix, lib, &sh.data, &|g| packs::game_of(ix, g))?);
+            l.items.extend(magazines::library(ix, lib, &sh.data)?);
             l.items.sort_by(|a, b| {
-                let k = |x: &api::LibraryPack| (x.group.to_lowercase(), x.pack.title.to_lowercase(), x.pack.pack_id.clone());
+                let k = |x: &api::LibraryPack| (x.pack.sort == "magazines", x.group.to_lowercase(), x.pack.title.to_lowercase(), x.pack.pack_id.clone());
                 k(a).cmp(&k(b))
             });
             ok(Response::json(200, &l))
@@ -713,23 +716,32 @@ fn route(sh: &Arc<Shared>, req: &Request, peer: SocketAddr, ix: &mut Option<Inde
         (_, p) if p.starts_with("/v1/packs/") && (m == "GET" || m == "HEAD") => {
             let rest = &p["/v1/packs/".len()..];
             let (id, what) = rest.split_once('/').unwrap_or((rest, ""));
-            // a game's pack of guidebooks, made by the server (D236): the whole set's, or a set's
-            // as a plan gave it; 202 while it's made
+            // a game's pack of guidebooks (D236) or a magazine's (D247), made by the server: the
+            // whole one's, or one as a plan gave it; 202 while it's made
             let made = if gamerepo_core::guidebooks::is_pack_id(id) {
                 match what {
                     "file" => Some(guidebooks::whole(ix, lib, &sh.data, id)?),
                     w if w.starts_with("made/") => Some(guidebooks::made(&sh.data, id, &w["made/".len()..])),
                     _ => None,
                 }
+                .map(|st| (st, "guidebooks"))
+            } else if gamerepo_core::magpack::is_pack_id(id) {
+                match what {
+                    // none of the library's magazines: a pack of maps and guides of that id, below
+                    "file" => magazines::whole(ix, lib, &sh.data, id)?,
+                    w if w.starts_with("made/") => Some(magazines::made(&sh.data, id, &w["made/".len()..])),
+                    _ => None,
+                }
+                .map(|st| (st, "a magazine"))
             } else {
                 None
             };
-            if let Some(st) = made {
+            if let Some((st, of)) = made {
                 return match st {
                     guidebooks::Status::Ready(path, m) => send_file(sh, req, &device, path, Some(m.sha1)),
                     guidebooks::Status::Pending => ok(Response::json(202, &json!({ "pending": true })).with("Retry-After", "2")),
-                    guidebooks::Status::Failed(e) => ok(Response::problem(500, format!("The pack of guidebooks couldn't be made: {e}"))),
-                    guidebooks::Status::Unknown => ok(Response::problem(404, "That pack of guidebooks isn't being made now: ask for the plan again.")),
+                    guidebooks::Status::Failed(e) => ok(Response::problem(500, format!("The pack of {of} couldn't be made: {e}"))),
+                    guidebooks::Status::Unknown => ok(Response::problem(404, format!("That pack of {of} isn't being made now: ask for the plan again."))),
                 };
             }
             match what {

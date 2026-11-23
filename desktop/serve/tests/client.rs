@@ -1864,3 +1864,111 @@ fn a_games_guidebooks_go_to_atlas_in_a_pack_of_their_own_with_a_tick_each() {
     s.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// D246–D248: a magazine's issues go to Atlas in a pack of their own (format 10), made by the
+/// server with Atlas's crate (a CBR made a CBZ) when a device first asks for it, 202 until it's
+/// made: listed on Maps and guides under Magazines, never on a game's page, installed on its
+/// own through the queue, made again when the magazine changes and fetched again, newer, after
+/// the next read of the library, and removed.
+#[test]
+fn a_magazines_issues_go_to_atlas_in_a_pack_of_their_own_installed_on_its_own() {
+    use gamerepo_core::{library::Library, magazines, magpack};
+    let dir = temp("go-magazines");
+    let lib = library(&dir);
+    let l = Library::open(&lib).unwrap();
+    let mag = magazines::folder(&l).join("Marsh Monthly");
+    tiny_pdf(&mag.join("Marsh Monthly 041 (2026-04).pdf"), 3);
+    let jpeg = |seed: u8| -> Vec<u8> { [0xFF, 0xD8, 0xFF, 0xE0].iter().copied().chain((0..200u8).map(|i| i.wrapping_mul(seed))).chain([0xFF, 0xD9]).collect() };
+    tiny_cbr(&mag.join("Marsh Monthly 042 (2026-05).cbr"), &[("2.jpg", &jpeg(2)), ("1.jpg", &jpeg(1))]);
+    let issue = |n: u32, file: &str, games: Value| json!({ "number": n.to_string(), "date": format!("2026-{:02}", n - 37), "file": file, "size": 1, "added": "2026-11-23", "games": games });
+    let mut m = json!({ "title": "Marsh Monthly", "publisher": "Reed Press", "issues": [
+        issue(41, "Marsh Monthly 041 (2026-04).pdf", json!([{ "key": ALPHA, "title": "Alpha", "platform": "gb", "pages": [2, 3], "ticked": true }])),
+        issue(42, "Marsh Monthly 042 (2026-05).cbr", json!([])),
+    ] });
+    gamerepo_core::config::write_json(&mag.join(magazines::MANIFEST), &m).unwrap();
+    let pack_id = magpack::pack_id_for("Marsh Monthly");
+    let in_mag = names_in(&mag);
+
+    let s = start(&lib, &dir.join("server"));
+    let server = paired(&s);
+    // Maps and guides lists it under Magazines, before it's made: its issues, its size reckoned
+    let list: gamerepo_wire::api::PackList = server.get("/v1/packs").unwrap();
+    let lp = list.items.iter().find(|i| i.pack.pack_id == pack_id).unwrap_or_else(|| panic!("{list:?}"));
+    assert_eq!(
+        (lp.group.as_str(), lp.pack.sort.as_str(), lp.pack.title.as_str(), lp.pack.file.as_str(), lp.pack.issues, lp.pack.updated.as_str(), lp.games.len()),
+        ("Magazines", "magazines", "Marsh Monthly", "Marsh Monthly - Magazines.atlaspack", 2, "", 0)
+    );
+    assert!(!dir.join("server").join("magazines").join(&pack_id).exists(), "not made until a device asks");
+    // a pack of no game: never on a game's page
+    let g: Value = server.get(&format!("/v1/games/{}", ALPHA.replace(' ', "%20"))).unwrap();
+    assert!(!g["packs"].as_array().into_iter().flatten().any(|p| p["sort"] == "magazines"), "{g}");
+
+    // Go: installed on its own from Maps and guides, while the server makes it (the plan not
+    // ready, its file 202 until it's made)
+    let d = a_device(&dir);
+    let app = open_app(&dir, &d.home);
+    let atlas = dir.join("Atlas Packs");
+    call(&app, "set_settings", json!({ "media": [], "atlas_folder": atlas }));
+    pair(&app, &s);
+    let page = call(&app, "packs_library", json!({}));
+    let mp = page["items"].as_array().unwrap().iter().find(|p| p["pack_id"] == pack_id.as_str()).cloned().unwrap_or_else(|| panic!("{page}"));
+    assert_eq!((mp["group"].as_str(), mp["sort"].as_str(), mp["issues"].as_u64(), mp["here"].as_bool()), (Some("Magazines"), Some("magazines"), Some(2), Some(false)), "{mp}");
+    let plan: gamerepo_wire::Plan = server.call("POST", "/v1/plans", Some(&gamerepo_wire::api::PlanAsk { pack_ids: vec![pack_id.clone()], packs: true, packs_only: true, ..Default::default() })).unwrap();
+    assert_eq!(plan.files.len(), 1, "{plan:?}");
+    assert!(plan.left.is_empty(), "{plan:?}");
+    let pf = &plan.files[0];
+    assert_eq!((pf.place.as_str(), pf.role.as_str(), pf.path.as_str(), pf.key.as_str(), pf.game.as_str()), ("atlas", "pack", "Marsh Monthly - Magazines.atlaspack", "", "Marsh Monthly"));
+    assert!(pf.url.starts_with(&format!("/v1/packs/{pack_id}/made/")), "{pf:?}");
+    assert!(!plan.ready && pf.sha1.is_none() && pf.size > 0, "the first ask: being made, no SHA-1, its size reckoned: {plan:?}");
+    let v = call(&app, "pack_install", json!({ "pack": pack_id }));
+    assert_eq!(v["queued"].as_array().map(Vec::len), Some(1), "{v}");
+    queue_done(&app);
+    assert_eq!(item(&call(&app, "queue", json!({})), &format!("pack:{pack_id}"))["state"], "done", "{}", call(&app, "queue", json!({})));
+    let there = atlas.join("Marsh Monthly - Magazines.atlaspack");
+    assert_eq!(names_in(&atlas), ["Marsh Monthly - Magazines.atlaspack"]);
+    // read back: format 10, the magazine's issues, the CBR made a CBZ, the game's pages
+    let first = gamerepo_core::atlaspack::read_header(&there).unwrap();
+    assert_eq!((first.version, first.pack_id.as_deref(), first.sort()), (10, Some(pack_id.as_str()), Some(gamerepo_core::atlaspack::Sort::Magazines)));
+    let issues = first.raw["issues"].as_array().unwrap();
+    assert_eq!(issues.iter().map(|i| (i["title"].as_str().unwrap(), i["pages"].as_u64().unwrap())).collect::<Vec<_>>(), [("Issue 41", 3), ("Issue 42", 2)]);
+    assert!(issues[1]["file"].as_str().unwrap().ends_with(".cbz"), "{issues:?}");
+    assert_eq!(issues[0]["games"], json!([{ "title": "Alpha", "system": "Game Boy", "pages": [[2, 3]] }]));
+    // made in the server's data folder; the library untouched
+    assert_eq!(names_in(&mag), in_mag);
+    assert!(dir.join("server").join("magazines").join(&pack_id).join("made.json").is_file());
+    // its file by its packId now: the same, with its SHA-1, and listed with its dates
+    let url = format!("/v1/packs/{pack_id}/file");
+    let part = dir.join("magazines.part");
+    server.fetch_into(&url, &part, &dir.join("magazines.etag"), None, gamerepo_device::Watch::default()).unwrap();
+    assert_eq!(std::fs::read(&part).unwrap(), std::fs::read(&there).unwrap());
+    assert_eq!(server.sha1_of(&url, Duration::from_secs(60)).unwrap(), gamerepo_device::sha1_file(&there).unwrap());
+    let list: gamerepo_wire::api::PackList = server.get("/v1/packs").unwrap();
+    let lp = list.items.iter().find(|i| i.pack.pack_id == pack_id).unwrap();
+    assert_eq!((lp.pack.updated.as_str(), lp.pack.size, lp.pack.guide_pages), (first.updated.as_deref().unwrap(), std::fs::metadata(&there).unwrap().len(), 5));
+    let mp = call(&app, "packs_library", json!({}))["items"].as_array().unwrap().iter().find(|p| p["pack_id"] == pack_id.as_str()).cloned().unwrap();
+    assert_eq!((mp["here"].as_bool(), mp["alone"].as_bool(), mp["newer_in_library"].as_bool()), (Some(true), Some(true), Some(false)), "{mp}");
+
+    // a new issue: the server makes it again when the list is read (it was made before), and
+    // Go fetches the newer one after its next read of the library
+    tiny_pdf(&mag.join("Marsh Monthly 043 (2026-06).pdf"), 4);
+    m["issues"].as_array_mut().unwrap().push(issue(43, "Marsh Monthly 043 (2026-06).pdf", json!([])));
+    gamerepo_core::config::write_json(&mag.join(magazines::MANIFEST), &m).unwrap();
+    until("made again for the new issue", 60, || {
+        let list: gamerepo_wire::api::PackList = server.get("/v1/packs").unwrap();
+        list.items.iter().any(|i| i.pack.pack_id == pack_id && i.pack.issues == 3 && !i.pack.updated.is_empty())
+    }, || format!("{:?}", server.get::<gamerepo_wire::api::PackList>("/v1/packs").unwrap()));
+    call(&app, "sync", json!({}));
+    synced(&app);
+    until("the newer pack fetched", 60, || gamerepo_core::atlaspack::read_header(&there).is_ok_and(|d| d.raw["issues"].as_array().map(Vec::len) == Some(3)), || call(&app, "queue", json!({})).to_string());
+    queue_done(&app);
+    assert_eq!(gamerepo_core::atlaspack::read_header(&there).unwrap().newer(&first), std::cmp::Ordering::Greater);
+    assert_eq!(names_in(&atlas), ["Marsh Monthly - Magazines.atlaspack"], "in place of the one there");
+
+    // taken off: it goes
+    let v = call(&app, "pack_remove", json!({ "pack": pack_id }));
+    assert_eq!(v["result"], "removed", "{v}");
+    assert!(names_in(&atlas).is_empty());
+    app.queue.quit();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}

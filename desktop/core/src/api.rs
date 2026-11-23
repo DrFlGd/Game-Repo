@@ -2645,9 +2645,13 @@ impl App {
             // the Magazines page (D68)
             "magazines" => {
                 let lib = self.library()?;
+                let server = self.paths.server_data.clone();
                 j(self.with_index(move |ix| {
                     crate::docs::sync(ix, &lib)?;
-                    crate::magazines::overview(ix, &lib)
+                    let mut v = crate::magazines::overview(ix, &lib)?;
+                    // each magazine's pack for Atlas, as Game Repo Server makes it (D249)
+                    crate::magpack::annotate(ix, &lib, &server, &mut v)?;
+                    Ok(v)
                 })
                 .await?)
             }

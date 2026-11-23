@@ -386,7 +386,7 @@ pub fn plan(lib: &Library, items: &[Item], mode: &str, always_copy: bool) -> Res
 }
 
 /// Issues by date, then number, then file.
-fn issue_order(i: &Issue) -> (String, u64, String, String) {
+pub(crate) fn issue_order(i: &Issue) -> (String, u64, String, String) {
     let n = i.number.as_deref().and_then(|n| n.parse::<u64>().ok()).unwrap_or(u64::MAX);
     (i.date.clone().unwrap_or_else(|| "9999".into()), n, i.number.clone().unwrap_or_default(), i.file.clone())
 }
@@ -650,7 +650,7 @@ fn pdf_cover(p: &Path) -> Option<Vec<u8>> {
 
 /// A file `magazine.json` names (an issue, its cover), when it stays inside the magazine's
 /// folder: the file is the user's to edit, so it could name any file (M32).
-fn inside(dir: &Path, rel: &str) -> Option<PathBuf> {
+pub(crate) fn inside(dir: &Path, rel: &str) -> Option<PathBuf> {
     crate::library::rel_inside(rel).ok().map(|r| dir.join(r))
 }
 

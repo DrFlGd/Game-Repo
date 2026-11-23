@@ -25,13 +25,17 @@ device, the look, each skin, About and updates with the CLI's stand-in for the u
 guides for Atlas (off at first, a game's packs listed and ticked, one brought into Atlas's
 packs folder and taken out again, Atlas's own files untouched, hidden on Android; Show in
 Atlas once a pack is there, saying where to set Atlas when it isn't found, and starting a
-stand-in for Atlas with --show-pack and the pack's id); the Library and a game's page kept with the library away; every page
+stand-in for Atlas with --show-pack and the pack's id); Install Atlas on Linux against a stand-in for
+Atlas's releases (offered with no AppImage, a changed file refused, then the AppImage in ~/Applications,
+D250–D255); the Library and a game's page kept with the library away; every page
 moved through with the keys alone, and the games by rows and columns; no page errors; and
 the library and everything outside ES-DE's folders as they were. Screenshots for each.
 """
 import argparse
 import asyncio
+import base64
 import hashlib
+import http.server
 import json
 import os
 import queue
@@ -50,6 +54,8 @@ from playwright.async_api import async_playwright
 
 sys.path.insert(0, str(Path(__file__).with_name("fixtures")))
 import make_fixtures  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+import update_files as uf  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--cli", required=True)
@@ -203,6 +209,82 @@ if sys.platform.startswith("linux"):
         (steam_bin / name).write_text(f"#!/bin/sh\n{body}\n")
         (steam_bin / name).chmod(0o755)
     go_env["USER"] = go_env.get("USER") or "deck"
+# Install Atlas (D250–D254): a stand-in for Atlas's releases on GitHub, its latest.json
+# reached through a redirect as GitHub's is, naming a tiny made-up AppImage signed with a
+# test key as the Tauri CLI signs (minisign: Ed25519 over the file's BLAKE2b); client-ui
+# (never Game Repo Go itself) takes the stand-in and the key from the environment
+def _ed_expand(seed):
+    h = hashlib.sha512(seed).digest()
+    return (int.from_bytes(h[:32], "little") & ((1 << 254) - 8)) | (1 << 254), h[32:]
+
+
+def _ed_encode(point):
+    zinv = pow(point[2], uf.P - 2, uf.P)
+    x, y = point[0] * zinv % uf.P, point[1] * zinv % uf.P
+    return (y | ((x & 1) << 255)).to_bytes(32, "little")
+
+
+def _ed_sign(seed, message):
+    a, prefix = _ed_expand(seed)
+    public = _ed_encode(uf._mul(a, uf.BASE))
+    r = int.from_bytes(hashlib.sha512(prefix + message).digest(), "little") % uf.L
+    big_r = _ed_encode(uf._mul(r, uf.BASE))
+    h = int.from_bytes(hashlib.sha512(big_r + public + message).digest(), "little") % uf.L
+    return big_r + ((r + h * a) % uf.L).to_bytes(32, "little")
+
+
+ATLAS_SEED, ATLAS_KEYNUM = hashlib.sha256(b"Game Repo Go's test key for Atlas").digest(), bytes.fromhex("0123456789abcdef")
+ATLAS_KEY = base64.b64encode((f"untrusted comment: minisign public key: {ATLAS_KEYNUM.hex().upper()}\n"
+                              f"{base64.b64encode(b'Ed' + ATLAS_KEYNUM + _ed_encode(uf._mul(_ed_expand(ATLAS_SEED)[0], uf.BASE))).decode()}\n").encode()).decode()
+
+
+def atlas_sign(data, name="Atlas.AppImage"):
+    sig = _ed_sign(ATLAS_SEED, hashlib.blake2b(data, digest_size=64).digest())
+    trusted = f"timestamp:1763700000\tfile:{name}"
+    glob = _ed_sign(ATLAS_SEED, sig + trusted.encode())
+    return base64.b64encode((f"untrusted comment: signature from tauri secret key\n{base64.b64encode(b'ED' + ATLAS_KEYNUM + sig).decode()}\n"
+                             f"trusted comment: {trusted}\n{base64.b64encode(glob).decode()}\n").encode()).decode()
+
+
+ATLAS_APPIMAGE = b"\x7fELF\x02\x01\x01 a made-up Atlas.AppImage\n" * 64
+atlas_release = {"file": ATLAS_APPIMAGE, "asked": []}
+ATLAS_LATEST, ATLAS_TAGGED, ATLAS_FILE = "/DrFlGd/Atlas/releases/latest/download/latest.json", "/DrFlGd/Atlas/releases/download/v0.29.0/latest.json", "/DrFlGd/Atlas/releases/download/v0.29.0/Atlas.AppImage"
+
+
+class AtlasReleases(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"  # as GitHub answers (Python's HTTP/1.0 closes in a way a client may see cut short)
+
+    def log_message(self, *_):
+        pass
+
+    def do_GET(self):
+        atlas_release["asked"].append(self.path)
+        base = f"http://127.0.0.1:{self.server.server_port}"
+        if self.path == ATLAS_LATEST:
+            self.send_response(302)
+            self.send_header("Location", base + ATLAS_TAGGED)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if self.path == ATLAS_TAGGED:
+            body = json.dumps({"version": "0.29.0", "notes": "- **Magazines.**", "pub_date": "2026-11-21T10:00:00Z", "platforms": {
+                "windows-x86_64": {"url": base + "/DrFlGd/Atlas/releases/download/v0.29.0/Atlas-0.29.0-setup.exe", "signature": atlas_sign(b"MZ", "Atlas-0.29.0-setup.exe")},
+                "linux-x86_64": {"url": base + ATLAS_FILE, "signature": atlas_sign(ATLAS_APPIMAGE)}}}).encode()
+        elif self.path == ATLAS_FILE:
+            body = atlas_release["file"]
+        else:
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+atlas_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), AtlasReleases)
+threading.Thread(target=atlas_server.serve_forever, daemon=True).start()
+go_env["GAMEREPO_TEST_ATLAS_RELEASES"] = f"http://127.0.0.1:{atlas_server.server_port}/DrFlGd/Atlas"
+go_env["GAMEREPO_TEST_ATLAS_KEY"] = ATLAS_KEY
 go = subprocess.Popen([cli, "client-ui", "--ui", str(ui), "--home", str(phone), "--data", str(go_data), "--port", str(ui_port), "--kind", "windows", "--root", str(deck_root)],
                       stdout=subprocess.DEVNULL, stderr=open(out / "client-ui.log", "w", encoding="utf-8"), env=go_env)
 B = f"http://127.0.0.1:{ui_port}/"
@@ -318,14 +400,11 @@ def atlas_pack_file(path, pack_id, title, key, updated="2026-11-10T10:00:00Z", m
     return path
 
 
-def guidebooks_for(folder):
-    """Two guidebooks, published guides as one file each (D232): a PDF of two pages with its
-    own text, and a CBZ of three pictures. Made-up games only."""
-    import io
-    import zipfile
+def pdf_of(texts):
+    """A small PDF, a page with each line of text."""
     objs = [b"<< /Type /Catalog /Pages 2 0 R >>", None, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
     kids = []
-    for t in ("Beta: the walkthrough", "Beta: every secret"):
+    for t in texts:
         stream = f"BT /F1 14 Tf 30 400 Td ({t}) Tj ET".encode()
         objs.append(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
         objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 595] /Contents %d 0 R /Resources << /Font << /F1 3 0 R >> >> >>" % len(objs))
@@ -338,13 +417,48 @@ def guidebooks_for(folder):
     xref = len(pdf)
     pdf += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % x for x in at)
     pdf += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    return bytes(pdf)
+
+
+def guidebooks_for(folder):
+    """Two guidebooks, published guides as one file each (D232): a PDF of two pages with its
+    own text, and a CBZ of three pictures. Made-up games only."""
+    import io
+    import zipfile
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / "Beta Official Guide.pdf").write_bytes(bytes(pdf))
+    (folder / "Beta Official Guide.pdf").write_bytes(pdf_of(("Beta: the walkthrough", "Beta: every secret")))
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         for n in (1, 2, 3):
             z.writestr(f"{n:02}.png", png(4, 4, (40 * n, 90, 200)))
     (folder / "Beta Art Book.cbz").write_bytes(buf.getvalue())
+
+
+def magazine_for(folder):
+    """A made-up magazine (D68) of two issues, a PDF of three pages and a CBZ of two pictures,
+    with a game ticked in the first, as Game Repo keeps it in Magazines/<Title>/."""
+    import io
+    import zipfile
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "Marsh Monthly 041 (2026-04).pdf").write_bytes(pdf_of(("Contents", "Echo reviewed", "Echo's maps")))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n in (1, 2):
+            z.writestr(f"{n:02}.png", png(6, 8, (30 * n, 120, 90)))
+    (folder / "Marsh Monthly 042 (2026-05).cbz").write_bytes(buf.getvalue())
+    (folder / "magazine.json").write_text(json.dumps({"title": "Marsh Monthly", "publisher": "Reed Press", "issues": [
+        {"number": "41", "date": "2026-04", "file": "Marsh Monthly 041 (2026-04).pdf", "size": 1, "added": "2026-11-23",
+         "games": [{"key": "nes/Echo (USA)", "title": "Echo", "platform": "nes", "pages": [2, 3], "ticked": True}]},
+        {"number": "42", "date": "2026-05", "file": "Marsh Monthly 042 (2026-05).cbz", "size": 1, "added": "2026-11-23"}]}), encoding="utf-8")
+
+
+def magazine_issues(path):
+    """A magazine's pack as Atlas reads it: its description's version and its issues' titles,
+    pages and files."""
+    import zipfile
+    with zipfile.ZipFile(path) as z:
+        d = json.loads(z.read("atlaspack.json"))
+        return d["version"], [(i["title"], i["pages"], i["file"].rsplit(".", 1)[1]) for i in d.get("issues", [])], "magazines.json" in z.namelist()
 
 
 def guidebooks_in(path):
@@ -782,9 +896,15 @@ async def main():
             await pg.wait_for_selector("#set-steam-done")
             vdf = (steam_dir / "userdata" / "22202" / "config" / "shortcuts.vdf").read_bytes()
             mine = b"Game Repo Go" in vdf and Path(cli).name.encode() in vdf
+            grid_dir = steam_dir / "userdata" / "22202" / "config" / "grid"
+            # its own pictures (the stand-in's, whose files hold their kind): <id>p, <id>,
+            # <id>_hero and <id>_logo, all with one id
+            own_grid = {f.read_bytes(): f.name for f in grid_dir.iterdir() if f.read_bytes() in (b"cover", b"banner", b"hero", b"logo")} if grid_dir.is_dir() else {}
+            own_id = own_grid.get(b"banner", "?.png")[:-4]
+            art = own_grid == {b"cover": f"{own_id}p.png", b"banner": f"{own_id}.png", b"hero": f"{own_id}_hero.png", b"logo": f"{own_id}_logo.png"}
             await shot(pg, "16-pc-linux-steam")
-            check("on Linux, Settings adds Game Repo Go to Steam's library, written while Steam's closed",
-                  not_on_windows and mine, (not_on_windows, vdf[:200]))
+            check("on Linux, Settings adds Game Repo Go to Steam's library with its own pictures (cover, banner, hero, logo), written while Steam's closed",
+                  not_on_windows and mine and art, (not_on_windows, vdf[:200], own_grid))
             # D244: Exit Game Repo Go on Linux, where Game Mode has no window to close: in
             # Settings and in the big screen's Options (☰), reachable by a controller; with
             # nothing running it ends Game Repo Go at once (the stand-in counts it)
@@ -1124,10 +1244,15 @@ async def main():
             await pg.wait_for_selector("#go-game-atlas-show", timeout=20000)
             show_pack = await pg.get_attribute("#go-game-atlas-show", "data-pack")
             not_found = "(not tried on Windows, where an Atlas installed would start)"
+            install_link = "(not tried on Windows)"
             if sys.platform.startswith("linux"):
                 await pg.click("#go-game-atlas-show")
                 await toast(pg, "Atlas wasn't found")
                 not_found = await pg.inner_text("#go-toast")
+                # its link is Install Atlas (D250), which opens Settings there
+                install_link = await pg.inner_text("#go-toast-go")
+                await pg.click("#go-toast-go")
+                await pg.wait_for_selector('#set-atlas-install[data-state="missing"] #set-atlas-install-button', timeout=20000)
             stand_in, said_args = atlas_stand_in(home / "atlas-stand-in")
             await pg.goto(B + "#settings")
             await pg.wait_for_selector("#set-atlas-program")
@@ -1147,9 +1272,9 @@ async def main():
                     started = said_args.read_text().split()
                     break
                 await asyncio.sleep(0.25)
-            check("Show in Atlas is offered once a pack of the game is in Atlas's packs folder, says where to set Atlas when it isn't found, and starts Atlas with --show-pack and the pack's id",
-                  show_pack == "beta-example-maps" and ("Settings" in not_found or sys.platform == "win32") and str(stand_in) in program_said
-                  and started == ["--show-pack", "beta-example-maps"] and "Beta" in started_said, (show_pack, not_found, program_said, started, started_said))
+            check("Show in Atlas is offered once a pack of the game is in Atlas's packs folder, says where to set Atlas when it isn't found with Install Atlas (D250), and starts Atlas with --show-pack and the pack's id",
+                  show_pack == "beta-example-maps" and ("Settings" in not_found or sys.platform == "win32") and install_link in ("Install Atlas", "(not tried on Windows)") and str(stand_in) in program_said
+                  and started == ["--show-pack", "beta-example-maps"] and "Beta" in started_said, (show_pack, not_found, install_link, program_said, started, started_said))
             await pg.click(f"{beta_pack} input")
             await pg.wait_for_selector("#go-game-packs-said", timeout=20000)
             said = await pg.inner_text("#go-game-packs-said")
@@ -1401,6 +1526,42 @@ async def main():
             check("the big screen has Maps and guides as a tab of its own, with the same list (Beta's guidebooks a pack of their own in it)",
                   big_tab == "page" and big_rows == 4 and len(gb_row) == 1 and "Beta - Guidebooks" in gb_row[0] and "2 guidebooks" in gb_row[0], (big_tab, big_rows, gb_row))
 
+            # 13d2. a magazine's issues (D245-D248, Atlas 0.29.0's format 10): each magazine the
+            # library keeps is a pack of its own, made by the server when a device first asks
+            # for it, listed under Magazines after the games' packs, installed on its own and
+            # removed as any pack
+            magazine_for(lib / "Magazines" / "Marsh Monthly")
+            run("serve-devices", "changed", "--data", data)
+            mag_pack = '#go-maps li.go-pack[data-pack^="magazines-"]'
+            mag_file = atlas / "Marsh Monthly - Magazines.atlaspack"
+            await pg.goto(B + "#maps")
+            await pg.reload()
+            await pg.wait_for_selector(mag_pack, timeout=30000)
+            mag_groups = await pg.eval_on_selector_all("#go-maps .go-pack-group", "els => els.map(e => [e.dataset.group, e.dataset.magazines || '', [...e.querySelectorAll('li.go-pack')].map(l => l.dataset.pack)])")
+            mag_said = await pg.inner_text(mag_pack)
+            await shot(pg, "17g-phone-maps-magazines")
+            check("a magazine is a pack of its own on Maps and guides, under Magazines after the games' packs, with its issues",
+                  mag_groups[-1][:2] == ["Magazines", "yes"] and len(mag_groups[-1][2]) == 1 and "Marsh Monthly" in mag_said and "2 issues" in mag_said
+                  and "a magazine's issues" in mag_said and not mag_file.exists(), (mag_groups, mag_said))
+            await pg.click(f'{mag_pack} [data-action="install"]')
+            for _ in range(120):
+                if mag_file.is_file() and not list(atlas.glob("*.part")):
+                    break
+                await asyncio.sleep(0.5)
+            await pg.wait_for_selector(f'{mag_pack}[data-alone="yes"]', timeout=60000)
+            mag_in = magazine_issues(mag_file) if mag_file.is_file() else None
+            record = json.loads((go_data / "packs.json").read_text(encoding="utf-8"))
+            check("Install brings the magazine's pack into Atlas's packs folder on its own, made by the server (format 10, both issues)",
+                  mag_in == (10, [("Issue 41", 3, "pdf"), ("Issue 42", 2, "cbz")], True) and any(a.startswith("magazines-") for a in record.get("alone", []))
+                  and not (lib / "Magazines" / "Marsh Monthly" / "Marsh Monthly - Magazines.atlaspack").exists(), (mag_in, record.get("alone")))
+            await pg.wait_for_selector(f'{mag_pack} [data-action="remove"]:not([disabled])', timeout=20000)
+            await pg.click(f'{mag_pack} [data-action="remove"]')
+            await pg.wait_for_selector(f'{mag_pack}[data-here="no"]', timeout=20000)
+            said = await pg.inner_text("#maps-said")
+            check("Remove takes the magazine's pack out of Atlas's packs folder",
+                  "taken out of Atlas's packs folder" in said and not mag_file.exists(), (said, sorted(p.name for p in atlas.iterdir())))
+            await pg.goto(B + "#library")
+
             # 13c. PC games (D110-D112), on Windows and Linux: a system of their own, put in the
             # PC games folder Settings names, each game in its folder with a shortcut (in the
             # Start menu on Windows, in Steam on Linux); removed, a save it made stays
@@ -1555,6 +1716,67 @@ async def main():
                 check("a path the line can't hold ($ here) gets no line, says why, and nothing is written with it (D241)",
                       "dollar sign" in refused and no_line and start_off and b"$HOME" not in options(), refused)
                 atlas_file.write_text(json.dumps(kept_atlas), encoding="utf-8")
+                # D250–D254: Install Atlas. With no Atlas.AppImage (and Atlas's program unset,
+                # which Show in Atlas's check set to a stand-in), Settings offers it, and the
+                # launch line's "It isn't there now" links to it; a file that doesn't match its
+                # signature is refused and leaves nothing; pressed again, Atlas.AppImage is put
+                # in ~/Applications in the made-up home, mode 755; Settings then says Atlas is
+                # installed and where, with nothing to update, and the launch line names it
+                apps = phone / "Applications"
+                usual = apps / "Atlas.AppImage"
+                usual_line = f"bash -c '\"{usual}\" --background & exec \"$@\"' -- %command%"
+                await pg.goto(B + "#settings")
+                await pg.reload()
+                await pg.wait_for_selector("#set-atlas-program", timeout=20000)
+                await pg.fill("#set-atlas-program", "")
+                await pg.press("#set-atlas-program", "Tab")
+                await settled(pg, "() => !document.querySelector('#set-atlas-program-note')?.textContent.includes('starts')", 20000)
+                await pg.reload()
+                await pg.wait_for_selector('#set-atlas-install[data-state="missing"]', timeout=20000)
+                offered = await pg.is_visible("#set-atlas-install-button")
+                install_note = await pg.inner_text("#set-atlas-install-note")
+                linked = await pg.is_visible("#set-atlas-appimage-install")
+                await pg.locator("#set-atlas-install").scroll_into_view_if_needed()
+                await shot(pg, "18e-linux-install-atlas")
+                check("with no Atlas.AppImage, Settings › Maps and guides for Atlas offers Install Atlas, saying where it goes, and the launch line links to it (D250)",
+                      offered and str(usual) in install_note and linked and not apps.exists(), (offered, install_note, linked))
+                # a file changed after it was signed: refused, nothing left behind
+                atlas_release["file"] = ATLAS_APPIMAGE[:-1] + b"!"
+                atlas_release["asked"].clear()
+                await pg.click("#set-atlas-install-button")
+                await pg.wait_for_selector('#set-atlas-install[data-state="missing"] #set-atlas-install-said', timeout=30000)
+                refused_said = await pg.inner_text("#set-atlas-install-said")
+                await shot(pg, "18f-linux-install-atlas-refused")
+                left = sorted(str(x.relative_to(go_data)) for x in go_data.rglob("*") if "atlas-download" in x.parts)
+                check("a download that doesn't match Atlas's signature is refused, said plainly, and leaves nothing behind (D252)",
+                      "doesn't match Atlas's signature" in refused_said and not apps.exists() and not left
+                      and atlas_release["asked"] == [ATLAS_LATEST, ATLAS_TAGGED, ATLAS_FILE], (refused_said, left, atlas_release["asked"]))
+                # the real file: installed
+                atlas_release["file"] = ATLAS_APPIMAGE
+                await pg.click("#set-atlas-install-button")
+                await pg.wait_for_selector('#set-atlas-install[data-state="installed"]', timeout=30000)
+                installed_said = await pg.inner_text("#set-atlas-install")
+                mode = usual.stat().st_mode & 0o777 if usual.is_file() else None
+                await pg.locator("#set-atlas-install").scroll_into_view_if_needed()
+                await shot(pg, "18g-linux-atlas-installed")
+                check("Install Atlas puts Atlas.AppImage in ~/Applications, mode 755, then says Atlas is installed and where, with no button to update it (D253)",
+                      usual.is_file() and usual.read_bytes() == ATLAS_APPIMAGE and mode == 0o755 and sorted(p.name for p in apps.iterdir()) == ["Atlas.AppImage"]
+                      and "Atlas 0.29.0 is installed" in installed_said and str(usual) in installed_said and "updates itself" in installed_said
+                      and not await pg.query_selector("#set-atlas-install-button") and not [x for x in go_data.rglob("*") if "atlas-download" in x.parts],
+                      (mode, installed_said))
+                await pg.reload()
+                await pg.wait_for_selector("#set-atlas-line textarea", timeout=20000)
+                shown_line = await pg.input_value("#set-atlas-line textarea")
+                where_said = await pg.inner_text("#set-atlas-appimage")
+                start_on = await pg.is_checked("#set-atlas-start")
+                program_said = await pg.inner_text("#set-atlas-program-note")
+                for _ in range(50):
+                    if launch(usual_line) in options():
+                        break
+                    await asyncio.sleep(0.1)
+                check("then the launch line names it, Start Atlas with my games is on by itself and Zeta's launch options have it, and Show in Atlas starts it (D254)",
+                      shown_line == usual_line and "isn't there now" not in where_said and not await pg.query_selector("#set-atlas-appimage-install")
+                      and start_on and launch(usual_line) in options() and str(usual) in program_said, (shown_line, where_said, start_on, program_said))
                 shell(kind="windows")
             # D207–D208: its files checked on its page, a change put back, a save left as it is
             await pg.goto(B + "#library")

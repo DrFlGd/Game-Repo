@@ -188,11 +188,17 @@ fn pages_cache() -> &'static Mutex<HashMap<Stamp, std::result::Result<u32, Strin
 /// magazines' PDF reader does), a CBZ's or CBR's pictures. Remembered by the file's size and
 /// time while the app runs. Err: a plain sentence.
 pub fn pages(g: &Guidebook) -> std::result::Result<u32, String> {
-    let key = (g.path.clone(), g.size, g.mtime);
+    pages_of(&g.path, &g.kind, g.size, g.mtime)
+}
+
+/// How many pages a file of `kind` (pdf, cbz, cbr) has, as [`pages`] counts them, remembered by
+/// the file's size and time while the app runs (a magazine's issue too, D245).
+pub(crate) fn pages_of(path: &Path, kind: &str, size: u64, mtime: i64) -> std::result::Result<u32, String> {
+    let key = (path.to_path_buf(), size, mtime);
     if let Some(r) = pages_cache().lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
         return r.clone();
     }
-    let r = count_pages(&g.path, &g.kind);
+    let r = count_pages(path, kind);
     pages_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(key, r.clone());
     r
 }
@@ -301,9 +307,15 @@ pub fn folder_of(ix: &Index, lib: &Library, keys: &[String]) -> Result<Option<Fo
 /// keys that read alike never share one: `guidebooks-snes-hollow-marsh-usa-1a2b3c4d`. Always
 /// 1 to 64 characters that Atlas's `is_pack_id` takes.
 pub fn pack_id_for(key: &str) -> String {
+    slug_id(PACK_PREFIX, key)
+}
+
+/// `<prefix><slug>-<8 hex digits of the key's SHA-1>`: the key's letters and digits in lower
+/// case joined by `-`, cut so the whole is at most 64 characters, as [`pack_id_for`] says.
+pub(crate) fn slug_id(prefix: &str, key: &str) -> String {
     use sha1::Digest;
     let h = hex::encode(sha1::Sha1::digest(key.as_bytes()));
-    let room = 64 - PACK_PREFIX.len() - 1 - 8;
+    let room = 64 - prefix.len() - 1 - 8;
     let mut slug = String::new();
     for w in key.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()) {
         let w = w.to_ascii_lowercase();
@@ -323,9 +335,9 @@ pub fn pack_id_for(key: &str) -> String {
         slug.push_str(&w);
     }
     if slug.is_empty() {
-        format!("{PACK_PREFIX}{}", &h[..8])
+        format!("{prefix}{}", &h[..8])
     } else {
-        format!("{PACK_PREFIX}{slug}-{}", &h[..8])
+        format!("{prefix}{slug}-{}", &h[..8])
     }
 }
 
@@ -696,6 +708,11 @@ pub struct Made {
     pub inputs: Vec<MadeInput>,
     /// How many of its guidebooks were copied from the pack made before, not written again
     pub kept: usize,
+    /// A pack of magazines (D245): how many issues it holds and their pages, and the issues
+    /// left out as it was made, each (title, why)
+    pub items: usize,
+    pub pages: u64,
+    pub left: Vec<(String, String)>,
 }
 
 /// `made.json` in a pack's folder of the cache: what's made, oldest first; the last is the
@@ -755,9 +772,14 @@ impl Cache {
 
     /// The pack made for `w`, when it's made and is the newest made of its id.
     pub fn current(&self, w: &Wanted) -> Option<Made> {
-        let l = self.ledger(&w.pack_id);
+        self.current_of(&w.pack_id, &w.recipe())
+    }
+
+    /// The pack made of `recipe`, when it's made and is the newest made of `pack_id`.
+    pub fn current_of(&self, pack_id: &str, recipe: &str) -> Option<Made> {
+        let l = self.ledger(pack_id);
         let last = l.made.last()?;
-        (last.id == w.recipe() && self.whole(&w.pack_id, last)).then(|| last.clone())
+        (last.id == recipe && self.whole(pack_id, last)).then(|| last.clone())
     }
 
     /// The newest pack made of a recipe, still in the cache (for a download asked for by it).
@@ -776,12 +798,22 @@ impl Cache {
     /// Made from the newest one before it where it can be: the guidebooks it has unchanged are
     /// copied from it as they are (`rewrite_guidebook_pack`), and only the others written.
     pub fn make(&self, w: &Wanted, cancel: &AtomicBool) -> Result<Made> {
-        if let Some(m) = self.current(w) {
+        self.make_with(&w.pack_id, &w.recipe(), cancel, &mut |target, before, work| self.make_in(w, before, target, work, cancel))
+    }
+
+    /// A pack of `pack_id` for `recipe`: the one made already when it's the newest of its id,
+    /// else made now by `write` (into the target it's given, with the newest whole pack made
+    /// before, and a work folder emptied after), which gives what it made of it (its dates,
+    /// inputs and what was left out). It's dated after every pack made of this id before it,
+    /// named, hashed, put in the ledger, and only the newest [`KEEP`] files of the id kept.
+    /// Guidebooks' packs (D236) and magazines' (D245) are made through it.
+    pub fn make_with(&self, pack_id: &str, recipe: &str, cancel: &AtomicBool, write: &mut dyn FnMut(&Path, Option<&Made>, &Path) -> Result<Made>) -> Result<Made> {
+        if let Some(m) = self.current_of(pack_id, recipe) {
             return Ok(m);
         }
-        let dir = self.pack_dir(&w.pack_id)?;
+        let dir = self.pack_dir(pack_id)?;
         std::fs::create_dir_all(&dir)?;
-        let mut l = self.ledger(&w.pack_id);
+        let mut l = self.ledger(pack_id);
         let work = dir.join(".work");
         let _ = std::fs::remove_dir_all(&work);
         std::fs::create_dir_all(&work)?;
@@ -794,28 +826,40 @@ impl Cache {
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
         }
-        let r = self.make_in(w, &l, &dir, &work, cancel);
+        let target = dir.join(format!("making.{}", crate::atlaspack::EXTENSION));
+        let _ = std::fs::remove_file(&target);
+        let before = l.made.last().filter(|m| self.whole(pack_id, m)).cloned();
+        let r = write(&target, before.as_ref(), &work).and_then(|mut m| {
+            m.id = recipe.to_string();
+            m.size = std::fs::metadata(&target)?.len();
+            m.sha1 = sha1_file(&target, cancel)?;
+            m.made = now();
+            Ok(m)
+        });
         let _ = std::fs::remove_dir_all(&work);
-        let mut m = r?;
+        let mut m = match r {
+            Ok(m) => m,
+            Err(e) => {
+                let _ = std::fs::remove_file(&target);
+                return Err(e);
+            }
+        };
         l.next += 1;
         // the file it was made as, renamed to its own name
-        let file = format!("{}-{}.{}", &m.id[..12], l.next, crate::atlaspack::EXTENSION);
-        std::fs::rename(dir.join(&m.file), dir.join(&file))?;
+        let file = format!("{}-{}.{}", &m.id[..12.min(m.id.len())], l.next, crate::atlaspack::EXTENSION);
+        std::fs::rename(&target, dir.join(&file))?;
         m.file = file;
         l.made.push(m.clone());
         while l.made.len() > KEEP {
             let old = l.made.remove(0);
             let _ = std::fs::remove_file(dir.join(&old.file));
         }
-        self.save(&w.pack_id, &l)?;
+        self.save(pack_id, &l)?;
         Ok(m)
     }
 
-    fn make_in(&self, w: &Wanted, l: &Ledger, dir: &Path, work: &Path, cancel: &AtomicBool) -> Result<Made> {
-        let target = dir.join(format!("making.{}", crate::atlaspack::EXTENSION));
-        let _ = std::fs::remove_file(&target);
+    fn make_in(&self, w: &Wanted, before: Option<&Made>, target: &Path, work: &Path, cancel: &AtomicBool) -> Result<Made> {
         // the guidebooks the newest pack has as they are now
-        let before = l.made.last().filter(|m| self.whole(&w.pack_id, m));
         let unchanged = |i: &Input| before.and_then(|b| b.inputs.iter().find(|x| x.id == i.id && x.title == i.title && x.size == i.size && x.mtime == i.mtime && x.text == i.text)).map(|x| x.entry.clone());
         let kept: Vec<(usize, String)> = w.items.iter().enumerate().filter_map(|(n, i)| unchanged(i).map(|e| (n, e))).collect();
         let keep_entries: HashSet<String> = kept.iter().map(|(_, e)| e.clone()).collect();
@@ -830,12 +874,12 @@ impl Cache {
         let pack = GuidebookPack {
             pack_id: w.pack_id.clone(),
             game_title: w.game_title.clone(),
-            written_by: atlas_pack::AppInfo { name: WRITER.into(), version: env!("CARGO_PKG_VERSION").into(), platform: std::env::consts::OS.into() },
+            written_by: written_by(),
             guidebooks: new,
         };
         let header = match before.filter(|_| !kept.is_empty()) {
-            Some(b) => atlas_pack::rewrite_guidebook_pack(&self.path(&w.pack_id, b), &|f| keep_entries.contains(&f.file), &pack, &target),
-            None => atlas_pack::write_guidebook_pack(&pack, &target),
+            Some(b) => atlas_pack::rewrite_guidebook_pack(&self.path(&w.pack_id, b), &|f| keep_entries.contains(&f.file), &pack, target),
+            None => atlas_pack::write_guidebook_pack(&pack, target),
         }
         .map_err(|e| anyhow!("{e}"))?;
         // each guidebook's entry: a kept one keeps its own; the new ones are written after the
@@ -845,20 +889,21 @@ impl Cache {
         for i in &fresh {
             inputs.push(MadeInput { id: i.id.clone(), title: i.title.clone(), size: i.size, mtime: i.mtime, text: i.text, entry: entries.next().unwrap_or_default() });
         }
-        let size = std::fs::metadata(&target)?.len();
-        let sha1 = sha1_file(&target, cancel)?;
         Ok(Made {
-            id: w.recipe(),
-            file: target.file_name().unwrap_or_default().to_string_lossy().into_owned(),
-            size,
-            sha1,
             updated: header.pack.updated.clone().unwrap_or_default(),
             exported_at: header.exported_at.clone(),
-            made: now(),
+            items: header.guidebooks.len(),
+            pages: header.guidebooks.iter().map(|g| u64::from(g.pages)).sum(),
             inputs,
             kept: kept.len(),
+            ..Default::default()
         })
     }
+}
+
+/// Who writes Game Repo's packs (`pack.writtenBy`, `exportedBy`): Game Repo, this version.
+pub(crate) fn written_by() -> atlas_pack::AppInfo {
+    atlas_pack::AppInfo { name: WRITER.into(), version: env!("CARGO_PKG_VERSION").into(), platform: std::env::consts::OS.into() }
 }
 
 fn sha1_file(p: &Path, cancel: &AtomicBool) -> Result<String> {

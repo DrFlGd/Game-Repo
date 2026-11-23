@@ -31,16 +31,21 @@ use std::time::Duration;
 /// Where the packs are made, in the server's data folder.
 pub const DIR: &str = "guidebooks";
 
+/// How a pack is made into the cache: a game's guidebooks', or a magazine's (D245).
+pub(crate) type MakeFn = Arc<dyn Fn(&Cache, &AtomicBool) -> anyhow::Result<Made> + Send + Sync>;
+
 #[derive(Clone)]
 enum Job {
-    Waiting(Box<Wanted>),
+    Waiting(MakeFn),
     Making,
     Failed(String),
 }
 
-/// Makes the games' packs of guidebooks, one at a time, in a thread of its own.
+/// Makes packs, one at a time, in a thread of its own: the games' packs of guidebooks, in the
+/// data folder's `guidebooks/`, and the magazines' packs (D245), in its `magazines/`, each
+/// with a maker of its own.
 pub struct Maker {
-    cache: Cache,
+    pub(crate) cache: Cache,
     jobs: Mutex<HashMap<String, Job>>,
     queue: Mutex<VecDeque<String>>,
     cv: Condvar,
@@ -56,15 +61,20 @@ pub enum Status {
     Unknown,
 }
 
-/// The maker for a data folder (one for each server in the process).
+/// The guidebooks' maker for a data folder (one for each server in the process).
 pub fn maker(data: &Path) -> Arc<Maker> {
+    maker_in(data, DIR)
+}
+
+/// The maker of a data folder's `dir` (one for each server and kind in the process).
+pub fn maker_in(data: &Path, dir: &str) -> Arc<Maker> {
     static ALL: OnceLock<Mutex<HashMap<PathBuf, Arc<Maker>>>> = OnceLock::new();
     let mut all = ALL.get_or_init(Mutex::default).lock().unwrap_or_else(|e| e.into_inner());
-    all.entry(data.to_path_buf())
+    all.entry(data.join(dir))
         .or_insert_with(|| {
-            let m = Arc::new(Maker { cache: Cache::new(data.join(DIR)), jobs: Mutex::default(), queue: Mutex::default(), cv: Condvar::new() });
+            let m = Arc::new(Maker { cache: Cache::new(data.join(dir)), jobs: Mutex::default(), queue: Mutex::default(), cv: Condvar::new() });
             let w = m.clone();
-            std::thread::Builder::new().name("guidebooks".into()).spawn(move || w.work()).expect("a thread");
+            std::thread::Builder::new().name(dir.into()).spawn(move || w.work()).expect("a thread");
             m
         })
         .clone()
@@ -73,17 +83,26 @@ pub fn maker(data: &Path) -> Arc<Maker> {
 impl Maker {
     /// The pack for `w`: ready (made, and the newest of its game's), else asked for.
     pub fn status(&self, w: &Wanted) -> Status {
-        let id = w.recipe();
+        self.status_of(&w.pack_id, &w.recipe(), &|| {
+            let w = w.clone();
+            Arc::new(move |c: &Cache, cancel: &AtomicBool| c.make(&w, cancel))
+        })
+    }
+
+    /// The pack of `pack_id` made of `recipe`: ready (made, and the newest of its id), else
+    /// asked for, to be made by what `job` gives.
+    pub fn status_of(&self, pack_id: &str, recipe: &str, job: &dyn Fn() -> MakeFn) -> Status {
+        let id = recipe.to_string();
         let mut jobs = self.jobs.lock().unwrap();
         match jobs.get(&id) {
             Some(Job::Waiting(_) | Job::Making) => return Status::Pending,
             Some(Job::Failed(e)) => return Status::Failed(e.clone()),
             None => {}
         }
-        if let Some(m) = self.cache.current(w) {
-            return Status::Ready(self.cache.path(&w.pack_id, &m), m);
+        if let Some(m) = self.cache.current_of(pack_id, recipe) {
+            return Status::Ready(self.cache.path(pack_id, &m), m);
         }
-        jobs.insert(id.clone(), Job::Waiting(Box::new(w.clone())));
+        jobs.insert(id.clone(), Job::Waiting(job()));
         self.queue.lock().unwrap().push_back(id);
         self.cv.notify_all();
         Status::Pending
@@ -109,9 +128,14 @@ impl Maker {
 
     /// Wait until `w`'s pack is made or has failed, at most `wait` (for tests).
     pub fn wait(&self, w: &Wanted, wait: Duration) -> Status {
+        self.wait_for(&|| self.status(w), wait)
+    }
+
+    /// Wait until `status` says made or failed, at most `wait` (for tests).
+    pub fn wait_for(&self, status: &dyn Fn() -> Status, wait: Duration) -> Status {
         let until = std::time::Instant::now() + wait;
         loop {
-            let s = self.status(w);
+            let s = status();
             if !matches!(s, Status::Pending) || std::time::Instant::now() >= until {
                 return s;
             }
@@ -130,12 +154,12 @@ impl Maker {
                     q = self.cv.wait_timeout(q, Duration::from_millis(500)).unwrap().0;
                 }
             };
-            let w = match self.jobs.lock().unwrap().get(&next).cloned() {
-                Some(Job::Waiting(w)) => w,
+            let make = match self.jobs.lock().unwrap().get(&next).cloned() {
+                Some(Job::Waiting(m)) => m,
                 _ => continue,
             };
             self.jobs.lock().unwrap().insert(next.clone(), Job::Making);
-            let r = self.cache.make(&w, &AtomicBool::new(false));
+            let r = make(&self.cache, &AtomicBool::new(false));
             let mut jobs = self.jobs.lock().unwrap();
             match r {
                 Ok(_) => {
@@ -285,10 +309,8 @@ pub fn add_alone(ix: &Index, lib: &Library, data: &Path, ids: &[String], plan: &
         if plan.files.iter().any(|f| f.role == crate::packs::ROLE && &f.pack == id) {
             continue;
         }
-        let Some((f, w)) = all.iter().filter(|f| f.pack_id().as_ref() == Some(id)).find_map(|f| gb::wanted(f, &[]).map(|w| (f, w))) else {
-            plan.left.push(Left { what: id.clone(), why: "The library has no guidebooks for this game now: look at the list again.".into() });
-            continue;
-        };
+        // none: the library's packs are looked for by it next, and say why when there's none
+        let Some((f, w)) = all.iter().filter(|f| f.pack_id().as_ref() == Some(id)).find_map(|f| gb::wanted(f, &[]).map(|w| (f, w))) else { continue };
         let mut file = file_of(&maker, &w, file_name(f), plan);
         if file.url.is_empty() {
             continue;

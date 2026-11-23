@@ -433,9 +433,12 @@ pub fn plan(ix: &Index, lib: &Library, data: &Path, maker: &Maker, unpacker: &Un
     // packs of maps and guides on their own, by their packIds, with no game (D225)
     if !ask.pack_ids.is_empty() && ask.games.is_empty() {
         let mut p = Plan { ready: true, ..Default::default() };
-        crate::packs::add_alone(ix, lib, hashes, &ask.pack_ids, &mut p)?;
-        // and games' packs of guidebooks (D237)
+        // games' packs of guidebooks (D237) and magazines' packs (D247), made by the server
         crate::guidebooks::add_alone(ix, lib, data, &ask.pack_ids, &mut p)?;
+        crate::magazines::add_alone(ix, lib, data, &ask.pack_ids, &mut p)?;
+        // and the library's own packs of maps and guides: one by none of these ids says why
+        let rest: Vec<String> = ask.pack_ids.iter().filter(|id| !p.files.iter().any(|f| &f.pack == *id)).cloned().collect();
+        crate::packs::add_alone(ix, lib, hashes, &rest, &mut p)?;
         return Ok(Ok(p));
     }
     // only the games' packs of maps and guides, for games the device has (D222)

@@ -5,9 +5,9 @@
 // version with its updates (D134); on Windows and Linux, the PC games folder (D111) and full screen (D127); on
 // Linux, Steam (D107, D109); Tailscale, set up on the Steam Deck (D179); and saves synced
 // with the library (D186); and on Windows and Linux, maps and guides for Atlas with their
-// folder (D222), on Linux with the line that starts Atlas with a game in Steam and *Start
-// Atlas with my games* (D242), and Exit Game Repo Go (D244), as Game Mode has no window to
-// close. Each change is kept as it's made.
+// folder (D222) and *Install Atlas* while it isn't installed (D250), on Linux with the line
+// that starts Atlas with a game in Steam and *Start Atlas with my games* (D242), and Exit
+// Game Repo Go (D244), as Game Mode has no window to close. Each change is kept as it's made.
 import { html, useEffect, useState } from "../lib/html.js";
 import { useStore } from "../lib/store.js";
 import { SKINS, THEMES } from "../ui/state.js";
@@ -16,6 +16,7 @@ import { go, look, refreshLists, refreshSettings, refreshStatus, say, setLook, s
 import { ago, bytes, count, KINDS, message, plural } from "./format.js";
 import { UpdatePanel } from "../ui/updates.js";
 import { AtlasLaunchSettings } from "./launch.js";
+import { AtlasInstall } from "./atlas.js";
 import { ExitButton, exitOffered } from "./exit.js";
 
 function Folder({ id, label, value, fallback, setting, error }) {
@@ -297,13 +298,14 @@ export function SettingsPage() {
       ${st.atlas.missing && st.atlas.from === "atlas" ? html`<p class="warn-note" id="set-atlas-missing">This folder isn't there (is its drive connected?). Game Repo Go doesn't make a folder chosen in Atlas, as Atlas doesn't, so packs wait until it's there.</p>` : null}
       ${st.atlas.delivered ? html`<p class="muted" id="set-atlas-delivered">${plural(st.atlas.delivered, "pack")} put there by Game Repo Go.</p>` : null}
       ${!st.atlas.default ? html`<div><button type="button" class="ghost" id="set-atlas-usual" onClick=${() => set({ atlas_folder: "" }).then(refreshStatus)}>${st.atlas.in_atlas && st.atlas.in_atlas !== st.atlas.usual ? "Use the folder Atlas reads" : "Use the usual folder"}</button></div>` : null}
+      <${AtlasInstall} />
       <label class="field-block"><span>Atlas's program</span>
         <input id="set-atlas-program" value=${v.atlas_program || ""} spellcheck="false" placeholder=${info.kind === "windows" ? "Found by itself (the program that opens .atlaspack files)" : "Where Atlas's program is"}
           onChange=${(e) => set({ atlas_program: e.currentTarget.value.trim() }).then(refreshStatus)} /></label>
       <p class=${st.atlas.program ? "muted" : "warn-note"} id="set-atlas-program-note">${st.atlas.program
         ? html`<i>Show in Atlas</i> on a game's page starts <span class="go-file">${st.atlas.program}</span> with the game's pack.`
-        : info.kind === "windows" ? html`Atlas isn't found on this device (nothing opens .atlaspack files): install it, or set where its program is, for <i>Show in Atlas</i> on a game's page.`
-        : html`Set where Atlas's program is for <i>Show in Atlas</i> on a game's page: on Linux nothing says where Atlas is.`}</p>
+        : info.kind === "windows" ? html`Atlas isn't found on this device (it isn't installed, and nothing opens .atlaspack files): install it with <i>Install Atlas</i>, or set where its program is, for <i>Show in Atlas</i> on a game's page.`
+        : html`Atlas isn't found on this device (no Atlas.AppImage in Applications, nor where Atlas last started from): install it with <i>Install Atlas</i>, or set where its program is, for <i>Show in Atlas</i> on a game's page.`}</p>
       <${AtlasLaunchSettings} settings=${v} set=${set} />
     </section>` : null}
 

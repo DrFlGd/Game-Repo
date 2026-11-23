@@ -16,6 +16,10 @@ pub fn home_dir() -> PathBuf {
 
 /// Game Repo's own folders on this computer, config and data (as Tauri names them for its
 /// window): for the programs beside it, which find its settings and indexes there.
+///
+/// Atlas Importer reads `config.json` here too (the Atlas pack contract, 2026-11-23): its
+/// `library` field, else `~/Game Repo`, then `Maps and Guides` in it. Keep the folder's name,
+/// the file's name, the field and the default library's name, or tell the contract first.
 pub fn app_dirs() -> (PathBuf, PathBuf) {
     const ID: &str = "io.github.drflgd.gamerepo";
     let home = home_dir();
@@ -34,7 +38,7 @@ pub fn app_dirs() -> (PathBuf, PathBuf) {
     }
 }
 
-/// `~/Game Repo`, until the user opens another folder.
+/// `~/Game Repo`, until the user opens another folder (Atlas Importer counts on this name).
 pub fn default_library_path() -> PathBuf {
     home_dir().join("Game Repo")
 }
@@ -42,7 +46,7 @@ pub fn default_library_path() -> PathBuf {
 /// App config, in the OS's per-user config folder.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AppConfig {
-    /// The open library folder.
+    /// The open library folder (a full path; Atlas Importer reads it, see [`app_dirs`]).
     #[serde(default)]
     pub library: Option<PathBuf>,
     /// Libraries opened before, newest first.
