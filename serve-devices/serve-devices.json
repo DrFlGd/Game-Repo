@@ -1,0 +1,605 @@
+{
+  "server said": [
+    "Game Repo Server 0.5.80 serving Library (D:\\a\\_temp\\serve-devices\\Library)",
+    "at 10.1.0.22:64284, announced on the network",
+    "certificate 531cd10852d998cbaadb280b5402d78de2eed0b9458643692a05875800ebbdf0",
+    "ready: paired devices can browse the library",
+    "stopped"
+  ],
+  "answers": {
+    "serve-devices status": {
+      "server": "f5c4df0825c77627",
+      "library": "D:\\a\\_temp\\serve-devices\\Library",
+      "library_name": "Library",
+      "version": "0.5.80",
+      "port": 64284,
+      "address": "10.1.0.22:64284",
+      "fingerprint": "531cd10852d998cbaadb280b5402d78de2eed0b9458643692a05875800ebbdf0",
+      "ready": true,
+      "doing": "",
+      "error": null,
+      "devices": 0,
+      "pairing": null,
+      "announced": true,
+      "kept": false,
+      "pid": 5416
+    },
+    "device find": [
+      {
+        "address": "127.0.0.1:64284",
+        "server": "f5c4df0825c77627",
+        "library": "Library",
+        "version": "0.5.80",
+        "api": 1
+      }
+    ],
+    "serve-devices pair": {
+      "code": "810443",
+      "seconds": 600
+    },
+    "serve-devices devices": [
+      {
+        "id": "9c549ca12ecd090b",
+        "name": "Stand-in phone",
+        "kind": "stand-in",
+        "paired": 1795402162,
+        "seen": 1795402162,
+        "address": "127.0.0.1",
+        "holding": {
+          "games": 2,
+          "size": 49168,
+          "free": 156251721728
+        }
+      }
+    ],
+    "device systems": [
+      {
+        "id": "gb",
+        "name": "Game Boy",
+        "folder": "gb",
+        "games": 3,
+        "size": 131222
+      },
+      {
+        "id": "nes",
+        "name": "Nintendo Entertainment System",
+        "folder": "nes",
+        "games": 1,
+        "size": 16400
+      }
+    ],
+    "device games": {
+      "items": [
+        {
+          "key": "nes/Echo (USA)",
+          "system": "nes",
+          "title": "Echo",
+          "size": 16400,
+          "media": []
+        }
+      ],
+      "total": 1,
+      "offset": 0,
+      "rev": 1795402153
+    },
+    "device add": {
+      "games": 1,
+      "files": 0,
+      "bytes": 0,
+      "there": 1,
+      "left": [],
+      "notes": []
+    },
+    "device holdings": {
+      "games": [
+        {
+          "key": "gb/Beta (Europe)",
+          "title": "Beta",
+          "system": "gb",
+          "added": 1795402162,
+          "files": [
+            {
+              "place": "roms",
+              "path": "gb/Beta (Europe).gb",
+              "size": 32768,
+              "sha1": "781de8edf0e06d9963d646a46740ce7b6102e7d1",
+              "role": "game"
+            }
+          ],
+          "entries": [
+            [
+              "esde",
+              "gamelists/gb/gamelist.xml",
+              "Beta (Europe).gb"
+            ],
+            [
+              "esde",
+              "collections/custom-Stand-in.cfg",
+              "line:%ROMPATH%/gb/Beta (Europe).gb"
+            ]
+          ]
+        },
+        {
+          "key": "nes/Echo (USA)",
+          "title": "Echo",
+          "system": "nes",
+          "added": 1795402162,
+          "files": [
+            {
+              "place": "roms",
+              "path": "nes/Echo (USA).nes",
+              "size": 16400,
+              "sha1": "0e9502d23a1a057b38debba385014b51b2cbd987",
+              "role": "game"
+            }
+          ],
+          "entries": [
+            [
+              "esde",
+              "gamelists/nes/gamelist.xml",
+              "Echo (USA).nes"
+            ],
+            [
+              "esde",
+              "collections/custom-Stand-in.cfg",
+              "line:%ROMPATH%/nes/Echo (USA).nes"
+            ]
+          ]
+        }
+      ],
+      "holding": {
+        "games": 2,
+        "size": 49168,
+        "free": 156251717632
+      }
+    },
+    "app pair": {
+      "answer": {
+        "library": "Library",
+        "server": "f5c4df0825c77627"
+      },
+      "queue": {
+        "items": [],
+        "offline": false,
+        "added": 0,
+        "left": 0,
+        "size": 0,
+        "done": 0,
+        "speed": 0,
+        "queued": 0
+      },
+      "status": {
+        "version": "0.5.80",
+        "kind": "stand-in",
+        "paired": true,
+        "library": {
+          "name": "Library",
+          "address": "127.0.0.1:64284",
+          "server": "f5c4df0825c77627"
+        },
+        "device": {
+          "esde": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE",
+          "roms": "D:\\a\\_temp\\serve-devices\\go-phone\\ROMs",
+          "media": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE\\downloaded_media",
+          "free": 156251209728,
+          "by": "ES-DE",
+          "installs": [
+            {
+              "by": "ES-DE",
+              "esde": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE",
+              "roms": "D:\\a\\_temp\\serve-devices\\go-phone\\ROMs",
+              "media": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE\\downloaded_media"
+            }
+          ]
+        },
+        "removal": null,
+        "queue": {
+          "left": 0,
+          "queued": 0,
+          "offline": false,
+          "added": 0,
+          "size": 0,
+          "done": 0,
+          "speed": 0
+        },
+        "sync": {
+          "running": false,
+          "done": 4,
+          "of": 4,
+          "error": "",
+          "at": 1795402162,
+          "synced": {
+            "whole": true,
+            "changed": 4,
+            "games": 4
+          }
+        },
+        "checking": {
+          "running": false,
+          "done": 0,
+          "of": 0,
+          "error": "",
+          "at": 0
+        },
+        "catalogue": {
+          "games": 4,
+          "synced": 1795402162
+        },
+        "pictures": {
+          "kept": 0,
+          "size": 0
+        },
+        "pc": {
+          "folder": "C:\\Games",
+          "default": true
+        },
+        "atlas": {
+          "folder": "D:\\a\\_temp\\serve-devices\\go-phone\\AppData\\Local\\Atlas\\Packs",
+          "usual": "D:\\a\\_temp\\serve-devices\\go-phone\\AppData\\Local\\Atlas\\Packs",
+          "default": true,
+          "from": "usual",
+          "in_atlas": "D:\\a\\_temp\\serve-devices\\go-phone\\AppData\\Local\\Atlas\\Packs",
+          "atlas_unusable": null,
+          "missing": true,
+          "settings_file": "D:\\a\\_temp\\serve-devices\\go-phone\\AppData\\Local\\Atlas\\settings.json",
+          "delivered": 0,
+          "program": null,
+          "program_set": false,
+          "program_missing": "Atlas wasn't found on this device: install it, or set where it is in Settings \u203a Maps and guides for Atlas."
+        }
+      }
+    },
+    "app games": {
+      "items": [
+        {
+          "key": "nes/Echo (USA)",
+          "system": "nes",
+          "title": "Echo",
+          "size": 16400,
+          "media": [],
+          "on_device": false
+        }
+      ],
+      "total": 1,
+      "offset": 0,
+      "rev": 1795402153
+    },
+    "app add": {
+      "answer": [
+        1
+      ],
+      "queue": {
+        "items": [
+          {
+            "id": 1,
+            "key": "gb/Delta (World)",
+            "title": "Delta",
+            "system": "gb",
+            "media": [
+              "cover",
+              "screenshot",
+              "marquee"
+            ],
+            "manuals": false,
+            "media_only": false,
+            "adopt": [],
+            "collection": "",
+            "state": "done",
+            "error": "",
+            "size": 65686,
+            "done": 65686,
+            "speed": 0,
+            "added": 1795402162
+          }
+        ],
+        "offline": false,
+        "added": 1,
+        "left": 0,
+        "size": 0,
+        "done": 0,
+        "speed": 0,
+        "queued": 0
+      },
+      "status": {
+        "version": "0.5.80",
+        "kind": "stand-in",
+        "paired": true,
+        "library": {
+          "name": "Library",
+          "address": "127.0.0.1:64284",
+          "server": "f5c4df0825c77627"
+        },
+        "device": {
+          "esde": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE",
+          "roms": "D:\\a\\_temp\\serve-devices\\go-phone\\ROMs",
+          "media": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE\\downloaded_media",
+          "free": 156251480064,
+          "by": "ES-DE",
+          "installs": [
+            {
+              "by": "ES-DE",
+              "esde": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE",
+              "roms": "D:\\a\\_temp\\serve-devices\\go-phone\\ROMs",
+              "media": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE\\downloaded_media"
+            }
+          ]
+        },
+        "removal": null,
+        "queue": {
+          "left": 0,
+          "queued": 0,
+          "offline": false,
+          "added": 1,
+          "size": 0,
+          "done": 0,
+          "speed": 0
+        },
+        "sync": {
+          "running": false,
+          "done": 0,
+          "of": 0,
+          "error": "",
+          "at": 0
+        },
+        "checking": {
+          "running": false,
+          "done": 0,
+          "of": 0,
+          "error": "",
+          "at": 0
+        },
+        "catalogue": {
+          "games": 4,
+          "synced": 1795402162
+        },
+        "pictures": {
+          "kept": 0,
+          "size": 0
+        },
+        "pc": {
+          "folder": "C:\\Games",
+          "default": true
+        },
+        "atlas": {
+          "folder": "D:\\a\\_temp\\serve-devices\\go-phone\\AppData\\Local\\Atlas\\Packs",
+          "usual": "D:\\a\\_temp\\serve-devices\\go-phone\\AppData\\Local\\Atlas\\Packs",
+          "default": true,
+          "from": "usual",
+          "in_atlas": "D:\\a\\_temp\\serve-devices\\go-phone\\AppData\\Local\\Atlas\\Packs",
+          "atlas_unusable": null,
+          "missing": true,
+          "settings_file": "D:\\a\\_temp\\serve-devices\\go-phone\\AppData\\Local\\Atlas\\settings.json",
+          "delivered": 0,
+          "program": null,
+          "program_set": false,
+          "program_missing": "Atlas wasn't found on this device: install it, or set where it is in Settings \u203a Maps and guides for Atlas."
+        }
+      }
+    },
+    "app on_device": {
+      "games": [
+        {
+          "id": "gb/Delta (World).zip",
+          "key": "gb/Delta (World)",
+          "from": "library",
+          "name": "Delta",
+          "system": "gb",
+          "size": 65686,
+          "last_played": "",
+          "play_count": 0,
+          "added": 1795402162,
+          "media": [],
+          "files": 1
+        },
+        {
+          "id": "gb/My Alpha.gb",
+          "key": "gb/Alpha (USA)",
+          "from": "known",
+          "name": "My Alpha",
+          "system": "gb",
+          "size": 32768,
+          "last_played": "",
+          "play_count": 0,
+          "added": 1795402162,
+          "media": [],
+          "files": 1
+        }
+      ],
+      "free": 156251480064,
+      "size": 98454,
+      "checking": {
+        "running": false,
+        "done": 0,
+        "of": 0,
+        "error": "",
+        "at": 0
+      },
+      "removal": null
+    },
+    "app remove": {
+      "id": "1795402163346",
+      "games": [
+        "Delta"
+      ],
+      "media_of": [],
+      "keys": [
+        "gb/Delta (World)"
+      ],
+      "files": [
+        {
+          "place": "roms",
+          "path": "gb/Delta (World).zip",
+          "size": 65686,
+          "game": "Delta",
+          "kind": "rom"
+        }
+      ],
+      "kept": [],
+      "gone": [],
+      "entries": [
+        [
+          "esde",
+          "gamelists/gb/gamelist.xml",
+          "Delta (World).zip"
+        ]
+      ],
+      "lines": [],
+      "frees": 65686,
+      "blocks": [
+        [
+          "esde",
+          "gamelists/gb/gamelist.xml",
+          "<game>\n\t\t<path>./Delta (World).zip</path>\n\t\t<name>Delta (World)</name>\n\t</game>"
+        ]
+      ],
+      "held": [
+        {
+          "key": "gb/Delta (World)",
+          "title": "Delta",
+          "system": "gb",
+          "added": 1795402162,
+          "files": [
+            {
+              "place": "roms",
+              "path": "gb/Delta (World).zip",
+              "size": 65686,
+              "sha1": "7d230890d0fe67bbd9041f06c85123f184e99161",
+              "role": "game"
+            }
+          ],
+          "entries": [
+            [
+              "esde",
+              "gamelists/gb/gamelist.xml",
+              "Delta (World).zip"
+            ]
+          ]
+        }
+      ],
+      "step": "deleting",
+      "kept_made": []
+    },
+    "app sync": {
+      "answer": {
+        "running": true,
+        "done": 0,
+        "of": 0,
+        "error": "",
+        "at": 0
+      },
+      "queue": {
+        "items": [
+          {
+            "id": 1,
+            "key": "gb/Delta (World)",
+            "title": "Delta",
+            "system": "gb",
+            "media": [
+              "cover",
+              "screenshot",
+              "marquee"
+            ],
+            "manuals": false,
+            "media_only": false,
+            "adopt": [],
+            "collection": "",
+            "state": "done",
+            "error": "",
+            "size": 65686,
+            "done": 65686,
+            "speed": 0,
+            "added": 1795402162
+          }
+        ],
+        "offline": false,
+        "added": 0,
+        "left": 0,
+        "size": 0,
+        "done": 0,
+        "speed": 0,
+        "queued": 0
+      },
+      "status": {
+        "version": "0.5.80",
+        "kind": "stand-in",
+        "paired": true,
+        "library": {
+          "name": "Library",
+          "address": "172.18.240.1:64284",
+          "server": "f5c4df0825c77627"
+        },
+        "device": {
+          "esde": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE",
+          "roms": "D:\\a\\_temp\\serve-devices\\go-phone\\ROMs",
+          "media": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE\\downloaded_media",
+          "free": 156251516928,
+          "by": "ES-DE",
+          "installs": [
+            {
+              "by": "ES-DE",
+              "esde": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE",
+              "roms": "D:\\a\\_temp\\serve-devices\\go-phone\\ROMs",
+              "media": "D:\\a\\_temp\\serve-devices\\go-phone\\ES-DE\\downloaded_media"
+            }
+          ]
+        },
+        "removal": null,
+        "queue": {
+          "left": 0,
+          "queued": 0,
+          "offline": false,
+          "added": 0,
+          "size": 0,
+          "done": 0,
+          "speed": 0
+        },
+        "sync": {
+          "running": false,
+          "done": 0,
+          "of": 0,
+          "error": "",
+          "at": 1795402165,
+          "synced": {
+            "whole": false,
+            "changed": 0,
+            "games": 4
+          }
+        },
+        "checking": {
+          "running": false,
+          "done": 0,
+          "of": 0,
+          "error": "",
+          "at": 0
+        },
+        "catalogue": {
+          "games": 4,
+          "synced": 1795402165
+        },
+        "pictures": {
+          "kept": 0,
+          "size": 0
+        },
+        "pc": {
+          "folder": "C:\\Games",
+          "default": true
+        },
+        "atlas": {
+          "folder": "D:\\a\\_temp\\serve-devices\\go-phone\\AppData\\Local\\Atlas\\Packs",
+          "usual": "D:\\a\\_temp\\serve-devices\\go-phone\\AppData\\Local\\Atlas\\Packs",
+          "default": true,
+          "from": "usual",
+          "in_atlas": "D:\\a\\_temp\\serve-devices\\go-phone\\AppData\\Local\\Atlas\\Packs",
+          "atlas_unusable": null,
+          "missing": true,
+          "settings_file": "D:\\a\\_temp\\serve-devices\\go-phone\\AppData\\Local\\Atlas\\settings.json",
+          "delivered": 0,
+          "program": null,
+          "program_set": false,
+          "program_missing": "Atlas wasn't found on this device: install it, or set where it is in Settings \u203a Maps and guides for Atlas."
+        }
+      }
+    }
+  },
+  "failed": []
+}

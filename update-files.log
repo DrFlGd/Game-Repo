@@ -1,0 +1,28 @@
+ok   Ed25519 signs RFC 8032's test vector
+ok   Ed25519 verifies it
+ok   and refuses another message
+ok   three update files are written
+ok   Game Repo Go's has Windows, the Steam Deck and Android
+ok   Android's is the APK in the release
+ok   each installer's address is in this version's release, its spaces as dots
+ok   with the signature the CLI made
+ok   the version and its date
+ok   what's new: Unreleased as this version, then the releases before it
+ok   Game Repo's has only Windows
+ok   a signature is checked as the updater does
+     (update_files: Game Repo Server_0.5.42_x64-setup.exe: the signature doesn't match the file)
+ok   an installer changed after it was signed is refused
+     (update_files: Game Repo Server_0.5.42_x64-setup.exe: it was signed with another key than the public key's)
+ok   one signed with another key is refused
+     (update_files: Game Repo Server_0.5.42_x64-setup.exe was signed as version '0.5.41', not 0.5.42)
+ok   one signed for another version is refused
+     (update_files: Game Repo Server_0.5.42_x64-setup.exe's signature is for 'Game Repo_0.5.42_x64-setup.exe')
+ok   one signed as another file is refused
+     (update_files: Game Repo Server_0.5.42_x64-setup.exe has no signature (Game Repo Server_0.5.42_x64-setup.exe.sig): was it built with the update key?)
+ok   an installer without its signature is refused
+     (update_files: Game Repo Go_0.5.42_arm64.apk has no signature (Game Repo Go_0.5.42_arm64.apk.sig): was it built with the update key?)
+ok   an APK without its signature is refused
+ok   with no APK in the release (no Android signing key yet) Game Repo Go's leaves Android out
+     (update_files: Game Repo Server_0.5.42_x64-setup.exe: the signature's trusted comment was changed)
+ok   a trusted comment changed after signing is refused
+all passed
