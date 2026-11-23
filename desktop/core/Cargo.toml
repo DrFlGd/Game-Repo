@@ -11,7 +11,7 @@ name = "gamerepo_core"
 anyhow = "1"
 # Atlas's own reader of pack files (D215): pinned to Atlas's release tag v0.24.0 (the
 # crate's code the same as v0.23.0's, the first release with it; the Atlas pack contract)
-atlas-pack = { git = "https://github.com/DrFlGd/Atlas", tag = "v0.26.0" }
+atlas-pack = { git = "https://github.com/DrFlGd/Atlas", tag = "v0.29.0" }
 gamerepo-steam = { path = "../steam" }
 gamerepo-wire = { path = "../wire" }
 # a card's saves synced as Game Repo Go syncs a device's (D189)

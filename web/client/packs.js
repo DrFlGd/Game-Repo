@@ -15,7 +15,10 @@ import { Dialog } from "./dialog.js";
 import { bytes, message, plural } from "./format.js";
 
 /** What a pack holds, as people say it: "2 maps · 340 locations · 12 guide pages". */
-export const holds = (p) => p.sort === "guidebooks" ? [
+export const holds = (p) => p.sort === "magazines" ? [
+  plural(p.issues || 0, "issue"),
+  p.guide_pages ? plural(p.guide_pages, "page") : null,
+].filter(Boolean).join(" · ") : p.sort === "guidebooks" ? [
   plural(p.guidebooks?.length || 0, "guidebook"),
   p.guide_pages ? plural(p.guide_pages, "page") : null,
 ].filter(Boolean).join(" · ") : [

@@ -318,14 +318,11 @@ def atlas_pack_file(path, pack_id, title, key, updated="2026-11-10T10:00:00Z", m
     return path
 
 
-def guidebooks_for(folder):
-    """Two guidebooks, published guides as one file each (D232): a PDF of two pages with its
-    own text, and a CBZ of three pictures. Made-up games only."""
-    import io
-    import zipfile
+def pdf_of(texts):
+    """A small PDF, a page with each line of text."""
     objs = [b"<< /Type /Catalog /Pages 2 0 R >>", None, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
     kids = []
-    for t in ("Beta: the walkthrough", "Beta: every secret"):
+    for t in texts:
         stream = f"BT /F1 14 Tf 30 400 Td ({t}) Tj ET".encode()
         objs.append(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
         objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 595] /Contents %d 0 R /Resources << /Font << /F1 3 0 R >> >> >>" % len(objs))
@@ -338,13 +335,48 @@ def guidebooks_for(folder):
     xref = len(pdf)
     pdf += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % x for x in at)
     pdf += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    return bytes(pdf)
+
+
+def guidebooks_for(folder):
+    """Two guidebooks, published guides as one file each (D232): a PDF of two pages with its
+    own text, and a CBZ of three pictures. Made-up games only."""
+    import io
+    import zipfile
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / "Beta Official Guide.pdf").write_bytes(bytes(pdf))
+    (folder / "Beta Official Guide.pdf").write_bytes(pdf_of(("Beta: the walkthrough", "Beta: every secret")))
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         for n in (1, 2, 3):
             z.writestr(f"{n:02}.png", png(4, 4, (40 * n, 90, 200)))
     (folder / "Beta Art Book.cbz").write_bytes(buf.getvalue())
+
+
+def magazine_for(folder):
+    """A made-up magazine (D68) of two issues, a PDF of three pages and a CBZ of two pictures,
+    with a game ticked in the first, as Game Repo keeps it in Magazines/<Title>/."""
+    import io
+    import zipfile
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "Marsh Monthly 041 (2026-04).pdf").write_bytes(pdf_of(("Contents", "Echo reviewed", "Echo's maps")))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n in (1, 2):
+            z.writestr(f"{n:02}.png", png(6, 8, (30 * n, 120, 90)))
+    (folder / "Marsh Monthly 042 (2026-05).cbz").write_bytes(buf.getvalue())
+    (folder / "magazine.json").write_text(json.dumps({"title": "Marsh Monthly", "publisher": "Reed Press", "issues": [
+        {"number": "41", "date": "2026-04", "file": "Marsh Monthly 041 (2026-04).pdf", "size": 1, "added": "2026-11-23",
+         "games": [{"key": "nes/Echo (USA)", "title": "Echo", "platform": "nes", "pages": [2, 3], "ticked": True}]},
+        {"number": "42", "date": "2026-05", "file": "Marsh Monthly 042 (2026-05).cbz", "size": 1, "added": "2026-11-23"}]}), encoding="utf-8")
+
+
+def magazine_issues(path):
+    """A magazine's pack as Atlas reads it: its description's version and its issues' titles,
+    pages and files."""
+    import zipfile
+    with zipfile.ZipFile(path) as z:
+        d = json.loads(z.read("atlaspack.json"))
+        return d["version"], [(i["title"], i["pages"], i["file"].rsplit(".", 1)[1]) for i in d.get("issues", [])], "magazines.json" in z.namelist()
 
 
 def guidebooks_in(path):
@@ -1400,6 +1432,42 @@ async def main():
             await pg.reload()
             check("the big screen has Maps and guides as a tab of its own, with the same list (Beta's guidebooks a pack of their own in it)",
                   big_tab == "page" and big_rows == 4 and len(gb_row) == 1 and "Beta - Guidebooks" in gb_row[0] and "2 guidebooks" in gb_row[0], (big_tab, big_rows, gb_row))
+
+            # 13d2. a magazine's issues (D245-D248, Atlas 0.29.0's format 10): each magazine the
+            # library keeps is a pack of its own, made by the server when a device first asks
+            # for it, listed under Magazines after the games' packs, installed on its own and
+            # removed as any pack
+            magazine_for(lib / "Magazines" / "Marsh Monthly")
+            run("serve-devices", "changed", "--data", data)
+            mag_pack = '#go-maps li.go-pack[data-pack^="magazines-"]'
+            mag_file = atlas / "Marsh Monthly - Magazines.atlaspack"
+            await pg.goto(B + "#maps")
+            await pg.reload()
+            await pg.wait_for_selector(mag_pack, timeout=30000)
+            mag_groups = await pg.eval_on_selector_all("#go-maps .go-pack-group", "els => els.map(e => [e.dataset.group, e.dataset.magazines || '', [...e.querySelectorAll('li.go-pack')].map(l => l.dataset.pack)])")
+            mag_said = await pg.inner_text(mag_pack)
+            await shot(pg, "17g-phone-maps-magazines")
+            check("a magazine is a pack of its own on Maps and guides, under Magazines after the games' packs, with its issues",
+                  mag_groups[-1][:2] == ["Magazines", "yes"] and len(mag_groups[-1][2]) == 1 and "Marsh Monthly" in mag_said and "2 issues" in mag_said
+                  and "a magazine's issues" in mag_said and not mag_file.exists(), (mag_groups, mag_said))
+            await pg.click(f'{mag_pack} [data-action="install"]')
+            for _ in range(120):
+                if mag_file.is_file() and not list(atlas.glob("*.part")):
+                    break
+                await asyncio.sleep(0.5)
+            await pg.wait_for_selector(f'{mag_pack}[data-alone="yes"]', timeout=60000)
+            mag_in = magazine_issues(mag_file) if mag_file.is_file() else None
+            record = json.loads((go_data / "packs.json").read_text(encoding="utf-8"))
+            check("Install brings the magazine's pack into Atlas's packs folder on its own, made by the server (format 10, both issues)",
+                  mag_in == (10, [("Issue 41", 3, "pdf"), ("Issue 42", 2, "cbz")], True) and any(a.startswith("magazines-") for a in record.get("alone", []))
+                  and not (lib / "Magazines" / "Marsh Monthly" / "Marsh Monthly - Magazines.atlaspack").exists(), (mag_in, record.get("alone")))
+            await pg.wait_for_selector(f'{mag_pack} [data-action="remove"]:not([disabled])', timeout=20000)
+            await pg.click(f'{mag_pack} [data-action="remove"]')
+            await pg.wait_for_selector(f'{mag_pack}[data-here="no"]', timeout=20000)
+            said = await pg.inner_text("#maps-said")
+            check("Remove takes the magazine's pack out of Atlas's packs folder",
+                  "taken out of Atlas's packs folder" in said and not mag_file.exists(), (said, sorted(p.name for p in atlas.iterdir())))
+            await pg.goto(B + "#library")
 
             # 13c. PC games (D110-D112), on Windows and Linux: a system of their own, put in the
             # PC games folder Settings names, each game in its folder with a shortcut (in the

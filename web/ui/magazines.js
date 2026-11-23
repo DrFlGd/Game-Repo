@@ -242,6 +242,18 @@ const COLS = "minmax(140px, 2.4fr) 70px 84px minmax(80px, 1.4fr) minmax(80px, 1.
 const textOf = (i) => (!i.text ? "unread" : i.text.unread ? "partly" : "read");
 const ref = (i) => ({ title: i.mag, file: i.file });
 
+/** Where an issue goes for Atlas (D249): its magazine's pack, which Game Repo Server makes when a
+ *  device asks for it (its size once made), or why it's left out. */
+function AtlasLine({ i }) {
+  const a = i.atlas;
+  if (!a) return null;
+  if (i.atlas_left) return html`<p class="muted" id="mag-atlas" data-goes="no">Not sent to Atlas: ${i.atlas_left}</p>`;
+  const made = a.size != null ? `${size(a.size)}, made ${String(a.made || "").slice(0, 10)}`
+    : a.before != null ? `Game Repo Server makes it again with your changes when a device next asks for it; it was ${size(a.before)}`
+    : "Game Repo Server makes it when a device asks for it";
+  return html`<p class="muted" id="mag-atlas" data-goes="yes" title=${a.file}>Goes to Atlas in ${i.mag}'s pack (${plural(a.issues, "issue", "issues")}; ${made}).</p>`;
+}
+
 /** One issue in the panel: its cover, number, date and tags changed here, its text and the games in it. */
 function IssuePanel({ i, off, tags, actions, stamp, reading, read }) {
   const edit = async (patch) => {
@@ -274,6 +286,7 @@ function IssuePanel({ i, off, tags, actions, stamp, reading, read }) {
     <p class="muted" id="mag-text" data-state=${textOf(i)}>${!t ? "Its text isn't read yet." : t.unread ? `${plural(t.pages - t.unread, "page", "pages")} of ${t.pages} read.` : "Its text is read: search the Documents page for it."}${" "}
       ${!t || t.unread ? html`<button type="button" class="linkish" id="mag-read" disabled=${off || reading} onClick=${() => read(i.mag)}>${reading ? "Reading…" : "Read its magazine's text"}</button>` : null}</p>
     <${IssueGames} m=${{ title: i.mag }} issue=${i} off=${off} onChange=${again} />
+    <${AtlasLine} i=${i} />
     ${isDesktop() ? html`<p class="muted">Drop a picture on the page to make it the cover.</p>` : null}
   </div>`;
 }
@@ -298,7 +311,7 @@ export function Magazines() {
   const items = useMemo(() => {
     const out = [];
     for (const m of mags) {
-      for (const i of m.issues) out.push({ ...i, id: `${m.title}/${i.file}`, mag: m.title, publisher: m.publisher });
+      for (const i of m.issues) out.push({ ...i, id: `${m.title}/${i.file}`, mag: m.title, publisher: m.publisher, atlas: m.atlas });
       if (st.missing) for (const x of m.missing || []) out.push({ ...x, id: `missing/${m.title}/${x.title}`, mag: m.title, publisher: m.publisher, missing: true, tags: [], games: [] });
     }
     return out;

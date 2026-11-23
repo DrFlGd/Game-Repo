@@ -245,7 +245,8 @@ pub struct Pack {
     pub made_in: String,
     /// The sort of pack, in one word: the pack's own `source.origin` when it says it (Atlas
     /// 0.25.0, D231), else by the contract's rule: site | made-in-atlas | map-maker | app (one
-    /// that came with an app) | guidebooks (a pack of guidebooks); empty when it doesn't say
+    /// that came with an app) | guidebooks (a pack of guidebooks) | magazines (a magazine's
+    /// issues, Atlas 0.29.0, D245); empty when it doesn't say
     #[serde(skip_serializing_if = "String::is_empty")]
     pub sort: String,
     /// It carries the maker's own things (`mine`), in plain words: "With your own locations
@@ -277,6 +278,14 @@ pub struct Pack {
     /// holds for it, with its size, for a tick of its own on the game's page
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub guidebooks: Vec<Guidebook>,
+    /// For a magazine's pack (sort `magazines`, D247): how many issues it holds (its pages are
+    /// `guide_pages` once it's made)
+    #[serde(skip_serializing_if = "is_none_u64")]
+    pub issues: u64,
+}
+
+fn is_none_u64(n: &u64) -> bool {
+    *n == 0
 }
 
 /// A guidebook in a game's pack of guidebooks (D237): a published guide in one file.

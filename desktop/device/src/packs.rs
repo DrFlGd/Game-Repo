@@ -1164,6 +1164,64 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// A magazine's pack (format 10, Atlas 0.29.0) as Game Repo Server writes it, with Atlas's
+    /// own crate: one issue, a one-page PDF.
+    fn magazine_pack(id: &str, work: &Path, issues: usize) -> Vec<u8> {
+        std::fs::create_dir_all(work).unwrap();
+        let issue = work.join("issue.pdf");
+        std::fs::write(&issue, b"%PDF-1.4\n").unwrap();
+        let pack = atlas_pack::MagazinePack {
+            pack_id: id.into(),
+            magazine: atlas_pack::MagazineFacts { title: "Marsh Monthly".into(), publisher: None },
+            written_by: atlas_pack::AppInfo { name: "Game Repo".into(), version: "0.5.0".into(), platform: "linux".into() },
+            issues: (0..issues)
+                .map(|n| atlas_pack::NewIssue { file: issue.clone(), title: format!("Issue {}", n + 1), date: None, number: Some(n as u32 + 1), pages: Some(1), text: None, cover: None, games: vec![] })
+                .collect(),
+        };
+        let target = work.join("made.atlaspack");
+        atlas_pack::write_magazine_pack(&pack, &target).unwrap();
+        std::fs::read(&target).unwrap()
+    }
+
+    /// D247: a magazine's pack (format 10) installed on its own goes in as any pack: read by the
+    /// crate this build pins, a newer one in place of Go's own, never an older one over it,
+    /// and fetched again only when the library's copy is newer.
+    #[test]
+    fn a_magazines_pack_on_its_own_goes_in_and_is_replaced_only_by_a_newer_one() {
+        let (home, d) = device("magazines");
+        let folder = d.places[PLACE].clone();
+        let data = d.data.clone().unwrap();
+        let id = "magazines-marsh-monthly-1a2b3c4d";
+        let v1 = magazine_pack(id, &home.join("made-1"), 1);
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let v2 = magazine_pack(id, &home.join("made-2"), 2);
+        let at = deliver(&d, &pack("Marsh Monthly - Magazines.atlaspack", id, "", &v1), &v1);
+        set_alone(&data, &[id.to_string()]).unwrap();
+        let (got, updated, exported) = dates(&at).unwrap();
+        assert_eq!(got, id, "read with the crate (format 10)");
+        assert!(!library_newer(&load(&data), &folder, id, updated.as_deref().unwrap_or(""), &exported), "the same");
+        // the newer one from the library: in place of Go's own
+        let (_, u2, e2) = dates(&{
+            let p = home.join("v2.atlaspack");
+            std::fs::write(&p, &v2).unwrap();
+            p
+        })
+        .unwrap();
+        assert!(library_newer(&load(&data), &folder, id, u2.as_deref().unwrap_or(""), &e2));
+        deliver(&d, &pack("Marsh Monthly - Magazines.atlaspack", id, "", &v2), &v2);
+        assert_eq!(std::fs::read(&at).unwrap(), v2);
+        assert_eq!(names(&folder), ["Marsh Monthly - Magazines.atlaspack"]);
+        // taken off on its own: Go's own file goes
+        assert_eq!(remove_alone(&data, id, |_| false).unwrap(), Off::Removed);
+        assert!(!at.exists());
+        // the older one never over a newer one there
+        let at = deliver(&d, &pack("Marsh Monthly - Magazines.atlaspack", id, "", &v2), &v2);
+        deliver(&d, &pack("Marsh Monthly - Magazines.atlaspack", id, "", &v1), &v1);
+        assert_eq!(std::fs::read(&at).unwrap(), v2);
+        assert_eq!(names(&folder), ["Marsh Monthly - Magazines.atlaspack"]);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     /// After a read of the library (D225): a pack kept on its own comes again only when the
     /// library's copy is newer than the file here by its dates (`pack.updated`, then
     /// `exportedAt`), whether that file is Go's or a copy Go left in place of its own.

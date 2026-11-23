@@ -75,6 +75,8 @@ pub fn info(p: &Linked) -> Pack {
         personal_use: d.personal_use,
         error: p.error.clone().unwrap_or_default(),
         guidebooks: vec![],
+        // a pack of magazines (format 10, D245) put in Maps and Guides by hand: its issues
+        issues: d.raw["issues"].as_array().map_or(0, |a| a.len() as u64),
     }
 }
 
